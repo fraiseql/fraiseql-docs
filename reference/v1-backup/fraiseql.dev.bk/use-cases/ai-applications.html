@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI & LLM Applications - FraiseQL Use Cases</title>
+    <meta name="description" content="Build AI-native applications with FraiseQL. RAG systems, embedding storage, and LLM integrations.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link rel="stylesheet" href="/style.css">
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+    </style>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-3xl md:text-5xl font-bold leading-tight">
+                The Backend for AI Applications
+            </h1>
+            <p class="leading-normal text-lg md:text-2xl mb-8">
+                Build RAG systems, store embeddings, and power LLM applications with PostgreSQL + GraphQL.
+            </p>
+        </div>
+    </div>
+
+    <!-- Why FraiseQL -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Why FraiseQL for AI Applications?
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🧠 Native AI Patterns</h3>
+                    <p class="text-gray-700">Built for the AI era. Clean patterns for embeddings, RAG, and LLM integrations.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🔗 LangChain & LlamaIndex Ready</h3>
+                    <p class="text-gray-700">Full integration with leading AI frameworks. Drop-in VectorStore replacement.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">📊 Vector + Relational Data</h3>
+                    <p class="text-gray-700">Store embeddings alongside your business data. ACID transactions across everything.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🚀 Production Performance</h3>
+                    <p class="text-gray-700">Rust-fast vector operations. Sub-millisecond similarity search at scale.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- AI Application Patterns -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                AI Application Patterns
+            </h2>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🤖 RAG Systems</h3>
+                    <p class="text-gray-700 mb-4">Retrieval-Augmented Generation with accurate, contextual responses.</p>
+                    <ul class="text-sm text-gray-600 space-y-1">
+                        <li>• Document ingestion and chunking</li>
+                        <li>• Semantic retrieval</li>
+                        <li>• Context-aware generation</li>
+                        <li>• Source attribution</li>
+                    </ul>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🔍 Semantic Search</h3>
+                    <p class="text-gray-700 mb-4">Find information based on meaning, not just keywords.</p>
+                    <ul class="text-sm text-gray-600 space-y-1">
+                        <li>• Vector similarity search</li>
+                        <li>• Hybrid filtering</li>
+                        <li>• Multi-modal search</li>
+                        <li>• Personalization</li>
+                    </ul>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🧠 Recommendation Engines</h3>
+                    <p class="text-gray-700 mb-4">AI-powered recommendations using embeddings and user behavior.</p>
+                    <ul class="text-sm text-gray-600 space-y-1">
+                        <li>• Content-based filtering</li>
+                        <li>• Collaborative filtering</li>
+                        <li>• Hybrid approaches</li>
+                        <li>• Real-time updates</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Framework Integrations -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Framework Integrations
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🦜 LangChain</h3>
+                    <p class="text-gray-700 mb-4">Full VectorStore interface. Build RAG chains with LangChain's ecosystem.</p>
+                    <a href="/features/ai-frameworks.html" class="text-red-600 hover:underline">Learn more →</a>
+                </div>
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🦙 LlamaIndex</h3>
+                    <p class="text-gray-700 mb-4">Complete query engine support. Advanced retrieval strategies and indexing.</p>
+                    <a href="/features/ai-frameworks.html" class="text-red-600 hover:underline">Learn more →</a>
+                </div>
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🔧 Custom AI Pipelines</h3>
+                    <p class="text-gray-700">Direct GraphQL API for custom AI applications and research projects.</p>
+                </div>
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🤗 Hugging Face</h3>
+                    <p class="text-gray-700">Integration with sentence transformers and local embedding models.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- RAG Pipeline Example -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                RAG Pipeline Example
+            </h2>
+
+            <div class="max-w-4xl mx-auto">
+                <div class="bg-gray-900 rounded-lg p-6">
+                    <div class="text-green-400 text-sm mb-2"># Complete RAG pipeline with FraiseQL</div>
+                    <pre class="text-gray-300 overflow-x-auto"><code>from langchain_community.document_loaders import WebBaseLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain.chains import RetrievalQA
+from fraiseql.integrations.langchain import FraiseQLVectorStore
+
+# 1. Load and process documents
+loader = WebBaseLoader("https://fraiseql.dev/docs")
+documents = loader.load()
+
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1000, chunk_overlap=200
+)
+docs = text_splitter.split_documents(documents)
+
+# 2. Store in FraiseQL with pgvector
+embeddings = OpenAIEmbeddings()
+vectorstore = FraiseQLVectorStore(
+    graphql_url="http://localhost:8000/graphql",
+    embeddings=embeddings,
+    collection_name="documentation"
+)
+vectorstore.add_documents(docs)
+
+# 3. Create RAG chain
+llm = ChatOpenAI(temperature=0)
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",
+    retriever=vectorstore.as_retriever(k=3),
+    return_source_documents=True
+)
+
+# 4. Ask questions
+result = qa_chain({"query": "How do I implement authentication?"})
+print(result["result"])</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Model Agnostic -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Model Agnostic Architecture
+            </h2>
+
+            <p class="text-lg text-gray-700 text-center mb-8 max-w-3xl mx-auto">
+                FraiseQL works with any embedding model or LLM provider
+            </p>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="text-center bg-gray-50 p-6 rounded-lg">
+                    <div class="text-3xl mb-4">🟣</div>
+                    <h3 class="text-lg font-semibold mb-2">OpenAI</h3>
+                    <p class="text-gray-700 text-sm">GPT-4, text-embedding-ada-002</p>
+                </div>
+                <div class="text-center bg-gray-50 p-6 rounded-lg">
+                    <div class="text-3xl mb-4">🤗</div>
+                    <h3 class="text-lg font-semibold mb-2">Hugging Face</h3>
+                    <p class="text-gray-700 text-sm">Sentence transformers, local models</p>
+                </div>
+                <div class="text-center bg-gray-50 p-6 rounded-lg">
+                    <div class="text-3xl mb-4">🤖</div>
+                    <h3 class="text-lg font-semibold mb-2">Cohere</h3>
+                    <p class="text-gray-700 text-sm">Embed API, multilingual</p>
+                </div>
+                <div class="text-center bg-gray-50 p-6 rounded-lg">
+                    <div class="text-3xl mb-4">🏠</div>
+                    <h3 class="text-lg font-semibold mb-2">Local</h3>
+                    <p class="text-gray-700 text-sm">Ollama, private deployments</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Production AI Applications -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Production AI Applications
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-blue-50 p-6 rounded-lg border-l-4 border-blue-600">
+                    <h3 class="text-xl font-bold text-blue-800 mb-4">📚 Knowledge Management</h3>
+                    <ul class="text-gray-700 space-y-2">
+                        <li>• Intelligent document search</li>
+                        <li>• Automated summarization</li>
+                        <li>• Context-aware Q&A</li>
+                        <li>• Multi-language support</li>
+                    </ul>
+                </div>
+
+                <div class="bg-green-50 p-6 rounded-lg border-l-4 border-green-600">
+                    <h3 class="text-xl font-bold text-green-800 mb-4">💬 Conversational AI</h3>
+                    <ul class="text-gray-700 space-y-2">
+                        <li>• Chatbots with memory</li>
+                        <li>• Customer support automation</li>
+                        <li>• Technical documentation assistance</li>
+                        <li>• Code explanation and help</li>
+                    </ul>
+                </div>
+
+                <div class="bg-purple-50 p-6 rounded-lg border-l-4 border-purple-600">
+                    <h3 class="text-xl font-bold text-purple-800 mb-4">🔬 Research & Discovery</h3>
+                    <ul class="text-gray-700 space-y-2">
+                        <li>• Academic paper search</li>
+                        <li>• Literature review automation</li>
+                        <li>• Citation analysis</li>
+                        <li>• Trend identification</li>
+                    </ul>
+                </div>
+
+                <div class="bg-orange-50 p-6 rounded-lg border-l-4 border-orange-600">
+                    <h3 class="text-xl font-bold text-orange-800 mb-4">🛍️ E-commerce</h3>
+                    <ul class="text-gray-700 space-y-2">
+                        <li>• Visual product search</li>
+                        <li>• Personalized recommendations</li>
+                        <li>• Review analysis</li>
+                        <li>• Inventory optimization</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="gradient py-16">
+        <div class="container max-w-4xl mx-auto px-6 text-center text-white">
+            <h2 class="text-3xl md:text-4xl font-bold mb-4">Ready to Build AI-Powered Applications?</h2>
+            <p class="text-lg md:text-xl mb-8">FraiseQL provides the foundation for modern AI applications.</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="/getting-started.html" class="bg-white text-red-600 font-bold rounded-full py-4 px-8 shadow-lg hover:bg-gray-100 transition-colors">Get Started</a>
+                <a href="/features/ai-frameworks.html" class="bg-transparent border-2 border-white text-white font-bold rounded-full py-4 px-8 hover:bg-white hover:text-red-600 transition-colors">AI Frameworks</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version" class="inline-block">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-red-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

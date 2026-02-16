@@ -1,0 +1,161 @@
+---
+title: "Schema-to-Schema"
+description: "Zero-downtime schema refactoring for production databases"
+---
+
+The Schema-to-Schema medium handles major schema refactoring on production databases with zero downtime. It runs old and new schemas side-by-side using PostgreSQL Foreign Data Wrapper (FDW), migrates data in the background, and cuts over when ready.
+
+## When You Need This
+
+Incremental migrations work for simple changes (add column, create index). But some changes are too disruptive:
+
+
+                                 ─
+
+These operations lock tables, block writes, and can cause minutes of downtime on large tables. Schema-to-Schema avoids this entirely.
+
+## How It Works
+
+The process runs in 5 steps:
+
+### Step 1: Setup
+
+Create a new database with the new schema alongside the existing one:
+
+```bash
+confiture migrate schema-to-schema setup --source prod --target prod_new
+```
+
+This:
+- Creates `prod_new` database
+- Applies your updated DDL files to `prod_new`
+- Sets up a PostgreSQL FDW connection from `prod` to `prod_new`
+
+Your application continues running against `prod` throughout.
+
+### Step 2: Migrate Data
+
+Copy data from the old schema to the new one in the background:
+
+```bash
+confiture migrate schema-to-schema migrate --target prod_new
+```
+
+🍯 Confiture automatically selects the best strategy per table:
+
+| Strategy | Throughput | Best For |
+|----------|-----------|----------|
+| **FDW** | ~500K rows/sec | Tables under 10M rows, complex SQL transformations |
+| **COPY** | ~6M rows/sec | Tables over 10M rows, bulk data |
+
+Your application stays on the old schema while this runs.
+
+### Step 3: Verify
+
+Check data integrity before cutting over:
+
+```bash
+confiture migrate schema-to-schema verify --target prod_new
+```
+
+```
+✓ Row counts match
+  → tb_user: 12,450 (source) = 12,450 (target)
+  → tb_post: 45,230 (source) = 45,230 (target)
+✓ Checksum verification passed
+✓ Foreign key integrity verified
+```
+
+### Step 4: Cutover
+
+Update your application to point to the new database:
+
+```
+# Update environment variable or config
+DATABASE_URL=postgresql://prod_new_host:5432/prod_new
+
+# Restart application (0-5s downtime)
+```
+
+The cutover is a config change — the only downtime is the application restart.
+
+### Step 5: Cleanup
+
+After monitoring the new database for a period:
+
+```bash
+confiture migrate schema-to-schema cleanup --target prod_new
+```
+
+This removes the FDW connection and (optionally) the old database.
+
+## Column Mapping
+
+When renaming or transforming columns, provide a mapping file:
+
+```yaml title="column_mapping.yaml"
+tb_user:
+  # Simple rename
+  username: login_name
+
+  # Type transformation
+  metadata:
+    source_column: settings_json
+    transform: "settings_json::jsonb"
+
+  # Computed column
+  display_name:
+    transform: "COALESCE(display_name, name)"
+```
+
+```bash
+confiture migrate schema-to-schema migrate \
+  --target prod_new \
+  --mapping column_mapping.yaml
+```
+
+## Example: Renaming a Column
+
+Renaming `tb_user.username` to `tb_user.login_name` on a table with 50M rows:
+
+```bash
+# 1. Update DDL files with new column name
+# db/schema/01_write/tb_user.sql now uses login_name
+
+# 2. Setup new database
+confiture migrate schema-to-schema setup --source prod --target prod_new
+
+# 3. Migrate with column mapping
+confiture migrate schema-to-schema migrate \
+  --target prod_new \
+  --mapping column_mapping.yaml
+
+# 4. Verify
+confiture migrate schema-to-schema verify --target prod_new
+
+# 5. Update app config, restart
+# 6. Monitor, then cleanup
+confiture migrate schema-to-schema cleanup --target prod_new
+```
+
+Total downtime: 0-5 seconds (application restart only). The 50M row data migration happens in the background while your app serves traffic.
+
+## When to Use Schema-to-Schema
+
+**Use Schema-to-Schema for:**
+- Column renames on large tables (>10M rows)
+- Type changes that require data transformation
+- Table splits or merges
+- Primary key strategy changes
+- Any change where table locking would cause unacceptable downtime
+
+**Don't use Schema-to-Schema for:**
+- Adding nullable columns — use [Migrate](/confiture/migrate) (no lock needed)
+- Creating indexes — use [Migrate](/confiture/migrate) with `CREATE INDEX CONCURRENTLY`
+- Fresh databases — use [Build](/confiture/build)
+
+## Next Steps
+
+- [🍯 Confiture Overview](/confiture) — All 4 Mediums
+- [Incremental Migrations](/confiture/migrate) — For simpler changes
+- [Build from DDL](/confiture/build) — For fresh databases

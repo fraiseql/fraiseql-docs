@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FraiseQL for API Developers - GraphQL APIs Done Right</title>
+    <meta name="description" content="Build performant GraphQL APIs with PostgreSQL. Perfect for developers who care about query performance and clean architecture.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link rel="stylesheet" href="/style.css">
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+    </style>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-3xl md:text-5xl font-bold leading-tight">
+                GraphQL APIs for Developers Who Care
+            </h1>
+            <p class="leading-normal text-lg md:text-2xl mb-8">
+                No N+1 queries. No ORM magic. Just clean, fast SQL.
+            </p>
+        </div>
+    </div>
+
+    <!-- Why FraiseQL -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Built by Developers, for Developers
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🎯 Predictable Performance</h3>
+                    <p class="text-gray-700">Every GraphQL query maps to exactly one SQL query. See the generated SQL. No surprises.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🏗️ Clean Architecture</h3>
+                    <p class="text-gray-700">CQRS pattern built-in. Database views for reads, functions for writes. Clear separation.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🔍 Full Transparency</h3>
+                    <p class="text-gray-700">Debug mode shows exact SQL queries. Performance metrics included. Know what's happening.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">⚙️ Developer Control</h3>
+                    <p class="text-gray-700">Override any behavior. Custom SQL when needed. You're in charge, not the framework.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Example -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                GraphQL That Scales
+            </h2>
+            <div class="max-w-4xl mx-auto">
+                <pre class="bg-gray-900 text-gray-300 p-6 rounded-lg overflow-x-auto"><code># Complex nested queries? No problem.
+@fraise_type
+class Author:
+    id: UUID
+    name: str
+    bio: str
+    posts: list[Post]
+    stats: AuthorStats
+
+@fraise_type
+class Post:
+    id: UUID
+    title: str
+    content: str
+    published_at: datetime
+    tags: list[str]  # JSONB array
+    comments: list[Comment]
+
+@fraise_type
+class AuthorStats:
+    total_posts: int
+    total_views: int
+    avg_rating: float
+
+# This complex query still executes as ONE SQL query
+query = """
+{
+  authors(limit: 10) {
+    name
+    stats {
+      total_posts
+      avg_rating
+    }
+    posts(status: "published") {
+      title
+      tags
+      comments(limit: 5) {
+        text
+        author_name
+      }
+    }
+  }
+}
+"""
+
+# Generated SQL uses LATERAL joins and JSONB aggregation
+# Result: ~30ms for complex nested data vs 200ms+ with ORMs</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Developer-First Features
+            </h2>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Type Safety</h3>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✓ Python type hints throughout</li>
+                        <li>✓ Generated TypeScript types</li>
+                        <li>✓ Compile-time validation</li>
+                        <li>✓ IDE autocomplete</li>
+                    </ul>
+                </div>
+
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Testing & Debugging</h3>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✓ SQL query inspection</li>
+                        <li>✓ Performance profiling</li>
+                        <li>✓ Mock data generation</li>
+                        <li>✓ Integration test helpers</li>
+                    </ul>
+                </div>
+
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Production Ready</h3>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✓ Connection pooling</li>
+                        <li>✓ Query whitelisting</li>
+                        <li>✓ Rate limiting hooks</li>
+                        <li>✓ Monitoring integration</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Advanced Patterns -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Advanced Patterns
+            </h2>
+            <div class="max-w-4xl mx-auto">
+                <pre class="bg-gray-900 text-gray-300 p-6 rounded-lg overflow-x-auto"><code># Cursor-based pagination with type safety
+@fraise_type
+class PageInfo:
+    has_next_page: bool
+    has_previous_page: bool
+    start_cursor: str
+    end_cursor: str
+
+@fraise_type
+class PostConnection:
+    edges: list[PostEdge]
+    page_info: PageInfo
+    total_count: int
+
+@fraiseql.query
+async def posts(
+    info,
+    first: int = 20,
+    after: str = None,
+    filter: PostFilter = None
+) -> PostConnection:
+    """Relay-style pagination with filtering"""
+    return await info.context.repo.paginate(
+        "tv_post",
+        first=first,
+        after=after,
+        where=filter.to_sql() if filter else None
+    )
+
+# Custom SQL when you need it
+@fraiseql.query
+async def trending_posts(info, hours: int = 24) -> list[Post]:
+    """Complex analytics query with custom SQL"""
+    sql = """
+    SELECT data FROM v_post_analytics
+    WHERE created_at > NOW() - INTERVAL '%s hours'
+    ORDER BY
+        (views * 0.3 + comments * 0.5 + shares * 0.2) DESC,
+        created_at DESC
+    LIMIT 20
+    """
+    return await info.context.repo.execute_sql(sql, [hours])</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Performance Comparison -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Performance Comparison
+            </h2>
+
+            <div class="text-center mb-8">
+                <img src="/assets/performance-chart.svg" alt="Performance comparison showing FraiseQL's advantage" class="mx-auto max-w-full h-auto">
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="py-3 px-6 text-left">Metric</th>
+                            <th class="py-3 px-6 text-left">Traditional GraphQL + ORM</th>
+                            <th class="py-3 px-6 text-left">FraiseQL</th>
+                            <th class="py-3 px-6 text-left">Difference</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="py-3 px-6">Nested query (3 levels)</td>
+                            <td class="py-3 px-6">15-20 SQL queries</td>
+                            <td class="py-3 px-6">1 SQL query</td>
+                            <td class="py-3 px-6 text-green-600 font-semibold">95% fewer queries</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="py-3 px-6">Response time (p95)</td>
+                            <td class="py-3 px-6">~150ms</td>
+                            <td class="py-3 px-6">~50ms</td>
+                            <td class="py-3 px-6 text-green-600 font-semibold">3x faster</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="py-3 px-6">Memory usage</td>
+                            <td class="py-3 px-6">~120MB</td>
+                            <td class="py-3 px-6">~45MB</td>
+                            <td class="py-3 px-6 text-green-600 font-semibold">63% less</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-6">Connection pool size</td>
+                            <td class="py-3 px-6">20-30 needed</td>
+                            <td class="py-3 px-6">5-10 sufficient</td>
+                            <td class="py-3 px-6 text-green-600 font-semibold">Less DB load</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Integration Examples -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Integration Examples
+            </h2>
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">FastAPI Integration</h3>
+                    <pre class="bg-gray-900 text-gray-300 p-4 rounded overflow-x-auto text-sm"><code>from fastapi import FastAPI
+from fraiseql.fastapi import FraiseQLConfig, create_fraiseql_app
+
+app = FastAPI()
+config = FraiseQLConfig(database_url=DATABASE_URL)
+fraiseql_app = create_fraiseql_app(
+    types=[Author, Post, Comment],
+    config=config,
+)
+
+app.mount("/graphql", fraiseql_app)</code></pre>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Async/Await Native</h3>
+                    <pre class="bg-gray-900 text-gray-300 p-4 rounded overflow-x-auto text-sm"><code>@fraiseql.query
+async def search_posts(
+    info,
+    query: str,
+    limit: int = 20
+) -> list[Post]:
+    # Full async support
+    results = await info.context.repo.search(
+        "v_post_search",
+        query=query,
+        limit=limit
+    )
+
+    # Post-process if needed
+    return [enhance_post(p) for p in results]</code></pre>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Testing Support</h3>
+                    <pre class="bg-gray-900 text-gray-300 p-4 rounded overflow-x-auto text-sm"><code>async def test_author_query():
+    async with test_client() as client:
+        query = """
+        query GetAuthor($id: UUID!) {
+            author(id: $id) {
+                name
+                posts { title }
+            }
+        }
+        """
+
+        result = await client.query(
+            query,
+            variables={"id": author_id}
+        )
+
+        assert len(result["author"]["posts"]) > 0</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="gradient py-16">
+        <div class="container max-w-4xl mx-auto px-6 text-center text-white">
+            <h2 class="text-3xl md:text-4xl font-bold mb-4">Ready to Build Better APIs?</h2>
+            <p class="text-lg md:text-xl mb-8">Join developers who care about performance, clarity, and doing things right.</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="https://fraiseql.readthedocs.io" class="bg-white text-red-600 font-bold rounded-full py-4 px-8 shadow-lg hover:bg-gray-100 transition-colors">Read the Docs</a>
+                <a href="https://github.com/fraiseql/fraiseql" class="bg-transparent border-2 border-white text-white font-bold rounded-full py-4 px-8 hover:bg-white hover:text-red-600 transition-colors">Star on GitHub</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version" class="inline-block">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-red-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

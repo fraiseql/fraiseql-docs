@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Rust Pipeline - FraiseQL's Exclusive Performance Architecture</title>
+    <meta name="description" content="PostgreSQL → Rust → HTTP. Rust performs field selection, snake_case to camelCase transformation, and streams JSON to clients. No ORM, no Python in the read path.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+    </style>
+    <link rel="stylesheet" href="/prism.min.css"/>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white lg:bg-transparent text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-black lg:text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-black lg:text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-black lg:text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline bg-red-600 text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+        <hr class="border-b border-gray-100 opacity-25 my-0 py-0" />
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24">
+        <div class="container px-3 mx-auto flex flex-wrap flex-col md:flex-row items-center">
+            <!-- Left Col -->
+            <div class="flex flex-col w-full md:w-2/5 justify-center items-start text-center md:text-left">
+                <p class="uppercase tracking-loose w-full">🦀 Foundational Architecture</p>
+                <h1 class="my-4 text-5xl font-bold leading-tight">
+                    PostgreSQL → Rust → HTTP
+                </h1>
+                <p class="leading-normal text-xl mb-8">
+                    The Rust pipeline is <strong>always active</strong>. It performs field selection,
+                    snake_case → camelCase transformation, and streams JSON to clients. No ORM, no Python in the data path.
+                </p>
+                <div class="bg-green-100 border-l-4 border-green-500 p-4 mb-6 text-sm text-green-800">
+                    <strong>Core layer:</strong> Every FraiseQL query uses this. <a href="/features/turborouter.html" class="underline">TurboRouter</a> is an optional optimization on top.
+                </div>
+                <a href="/getting-started.html" class="bg-red-600 text-white font-bold rounded-full py-4 px-8 shadow-lg hover:bg-red-700 transition">
+                    Get Started →
+                </a>
+            </div>
+
+            <!-- Right Col - Architecture Diagram -->
+            <div class="w-full md:w-3/5 py-6 text-center">
+                <div class="bg-white rounded-lg shadow-2xl p-8">
+                    <h3 class="text-2xl font-bold mb-6 text-gray-800">The FraiseQL Architecture</h3>
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <!-- Traditional -->
+                        <div class="border-2 border-red-200 rounded-lg p-4">
+                            <h4 class="font-bold text-red-800 mb-3">Traditional GraphQL</h4>
+                            <div class="text-sm text-gray-700 space-y-2">
+                                <div>PostgreSQL → Rows</div>
+                                <div class="text-red-600">↓ ORM deserialize</div>
+                                <div>Python objects</div>
+                                <div class="text-red-600">↓ GraphQL serialize</div>
+                                <div>JSON Response</div>
+                            </div>
+                            <div class="mt-3 text-xs text-red-600 font-semibold">Multiple steps, object hydration</div>
+                        </div>
+
+                        <!-- FraiseQL -->
+                        <div class="border-2 border-green-500 rounded-lg p-4">
+                            <h4 class="font-bold text-green-800 mb-3">FraiseQL Architecture</h4>
+                            <div class="text-sm text-gray-700 space-y-2">
+                                <div>PostgreSQL → JSONB</div>
+                                <div class="text-green-600">↓ Rust: field selection</div>
+                                <div class="text-green-600">↓ Rust: snake → camelCase</div>
+                                <div class="text-green-600">↓ FastAPI: HTTP response</div>
+                                <div>To client</div>
+                            </div>
+                            <div class="mt-3 text-xs text-green-600 font-semibold">No ORM, no object hydration</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Why This Architecture Works -->
+    <section class="bg-gray-50 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Why This Architecture Works
+            </h2>
+
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-6 mb-8">
+                <h3 class="text-xl font-bold text-blue-900 mb-4">The ORM Problem</h3>
+                <p class="text-blue-800 mb-4">
+                    Traditional GraphQL frameworks are built on ORMs. ORMs return Python objects, which means:
+                </p>
+                <ul class="list-disc list-inside text-blue-800 space-y-2">
+                    <li><strong>Double serialization:</strong> Database → Python objects → JSON</li>
+                    <li><strong>Memory overhead:</strong> Python objects consume more memory than raw data</li>
+                    <li><strong>Complex abstractions:</strong> Layers of ORM magic hide what's actually happening</li>
+                    <li><strong>N+1 queries:</strong> Requires DataLoader patterns to mitigate</li>
+                </ul>
+            </div>
+
+            <div class="bg-green-50 border-l-4 border-green-500 p-6">
+                <h3 class="text-xl font-bold text-green-900 mb-4">FraiseQL's Database-First Design</h3>
+                <p class="text-green-800 mb-4">
+                    FraiseQL is database-first. PostgreSQL returns pre-composed JSONB from projection tables:
+                </p>
+                <ul class="list-disc list-inside text-green-800 space-y-2">
+                    <li><strong>Skip object hydration:</strong> Rust handles field selection directly on JSONB</li>
+                    <li><strong>Key transformation:</strong> Rust converts snake_case → camelCase efficiently</li>
+                    <li><strong>FastAPI HTTP layer:</strong> Async Python serves responses (still very fast)</li>
+                    <li><strong>Explicit contracts:</strong> No ORM magic, clear data flow</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- Trinity Identifiers -->
+    <section class="bg-gray-50 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Trinity Identifiers: Smart Data Design
+            </h2>
+
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-6 mb-8">
+                <h3 class="text-xl font-bold text-blue-900 mb-4">Three Types of Identifiers Per Entity</h3>
+                <p class="text-blue-800 mb-4">
+                    FraiseQL uses three types of identifiers per entity for different purposes,
+                    optimizing for performance, stability, and usability.
+                </p>
+                <ul class="list-disc list-inside text-blue-800 space-y-2">
+                    <li><code class="bg-blue-100 px-2 py-1 rounded">pk_*</code> (int): Fast internal joins, PostgreSQL-only, never exposed</li>
+                    <li><code class="bg-blue-100 px-2 py-1 rounded">id</code> (UUID): Public API stability, exposed, never changes</li>
+                    <li><code class="bg-blue-100 px-2 py-1 rounded">identifier</code> (str): Human-friendly URLs, SEO, readability</li>
+                </ul>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">🔧 Internal Performance</h4>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-sql">-- Fast joins, never exposed
+CREATE TABLE tb_user (
+    pk_user serial PRIMARY KEY,
+    id uuid UNIQUE DEFAULT gen_random_uuid(),
+    identifier text UNIQUE,
+    email text UNIQUE,
+    data jsonb
+);
+
+-- Internal operations use pk_*
+SELECT * FROM tb_post
+WHERE pk_author = 123;</code></pre>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">🌐 Public API Stability</h4>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-graphql"># UUIDs for API stability
+{
+  user(id: "550e8400-e29b-41d4-a716-446655440000") {
+    name
+    email
+  }
+}
+
+# Never changes, even if data migrates</code></pre>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">👥 Human-Friendly</h4>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-graphql"># SEO-friendly URLs
+{
+  user(identifier: "john-doe-2024") {
+    name
+    posts {
+      title
+    }
+  }
+}
+
+# Readable, shareable, SEO-optimized</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Benefits -->
+    <section class="bg-white py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                What Rust Actually Does
+            </h2>
+
+            <div class="grid md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-gray-50 rounded-lg p-6 text-center">
+                    <div class="text-4xl mb-4">🎯</div>
+                    <h3 class="font-bold text-gray-800 mb-2">Field Selection</h3>
+                    <p class="text-gray-600 text-sm">Extracts only the fields requested in the GraphQL query from the JSONB document.</p>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-6 text-center">
+                    <div class="text-4xl mb-4">🔄</div>
+                    <h3 class="font-bold text-gray-800 mb-2">Key Transformation</h3>
+                    <p class="text-gray-600 text-sm">Converts PostgreSQL snake_case keys to GraphQL camelCase convention.</p>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-6 text-center">
+                    <div class="text-4xl mb-4">📤</div>
+                    <h3 class="font-bold text-gray-800 mb-2">Memory-Efficient I/O</h3>
+                    <p class="text-gray-600 text-sm">Processes JSONB without creating Python objects. Predictable memory usage.</p>
+                </div>
+            </div>
+
+            <div class="bg-yellow-50 border-l-4 border-yellow-500 p-6 rounded-r-lg">
+                <h4 class="font-bold text-yellow-800 mb-2">Honest Assessment</h4>
+                <p class="text-yellow-800">
+                    Rust is not doing heavy computation—the real work is done by PostgreSQL's projection tables.
+                    But Rust does give real efficiency in the hot path: no ORM, no object hydration, predictable
+                    multi-core concurrency, and memory-efficient JSON slicing. FastAPI handles the HTTP layer
+                    and is itself quite fast for async Python.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Benefits -->
+    <section class="bg-gray-50 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Architecture Benefits
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🔒 Memory Safety</h3>
+                    <p class="text-gray-700 mb-4">
+                        Rust's ownership system prevents buffer overflows, use-after-free bugs, and data races
+                        in the JSON processing layer.
+                    </p>
+                    <p class="text-sm text-gray-600">
+                        The Rust component is memory-safe by design.
+                    </p>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🏗️ Clear Data Flow</h3>
+                    <p class="text-gray-700 mb-4">
+                        PostgreSQL → Rust → FastAPI → Client. No hidden ORM queries, no magic.
+                        What you see is what executes.
+                    </p>
+                    <p class="text-sm text-gray-600">
+                        Explicit architecture makes debugging and optimization straightforward.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Example -->
+    <section class="bg-white py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Simple to Use
+            </h2>
+
+            <div class="max-w-4xl mx-auto">
+                <div class="code-block shadow-2xl">
+                    <div class="code-header">FraiseQL - Clean Python, Efficient Execution</div>
+                    <pre class="p-6 overflow-x-auto"><code class="language-python"># Your Python code stays clean and simple
+import fraiseql
+
+@fraiseql.type
+class User:
+    id: int
+    name: str
+    posts: list[Post]
+
+@fraiseql.query
+async def users(info) -> list[User]:
+    # PostgreSQL returns JSONB from projection tables
+    # Rust handles field selection and key transformation
+    # FastAPI serves the HTTP response
+    return await info.context.repo.fetch()
+
+# The Rust adapter is included automatically.
+# No configuration needed.</code></pre>
+                </div>
+            </div>
+        </div>
+     </section>
+
+     <!-- Rust Powers AI Features -->
+     <section class="bg-gray-50 py-12">
+         <div class="container max-w-5xl mx-auto px-6">
+             <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                 Rust Powers AI Features
+             </h2>
+             <div class="grid md:grid-cols-2 gap-8">
+                 <div class="bg-white rounded-lg shadow p-6">
+                     <h3 class="text-xl font-bold text-gray-800 mb-4">🔍 Vector Search</h3>
+                     <p class="text-gray-700 mb-4">
+                         pgvector similarity search results pass through the Rust pipeline
+                         for field selection. Sub-millisecond processing for RAG and semantic search.
+                     </p>
+                     <a href="/features/pgvector.html" class="text-red-600 hover:underline">Learn about pgvector →</a>
+                 </div>
+                 <div class="bg-white rounded-lg shadow p-6">
+                     <h3 class="text-xl font-bold text-gray-800 mb-4">🌊 GraphQL Cascade</h3>
+                     <p class="text-gray-700 mb-4">
+                         Cascade metadata filtering uses Rust for <0.5ms field selection,
+                         enabling real-time cache updates without performance overhead.
+                     </p>
+                     <a href="/features/cascade.html" class="text-red-600 hover:underline">Learn about Cascade →</a>
+                 </div>
+             </div>
+         </div>
+     </section>
+
+     <!-- CTA -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-4xl font-bold text-gray-800 mb-4">Database-First GraphQL</h2>
+            <p class="text-xl text-gray-700 mb-8">The Rust adapter is included with every FraiseQL installation. No setup required.</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="/getting-started.html" class="gradient text-white font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+                <a href="https://fraiseql.readthedocs.io/en/latest/performance/rust-pipeline-optimization/" class="bg-white text-gray-800 border-2 border-gray-300 font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Technical Details
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8">
+            <div class="w-full flex flex-col md:flex-row py-6">
+                <div class="flex-1 mb-6 text-white">
+                    <a class="text-white no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                        🍓 FraiseQL
+                    </a>
+                </div>
+                <div class="flex-1">
+                    <p class="uppercase text-gray-400 md:mb-6">Links</p>
+                    <ul class="list-none mb-6">
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://fraiseql.readthedocs.io" class="no-underline hover:underline text-gray-400 hover:text-pink-500">Documentation</a>
+                        </li>
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://github.com/fraiseql/fraiseql" class="no-underline hover:underline text-gray-400 hover:text-pink-500">GitHub</a>
+                        </li>
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://pypi.org/project/fraiseql/" class="no-underline hover:underline text-gray-400 hover:text-pink-500">PyPI</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="w-full pt-6 pb-6 text-sm text-center text-gray-400 border-t border-gray-700">
+                <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-pink-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-pink-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        var scrollpos = window.scrollY;
+        var header = document.getElementById("header");
+        var navcontent = document.getElementById("nav-content");
+        var navaction = document.getElementById("navAction");
+        var brandname = document.getElementById("brandname");
+        var toToggle = document.querySelectorAll(".toggleColour");
+
+        document.addEventListener("scroll", function () {
+            scrollpos = window.scrollY;
+
+            if (scrollpos > 10) {
+                header.classList.add("bg-white");
+                navaction.classList.remove("bg-white");
+                navaction.classList.add("gradient");
+                navaction.classList.remove("text-gray-800");
+                navaction.classList.add("text-white");
+                for (var i = 0; i < toToggle.length; i++) {
+                    toToggle[i].classList.add("text-gray-800");
+                    toToggle[i].classList.remove("text-white");
+                }
+                header.classList.add("shadow");
+                navcontent.classList.remove("bg-gray-100");
+                navcontent.classList.add("bg-white");
+            } else {
+                header.classList.remove("bg-white");
+                navaction.classList.remove("gradient");
+                navaction.classList.add("bg-white");
+                navaction.classList.remove("text-white");
+                navaction.classList.add("text-gray-800");
+                for (var i = 0; i < toToggle.length; i++) {
+                    toToggle[i].classList.add("text-white");
+                    toToggle[i].classList.remove("text-gray-800");
+                }
+                header.classList.remove("shadow");
+                navcontent.classList.remove("bg-white");
+                navcontent.classList.add("bg-gray-100");
+            }
+        });
+
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+    <script src="/prism-python.min.js"></script>
+    <script src="/prism-bash.min.js"></script>
+    <script src="/prism-graphql.min.js"></script>
+    <script src="/prism-sql.min.js"></script>
+</body>
+</html>

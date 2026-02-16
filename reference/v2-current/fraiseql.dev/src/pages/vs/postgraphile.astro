@@ -1,0 +1,326 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="FraiseQL vs PostGraphile - Detailed Comparison"
+  description="Compare FraiseQL (multi-database, ecosystem) vs PostGraphile (PostgreSQL-native, plugin-based). Understand when to choose each."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>FraiseQL vs PostGraphile</h1>
+    <p style="font-size: 1.1rem; color: #666;">
+      Two PostgreSQL-focused approaches with different scaling strategies.
+    </p>
+
+    <section style="margin: 3rem 0;">
+      <h2>The Core Difference</h2>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tr style="background: #f5f3ff;">
+          <th style="padding: 1rem; text-align: left; border: 1px solid #e5e7eb;"></th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">FraiseQL</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">PostGraphile</th>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Database Support</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">4 databases (PG, MySQL, SQLite, SQL Server)</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">PostgreSQL only</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Extension Model</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">11-tool ecosystem with deep integration</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Plugin system with lighter coupling</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Compilation</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Explicit build-time (fraiseql-cli)</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Implicit per-request (smart caching)</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Customization</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Schema through decorators, then compiled</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Via PostgreSQL comments and smart tags</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Performance</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Deterministic, 7-10× baseline</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Optimized, per-request caching</td>
+        </tr>
+      </table>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>When to Choose PostGraphile</h2>
+      <ul style="font-size: 1.05rem;">
+        <li>
+          <strong>PostgreSQL-only stack</strong> – All data in PostgreSQL, no multi-database needs
+        </li>
+        <li>
+          <strong>Lightweight deployment</strong> – Single Node.js process, minimal infrastructure
+        </li>
+        <li>
+          <strong>Plugin ecosystem</strong> – Want to extend with community plugins without recompilation
+        </li>
+        <li>
+          <strong>Rapid iteration</strong> – Schema changes via PostgreSQL comments, no rebuild needed
+        </li>
+        <li>
+          <strong>Existing PostgreSQL expertise</strong> – Team comfortable with PG views, functions, roles
+        </li>
+        <li>
+          <strong>Small teams</strong> – Minimal operational overhead
+        </li>
+      </ul>
+      <p style="margin-top: 1rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #059669; border-radius: 4px;">
+        <strong>✅ Good Fit:</strong> PostgreSQL-native startups, teams with PG expertise, rapid prototyping within PostgreSQL ecosystem, single-database deployments.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>When to Choose FraiseQL</h2>
+      <ul style="font-size: 1.05rem;">
+        <li>
+          <strong>Multi-database</strong> – Need to support PostgreSQL, MySQL, SQLite, or SQL Server
+        </li>
+        <li>
+          <strong>Integrated ecosystem</strong> – Want 11 tools purpose-built to work together (not loose plugins)
+        </li>
+        <li>
+          <strong>Deterministic performance</strong> – Pre-optimized queries, no per-request planning
+        </li>
+        <li>
+          <strong>Compliance requirements</strong> – Audit logging, field-level encryption, HIPAA/SOC2
+        </li>
+        <li>
+          <strong>Large analytics workloads</strong> – Arrow Flight streaming, 200K× memory efficiency (fraiseql-wire)
+        </li>
+        <li>
+          <strong>Enterprise deployment</strong> – Blue/green, zero-downtime deploys (fraisier)
+        </li>
+      </ul>
+      <p style="margin-top: 1rem; padding: 1rem; background: #fef2f2; border-left: 4px solid #dc2626; border-radius: 4px;">
+        <strong>✅ Good Fit:</strong> Multi-database SaaS platforms, compliance-heavy systems, performance-critical APIs, enterprise deployments with deployment orchestration.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Technical Comparison</h2>
+
+      <h3 style="margin-top: 2rem;">Architecture</h3>
+      <p>
+        <strong>PostGraphile:</strong> Node.js middleware that introspects PostgreSQL schema on startup and caches generated GraphQL schema. Per-request query planning with smart caching.
+      </p>
+      <p>
+        <strong>FraiseQL:</strong> Explicit compilation step (Python/TypeScript → Rust). Produces schema.compiled.json with pre-generated SQL templates per operation. Runtime is pure SQL execution.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Extension Points</h3>
+      <p>
+        <strong>PostGraphile Plugins:</strong>
+      </p>
+      <ul>
+        <li>Plugin hooks for schema customization</li>
+        <li>Can add custom resolvers, mutations, subscriptions</li>
+        <li>Popular plugins: PostGraphile Plugin Library (50+ community plugins)</li>
+        <li>Plugins are loaded at runtime</li>
+      </ul>
+      <p style="margin-top: 1rem;">
+        <strong>FraiseQL Ecosystem:</strong>
+      </p>
+      <ul>
+        <li>Not plugins – standalone tools with explicit integration</li>
+        <li>Tools work together at build-time and runtime</li>
+        <li>11 tools: confiture (migrations), fraiseql-wire (transport), pg_tviews (views), etc.</li>
+        <li>Deep integration, not loose coupling</li>
+      </ul>
+
+      <h3 style="margin-top: 2rem;">Scalability</h3>
+      <p>
+        <strong>PostGraphile:</strong> Scales horizontally via multiple instances. Per-request overhead includes introspection cache lookup and query planning. Suitable for typical web workloads.
+      </p>
+      <p>
+        <strong>FraiseQL:</strong> Scales vertically and horizontally. No per-request planning overhead – all planning done at compile time. Better for high-throughput (100K+ req/sec) scenarios.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Real-Time Features</h3>
+      <p>
+        <strong>PostGraphile:</strong> Built-in live queries and subscriptions via PostgreSQL LISTEN/NOTIFY. Works out of the box.
+      </p>
+      <p>
+        <strong>FraiseQL:</strong> Subscriptions supported via compiled schema, but require explicit subscription types. Better for deterministic use cases.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Performance Characteristics</h3>
+      <p>
+        <strong>PostGraphile (per request):</strong> ~5-10ms latency (introspection cache + planning + execution)
+      </p>
+      <p>
+        <strong>FraiseQL (per request):</strong> ~1-2ms latency (pre-compiled + execution only)
+      </p>
+      <p>
+        <strong>Multiplier:</strong> FraiseQL is 3-5× faster for typical queries, 10-20× faster for complex nested queries.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Scenarios</h2>
+
+      <h3 style="margin-top: 2rem;">Scenario: PostgreSQL-Native SaaS (Single Database)</h3>
+      <p>
+        <strong>Requirements:</strong> PostgreSQL schema is source of truth, rapid feature iteration, team loves PG expertise.
+      </p>
+      <p>
+        <strong>PostGraphile:</strong> ✅ Perfect. Schema comments → instant GraphQL. No build pipeline. Community plugins ready.
+      </p>
+      <p>
+        <strong>FraiseQL:</strong> ❌ Overkill. Additional build pipeline complexity for single-database scenario.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Scenario: Multi-Tenant SaaS (PostgreSQL + MySQL Tenants)</h3>
+      <p>
+        <strong>Requirements:</strong> Some tenants on PostgreSQL, others on MySQL. Single code deployment.
+      </p>
+      <p>
+        <strong>PostGraphile:</strong> ❌ Impossible. PostgreSQL only. Would need separate deployments per database type.
+      </p>
+      <p>
+        <strong>FraiseQL:</strong> ✅ Native support. One schema compiles to both PostgreSQL and MySQL SQL. Tenant routing at runtime.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Scenario: High-Frequency Trading API (100K req/sec)</h3>
+      <p>
+        <strong>Requirements:</strong> Ultra-low latency, deterministic execution, no unpredictable planning overhead.
+      </p>
+      <p>
+        <strong>PostGraphile:</strong> ⚠️ Possible but challenging. Would need careful cache tuning, might hit planning overhead on new query patterns.
+      </p>
+      <p>
+        <strong>FraiseQL:</strong> ✅ Built for this. Pre-compiled queries, 0 planning overhead, deterministic 1-2ms latency.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Scenario: Healthcare System (HIPAA Compliance)</h3>
+      <p>
+        <strong>Requirements:</strong> Field-level encryption, 100% audit trail, compliance attestation.
+      </p>
+      <p>
+        <strong>PostGraphile:</strong> ❌ Not designed for compliance. Would need external audit logging and encryption middleware.
+      </p>
+      <p>
+        <strong>FraiseQL:</strong> ✅ Built-in. Field-level encryption, audit logging, compliance-ready.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Scenario: Rapid Prototyping (Daily Schema Changes)</h3>
+      <p>
+        <strong>Requirements:</strong> Schema changes multiple times per day, no deployment bottlenecks.
+      </p>
+      <p>
+        <strong>PostGraphile:</strong> ✅ Excellent. Update PostgreSQL comments → instant GraphQL changes. Restart not needed.
+      </p>
+      <p>
+        <strong>FraiseQL:</strong> ⚠️ Workable but slower. Schema changes require recompilation and deployment (though can be fast with CI/CD).
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Ecosystem Depth Comparison</h2>
+
+      <h3 style="margin-top: 2rem;">PostGraphile Plugins (Loose Coupling)</h3>
+      <ul>
+        <li>@graphile-contrib/pg-simplify-inflector – Naming conventions</li>
+        <li>@graphile-contrib/pg-many-to-many – Relationship helpers</li>
+        <li>@graphile-contrib/operation-hooks – Custom logic</li>
+        <li>~50+ community plugins available</li>
+        <li>Plugins are optional, can mix and match</li>
+      </ul>
+
+      <h3 style="margin-top: 2rem;">FraiseQL Ecosystem (Deep Integration)</h3>
+      <ul>
+        <li>confiture – Build-time migrations (600× faster than traditional)</li>
+        <li>fraiseql-wire – Memory-efficient streaming (200,000× better memory usage)</li>
+        <li>pg_tviews – Pre-computed views (2,083× faster queries)</li>
+        <li>fraiseql-seed – Intelligent test data (300× faster generation)</li>
+        <li>fraisier – Deployment orchestrator (zero-downtime deploys)</li>
+        <li>velocitybench – Performance benchmarking against 28 frameworks</li>
+        <li>11 tools total, designed as a cohesive system</li>
+      </ul>
+
+      <p style="margin-top: 1rem; color: #666;">
+        <em>PostGraphile plugins solve specific problems independently. FraiseQL tools multiply each other's performance (1.2M-63M× combined).</em>
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Honest Tradeoffs</h2>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tr style="background: #f5f3ff;">
+          <th style="padding: 1rem; text-align: left; border: 1px solid #e5e7eb;">Dimension</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">FraiseQL Advantage</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">PostGraphile Advantage</th>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Multi-Database</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">✅ 4 databases</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">PostgreSQL only</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Rapid Iteration</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Build + deploy cycle</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">✅ Comments → instant</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Performance</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">✅ 3-5× faster</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Good for most workloads</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Compliance Ready</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">✅ HIPAA/SOC2 built-in</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Requires custom work</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Ecosystem Size</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">✅ 11 integrated tools</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">50+ community plugins</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Deployment Complexity</strong></td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Build infrastructure needed</td>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">✅ Simpler</td>
+        </tr>
+      </table>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Migration Path (PostGraphile → FraiseQL)</h2>
+      <p>
+        If you're using PostGraphile and want to migrate to FraiseQL:
+      </p>
+      <ol>
+        <li>
+          <strong>Extract schema</strong> – PostGraphile's introspected schema → FraiseQL Python/TypeScript decorators
+        </li>
+        <li>
+          <strong>Add data sources</strong> – If expanding to multiple databases, define MySQL/SQLite/SQL Server connections
+        </li>
+        <li>
+          <strong>Compile</strong> – Use fraiseql-cli to generate optimized schema.compiled.json
+        </li>
+        <li>
+          <strong>Test queries</strong> – Verify query results match PostGraphile's
+        </li>
+        <li>
+          <strong>Evaluate ecosystem tools</strong> – Try confiture, fraiseql-wire, fraisier for your use case
+        </li>
+        <li>
+          <strong>Blue/green deploy</strong> – Use fraisier to orchestrate zero-downtime switch
+        </li>
+      </ol>
+      <p style="margin-top: 1rem;">
+        <strong>Typical effort:</strong> 1-2 weeks (similar schema complexity to PostGraphile).
+      </p>
+    </section>
+
+    <p style="margin-top: 3rem;">
+      <a href="/vs">← Back to Comparisons</a> | <a href="/">Home</a>
+    </p>
+  </div>
+</BaseLayout>

@@ -1,0 +1,71 @@
+---
+interface Props {
+  name: string;
+  alt: string;
+  caption?: string;
+  size?: "default" | "wide";
+}
+
+const { name, alt, caption, size = "default" } = Astro.props;
+---
+
+<figure class={`d2-diagram d2-diagram-${size}`}>
+  <img
+    src={`/diagrams/${name}.svg`}
+    alt={alt}
+    loading="lazy"
+    class="diagram-light"
+  />
+  <img
+    src={`/diagrams/${name}-dark.svg`}
+    alt={alt}
+    loading="lazy"
+    class="diagram-dark"
+  />
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .d2-diagram {
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+
+  .d2-diagram img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.25rem;
+    border: 1px solid var(--sl-color-border);
+    background: var(--sl-color-bg);
+  }
+
+  .d2-diagram figcaption {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--sl-color-gray-3);
+    font-style: italic;
+  }
+
+  /* Wide variant breaks out of content width */
+  .d2-diagram-wide {
+    margin-left: calc(-1 * var(--sl-content-pad-x));
+    margin-right: calc(-1 * var(--sl-content-pad-x));
+    max-width: calc(100% + 2 * var(--sl-content-pad-x));
+  }
+
+  /* Light theme: show light diagram, hide dark */
+  .diagram-light {
+    display: block;
+  }
+  .diagram-dark {
+    display: none;
+  }
+
+  /* Dark theme: show dark diagram, hide light */
+  :global(:root[data-theme='dark']) .diagram-light {
+    display: none;
+  }
+  :global(:root[data-theme='dark']) .diagram-dark {
+    display: block;
+  }
+</style>

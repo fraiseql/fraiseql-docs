@@ -1,0 +1,1444 @@
+---
+title: Common Issues (50+)
+description: Troubleshooting 50+ common FraiseQL issues with solutions
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Common Issues & Solutions
+
+Troubleshooting guide for the 50 most common FraiseQL issues.
+
+## Connection Issues (10)
+
+### Connection Refused
+**Problem**: `Error: connect ECONNREFUSED 127.0.0.1:5432`
+
+**Causes**:
+- Database not running
+- Wrong host/port
+- Firewall blocking
+- Wrong credentials
+
+**Solutions**:
+```bash
+# 1. Check database is running
+docker-compose ps
+psql -h localhost -U user -c "SELECT 1"
+
+# 2. Verify DATABASE_URL
+echo $DATABASE_URL
+# Should be: postgresql://user:pass@host:5432/db
+
+# 3. Test connection
+psql postgresql://user:pass@host:5432/db -c "SELECT 1"
+
+# 4. Check firewall
+# PostgreSQL default port: 5432
+# MySQL default port: 3306
+ufw allow 5432
+```
+
+### Too Many Connections
+**Problem**: `FATAL: too many connections for role "user"`
+
+**Cause**: All database connections exhausted
+
+**Solutions**:
+1. Increase connection limit:
+```bash
+PGBOUNCER_MAX_POOL_SIZE=30  # Increase from 20
+```
+
+2. Check who's using connections:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    SELECT usename, count(*) FROM pg_stat_activity GROUP BY usename;
+
+    -- Kill idle connections
+    SELECT pg_terminate_backend(pid)
+    FROM pg_stat_activity
+    WHERE state = 'idle' AND query_start < now() - interval '10 minutes';
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SHOW PROCESSLIST;
+
+    -- Kill idle connections (older than 10 minutes)
+    SELECT CONCAT('KILL ', id, ';')
+    FROM INFORMATION_SCHEMA.PROCESSLIST
+    WHERE COMMAND = 'Sleep' AND TIME > 600;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # SQLite doesn't use connection pooling like other databases
+    # It uses a single connection with WAL mode for concurrency
+    # Check for lock issues instead:
+    # Monitor .db-wal and .db-shm files
+    ls -lh *.db*
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SELECT spid, loginame, status, cmd
+    FROM master.dbo.sysprocesses
+    WHERE spid > 50;  -- System processes use 1-50
+
+    -- Kill idle connections
+    KILL <spid>  -- Where spid is the connection ID to terminate
+    ```
+  </TabItem>
+</Tabs>
+
+3. Restart FraiseQL:
+```bash
+docker-compose restart fraiseql
+```
+
+### Connection Timeout
+**Problem**: `Error: connect ETIMEDOUT`
+
+**Causes**:
+- Database overloaded
+- Network latency
+- Connection timeout too low
+
+**Solutions**:
+
+1. Check database load:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    SELECT * FROM pg_stat_activity WHERE state != 'idle';
+
+    -- Get summary of connections
+    SELECT count(*) as total_connections,
+           sum(case when state = 'active' then 1 else 0 end) as active,
+           sum(case when state = 'idle' then 1 else 0 end) as idle
+    FROM pg_stat_activity;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SHOW PROCESSLIST;
+
+    -- Get summary of connections
+    SELECT COUNT(*) as total_connections,
+           COUNT(CASE WHEN COMMAND != 'Sleep' THEN 1 END) as active,
+           COUNT(CASE WHEN COMMAND = 'Sleep' THEN 1 END) as idle
+    FROM INFORMATION_SCHEMA.PROCESSLIST;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # SQLite single-connection model, check for lock waits
+    # Enable query logging to see if queries are blocking
+    sqlite3 database.db ".log stdout"
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SELECT spid, loginame, status, cmd, cpu, physical_io
+    FROM master.dbo.sysprocesses
+    WHERE spid > 50 AND status != 'sleeping';
+
+    -- Get connection summary
+    SELECT COUNT(*) as total_connections,
+           SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as active
+    FROM master.dbo.sysprocesses
+    WHERE spid > 50;
+    ```
+  </TabItem>
+</Tabs>
+
+2. Increase timeout:
+```bash
+PGBOUNCER_CONNECTION_TIMEOUT=60  # Increase from 30
+```
+
+3. Check network latency:
+```bash
+ping database.example.com
+traceroute database.example.com
+```
+
+4. Check database resource usage:
+```bash
+df -h
+free -h
+```
+
+### Connection Lost During Query
+**Problem**: `Error: Connection lost after X seconds`
+
+**Causes**:
+- Query running too long
+- Database restarting
+- Network interruption
+
+**Solutions**:
+
+1. Check for long-running queries:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    SELECT pid, usename, state, now() - query_start as duration, query
+    FROM pg_stat_activity
+    WHERE state != 'idle'
+    ORDER BY duration DESC;
+
+    -- Kill long-running queries (older than 30 minutes)
+    SELECT pg_terminate_backend(pid)
+    FROM pg_stat_activity
+    WHERE state != 'idle' AND now() - query_start > interval '30 minutes';
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SELECT ID, USER, TIME, STATE, INFO
+    FROM INFORMATION_SCHEMA.PROCESSLIST
+    WHERE COMMAND != 'Sleep'
+    ORDER BY TIME DESC;
+
+    -- Kill long-running queries (older than 1800 seconds)
+    SELECT CONCAT('KILL ', id, ';')
+    FROM INFORMATION_SCHEMA.PROCESSLIST
+    WHERE TIME > 1800 AND COMMAND != 'Sleep';
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # SQLite doesn't have long-running query tracking like other databases
+    # Monitor query execution with EXPLAIN QUERY PLAN
+    sqlite3 database.db "EXPLAIN QUERY PLAN SELECT ..."
+
+    # Check for locks
+    # Monitor .db-wal file size for growing write-ahead logs
+    ls -lh database.db-wal
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SELECT spid, loginame, status, cmd, cpu,
+           datediff(second, login_time, getdate()) as session_duration_sec,
+           datediff(second, last_batch, getdate()) as idle_seconds
+    FROM master.dbo.sysprocesses
+    WHERE spid > 50 AND status = 'running'
+    ORDER BY cpu DESC;
+
+    -- Kill long-running query
+    KILL <spid>
+    ```
+  </TabItem>
+</Tabs>
+
+2. Increase statement timeout:
+```bash
+STATEMENT_TIMEOUT=300000  # 5 minutes
+```
+
+3. Optimize slow query:
+```sql
+-- Add indexes, reduce complexity
+CREATE INDEX idx_posts_user ON posts(user_id);
+```
+
+4. Enable connection retry:
+```bash
+DATABASE_URL=postgresql://...?application_name=fraiseql&statement_timeout=300000
+```
+
+### SSL Certificate Verification Failed
+**Problem**: `Error: certificate verify failed`
+
+**Cause**: SSL certificate issue with database
+
+**Solutions**:
+```bash
+# 1. Disable SSL verification (development only)
+DATABASE_URL=postgresql://user:pass@host/db?sslmode=disable
+
+# 2. Use correct certificate
+DATABASE_URL=postgresql://user:pass@host/db?sslmode=require&sslcert=/path/to/cert.pem
+
+# 3. Check certificate validity
+openssl x509 -in cert.pem -noout -dates
+openssl x509 -in cert.pem -noout -issuer
+
+# 4. Update CA bundle
+# AWS RDS
+wget https://truststore.amazonaws.com/rds-ca-2019-root.pem
+```
+
+### Database Server Closed Connection
+**Problem**: `Error: server closed the connection unexpectedly`
+
+**Causes**:
+- Database restarting
+- Query killed by administrator
+- Connection idle timeout
+
+**Solutions**:
+```bash
+# 1. Check database logs
+tail -f /var/log/postgresql/postgresql.log
+
+# 2. Increase idle timeout
+# PostgreSQL: modify idle_in_transaction_session_timeout
+ALTER SYSTEM SET idle_in_transaction_session_timeout = '10min';
+SELECT pg_reload_conf();
+
+# 3. Add automatic reconnection
+# FraiseQL handles this automatically
+# But verify in logs: LOG_LEVEL=debug
+
+# 4. Check for database crashes
+# Check /var/log/messages for OOM kills
+dmesg | tail -50
+```
+
+### Authentication Failed
+**Problem**: `FATAL: password authentication failed for user "user"`
+
+**Cause**: Wrong password or user doesn't exist
+
+**Solutions**:
+```bash
+# 1. Verify credentials
+echo $DATABASE_URL
+
+# 2. Reset password (PostgreSQL)
+psql -U postgres
+ALTER USER user WITH PASSWORD 'newpassword';
+
+# 3. Test with correct credentials
+psql postgresql://newuser:newpassword@host/db
+
+# 4. Create user if doesn't exist
+CREATE USER fraiseql WITH PASSWORD 'secure-password';
+GRANT ALL PRIVILEGES ON DATABASE fraiseql TO fraiseql;
+```
+
+### Connection Pool Exhaustion
+**Problem**: Requests timing out, unable to get database connection
+
+**Solutions**:
+
+1. Check connection pool usage:
+```bash
+# Prometheus metric
+fraiseql_db_connections_used / fraiseql_db_connections_max
+```
+
+2. Monitor connections by database:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```bash
+    # Monitor connections over time
+    watch -n 1 'psql -c "SELECT count(*) as total,
+                          sum(case when state = \"active\" then 1 else 0 end) as active
+                   FROM pg_stat_activity"'
+
+    # Kill idle connections periodically
+    psql -c "SELECT pg_terminate_backend(pid)
+             FROM pg_stat_activity
+             WHERE state = 'idle' AND query_start < now() - interval '5 minutes';"
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```bash
+    # Monitor connections
+    watch -n 1 'mysql -e "SHOW PROCESSLIST; SELECT COUNT(*) as total FROM INFORMATION_SCHEMA.PROCESSLIST;"'
+
+    # Kill idle connections periodically
+    mysql -e "SELECT CONCAT('KILL ', id, ';')
+              FROM INFORMATION_SCHEMA.PROCESSLIST
+              WHERE COMMAND = 'Sleep' AND TIME > 300" | mysql
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # SQLite uses single connection in WAL mode
+    # Monitor WAL file for locks
+    watch -n 1 'ls -lh *.db-wal'
+
+    # Check for unfinished transactions
+    sqlite3 database.db "PRAGMA integrity_check;"
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```bash
+    # Monitor connections
+    watch -n 1 'sqlcmd -e "SELECT COUNT(*) as total,
+                                 SUM(CASE WHEN status = \"running\" THEN 1 ELSE 0 END) as active
+                          FROM master.dbo.sysprocesses
+                          WHERE spid > 50"'
+
+    # Kill idle connections using SQL
+    sqlcmd -e "DECLARE @maxIdleSeconds INT = 300;
+               SELECT spid FROM master.dbo.sysprocesses
+               WHERE spid > 50 AND
+                     datediff(second, last_batch, getdate()) > @maxIdleSeconds"
+    ```
+  </TabItem>
+</Tabs>
+
+3. Increase pool size:
+```bash
+PGBOUNCER_MAX_POOL_SIZE=50
+```
+
+4. Implement connection reset:
+```bash
+docker-compose restart fraiseql
+```
+
+### Wrong Database URL Format
+**Problem**: `Error: invalid connection URI: ...`
+
+**Cause**: DATABASE_URL format incorrect
+
+**Solutions**:
+```bash
+# PostgreSQL format
+postgresql://user:password@host:5432/database?sslmode=require
+
+# MySQL format
+mysql://user:password@host:3306/database
+
+# SQLite format
+sqlite:///./data/fraiseql.db
+
+# SQL Server format
+mssql://user:password@host:1433/database?encrypt=true
+
+# Verify URL encoding
+# Special characters in password need URL encoding
+password: P@ss%word
+URL encoded: P%40ss%25word
+```
+
+### Network Unreachable
+**Problem**: `Error: Network is unreachable`
+
+**Cause**: Database host unreachable
+
+**Solutions**:
+```bash
+# 1. Check DNS resolution
+nslookup database.example.com
+dig database.example.com
+
+# 2. Check routing
+traceroute database.example.com
+
+# 3. Check firewall rules
+iptables -L -n
+ufw status
+
+# 4. Check security group (AWS)
+aws ec2 describe-security-groups --group-ids sg-xxxxx
+
+# 5. Verify network connectivity
+ping database.example.com
+telnet database.example.com 5432
+nc -zv database.example.com 5432
+```
+
+---
+
+## Authentication & Authorization (8)
+
+### Invalid Token
+**Problem**: `Error: Invalid token`
+
+**Causes**:
+- Token expired
+- Token signed with different secret
+- Token format incorrect
+
+**Solutions**:
+```bash
+# 1. Check token expiration
+python -c "
+import jwt
+token = 'your-token'
+jwt.decode(token, options={'verify_signature': False})
+"
+
+# 2. Verify JWT_SECRET matches
+# Check .env file
+echo $JWT_SECRET
+
+# 3. Check token format
+# Should be: Authorization: Bearer <token>
+# Not: Authorization: <token>
+
+# 4. Generate new token
+import jwt
+token = jwt.encode(
+    {'user_id': 123, 'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
+    'secret',
+    algorithm='HS256'
+)
+```
+
+### Missing Authorization Header
+**Problem**: `Error: Missing Authorization header`
+
+**Cause**: Request doesn't include authentication
+
+**Solutions**:
+```bash
+# 1. Add Authorization header
+curl -H "Authorization: Bearer <token>" http://localhost:8000/graphql
+
+# 2. Verify client sends header
+# JavaScript
+fetch(url, {
+    headers: {
+        'Authorization': `Bearer ${token}`
+    }
+})
+
+# 3. Check middleware is enabled
+# FraiseQL should extract token automatically
+# Verify in logs: LOG_LEVEL=debug
+
+# 4. For unauthenticated endpoints
+# Mark query with @public
+@fraiseql.query
+def public_posts() -> list[Post]:
+    pass
+```
+
+### Token Expired
+**Problem**: `Error: Token has expired`
+
+**Solutions**:
+```bash
+# 1. Check token expiration time
+# Tokens typically expire in 1 hour
+
+# 2. Implement token refresh
+# Client gets new token when old one expires
+POST /auth/refresh
+Body: { "refresh_token": "..." }
+Response: { "access_token": "...", "expires_in": 3600 }
+
+# 3. Increase token expiration (not recommended for security)
+JWT_EXPIRY=86400  # 24 hours
+
+# 4. Implement sliding window
+# Token automatically refreshes if used within last 5 minutes
+```
+
+### Insufficient Permissions
+**Problem**: `Error: User does not have permission to access this field`
+
+**Cause**: User role lacks required permission
+
+**Solutions**:
+```bash
+# 1. Check user role
+SELECT user_id, role FROM user_roles WHERE user_id = 123;
+
+# 2. Check role permissions
+SELECT rp.permission_id, p.name
+FROM role_permissions rp
+JOIN permissions p ON rp.permission_id = p.id
+WHERE rp.role_id = 1;
+
+# 3. Grant permission to role
+INSERT INTO role_permissions (role_id, permission_id)
+VALUES (1, (SELECT id FROM permissions WHERE name = 'read:posts'));
+
+# 4. Check field-level authorization
+@fraiseql.field('User', 'email')
+def email(user, info):
+    # Only show email if user is admin or viewing own profile
+    if info.context.user.id == user.id or info.context.user.role == 'admin':
+        return user.email
+    raise PermissionError('Cannot view email')
+```
+
+### Wrong Scope
+**Problem**: `Error: Scope "write:posts" not found`
+
+**Cause**: Scope doesn't exist or not granted to user
+
+**Solutions**:
+```bash
+# 1. Check available scopes
+SELECT * FROM permissions;
+
+# 2. Grant scope to user
+INSERT INTO user_roles (user_id, role_id)
+VALUES (123, (SELECT id FROM roles WHERE name = 'editor'));
+
+# 3. Check scope is spelled correctly
+# Scopes are case-sensitive
+write:posts != WRITE:POSTS
+
+# 4. Define custom scope
+@fraiseql.mutation(requires_scope="write:posts")
+def create_post(title: str) -> Post:
+    pass
+```
+
+### Access Denied
+**Problem**: `Error: Access denied for user 'user'@'host'`
+
+**Cause**: User doesn't have permission on resource
+
+**Solutions**:
+```bash
+# 1. Check row-level security (RLS)
+SELECT * FROM pg_policies;
+
+# 2. Set user context for RLS
+SET app.user_id = 123;
+
+# 3. Implement RLS policy
+CREATE POLICY posts_owner ON posts
+USING (user_id = current_setting('app.user_id')::integer);
+
+# 4. Check tenant isolation
+# Verify tenant_id matches current_tenant
+```
+
+### Token Revoked
+**Problem**: `Error: Token has been revoked`
+
+**Cause**: Token was explicitly invalidated
+
+**Solutions**:
+```bash
+# 1. Implement token blacklist
+CREATE TABLE revoked_tokens (
+    token_id UUID PRIMARY KEY,
+    revoked_at TIMESTAMP DEFAULT NOW()
+);
+
+# 2. On logout, add token to blacklist
+INSERT INTO revoked_tokens (token_id) VALUES (uuid);
+
+# 3. On each request, check if revoked
+SELECT COUNT(*) FROM revoked_tokens WHERE token_id = $1;
+
+# 4. For immediate revocation (e.g., stolen token)
+DELETE FROM revoked_tokens WHERE revoked_at < NOW() - INTERVAL '7 days';
+```
+
+### CORS Preflight Failed
+**Problem**: `Error: CORS policy blocked request`
+
+**Cause**: CORS configuration incorrect
+
+**Solutions**:
+```bash
+# 1. Check CORS_ORIGINS environment variable
+echo $CORS_ORIGINS
+
+# 2. Add frontend origin
+CORS_ORIGINS=https://app.example.com,https://localhost:3000
+
+# 3. Check preflight request (OPTIONS)
+curl -X OPTIONS http://localhost:8000/graphql \
+  -H "Origin: https://app.example.com"
+
+# 4. Verify response headers
+# Should include:
+# Access-Control-Allow-Origin: https://app.example.com
+# Access-Control-Allow-Methods: POST, GET, OPTIONS
+# Access-Control-Allow-Headers: Content-Type, Authorization
+```
+
+---
+
+## Query Issues (10)
+
+### Query Returns Empty
+**Problem**: Query executes but returns no data
+
+**Causes**:
+- Filtering too restrictive
+- No matching records
+- Row-level security filtering
+- Soft-deleted records
+
+**Solutions**:
+```bash
+# 1. Check data exists in database
+SELECT COUNT(*) FROM users;
+
+# 2. Check filtering logic
+# This returns nothing:
+users(name_eq: "NonExistent") { id name }
+
+# 3. Check RLS isn't filtering all results
+SELECT * FROM users WHERE RLS_condition;
+
+# 4. Check soft deletes
+# Might be filtering out deleted records
+SELECT COUNT(*) FROM users WHERE deleted_at IS NULL;
+
+# 5. Test with simpler query
+query { users { id } }
+```
+
+### Type Mismatch Error
+**Problem**: `Error: Field "id" expects type ID but got String`
+
+**Cause**: Value type doesn't match schema
+
+**Solutions**:
+```bash
+# 1. Check field type in schema
+@fraiseql.type
+class User:
+    id: ID  # Correct
+    # NOT: id: str
+
+# 2. Convert value to correct type
+# JavaScript
+const userId = parseInt(stringId)  // Convert String to Int
+const id = stringId  // Already a String
+
+# 3. Check GraphQL query
+# String IDs need quotes
+query { user(id: "123") { ... } }
+# Not: query { user(id: 123) { ... } }
+
+# 4. Update schema if needed
+class User:
+    id: int  # If you need integer IDs
+    email: str
+```
+
+### Null Relationships
+**Problem**: `user.posts is null but should have data`
+
+**Causes**:
+- Foreign key doesn't match
+- Related records don't exist
+- Related records are deleted
+- Join condition wrong
+
+**Solutions**:
+```bash
+# 1. Check foreign key values
+SELECT user_id, COUNT(*) FROM posts GROUP BY user_id;
+
+# 2. Verify relationship exists
+SELECT p.id, p.user_id, u.id
+FROM posts p
+LEFT JOIN users u ON p.user_id = u.id
+WHERE p.id = 123;
+
+# 3. Check schema relationship definition
+@fraiseql.type
+class Post:
+    user_id: ID
+    user: User  # Should auto-join on user_id
+
+# 4. Check for soft deletes
+SELECT * FROM users WHERE id = 123 AND deleted_at IS NULL;
+
+# 5. Verify database foreign key
+SELECT constraint_name, table_name, column_name
+FROM information_schema.key_column_usage
+WHERE table_name = 'posts';
+```
+
+### Silent Failures
+**Problem**: Mutation runs but data doesn't change
+
+**Causes**:
+- Transaction rolled back
+- Trigger preventing change
+- Permission denied
+- Validation failed
+
+**Solutions**:
+```bash
+# 1. Check mutation response for errors
+mutation {
+  createPost(title: "...", content: "...") {
+    ... # Will show errors if any
+  }
+}
+
+# 2. Check database triggers
+SELECT * FROM information_schema.triggers WHERE table_name = 'posts';
+
+# 3. Enable transaction logging
+BEGIN;
+UPDATE posts SET title = 'New' WHERE id = 123;
+-- Check if update succeeded
+SELECT title FROM posts WHERE id = 123;
+ROLLBACK;  -- Or COMMIT
+
+# 4. Check for validation errors
+# Review input data for NULL, empty strings, etc.
+
+# 5. Check permissions
+SELECT grantee, privilege_type
+FROM information_schema.role_table_grants
+WHERE table_name = 'posts';
+```
+
+### Field Not Found Error
+**Problem**: `Error: Cannot query field "unknownField" on type "User"`
+
+**Cause**: Field doesn't exist in schema
+
+**Solutions**:
+```bash
+# 1. Check schema definition
+@fraiseql.type
+class User:
+    id: ID
+    name: str
+    # No "unknown_field" defined
+
+# 2. Use correct field name
+query { user { id name } }  # Correct
+# Not: query { user { unknownField } }
+
+# 3. Check for typos
+# These are different:
+created_at
+createdAt
+createddate
+
+# 4. Run introspection to see available fields
+query {
+  __type(name: "User") {
+    fields {
+      name
+      type { name kind }
+    }
+  }
+}
+
+# 5. Check field visibility
+# Might require certain permissions
+```
+
+### Pagination Not Working
+**Problem**: `limit` and `offset` not working as expected
+
+**Solutions**:
+```bash
+# 1. Check pagination parameters are correct
+query {
+  users(limit: 10, offset: 0) { id }  # Correct
+  # Not: users(page: 1, pageSize: 10)
+}
+
+# 2. Verify total count
+query {
+  users(limit: 10, offset: 0) { id }
+  usersCount  # Total count without pagination
+}
+
+# 3. Use cursor-based pagination for better performance
+query {
+  users(first: 10, after: "cursor-from-previous") {
+    edges { node { id } cursor }
+    pageInfo { hasNextPage }
+  }
+}
+
+# 4. Check ordering is stable
+# Without ORDER BY, pagination order might change
+@fraiseql.query
+def users(limit: int = 10, offset: int = 0) -> list[User]:
+    # Must order consistently
+    # ORDER BY id, created_at DESC
+    pass
+```
+
+### Aggregation Returns Wrong Value
+**Problem**: `COUNT(*) or SUM() returns unexpected value`
+
+**Causes**:
+- Null values in aggregation
+- Duplicate records
+- Filter not applied
+- Group by missing
+
+**Solutions**:
+```bash
+# 1. Check for NULL values
+SELECT COUNT(*) FROM posts;  -- Counts rows
+SELECT COUNT(id) FROM posts;  -- Counts non-null ids
+SELECT COUNT(DISTINCT user_id) FROM posts;  -- Unique users
+
+# 2. Check for duplicates
+SELECT id, COUNT(*) FROM posts GROUP BY id HAVING COUNT(*) > 1;
+
+# 3. Verify filtering applied
+SELECT COUNT(*) FROM posts WHERE published = true;
+
+# 4. Check GROUP BY logic
+SELECT user_id, COUNT(*) as post_count
+FROM posts
+GROUP BY user_id;
+
+# 5. Handle NULL in aggregation
+SELECT SUM(COALESCE(likes, 0)) FROM posts;
+```
+
+### Ordering Not Applied
+**Problem**: Results not in expected order
+
+**Solutions**:
+```bash
+# 1. Check ordering parameter
+query {
+  users(orderBy: "name ASC") { id name }
+}
+
+# 2. Verify field exists
+# Can't order by non-existent field
+
+# 3. Check data types
+# Can't order mixed types (string + number)
+
+# 4. Check NULL handling
+# NULLs usually sort to end
+SELECT * FROM users ORDER BY name ASC NULLS LAST;
+
+# 5. Add secondary sort for stability
+query {
+  users(orderBy: "created_at DESC, id DESC") { id created_at }
+}
+```
+
+---
+
+## Performance Issues (8)
+
+### Slow Queries
+**Problem**: p95 latency > 500ms
+
+**Solutions**:
+```bash
+# 1. Identify slow queries (PostgreSQL)
+SELECT mean_exec_time, query FROM pg_stat_statements
+ORDER BY mean_exec_time DESC LIMIT 10;
+
+# 2. Analyze slow query
+EXPLAIN ANALYZE SELECT ...;
+
+# 3. Add missing indexes
+CREATE INDEX idx_posts_user_id ON posts(user_id);
+CREATE INDEX idx_posts_created_at ON posts(created_at DESC);
+
+# 4. Optimize query
+# Use LIMIT instead of full table scan
+# Add WHERE instead of filtering in app
+# Use aggregation at database level
+
+# 5. Check N+1 problems
+# Should have < 5 queries for any request
+LOG_LEVEL=debug python -m fraiseql serve
+```
+
+### N+1 Queries
+**Problem**: 100 queries for 10-item result
+
+**Cause**: Resolving relationships without batching
+
+**Solutions**:
+```bash
+# 1. Verify FraiseQL automatic batching is working
+# You should see batched queries like:
+# SELECT * FROM users LIMIT 10
+# SELECT * FROM posts WHERE user_id IN (1, 2, ..., 10)
+
+# 2. Check logs for individual queries
+LOG_LEVEL=debug
+
+# 3. Monitor query count
+# Should be ≤ 3 for benchmark query
+
+# 4. If still N+1, check for:
+# - Circular relationships
+# - Computed fields that query separately
+# - Middleware making additional queries
+
+# 5. Simplify query while testing
+query {
+  users(limit: 5) { id name }
+  # Add relationships one at a time to find culprit
+}
+```
+
+### Memory Leak
+**Problem**: Memory usage grows over time
+
+**Solutions**:
+```bash
+# 1. Monitor memory
+watch -n 1 'free -h'
+docker stats fraiseql
+
+# 2. Check for connection leaks
+# Connections accumulate if not closed properly
+
+# 3. Restart periodically
+docker-compose restart fraiseql
+
+# 4. Increase memory limits
+docker-compose up -d --memory=2g fraiseql
+
+# 5. Profile application
+pip install memory-profiler
+python -m memory_profiler app.py
+
+# 6. Check for circular references
+# Ensure objects can be garbage collected
+```
+
+### High CPU Usage
+**Problem**: CPU > 80%
+
+**Causes**:
+- Complex queries
+- Too many concurrent requests
+- Inefficient algorithm
+
+**Solutions**:
+```bash
+# 1. Check which query uses CPU
+LOG_LEVEL=debug
+
+# 2. Profile CPU usage
+python -m cProfile -s cumtime app.py
+
+# 3. Optimize complex query
+# Simplify WHERE conditions
+# Add indexes
+# Use LIMIT
+
+# 4. Increase concurrency
+# Python: Add workers
+# Docker: Add instances
+
+# 5. Cache expensive computations
+@cached(ttl=3600)
+def expensive_query():
+    pass
+```
+
+### Database Connection Pool Exhaustion
+**Problem**: "Cannot get a database connection" errors
+
+**Solutions** (See Connection Issues section)
+
+### Cache Hit Rate Low
+**Problem**: Cache hit rate < 50%
+
+**Causes**:
+- TTL too short
+- Too many unique queries
+- Cache not enabled
+
+**Solutions**:
+```bash
+# 1. Increase TTL
+@cached(ttl=86400)  # 24 hours instead of 1 hour
+
+# 2. Check cache is enabled
+# Redis connection working?
+redis-cli ping
+
+# 3. Monitor cache stats
+# Prometheus: cache_hits / (cache_hits + cache_misses)
+
+# 4. Adjust caching strategy
+# Cache at query level, not field level
+# Cache stable data, not volatile data
+
+# 5. Implement cache warming
+# Preload common queries on startup
+```
+
+### Database Disk Full
+**Problem**: "No space left on device" errors
+
+**Solutions**:
+```bash
+# 1. Check disk space
+df -h
+
+# 2. Find large tables
+SELECT schemaname, tablename, pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename))
+FROM pg_tables
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC
+LIMIT 10;
+
+# 3. Remove old data
+DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '90 days';
+
+# 4. Vacuum database (cleanup)
+VACUUM ANALYZE;
+
+# 5. Expand storage
+# Docker: Mount larger volume
+# Cloud: Resize RDS storage
+docker-compose down
+# Edit docker-compose.yml volumes
+docker-compose up -d
+```
+
+---
+
+## Schema & Validation Issues (8)
+
+### Invalid Schema Definition
+**Problem**: `Error: Invalid schema`
+
+**Causes**:
+- Circular imports
+- Invalid type reference
+- Missing type annotation
+
+**Solutions**:
+```bash
+# 1. Check for circular imports
+# A → B → A
+
+# 2. Use forward references
+@fraiseql.type
+class Post:
+    user: 'User'  # String reference to avoid circular import
+
+@fraiseql.type
+class User:
+    posts: list['Post']
+
+# 3. Check type annotations
+class User:
+    id: ID  # Correct
+    name: str
+    # NOT: name (missing type)
+    # NOT: name: (incomplete)
+
+# 4. Import types correctly
+from fraiseql import ID, FraiseQL
+
+# 5. Validate schema
+python -m fraiseql validate
+```
+
+### Required Field Null
+**Problem**: `Error: Field "name" of required type String! cannot be null`
+
+**Cause**: NULL value provided for non-null field
+
+**Solutions**:
+```bash
+# 1. Provide value for required field
+mutation {
+  createUser(name: "Alice", email: "alice@example.com") { id }
+  # Not: createUser(name: null, email: "...")
+}
+
+# 2. Check schema definition
+# Required: String! (with !)
+# Optional: String (without !)
+
+# 3. Check default values
+@fraiseql.mutation
+def create_user(
+    name: str,  # Required
+    email: str = "default@example.com"  # Optional with default
+) -> User:
+    pass
+
+# 4. Check database constraints
+# Column might be NOT NULL
+```
+
+### Invalid Input Type
+**Problem**: `Error: Expected type Int but got String`
+
+**Solutions** (See Query Issues: Type Mismatch)
+
+### Duplicate Type Definition
+**Problem**: `Error: Type "User" defined multiple times`
+
+**Cause**: Same type defined in multiple files
+
+**Solutions**:
+```bash
+# 1. Check for duplicate @fraiseql.type
+# Only define each type once
+
+# 2. Use imports instead of redefinition
+# In module_a.py
+@fraiseql.type
+class User:
+    pass
+
+# In module_b.py
+from module_a import User  # Import, don't redefine
+
+# 3. Check file organization
+# Each type should be in one place
+# src/schema/models.py
+```
+
+### Field Name Conflict
+**Problem**: `Error: Field name "id" conflicts with...`
+
+**Cause**: Field defined multiple times with different types
+
+**Solutions**:
+```bash
+# 1. Check field definitions are consistent
+@fraiseql.type
+class User:
+    id: ID  # Integer ID
+    id: str  # Conflict! Can't redefine
+
+# 2. Choose one type for each field
+@fraiseql.type
+class User:
+    id: ID  # Correct
+    name: str
+
+# 3. Check inheritance
+class BaseUser:
+    id: ID
+
+class User(BaseUser):
+    id: str  # Conflict with parent!
+```
+
+### Enum Value Not Found
+**Problem**: `Error: "invalid_status" is not a valid Status`
+
+**Cause**: Enum value doesn't exist
+
+**Solutions**:
+```bash
+# 1. Define enum values
+from enum import Enum
+
+class PostStatus(str, Enum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
+
+# 2. Use correct value
+mutation {
+  updatePost(status: "published") { id }
+  # Not: updatePost(status: "invalid_status")
+}
+
+# 3. Check enum spelling (case-sensitive)
+DRAFT != draft
+```
+
+### Custom Scalar Not Registered
+**Problem**: `Error: Unknown scalar type "JSON"`
+
+**Cause**: Custom scalar not defined
+
+**Solutions**:
+```bash
+# 1. Define custom scalar
+@fraiseql.scalar
+class JSON:
+    @staticmethod
+    def serialize(value):
+        return json.dumps(value)
+
+    @staticmethod
+    def parse_value(value):
+        return json.loads(value)
+
+# 2. Use in schema
+@fraiseql.type
+class Post:
+    metadata: JSON  # Now valid
+
+# 3. Check scalar is registered globally
+fraiseql.register_scalar(JSON)
+```
+
+---
+
+## Deployment Issues (6)
+
+### Container Won't Start
+**Problem**: Docker container exits immediately
+
+**Solutions**:
+```bash
+# 1. Check logs
+docker logs fraiseql
+docker logs --tail 100 fraiseql
+
+# 2. Run in foreground to see errors
+docker run -it fraiseql python -m fraiseql serve
+
+# 3. Check environment variables
+docker exec fraiseql env
+# Verify DATABASE_URL, JWT_SECRET set
+
+# 4. Verify image built correctly
+docker build -t fraiseql:test .
+docker run fraiseql:test python -c "import fraiseql; print(fraiseql.__version__)"
+
+# 5. Check health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health/live || exit 1
+```
+
+### Port Already In Use
+**Problem**: `Error: Port 8000 already in use`
+
+**Solutions**:
+```bash
+# 1. Find process using port
+lsof -i :8000
+netstat -tlnp | grep 8000
+
+# 2. Kill process
+kill -9 <PID>
+
+
+
+
+                              ─
+
+# 4. Or stop existing service
+docker-compose down
+```
+
+### Out of Memory
+**Problem**: `Error: OOM Killer`
+
+**Solutions**:
+```bash
+# 1. Increase memory limit
+# Docker Compose
+fraiseql:
+  deploy:
+    resources:
+      limits:
+        memory: 2G
+
+# 2. Check memory usage
+docker stats fraiseql
+free -h
+
+# 3. Reduce batch size
+BATCH_SIZE=100  # Smaller batches use less memory
+
+# 4. Restart service
+docker-compose restart fraiseql
+```
+
+### Networking Not Working
+**Problem**: Container can't communicate with database
+
+**Solutions**:
+```bash
+# 1. Check network
+docker network ls
+docker network inspect <network>
+
+# 2. Verify service name
+# In docker-compose.yml, database service name should match DATABASE_URL
+
+# 3. Test connectivity
+docker exec fraiseql ping postgres
+docker exec fraiseql psql -h postgres -U user -c "SELECT 1"
+
+# 4. Check firewall
+docker exec fraiseql nc -zv postgres 5432
+
+# 5. Restart network
+docker network prune
+docker-compose down
+docker-compose up -d
+```
+
+### Volume Mount Issues
+**Problem**: Files not visible in container
+
+**Solutions**:
+```bash
+# 1. Check volume is mounted
+docker inspect fraiseql | grep -A 5 Mounts
+
+# 2. Verify mount path
+docker-compose.yml:
+  volumes:
+    - .:/app  # Host path:Container path
+
+# 3. Check permissions
+# File permissions might prevent access
+chmod 755 /path/to/app
+
+# 4. Restart container
+docker-compose restart fraiseql
+
+# 5. For production, don't use volumes
+# Copy files in Dockerfile instead
+COPY . /app
+```
+
+---
+
+## Summary Table
+
+| Category | Issue | Time to Fix |
+|----------|-------|------------|
+| Connection | Connection refused | 2 min |
+| Connection | Too many connections | 5 min |
+| Auth | Invalid token | 3 min |
+| Auth | Insufficient permissions | 5 min |
+| Query | Empty results | 5 min |
+| Query | Type mismatch | 3 min |
+| Performance | Slow queries | 15 min |
+| Performance | N+1 queries | 10 min |
+| Schema | Invalid schema | 10 min |
+| Deployment | Container won't start | 5 min |
+
+---
+
+## Next Steps
+
+1. Find your issue in this list
+2. Follow the solutions
+3. If not working, check [Database-Specific Issues](/troubleshooting#database-specific-issues)
+4. Still stuck? Ask on [Discord](https://discord.gg/fraiseql)
+`3
+`3

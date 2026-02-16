@@ -1,0 +1,270 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="N+1 Queries Problem - FraiseQL Solution"
+  description="How FraiseQL eliminates N+1 query problems through compile-time optimization."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>⚠️ Problem: N+1 Queries</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>How compile-time optimization makes N+1 queries impossible</strong>
+    </p>
+
+    <section style="margin: 3rem 0;">
+      <h2>What is the N+1 Query Problem?</h2>
+
+      <p>
+        When fetching related data, resolvers inadvertently load data inefficiently:
+      </p>
+
+      <pre><code>{`// Resolver for getting users
+const users = await db.query("SELECT * FROM users LIMIT 10");
+// Result: 1 query ✓
+
+// For EACH user, fetch their posts
+for (const user of users) {
+  user.posts = await db.query("SELECT * FROM posts WHERE user_id = \$1", [user.id]);
+}
+// Result: 10 queries ✗
+
+// For EACH post, fetch its comments
+for (const post of user.posts) {
+  post.comments = await db.query("SELECT * FROM comments WHERE post_id = \$1", [post.id]);
+}
+// Result: 10 × 50 = 500 queries ✗
+
+// Total: 1 + 10 + 500 = 511 queries instead of 1!`}</code></pre>
+
+      <p style="margin-top: 1rem; color: #c41c3b;">
+        <strong>Called "N+1" because:</strong> 1 query for parent, then N queries for each child, then N×M queries for grandchildren.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Why N+1 Happens</h2>
+
+      <p>
+        GraphQL's resolver chain architecture makes it easy to trigger N+1:
+      </p>
+
+      <ol>
+        <li>
+          <strong>Resolver per field:</strong> Each field has its own resolver function
+        </li>
+        <li>
+          <strong>Independent execution:</strong> Resolvers don't know about sibling resolvers
+        </li>
+        <li>
+          <strong>No visibility:</strong> Can't see the entire query at once (no query introspection)
+        </li>
+        <li>
+          <strong>Easy to miss:</strong> Developers often don't realize they've created N+1
+        </li>
+      </ol>
+
+      <p style="margin-top: 1rem; color: #666;">
+        <em>Result: Slow performance that's hard to debug and often hidden until production.</em>
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Impact</h2>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tr style="background: #f5f3ff;">
+          <th style="padding: 1rem; text-align: left; border: 1px solid #e5e7eb;">Query Pattern</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Expected Queries</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Actual Queries (N+1)</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Latency Increase</th>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Get 10 users with posts</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">11</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">10-50×</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Get 10 users → posts → comments</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">511</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">100-500×</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Get 100 products with variants and inventory</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">10,100</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1000-5000×</td>
+        </tr>
+      </table>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Common Solutions (Before FraiseQL)</h2>
+
+      <h3 style="margin-top: 2rem;">1. DataLoader (Partial Solution)</h3>
+      <p>
+        Batch queries together in the same tick:
+      </p>
+      <pre><code>{`// With DataLoader
+const userLoader = new DataLoader(async (userIds) => {
+  // Batched: SELECT * FROM users WHERE id IN (...)
+  return db.query("SELECT * FROM users WHERE id = ANY(\$1)", [userIds]);
+});
+
+// Still N+1 for second level!
+for (const user of users) {
+  user.posts = await postLoader.load(user.id);  // DataLoader batches these
+}
+
+for (const post of user.posts) {
+  post.comments = await commentLoader.load(post.id);  // Still N+1 here!
+}
+
+// Result: Better, but doesn't solve nested N+1 problems`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">2. Query Hints (Manual Optimization)</h3>
+      <p>
+        Developers manually optimize queries:
+      </p>
+      <pre><code>{`// Developer adds @traceQuery hint
+const users = await db.query("""
+  SELECT users.*, posts.*, comments.*
+  FROM users
+  LEFT JOIN posts ON users.id = posts.user_id
+  LEFT JOIN comments ON posts.id = comments.post_id
+  WHERE users.id IN (...)
+""");
+
+// Result: Works, but requires developers to manually write SQL
+// Fragile: Easy to break with field additions
+// Not scalable: Every query needs manual optimization`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">3. Redis Caching (Works Around Problem)</h3>
+      <p>
+        Cache expensive queries:
+      </p>
+      <pre><code>{`// Cache user + posts + comments
+const cached = await redis.get("user:123");
+if (!cached) {
+  // Fetch all three
+  cached = await fetchUserWithPostsAndComments(123);
+  await redis.set("user:123", cached, { EX: 3600 });
+}
+return cached;
+
+// Result: Works, but:
+// - Cache invalidation is hard
+// - Memory overhead
+// - Stale data issues
+// - Doesn't solve the problem, just hides it`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>FraiseQL Solution: Compile-Time Optimization</h2>
+
+      <p>
+        <strong>FraiseQL prevents N+1 queries at compile time.</strong> The compiler analyzes your query structure and generates optimized SQL:
+      </p>
+
+      <pre><code>{`# Query for users with posts and comments
+query GetUsersWithPosts {
+  users {
+    id
+    name
+    posts {
+      id
+      title
+      comments {
+        id
+        text
+      }
+    }
+  }
+}
+
+# At compile time, FraiseQL:
+# 1. Analyzes nested structure: users → posts → comments
+# 2. Recognizes joins needed
+# 3. Generates single optimized SQL:
+
+SELECT
+  u.id as user_id, u.name,
+  p.id as post_id, p.title,
+  c.id as comment_id, c.text
+FROM users u
+LEFT JOIN posts p ON u.id = p.user_id
+LEFT JOIN comments c ON p.id = c.post_id
+ORDER BY u.id, p.id, c.id;
+
+# At runtime:
+# - Execute single pre-compiled query
+# - PostgreSQL optimizer chooses best join strategy
+# - Result: 1 query instead of 1 + N + N×M`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">How FraiseQL Prevents N+1</h3>
+      <ul>
+        <li>
+          <strong>Compiler sees entire query:</strong> Not just individual fields, but complete structure
+        </li>
+        <li>
+          <strong>Pre-optimization:</strong> SQL is generated before runtime, with all joins planned
+        </li>
+        <li>
+          <strong>Single SQL execution:</strong> No resolver chains that could trigger sequential queries
+        </li>
+        <li>
+          <strong>Tested safeguards:</strong> Comprehensive tests verify efficient query plans
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Performance Comparison</h2>
+
+      <pre><code>{`Scenario: Fetch 100 users with 50 posts each and 10 comments per post
+
+Traditional GraphQL (N+1):
+- Initial query: 1 (get 100 users)
+- Posts queries: 100 (one per user)
+- Comments queries: 5,000 (one per post)
+- Total: 5,101 queries
+- Latency: 50-100 seconds
+- Database CPU: Maxed out
+
+With DataLoader:
+- Batched queries: ~3 batches
+- Total: 103 queries
+- Latency: 5-10 seconds
+- Still slow, still problematic
+
+With FraiseQL:
+- Single compiled query: 1
+- Latency: 50-100ms
+- Database CPU: &lt;1%
+- 100-1000× faster`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Key Takeaway</h2>
+
+      <p style="padding: 1rem; background: #f0fdf4; border-left: 4px solid #059669; border-radius: 4px;">
+        <strong>FraiseQL addresses N+1 at compile time.</strong> Rather than relying on runtime optimizations like DataLoader or caching, the compiler analyzes your entire query structure and generates a single optimized SQL statement with all joins pre-planned.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="/use-cases/e-commerce">Use Case: E-Commerce</a> – Real-world N+1 example</li>
+        <li><a href="/why/database-first">Why Database-First</a> – Philosophy behind optimization</li>
+        <li><a href="/use-cases">← Back to Use Cases</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

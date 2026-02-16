@@ -1,0 +1,123 @@
+---
+import Navigation from "../components/Navigation.astro";
+import Footer from "../components/Footer.astro";
+import "../styles/global.css";
+
+export interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+  type?: string;
+}
+
+const {
+  title = "FraiseQL - Database-First GraphQL Ecosystem",
+  description = "A compiled GraphQL execution engine with 11 interconnected tools, optimized for database-first architecture and deterministic query execution.",
+  image = "https://fraiseql.dev/og-image.png",
+  type = "website",
+} = Astro.props as Props;
+
+const canonicalURL = Astro.site
+  ? new URL(Astro.url.pathname, Astro.site)
+  : new URL(`https://fraiseql.dev${Astro.url.pathname}`);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={image} />
+    <meta property="og:type" content={type} />
+    <meta property="og:url" content={canonicalURL} />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={image} />
+
+    <!-- Canonical URL -->
+    <link rel="canonical" href={canonicalURL} />
+
+    <!-- Favicon -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    <title>{title}</title>
+
+    <!-- Preconnect to external services -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- JSON-LD Structured Data for Agent Discovery -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "FraiseQL",
+        "description": "Database-first GraphQL ecosystem with 11 interconnected tools",
+        "url": "https://fraiseql.dev",
+        "applicationCategory": "GraphQL Engine",
+        "operatingSystem": "Platform Independent",
+        "inLanguage": "en",
+        "programmingLanguage": "Rust",
+        "creator": {
+          "@type": "Organization",
+          "name": "FraiseQL"
+        },
+        "keywords": "GraphQL, compiled, database-first, performance, Rust, deterministic",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "softwareRequirements": "PostgreSQL, MySQL, SQLite, or SQL Server",
+        "potentialAction": {
+          "@type": "UseAction",
+          "target": "https://github.com/fraiseql/fraiseql"
+        }
+      }
+    </script>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "FraiseQL",
+        "url": "https://fraiseql.dev",
+        "description": "Database-first GraphQL ecosystem",
+        "sameAs": [
+          "https://github.com/fraiseql/fraiseql",
+          "https://github.com/fraiseql"
+        ],
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "contactType": "Support",
+          "email": "support@fraiseql.dev"
+        }
+      }
+    </script>
+  </head>
+
+  <body>
+    <Navigation />
+    <main>
+      <slot />
+    </main>
+    <Footer />
+
+    <!-- Analytics placeholder (Plausible, Fathom, or Umami) -->
+    <!-- <script defer data-domain="fraiseql.dev" src="https://plausible.io/js/script.js"></script> -->
+  </body>
+</html>
+
+<style>
+  :global(main) {
+    min-height: calc(100vh - 200px);
+  }
+</style>

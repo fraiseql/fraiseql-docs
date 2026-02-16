@@ -1,0 +1,194 @@
+---
+title: "Incremental Migrations"
+description: "Evolve existing databases with targeted schema changes"
+---
+
+The Migrate medium applies incremental schema changes to existing databases. When you can't drop and rebuild (production, staging with real data), migrations let you evolve the schema while preserving data.
+
+## How It Works
+
+Each migration is a pair of SQL files — one to apply the change (`up`), one to reverse it (`down`):
+
+```bash
+# Generate a new migration
+confiture migrate generate add_bio_to_users
+```
+
+This creates two files:
+
+```sql title="db/migrations/001_add_bio_to_users.up.sql"
+ALTER TABLE tb_user ADD COLUMN bio TEXT;
+```
+
+```sql title="db/migrations/001_add_bio_to_users.down.sql"
+ALTER TABLE tb_user DROP COLUMN bio;
+```
+
+## Commands
+
+```bash
+# Apply all pending migrations
+confiture migrate up --env production
+
+# Rollback the last migration
+confiture migrate down --env production
+
+# Check migration status
+confiture migrate status --env production
+
+# Dry run — show what would be applied
+confiture migrate up --env production --dry-run
+
+# Apply a specific number of migrations
+confiture migrate up --env production --steps 3
+```
+
+## Migration Status
+
+```bash
+confiture migrate status --env production
+```
+
+```
+Migration                        Status      Applied At
+001_add_bio_to_users            ✓ applied   2026-01-15 10:30:00
+002_add_avatar_url              ✓ applied   2026-01-20 14:22:00
+003_create_tb_comment           ✗ pending   —
+004_add_comment_views           ✗ pending   —
+```
+
+## Writing Migrations
+
+### Adding Columns
+
+```sql title="up.sql"
+ALTER TABLE tb_user ADD COLUMN avatar_url TEXT;
+```
+
+```sql title="down.sql"
+ALTER TABLE tb_user DROP COLUMN avatar_url;
+```
+
+### Creating Tables
+
+```sql title="up.sql"
+CREATE TABLE tb_comment (
+    pk_comment INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT UNIQUE NOT NULL,
+    fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+    fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post),
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+```sql title="down.sql"
+DROP TABLE tb_comment;
+```
+
+### Adding Indexes
+
+```sql title="up.sql"
+CREATE INDEX idx_tb_post_fk_user ON tb_post(fk_user);
+CREATE INDEX idx_tb_post_slug ON tb_post(slug);
+```
+
+```sql title="down.sql"
+DROP INDEX idx_tb_post_fk_user;
+DROP INDEX idx_tb_post_slug;
+```
+
+### Updating Views
+
+When you add a column to a table, you typically also update the corresponding view:
+
+```sql title="up.sql"
+-- Add column to table
+ALTER TABLE tb_user ADD COLUMN avatar_url TEXT;
+
+-- Recreate view to include new field
+CREATE OR REPLACE VIEW v_user AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id', u.id::text,
+        'name', u.name,
+        'email', u.email,
+        'avatar_url', u.avatar_url  -- New field
+    ) AS data
+FROM tb_user u;
+```
+
+```sql title="down.sql"
+-- Recreate view without new field
+CREATE OR REPLACE VIEW v_user AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id', u.id::text,
+        'name', u.name,
+        'email', u.email
+    ) AS data
+FROM tb_user u;
+
+-- Drop column
+ALTER TABLE tb_user DROP COLUMN avatar_url;
+```
+
+### Data Migrations
+
+For migrations that transform existing data:
+
+```sql title="up.sql"
+-- Add column
+ALTER TABLE tb_user ADD COLUMN display_name TEXT;
+
+-- Populate from existing data
+UPDATE tb_user SET display_name = name WHERE display_name IS NULL;
+
+-- Make non-nullable after population
+ALTER TABLE tb_user ALTER COLUMN display_name SET NOT NULL;
+```
+
+## Migration File Naming
+
+Migrations are auto-numbered with a 3-digit prefix:
+
+```
+db/migrations/
+├── 001_initial_schema.up.sql
+├── 001_initial_schema.down.sql
+├── 002_add_bio_to_users.up.sql
+├── 002_add_bio_to_users.down.sql
+├── 003_create_tb_comment.up.sql
+└── 003_create_tb_comment.down.sql
+```
+
+🍯 Confiture auto-increments the version number when you run `confiture migrate generate`.
+
+## Build + Migrate Together
+
+In practice, you maintain both DDL files and migrations:
+
+- **DDL files** (`db/schema/`) — the current state of your schema (used by `confiture build`)
+- **Migration files** (`db/migrations/`) — the changes applied to existing databases (used by `confiture migrate`)
+
+When you create a migration, also update the corresponding DDL file so that `confiture build` always produces the same result as running all migrations from scratch.
+
+## When to Use Migrate
+
+**Use Migrate for:**
+- Production databases with data you can't lose
+- Staging environments with test data you want to preserve
+- Any environment where dropping and rebuilding isn't an option
+
+**Don't use Migrate for:**
+- Fresh development databases — use [Build](/confiture/build) instead (faster)
+- Major schema refactoring on large tables — use [Schema-to-Schema](/confiture/schema-to-schema) instead (zero downtime)
+
+## Next Steps
+
+- [🍯 Confiture Overview](/confiture) — All 4 Mediums
+- [Build from DDL](/confiture/build) — For fresh databases
+- [Schema-to-Schema](/confiture/schema-to-schema) — For zero-downtime refactoring

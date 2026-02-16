@@ -1,0 +1,688 @@
+---
+title: Scaling & Performance
+description: Scale FraiseQL for high traffic with horizontal scaling, caching, and database optimization
+---
+
+# Scaling & Performance
+
+Scale FraiseQL to handle millions of requests with horizontal scaling, smart caching, and database optimization.
+
+## Scaling Strategy Overview
+
+```
+
+           │
+
+           │
+
+           │
+
+           │
+```
+
+## Phase 1: Multiple Instances with Load Balancer
+
+Simplest production setup: 3+ stateless FraiseQL instances behind a load balancer.
+
+### Load Balancer Configuration
+
+
+
+
+
+
+          ─
+          ─
+```
+
+**Health check configuration** (all platforms):
+
+```
+Endpoint: /health/ready
+Interval: 30 seconds
+Timeout: 5 seconds
+Unhealthy threshold: 3 failures
+Healthy threshold: 2 successes
+```
+
+### Capacity Planning for Multiple Instances
+
+```
+Assume:
+- 1 instance = 1000 RPS capacity
+- 3 instances = 3000 RPS capacity
+
+Traffic growth:
+- Month 1: 1000 RPS (1 instance)
+- Month 2: 2000 RPS (2 instances)
+- Month 3: 5000 RPS (5 instances)
+- Month 6: 15000 RPS (15 instances)
+- Month 12: 100000 RPS (100 instances)
+```
+
+## Phase 2: Horizontal Auto-Scaling
+
+Automatically scale instances based on demand.
+
+### Metrics to Scale On
+
+**CPU Utilization** (simplest, most common)
+```
+Scale up when: Average CPU > 70%
+Scale down when: Average CPU < 30%
+Cooldown: 5 min up, 15 min down
+```
+
+**Memory Utilization** (for memory-intensive queries)
+```
+Scale up when: Average Memory > 80%
+Scale down when: Average Memory < 50%
+```
+
+**Request Count** (most accurate for API)
+```
+Scale up when: Requests/sec > 5000
+Scale down when: Requests/sec < 2000
+```
+
+**Custom Metrics** (database queue depth, cache hit rate)
+```
+Scale up when: Database pool > 80% utilized
+Scale down when: Database pool < 40% utilized
+```
+
+### Auto-Scaling Configuration Examples
+
+**AWS Auto Scaling Group**:
+```
+MinSize: 3
+MaxSize: 100
+DesiredCapacity: 3
+TargetTrackingScalingPolicies:
+  - TargetValue: 0.70  # Target 70% CPU
+    PredefinedMetric: ASGAverageCPUUtilization
+    ScaleOutCooldown: 60s
+    ScaleInCooldown: 300s
+```
+
+**Kubernetes Horizontal Pod Autoscaler**:
+```
+minReplicas: 3
+maxReplicas: 100
+targetCPUUtilizationPercentage: 70
+targetMemoryUtilizationPercentage: 80
+behavior:
+  scaleUp:
+    stabilizationWindowSeconds: 0
+    policies:
+      - type: Percent
+        value: 100  # Double replicas
+        periodSeconds: 30
+  scaleDown:
+    stabilizationWindowSeconds: 300
+    policies:
+      - type: Percent
+        value: 50   # Half replicas
+        periodSeconds: 60
+```
+
+**Azure App Service Auto-Scale**:
+```bash
+# Scale out: +1 instance when CPU > 70%
+# Scale in: -1 instance when CPU < 30%
+# Min: 3 instances, Max: 100 instances
+```
+
+**GCP Cloud Run**:
+```bash
+# Automatic scaling based on request concurrency
+# Max concurrent requests per instance: 80 (default)
+# Scale up: +50 instances if queue > 0
+# Scale down: -1 instance per minute
+# Max instances: 1000 (configurable)
+```
+
+### Monitoring Auto-Scaling
+
+```bash
+# AWS
+aws autoscaling describe-scaling-activities \
+  --auto-scaling-group-name fraiseql-asg
+
+# Kubernetes
+kubectl get hpa fraiseql --watch
+
+# Azure
+az monitor autoscale history list \
+  --resource-group mygroup \
+  --resource fraiseql
+
+
+
+
+
+─
+
+As traffic grows, database becomes the bottleneck.
+
+### Connection Pooling
+
+Limit connections to prevent database overload:
+
+```
+Without pooling:
+1000 instances × 20 connections = 20,000 connections
+→ Database crashes (max: ~5,000)
+
+
+               ─                      ─
+─
+# PgBouncer for PostgreSQL
+PGBOUNCER_MIN_POOL_SIZE=5
+PGBOUNCER_MAX_POOL_SIZE=20    # Per database
+PGBOUNCER_CONNECTION_TIMEOUT=30
+PGBOUNCER_IDLE_IN_TRANSACTION_SESSION_TIMEOUT=600
+
+# Result: 50 instances × 5 min pool = 250 connections to DB
+#         Database handles easily
+```
+
+### Read Replicas
+
+Distribute read traffic across replicas:
+
+```
+
+    │
+
+    │
+
+
+          ─
+         ─
+             ─
+```
+
+**Setup** (AWS RDS):
+
+```bash
+# Create 3 read replicas
+for i in {1..3}; do
+  aws rds create-db-instance-read-replica \
+    --db-instance-identifier fraiseql-read-$i \
+    --source-db-instance-identifier fraiseql-prod
+done
+
+# Configure FraiseQL to read from replicas
+DATABASE_URL_PRIMARY=postgresql://user:pass@fraiseql-prod:5432/db
+DATABASE_URL_REPLICA=postgresql://user:pass@fraiseql-read-1:5432/db
+
+# In code: Route read queries to replica, writes to primary
+```
+
+### Database Query Optimization
+
+**Identify slow queries**:
+
+```sql
+-- PostgreSQL: Enable slow query logging
+ALTER SYSTEM SET log_min_duration_statement = 500;  -- Log queries > 500ms
+SELECT pg_reload_conf();
+
+-- View slow queries
+SELECT query, calls, mean_exec_time, max_exec_time
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+```
+
+**Add indexes**:
+
+```sql
+-- Find missing indexes
+EXPLAIN ANALYZE
+SELECT * FROM users WHERE email = 'user@example.com';
+
+-- If seq scan, add index
+CREATE INDEX idx_users_email ON users(email);
+
+-- Composite index for common filters
+CREATE INDEX idx_posts_user_published
+  ON posts(user_id, published)
+  WHERE published = true;
+```
+
+**Optimize N+1 queries**:
+
+FraiseQL automatically batches queries. But verify with monitoring:
+
+```sql
+-- If you see 1000 queries per request, something is wrong
+-- Use query profiling to identify N+1 problems
+
+-- Before (N+1):
+SELECT * FROM users LIMIT 10;  -- 1 query
+SELECT * FROM posts WHERE user_id = ? (×10)  -- 10 queries
+-- Total: 11 queries
+
+-- After (batched):
+SELECT * FROM users LIMIT 10;  -- 1 query
+SELECT * FROM posts WHERE user_id IN (?, ?, ...) -- 1 query
+-- Total: 2 queries
+
+-- FraiseQL does this automatically!
+```
+
+### Database Sharding (Advanced)
+
+For massive scale (millions of users):
+
+```
+Shard by user_id:
+
+Shard 1: Users 1-1M
+         Database: shard-1.db.example.com
+
+Shard 2: Users 1M-2M
+         Database: shard-2.db.example.com
+
+Shard 3: Users 2M-3M
+         Database: shard-3.db.example.com
+```
+
+Configure in FraiseQL:
+
+```python
+@fraiseql.query
+def get_user(user_id: ID) -> User:
+    # Route query to correct shard
+    shard_num = hash(user_id) % 3
+    return query_shard(f"shard-{shard_num}", user_id)
+```
+
+## Phase 4: Caching
+
+Reduce database load with intelligent caching.
+
+### HTTP Caching (Easiest)
+
+Use HTTP cache headers for static data:
+
+```graphql
+query GetUser($id: ID!) {
+  user(id: $id) @cache(ttl: 3600) {  # Cache for 1 hour
+    id
+    name
+    email
+  }
+}
+```
+
+Configure HTTP caching:
+
+```bash
+# In load balancer or reverse proxy
+cache-control: public, max-age=3600
+etag: "user-123-v1"
+```
+
+### Application-Level Caching (Redis)
+
+Cache expensive query results:
+
+```python
+import redis
+from functools import wraps
+
+cache = redis.Redis(host='cache.example.com', port=6379)
+
+def cached(ttl: int = 3600):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Create cache key
+            key = f"{func.__name__}:{args}:{kwargs}"
+
+            # Try cache
+            cached_result = cache.get(key)
+            if cached_result:
+                return json.loads(cached_result)
+
+            # Execute query
+            result = func(*args, **kwargs)
+
+            # Cache result
+            cache.setex(key, ttl, json.dumps(result))
+            return result
+        return wrapper
+    return decorator
+
+@fraiseql.query
+@cached(ttl=3600)
+def get_user(id: ID) -> User:
+    # Expensive query executed only once per hour
+    return ...
+```
+
+### Cache Invalidation Strategies
+
+**Time-based (simplest)**:
+```python
+# Cache expires after X seconds
+@cached(ttl=3600)  # 1 hour
+def get_user(id: ID) -> User:
+    pass
+```
+
+**Event-based (most accurate)**:
+```python
+@fraiseql.mutation
+def update_user(id: ID, name: str) -> User:
+    result = update_db(id, name)
+
+    # Invalidate cache
+    cache.delete(f"get_user:{id}")
+
+    # Notify subscribers
+    pubsub.publish(f"user:{id}:updated", result)
+
+    return result
+```
+
+**Dependency-based (advanced)**:
+```python
+# Cache depends on tag
+@cached(tags=["user:123"])
+def get_user(id: ID) -> User:
+    pass
+
+# Invalidate all queries tagged "user:123"
+cache.delete_by_tag("user:123")
+```
+
+### Cache Metrics to Monitor
+
+```
+Cache hit rate: (hits) / (hits + misses)
+Target: > 80% for high-traffic endpoints
+Example: 8000 hits, 200 misses = 97.5% hit rate
+
+Cache size: Total data in cache
+Target: < 80% of available memory
+
+
+
+               ─                                 ─
+
+Serve global traffic with multiple regions.
+
+### Multi-Region Architecture
+
+```
+User in Europe → Route 53 / Global Load Balancer → EU Region
+                                                     ├─ EU Database
+                                                     └─ EU Cache
+
+               ─                                 ─
+- Write-through replication: Write to primary, replicate to others
+- Eventually consistent: Replicate asynchronously
+- NATS events: Update cache across regions
+
+### Configure Multi-Region
+
+**AWS**:
+```bash
+# Route 53 weighted routing
+# 50% traffic to us-east-1
+# 50% traffic to eu-west-1
+
+aws route53 change-resource-record-sets \
+  --hosted-zone-id Z123 \
+  --change-batch '{...}'
+```
+
+**Kubernetes**:
+```bash
+# Kubefed for multi-cluster orchestration
+kubefedctl join cluster-eu --host-cluster-context=host
+kubefedctl join cluster-asia --host-cluster-context=host
+
+# Replicate service across clusters
+kubectl apply -f - <<EOF
+apiVersion: types.kubefed.io/v1beta1
+kind: FederatedDeployment
+metadata:
+  name: fraiseql
+spec:
+  template:
+    ...
+  placement:
+    clusterNames:
+      - cluster-eu
+      - cluster-asia
+EOF
+```
+
+**GCP**:
+```bash
+# Cloud Load Balancing for global routing
+gcloud compute backend-services create fraiseql-global \
+  --global \
+  --health-checks=health-check \
+  --load-balancing-scheme=EXTERNAL
+
+gcloud compute backend-services add-backend fraiseql-global \
+  --instance-group=us-central1-ig \
+  --instance-group-zone=us-central1-a \
+  --global
+```
+
+## Performance Testing & Load Testing
+
+### Determine Breaking Points
+
+```bash
+# Use Apache Bench, wrk, or k6 to load test
+
+# Start at low load and increase
+# Load = 100 RPS, 500 RPS, 1000 RPS, ...
+# Measure: response time, error rate, resource usage
+
+# Scaling = good when:
+# - Response time stays constant as load increases
+# - Error rate stays < 0.1%
+# - CPU/memory scale linearly with load
+```
+
+**Load test with k6**:
+
+```javascript
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+export let options = {
+  vus: 100,        // 100 virtual users
+  duration: '5m',  // 5 minute test
+};
+
+export default function () {
+  let res = http.post('http://api.example.com/graphql', {
+    query: 'query { users(limit: 50) { id name } }'
+  });
+
+  check(res, {
+    'is status 200': (r) => r.status === 200,
+    'response time < 500ms': (r) => r.timings.duration < 500,
+  });
+
+  sleep(1);
+}
+```
+
+Run:
+
+```bash
+k6 run load-test.js
+# Output:
+# ✓ is status 200
+# ✓ response time < 500ms
+# Average response time: 145ms
+# 99th percentile: 280ms
+```
+
+### Capacity Planning Calculator
+
+```bash
+Given:
+- Current traffic: 5000 RPS
+- Current response time: 100ms (acceptable)
+- Target growth: 2x per year
+- Max acceptable response time: 500ms
+
+Calculate:
+- Breaking point (where response time > 500ms): ~20,000 RPS
+- Time until breaking point: 6 months (at 2x growth)
+- Required capacity: 30,000 RPS (1.5x breaking point)
+- Instances needed: 30,000 RPS ÷ 1000 RPS/instance = 30 instances
+- Cost: 30 instances × $100/month = $3000/month
+
+Plan:
+- Month 1-3: 10 instances ($1000)
+- Month 4-6: 20 instances ($2000)
+- Month 7-9: 30 instances ($3000)
+- Add monitoring alert at 80% capacity
+```
+
+## Cost Optimization at Scale
+
+### Compute Cost Reduction
+
+**Reserved Instances** (1-3 year commitment):
+```bash
+Pay on-demand:     100 instances × $100/month = $10,000
+Pay reserved (1yr): 100 instances × $50/month = $5,000
+Annual savings: $60,000 (50% reduction)
+```
+
+**Spot/Preemptible Instances** (for fault-tolerant workloads):
+```bash
+On-demand: $100/month/instance
+Spot (AWS): $30/month/instance (can be interrupted)
+Preemptible (GCP): $25/month/instance (24 hour max)
+
+Use mix: 70% spot + 30% on-demand
+Average: (0.7 × $30) + (0.3 × $100) = $51/instance
+Savings: 49% reduction
+```
+
+### Database Cost Reduction
+
+**Read Replicas for analytics**:
+```
+Without replicas:
+- Primary: 10,000 RPS (expensive)
+- Load: 7000 app reads + 3000 analytics reads
+
+With replicas:
+- Primary: 7,000 RPS (cheaper)
+- Analytics replica: 3,000 RPS (cheaper)
+- Total cost: 30-40% reduction
+```
+
+**Storage tier optimization**:
+```bash
+Hot data (last 30 days): SSD storage ($0.10/GB/month)
+Warm data (30-90 days): HDD storage ($0.05/GB/month)
+Cold data (>90 days): Archive storage ($0.01/GB/month)
+
+Cost reduction: 50-90% for rarely accessed data
+```
+
+## Monitoring Scaling Performance
+
+Key metrics to track:
+
+```
+Availability
+├── Uptime: Target 99.99% (4.3 min downtime/month)
+├── Error rate: Target < 0.1%
+└── Latency: p50 < 100ms, p99 < 500ms
+
+Scaling
+├── Auto-scale time: < 60 seconds to add new instance
+├── Scale-up efficiency: Response time improves with more capacity
+└── Scale-down safety: Doesn't over-scale and waste money
+
+Resource efficiency
+├── CPU utilization: 60-70% (not too high, not too idle)
+├── Memory utilization: 70-80%
+├── Database connections: < 80% of pool size
+└── Cache hit rate: > 80%
+
+Cost
+├── Cost per request: Should decrease as you scale
+├── Cost per RPS: Should stabilize or decrease
+└── ROI: Revenue growth > Cost growth
+```
+
+Set up alerts:
+
+```
+- Alert: Scale-out failure
+  Condition: Desired capacity > actual capacity for 5 minutes
+  Action: Page on-call engineer
+
+- Alert: Auto-scaling thrashing
+  Condition: Scale up then down more than 3× in 1 hour
+  Action: Review auto-scale policies (cooldown might be too short)
+
+- Alert: Cache degradation
+  Condition: Cache hit rate < 70%
+  Action: Increase cache size or adjust TTL
+
+- Alert: Database overload
+  Condition: Connection pool > 90% utilized
+  Action: Add read replicas or optimize slow queries
+```
+
+## Scaling Checklist
+
+### Before Horizontal Scaling
+- [ ] Application is stateless (no sticky sessions)
+- [ ] Configuration externalizes to environment variables
+- [ ] Database connection pooling configured
+- [ ] Health check endpoints working
+- [ ] Load balancer health checks passing
+
+### Before Auto-Scaling
+- [ ] Auto-scale policies defined (metrics, thresholds, cooldown)
+- [ ] Max capacity set appropriately
+- [ ] Min capacity set to handle baseline traffic
+- [ ] Testing completed at peak capacity
+- [ ] Monitoring alerts configured
+
+### Before Multi-Region
+- [ ] Single region is performing well (> 80% CPU utilization at peak)
+- [ ] Data consistency strategy defined
+- [ ] Failover procedures documented and tested
+- [ ] Database replication configured
+- [ ] Monitoring across regions set up
+
+### Before Caching
+- [ ] Cache invalidation strategy is sound
+- [ ] Cache misses won't cause cascading failures
+- [ ] Monitoring of cache hit rate configured
+- [ ] Stale data is acceptable for 1-3600 seconds
+- [ ] Cache layer is highly available
+
+## Next Steps
+
+1. **Load test** your current deployment to find breaking point
+2. **Set up auto-scaling** based on your traffic patterns
+3. **Add caching** for frequently accessed data
+4. **Optimize database** indexes and queries
+5. **Plan multi-region** deployment as traffic grows
+6. **Monitor metrics** continuously to catch issues early
+`3
+`3
+`3

@@ -1,0 +1,260 @@
+---
+title: FraiseQL
+description: Database-first GraphQL. Own your SQL. Serve at database speed.
+template: splash
+hero:
+  title: Own Your SQL. Serve as GraphQL.
+  tagline: Write SQL views. Map them to GraphQL types. Serve at database speed. No resolvers. No N+1. No magic.
+  actions:
+    - text: Quick Start
+      link: /getting-started/quickstart
+      icon: right-arrow
+      variant: primary
+    - text: How It Works
+      link: /concepts/how-it-works
+      variant: secondary
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+import D2Diagram from '../../components/D2Diagram.astro';
+
+## A Different Path
+
+Most GraphQL frameworks hide the database behind resolvers, ORMs, and abstraction layers. Then you spend your time fighting N+1 queries, tuning DataLoaders, and debugging generated SQL you never asked for.
+
+**FraiseQL flips this:** you write SQL views that compose into nested JSONB structures. FraiseQL maps them to GraphQL types. The database does the work — one query, every time.
+
+This is database-first. It's a shift. And we built the tooling to make it work.
+
+<CardGrid>
+  <Card title="You Own the SQL" icon="rocket">
+    Write SQL views with full database power — CTEs, window functions, custom aggregations. Works with PostgreSQL, SQL Server, MySQL, and SQLite. Or let an AI generate them.
+  </Card>
+  <Card title="Zero N+1 by Design" icon="approve-check">
+    Relationships are pre-composed as JSONB at the view level. One `SELECT data FROM v_post` returns the entire nested response. No DataLoader. No batching.
+  </Card>
+  <Card title="🍯 Confiture Your Database" icon="puzzle">
+    *Confiture* — sounds like *configure*, tastes like jam. Fresh database in under 1 second. Incremental migrations. Production sync with anonymization. Zero-downtime refactoring. Four strategies for every scenario.
+  </Card>
+  <Card title="TOML Configuration" icon="document">
+    Human-readable configuration. No YAML complexity. Your entire backend config fits in one file you can actually read.
+  </Card>
+</CardGrid>
+
+## How It Works
+
+
+
+
+                     ─                 ─
+
+1. **Write** SQL views following the `.data` JSONB pattern (`v_user`, `v_post`, ...)
+2. **Compile** the mapping between your GraphQL types and SQL views
+3. **Serve** GraphQL queries — each resolves to a single SQL query
+
+The complexity lives in the database, where it belongs — not in runtime resolvers.
+
+## Quick Example
+
+**Your SQL view:**
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW dbo.v_user
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT u.id, u.name, u.email
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+    ```
+  </TabItem>
+</Tabs>
+
+**Your GraphQL schema:**
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    import fraiseql
+
+    @fraiseql.type
+    class User:
+        id: str
+        name: str
+        email: str
+        posts: list['Post']
+
+    @fraiseql.type
+    class Post:
+        id: str
+        title: str
+        content: str
+        author: User
+    ```
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    import { type } from 'fraiseql';
+
+    @type()
+    class User {
+      id: string;
+      name: string;
+      email: string;
+      posts: Post[];
+    }
+
+    @type()
+    class Post {
+      id: string;
+      title: string;
+      content: string;
+      author: User;
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go title="schema.go"
+    package schema
+
+    // User represents a user with posts
+    type User struct {
+        ID    string `fraiseql:"type"`
+        Name  string
+        Email string
+        Posts []Post
+    }
+
+    // Post represents a blog post
+    type Post struct {
+        ID      string `fraiseql:"type"`
+        Title   string
+        Content string
+        Author  User
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+**Compile and serve:**
+
+```bash
+$ fraiseql compile && fraiseql serve
+✓ Compiled 2 types → mapped to SQL views
+✓ Built query executor
+→ GraphQL API running at http://localhost:8080/graphql
+```
+
+## Why Database-First?
+
+> "If you can write a SQL view, you can build a GraphQL API. If an LLM can write a SQL view, it can build one too."
+
+FraiseQL is built on a bet: developers (and AI agents) are better off owning their SQL than hiding behind abstractions. The view pattern is 12 lines. Local models generate it accurately. And you get the full power of your database — PostgreSQL, SQL Server, MySQL, or SQLite — not a subset an ORM decided to expose.
+
+<CardGrid>
+  <Card title="For Developers" icon="laptop">
+    Write views you can read, debug, and explain. No resolver boilerplate. Predictable query plans. Type-safe SDKs in 15 languages.
+  </Card>
+  <Card title="For Teams" icon="group">
+    SQL views are reviewable in PRs. 🍯 Confiture handles migrations. TOML config is readable. The whole stack is auditable.
+  </Card>
+</CardGrid>
+
+## Enterprise Features
+
+FraiseQL v2.0.0-alpha is production-ready with comprehensive security, scaling, and integration capabilities.
+
+<CardGrid>
+  <Card title="Security & Access Control" icon="shield">
+    [RBAC with role hierarchy](/features/security) · [Field-level encryption](/features/encryption) · [Audit logging](/features/audit-logging) · [Rate limiting](/features/rate-limiting)
+  </Card>
+  <Card title="Custom Types & Validation" icon="document">
+    [49+ semantic scalar types](/reference/semantic-scalars) · [Custom scalar types with Elo validation](/concepts/elo-validation) · [Comprehensive validation rules](/reference/validation-rules)
+  </Card>
+  <Card title="Real-Time & Subscriptions" icon="rocket">
+    [GraphQL subscriptions](/features/subscriptions) — WebSocket, Webhook, Kafka, LISTEN/NOTIFY · [Observer pattern](/concepts/observers) for event-driven logic
+  </Card>
+  <Card title="Performance & Caching" icon="approve-check">
+    [Query result caching](/features/caching) · [Automatic Persisted Queries (APQ)](/features/apq) · [Apache Arrow dataplane](/features/arrow-dataplane) · [Wire protocol optimization](/features/wire-protocol)
+  </Card>
+  <Card title="Integration & Federation" icon="puzzle">
+    [Webhooks](/features/webhooks) with retry & DLQ · [NATS JetStream](/features/nats) messaging · [Apollo Federation](/features/federation) · [Multi-database federation](/guides/federation-configuration)
+  </Card>
+  <Card title="Developer Experience" icon="laptop">
+    [🍯 Confiture](/confiture) — database generation & migrations · [Type-safe SDKs](/sdk) in 15+ languages · [TOML configuration](/reference/toml-config) · [Comprehensive CLI](/reference/cli)
+  </Card>
+</CardGrid>
+
+## Learn More
+
+**Getting Started:**
+- [Quick Start](/getting-started/quickstart) — Build your first API in 5 minutes
+- [Your First Hour](/getting-started/first-hour) — Complete walkthrough with examples
+- [How It Works](/concepts/how-it-works) — Deep dive into architecture
+
+**Core Concepts:**
+- [Schema & Types](/concepts/schema) — Type system fundamentals
+- [Developer-Owned SQL](/concepts/developer-owned-sql) — Database-first philosophy
+- [CQRS Pattern](/concepts/cqrs) — Separating reads and writes
+- [Observers](/concepts/observers) — Event-driven logic
+
+**Advanced Guides:**
+- [Custom Scalars](/guides/custom-scalars) — Create domain-specific types
+- [Elo Validation Language](/concepts/elo-validation) — Expressive validation rules
+- [Observer-Webhook Patterns](/guides/observer-webhook-patterns) — Event-driven workflows
+- [Multi-Database Federation](/guides/federation-configuration) — Query across databases
+- [Multi-Tenancy](/guides/multi-tenancy) — Secure data isolation
+
+**Reference:**
+- [Decorators](/reference/decorators) — Full decorator reference
+- [Scalar Types](/reference/scalars) — Type reference
+- [Query Operators](/reference/operators) — Rich filters and operators
+- [TOML Configuration](/reference/toml-config) — All config options

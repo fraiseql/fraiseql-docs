@@ -1,0 +1,368 @@
+---
+title: FraiseQL vs Apollo
+description: How FraiseQL compares to Apollo GraphQL Server
+---
+
+Apollo is the most popular GraphQL framework. Here's how FraiseQL differs.
+
+## The Fundamental Difference
+
+**Apollo** requires you to write resolver functions for every field and relationship.
+
+**FraiseQL** eliminates resolvers entirely by compiling your schema to optimized database views.
+
+```
+                 ─           ─                   ─            ─
+                 ─               ─                 ─
+```
+
+## Side-by-Side Comparison
+
+| Aspect | FraiseQL | Apollo Server |
+|--------|----------|---------------|
+| **Architecture** | Compiled, database-first | Runtime, resolver-based |
+| **Resolver code** | None | Required for every field |
+| **N+1 handling** | Eliminated by design | DataLoader (manual setup) |
+| **Configuration** | TOML | JavaScript/TypeScript |
+| **Schema definition** | Code (Python, TS, Go...) | SDL or code-first |
+| **Performance** | Predictable, sub-ms | Depends on resolvers |
+| **Learning curve** | Lower | Higher |
+| **Flexibility** | Database-centric | Unlimited |
+| **Federation** | Built-in | Apollo Federation (separate) |
+
+## The Resolver Tax
+
+### Apollo: Write Resolvers for Everything
+
+```typescript
+// Apollo Server
+const resolvers = {
+  Query: {
+    users: async (_, args, context) => {
+      return context.db.query('SELECT * FROM users');
+    },
+    user: async (_, { id }, context) => {
+      return context.db.query('SELECT * FROM users WHERE id = $1', [id]);
+    },
+  },
+  User: {
+    posts: async (user, _, context) => {
+      // N+1 problem without DataLoader!
+      return context.db.query(
+        'SELECT * FROM posts WHERE author_id = $1',
+        [user.id]
+      );
+    },
+  },
+  Post: {
+    author: async (post, _, context) => {
+      return context.db.query(
+        'SELECT * FROM users WHERE id = $1',
+        [post.author_id]
+      );
+    },
+    comments: async (post, _, context) => {
+      return context.db.query(
+        'SELECT * FROM comments WHERE post_id = $1',
+        [post.id]
+      );
+    },
+  },
+  Comment: {
+    author: async (comment, _, context) => {
+      return context.db.query(
+        'SELECT * FROM users WHERE id = $1',
+        [comment.author_id]
+      );
+    },
+  },
+};
+```
+
+**Lines of resolver code: 40+**
+**Potential N+1 queries: 4**
+**DataLoaders needed: 3+**
+
+### FraiseQL: Define Schema Only
+
+```python
+# FraiseQL
+@fraiseql.type
+class User:
+    id: str
+    name: str
+    posts: list['Post']
+
+@fraiseql.type
+class Post:
+    id: str
+    title: str
+    author: User
+    comments: list['Comment']
+
+@fraiseql.type
+class Comment:
+    id: str
+    content: str
+    author: User
+```
+
+**Lines of code: 15**
+**Potential N+1 queries: 0**
+**DataLoaders needed: 0**
+
+## N+1 Problem
+
+### Apollo: Manual Prevention
+
+```typescript
+// You must manually implement DataLoaders
+const userLoader = new DataLoader(async (ids) => {
+  const users = await db.query(
+    'SELECT * FROM users WHERE id = ANY($1)',
+    [ids]
+  );
+  return ids.map(id => users.find(u => u.id === id));
+});
+
+// And wire them up in context
+const context = {
+  loaders: {
+    user: userLoader,
+    post: postLoader,
+    comment: commentLoader,
+  }
+};
+
+// And use them in every resolver
+User: {
+  posts: (user, _, { loaders }) => loaders.post.loadMany(user.postIds)
+}
+```
+
+### FraiseQL: Eliminated by Design
+
+```sql
+-- Composed views: tb_ tables, v_ views, child .data embedded in parent
+CREATE VIEW v_comment AS
+SELECT c.id, c.fk_post,
+    jsonb_build_object('id', c.id, 'content', c.content) AS data
+FROM tb_comment c;
+
+CREATE VIEW v_post AS
+SELECT p.id, p.fk_user,
+    jsonb_build_object(
+        'id', p.id, 'title', p.title,
+        'comments', COALESCE(jsonb_agg(vc.data), '[]'::jsonb)
+    ) AS data
+FROM tb_post p
+LEFT JOIN v_comment vc ON vc.fk_post = p.id
+GROUP BY p.id, p.fk_user;
+
+CREATE VIEW v_user AS
+SELECT u.id,
+    jsonb_build_object(
+        'id', u.id, 'name', u.name,
+        'posts', COALESCE(jsonb_agg(vp.data), '[]'::jsonb)
+    ) AS data
+FROM tb_user u
+LEFT JOIN v_post vp ON vp.fk_user = u.id
+GROUP BY u.id;
+```
+
+**One query. Zero N+1. No DataLoaders.**
+
+## Schema Definition
+
+### Apollo: SDL + Resolvers
+
+```graphql
+# schema.graphql
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  posts: [Post!]!
+}
+
+type Post {
+  id: ID!
+  title: String!
+  author: User!
+}
+
+type Query {
+  users: [User!]!
+  user(id: ID!): User
+}
+```
+
+Plus all the resolver code shown above.
+
+### FraiseQL: Just Types
+
+```python
+@fraiseql.type
+class User:
+    id: str
+    name: str
+    email: str
+    posts: list['Post']
+
+@fraiseql.type
+class Post:
+    id: str
+    title: str
+    author: User
+```
+
+Queries and mutations are derived from your SQL views and functions.
+
+## Input Validation
+
+### Apollo: Runtime + Decorators
+
+Apollo relies on decorators and custom validation logic:
+
+```typescript
+// Apollo Server with @apollo/server and custom validators
+import { GraphQLInputObjectType } from 'graphql';
+
+const userInputValidator = new GraphQLInputObjectType({
+  name: 'UserInput',
+  fields: {
+    email: {
+      type: GraphQLString,
+      validate: (value) => {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          throw new Error('Invalid email');
+        }
+      }
+    }
+  }
+});
+```
+
+- **Runtime validation** — Happens during query execution
+- **Decorator-based** — Use `@constraint` directives
+- **Limited scope** — Basic rules only (~5-8 validators)
+- **Manual implementation** — Custom validators for complex logic
+- **Database risk** — Invalid data can reach the database
+
+### FraiseQL: Compile-Time + Integrated
+
+FraiseQL enforces validation during schema compilation:
+
+```toml
+[fraiseql.validation]
+email = { pattern = "^[^@]+@[^@]+\\.[^@]+$" }
+age = { range = { min = 0, max = 150 } }
+status = { enum = ["active", "inactive"] }
+```
+
+- **13 built-in validators** across 4 categories
+  - Standard: required, pattern, length, range, enum, checksum
+  - Cross-field: comparison operators, conditionals
+  - Mutual exclusivity: OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent
+- **Compile-time enforcement** — Invalid schemas impossible at runtime
+- **Zero overhead** — No per-request validation overhead
+- **Database protection** — Invalid data never reaches the database
+
+### Comparison
+
+| Aspect | FraiseQL | Apollo Server |
+|--------|----------|---------------|
+| Built-in validators | 13 rules | ~5-8 (via decorators) |
+| Compile-time enforcement | ✅ Yes | ❌ No |
+| Runtime validation overhead | None | Per-request |
+| Mutual exclusivity | OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent | @oneOf only (via GraphQL spec) |
+| Cross-field validation | ✅ Yes | ❌ Custom code required |
+| Learning curve | Low | High |
+
+## When to Use Apollo
+
+Apollo is a better choice when:
+
+- **You need maximum flexibility** — Custom data sources, REST APIs, microservices
+- **Your data doesn't come from a database** — Third-party APIs, computed fields
+- **You want the ecosystem** — Apollo Client, Apollo Studio, Apollo Router
+- **You need GraphQL Federation at scale** — Apollo Federation is mature
+- **Your team knows the resolver pattern** — Familiar mental model
+
+## When to Use FraiseQL
+
+FraiseQL is a better choice when:
+
+- **Your data is in a database** — PostgreSQL, MySQL, SQLite, SQL Server
+- **You want zero resolver code** — Define types, get API
+- **You need guaranteed performance** — No N+1, ever
+- **You prefer less code** — 15 lines vs 40+ lines
+- **You want simple deployment** — Single binary vs Node.js + DataLoaders
+
+## Migration from Apollo
+
+### Step 1: Identify Your Types
+
+Extract types from your SDL:
+
+```graphql
+type User {
+  id: ID!
+  name: String!
+  posts: [Post!]!
+}
+```
+
+### Step 2: Convert to FraiseQL
+
+```python
+@fraiseql.type
+class User:
+    id: str
+    name: str
+    posts: list['Post']
+```
+
+### Step 3: Move Custom Logic to Observers
+
+Apollo resolver:
+```typescript
+Mutation: {
+  createUser: async (_, { input }, context) => {
+    const user = await context.db.insert('users', input);
+    await sendWelcomeEmail(user);
+    return user;
+  }
+}
+```
+
+FraiseQL observer (the framework handles CRUD, you react to events):
+```python
+@observer(
+    entity="User",
+    event="INSERT",
+    actions=[
+        email(
+            to="{email}",
+            subject="Welcome to our platform!",
+            body="Hi {name}, thanks for signing up.",
+        ),
+    ],
+)
+def on_user_created():
+    """Send welcome email when user is created."""
+    pass
+```
+
+### Step 4: Remove DataLoaders
+
+They're not needed. Delete them.
+
+## Summary
+
+| Choose | When |
+|--------|------|
+| **Apollo** | Maximum flexibility, non-database sources, existing expertise |
+| **FraiseQL** | Database-first, zero resolvers, guaranteed performance |
+
+Apollo gives you more control. FraiseQL gives you less code.

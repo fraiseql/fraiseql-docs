@@ -1,0 +1,369 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="Migration from Hasura to FraiseQL - Step-by-Step Guide"
+  description="How to migrate from Hasura to FraiseQL for better performance and compilation."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>🔄 Migration: Hasura → FraiseQL</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>Step-by-step guide to migrate from Hasura to compiled GraphQL</strong>
+    </p>
+
+    <section style="margin: 3rem 0;">
+      <h2>Why Migrate from Hasura?</h2>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tr style="background: #f5f3ff;">
+          <th style="padding: 1rem; text-align: left; border: 1px solid #e5e7eb;">Concern</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Hasura</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">FraiseQL</th>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Query Latency</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">5-15ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1-2ms</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Determinism</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Runtime variation</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Compile-time guarantee</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>N+1 Prevention</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Developer responsible</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Compiler enforces</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Ecosystem</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Single tool</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">11 integrated tools</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Infrastructure Cost</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Higher (per-query overhead)</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Lower (pre-compiled)</td>
+        </tr>
+      </table>
+
+      <p style="margin-top: 1rem; color: #666;">
+        <em>Most teams migrate when they hit performance limits or compliance requirements that runtime interpretation can't meet.</em>
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Migration Timeline</h2>
+
+      <p>
+        <strong>Typical migration: 2-4 weeks</strong> (depends on schema complexity)
+      </p>
+
+      <ul>
+        <li><strong>Week 1:</strong> Schema extraction and FraiseQL definition</li>
+        <li><strong>Week 2:</strong> Compilation and testing</li>
+        <li><strong>Week 3:</strong> Canary deployment and validation</li>
+        <li><strong>Week 4:</strong> Full rollout and Hasura decommissioning</li>
+      </ul>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Step 1: Extract Hasura Schema</h2>
+
+      <p>
+        Get your Hasura schema definition:
+      </p>
+
+      <pre><code>{`# Using Hasura CLI
+hasura export-metadata --endpoint https://your-hasura.example.com --admin-secret <secret>
+# Outputs: metadata/
+
+# Convert to GraphQL SDL (Hasura introspection)
+curl -X POST \\
+  -H "Content-Type: application/json" \\
+  -d '{ "query": "{ __schema { types { name } } }" }' \\
+  https://your-hasura.example.com/v1/graphql > schema.graphql
+
+# Result: You now have Hasura's generated schema`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Step 2: Define FraiseQL Schema</h2>
+
+      <p>
+        Convert Hasura schema to FraiseQL decorators:
+      </p>
+
+      <pre><code>{`# Hasura: Auto-generated from database
+# FraiseQL: Explicit Python/TypeScript decorators
+
+# BEFORE (Hasura introspection)
+Hasura introspects database:
+  - Users table → User type
+  - Posts table → Post type
+  - Relationships inferred from FK
+
+# AFTER (FraiseQL explicit)
+@fraiseql.type
+class User:
+    id: int
+    name: str
+    email: str
+    posts: List[Post]  # Explicit relationship
+
+@fraiseql.type
+class Post:
+    id: int
+    title: str
+    content: str
+    user_id: int
+    author: User  # Explicit relationship
+
+# Advantages:
+# - Explicit (self-documenting)
+# - Compile-time verified
+# - No surprises at runtime`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Step 3: Map Hasura Permissions to RBAC</h2>
+
+      <pre><code>{`# HASURA PERMISSIONS
+# - Check: user_id = X-Hasura-User-Id
+# - Columns: id, name, email (NOT password_hash)
+# - Filter: status = 'active'
+
+# FRAISEQL RBAC (equivalent)
+@fraiseql.type
+class User:
+    id: int
+    name: str
+    email: str
+
+    @rbac(roles=["self", "admin"])
+    password_hash: str  # Only self or admin can see
+
+    @rbac(roles=["admin", "self"], self_access=true)
+    status: str
+
+query GetUser($id: ID!) {
+  user(id: $id) {
+    # Automatically filtered based on RBAC
+  }
+}
+
+# Convert all Hasura permission rules to FraiseQL RBAC`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Step 4: Map Hasura Queries to FraiseQL Queries</h2>
+
+      <pre><code>{`# HASURA QUERY
+query GetUserWithPosts {
+  users {
+    id
+    name
+    posts {
+      id
+      title
+      created_at
+    }
+  }
+}
+
+# FRAISEQL EQUIVALENT
+@fraiseql.query
+def get_users_with_posts() -> List[UserWithPosts]:
+    pass
+
+query GetUserWithPosts {
+  users_with_posts {
+    id
+    name
+    posts {
+      id
+      title
+      created_at
+    }
+  }
+}
+
+# All queries are pre-compiled and optimized`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Step 5: Deploy Parallel with Hasura</h2>
+
+      <p>
+        Run both for validation before full cutover:
+      </p>
+
+      <pre><code>{`# Phase 1: Deploy FraiseQL alongside Hasura
+Load Balancer
+  ├─ 5% traffic → FraiseQL (canary)
+  └─ 95% traffic → Hasura (stable)
+
+# Phase 2: Monitor (24-48 hours)
+$ fraiseql health-check
+  ✓ All queries working
+  ✓ Latency: 1-2ms (faster!)
+  ✓ No errors
+  ✓ Results match Hasura
+
+# Phase 3: Increase traffic
+  ├─ 25% → FraiseQL
+  └─ 75% → Hasura
+
+# Phase 4: Full cutover
+  ├─ 100% → FraiseQL
+  └─ 0% → Hasura (decommission)`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Step 6: Validation Checklist</h2>
+
+      <ul>
+        <li>☐ All query results match Hasura (bit-for-bit)</li>
+        <li>☐ Latency: Faster than Hasura baseline</li>
+        <li>☐ Permissions: Same access control enforced</li>
+        <li>☐ Error handling: Errors properly sanitized</li>
+        <li>☐ Subscriptions (if used): Working correctly</li>
+        <li>☐ Custom resolvers: Reimplemented as functions</li>
+        <li>☐ Audit trail: Logging all mutations</li>
+        <li>☐ Rate limiting: Configured per endpoint</li>
+      </ul>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Migration Example</h2>
+
+      <h3 style="margin-top: 2rem;">Scenario</h3>
+      <p>
+        <strong>Company:</strong> StartupX, SaaS platform using Hasura
+      </p>
+      <p>
+        <strong>Problem:</strong> Hasura performance degrading at scale (queries taking 10-20ms). Need compilation.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Week 1: Schema Definition</h3>
+      <pre><code>{`# Hasura schema
+Tables: users, organizations, projects, tasks, comments
+
+# Convert to FraiseQL decorators
+@fraiseql.type class User: ...
+@fraiseql.type class Organization: ...
+@fraiseql.type class Project: ...
+@fraiseql.type class Task: ...
+@fraiseql.type class Comment: ...
+
+# Time: 2 days (straightforward 1:1 mapping)`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Week 2: Compilation & Testing</h3>
+      <pre><code>{`# Compile schema
+$ fraiseql compile schema.json fraiseql.toml
+
+# Test queries
+$ fraiseql test --compare-with hasura-endpoint
+  ✓ GetUsers: matches (1ms vs 8ms)
+  ✓ GetProjectWithTasks: matches (2ms vs 12ms)
+  ✓ CreateTask: matches (150ms → 50ms)
+  All 150 queries verified
+
+# Time: 3 days (testing + debugging)`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Week 3: Canary Deployment</h3>
+      <pre><code>{`# Deploy FraiseQL canary
+5% traffic → FraiseQL for 48 hours
+
+Metrics:
+- Latency: 1-2ms (vs Hasura 8-15ms)
+- Error rate: 0% (matches Hasura)
+- CPU usage: 60% reduction
+- Memory: 40% reduction
+
+# Time: 2 days (monitoring + adjustment)`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Week 4: Full Rollout</h3>
+      <pre><code>{`# Traffic cutover
+100% → FraiseQL
+
+Results:
+- Latency: P99 now 2ms (vs 25ms with Hasura)
+- Infrastructure: Reduced from 20 servers to 5
+- Cost: $50k/month → $12k/month (saving $38k/month)
+- SLA: Now achievable with deterministic latency
+
+# Time: 1 day (cutover + validation)`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">ROI</h3>
+      <ul>
+        <li>✅ Migration cost: $50k (engineering time)</li>
+        <li>✅ Annual savings: $450k (infrastructure)</li>
+        <li>✅ Payback period: 1 month</li>
+        <li>✅ Performance improvement: 10-25× faster</li>
+      </ul>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Potential Challenges & Solutions</h2>
+
+      <h3 style="margin-top: 2rem;">Challenge: Custom Hasura Actions/Functions</h3>
+      <p>
+        <strong>Solution:</strong> Reimplement as FraiseQL functions or external webhooks
+      </p>
+
+      <h3 style="margin-top: 2rem;">Challenge: Hasura Remote Joins</h3>
+      <p>
+        <strong>Solution:</strong> Move federation logic to application or use FraiseQL's multi-database support
+      </p>
+
+      <h3 style="margin-top: 2rem;">Challenge: Subscriptions (Real-Time)</h3>
+      <p>
+        <strong>Solution:</strong> FraiseQL supports subscriptions via GraphQL standard
+      </p>
+
+      <h3 style="margin-top: 2rem;">Challenge: Webhooks</h3>
+      <p>
+        <strong>Solution:</strong> Implement via fraisier or custom event system
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Post-Migration: Hasura Decommissioning</h2>
+
+      <p>
+        After successful rollout:
+      </p>
+
+      <ol>
+        <li>
+          <strong>Monitor for 2 weeks:</strong> Watch for any edge cases you missed
+        </li>
+        <li>
+          <strong>Decommission Hasura:</strong> Turn off instances when confident
+        </li>
+        <li>
+          <strong>Reclaim infrastructure:</strong> Use freed resources or reduce cloud spend
+        </li>
+        <li>
+          <strong>Update documentation:</strong> Update runbooks to reference FraiseQL
+        </li>
+      </ol>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="/vs/hasura">FraiseQL vs Hasura</a> – Detailed comparison</li>
+        <li><a href="/for/devops">For DevOps</a> – Deployment and migration strategy</li>
+        <li><a href="/ecosystem/fraisier">fraisier</a> – Deployment orchestrator for safe cutover</li>
+        <li><a href="/use-cases">← Back to Use Cases</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

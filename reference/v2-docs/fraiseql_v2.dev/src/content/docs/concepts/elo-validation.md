@@ -1,0 +1,600 @@
+---
+title: Elo Validation Language
+description: Understand the Elo expression language for custom scalar validation
+---
+
+Elo is a domain-specific expression language designed for safe, human-readable validation logic. FraiseQL integrates Elo to enable powerful custom scalar validation at runtime.
+
+## What is Elo?
+
+[Elo](https://elo-lang.org/) is an expression language created by [Bernard Lambeau](https://github.com/blambeau) for expressing business rules and validation constraints. FraiseQL uses Elo to:
+
+- **Validate at runtime**: Elo expressions are interpreted when input values are received
+- **Execute safely**: No arbitrary code execution, no injection vulnerabilities
+- **Perform efficiently**: Validation executes in <100µs (99th percentile) per check
+- **Read naturally**: Concise, expressive syntax for complex validation rules
+
+In FraiseQL, Elo expressions let you define custom scalar validation rules that are:
+- Type-safe
+- Database-agnostic
+- Testable independently
+- Reusable across your schema
+
+## Elo Syntax Basics
+
+### Operators
+
+**Comparison operators:**
+```text
+value < 100
+value <= 100
+value > 0
+value >= 0
+value == "admin"
+value != "pending"
+```
+
+**Logical operators:**
+```text
+value > 0 && value < 100  # AND
+status == "active" || status == "pending"  # OR
+!is_deleted  # NOT
+```
+
+**String patterns:**
+```text
+matches(value, /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/)
+matches(value, /^[0-9]{3}-[0-9]{2}-[0-9]{4}$/)  # SSN format
+```
+
+### Functions
+
+Elo provides built-in functions for common validation tasks:
+
+**String functions:**
+```text
+length(value) >= 3  # String length
+length(value) <= 255
+```
+
+**Type checking:**
+```text
+is_string(value)
+is_number(value)
+is_date(value)
+```
+
+**Date functions:**
+```text
+age(birth_date) >= 18  # Age in years
+age(birth_date) <= 120
+today()  # Current date
+```
+
+**Numeric functions:**
+```text
+value % 2 == 0  # Even number
+value % 10 == value % 11  # Custom math
+```
+
+### Field References
+
+Access different parts of your data:
+
+```text
+# Direct value reference
+value >= 0
+
+# Nested object access (in context of mutations)
+user.email
+customer.billing_address.zip_code
+
+# Special variables
+_timestamp  # When the record was created
+_user_id  # ID of current user
+```
+
+### Literals
+
+**Numbers:**
+```text
+value > 100
+value <= 1000.50
+```
+
+**Strings:**
+```text
+status == "active"
+country == "US"
+```
+
+**Booleans:**
+```text
+is_verified == true
+is_deleted == false
+```
+
+**Dates:**
+```text
+created_at >= 2024-01-01
+birth_date < 2006-01-01  # Person must be 18+
+```
+
+## Using Elo in Custom Scalars
+
+### How Custom Scalars Are Registered
+
+FraiseQL manages custom scalars through a **thread-safe `CustomTypeRegistry`** that stores `CustomTypeDef` definitions. When you define a custom scalar, FraiseQL compiles it into a schema definition that includes the Elo expression.
+
+#### Define Custom Scalars in Python
+
+```python
+from fraiseql import scalar
+
+@scalar
+class Email(str):
+    """Email address with validation"""
+    description = "Valid RFC 5322 email address"
+    elo_expression = 'matches(value, /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/) && length(value) <= 254'
+```
+
+When you define this scalar, FraiseQL creates a `CustomTypeDef`:
+
+```rust
+pub struct CustomTypeDef {
+    pub name: "Email",
+    pub description: Some("Valid RFC 5322 email address"),
+    pub specified_by_url: None,
+    pub validation_rules: [],  // Built-in validators (if specified)
+    pub elo_expression: Some('matches(value, ...)'),
+    pub base_type: Some("String"),
+}
+```
+
+#### Configure via TOML (Schema-Less Deployment)
+
+For deployments where you configure schemas with TOML instead of code:
+
+```toml
+# config/custom_types.toml
+[[custom_types]]
+name = "Email"
+description = "Valid RFC 5322 email address"
+base_type = "String"
+elo_expression = 'matches(value, /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/) && length(value) <= 254'
+
+[[custom_types]]
+name = "ISBN"
+description = "International Standard Book Number"
+base_type = "String"
+elo_expression = '(length(value) == 10 && matches(value, /^[0-9X]{10}$/)) || (length(value) == 13 && matches(value, /^978[0-9]{10}$|^979[0-9]{10}$/))'
+
+[[custom_types]]
+name = "AdultBirthDate"
+description = "Birth date for users 18 or older"
+base_type = "Date"
+elo_expression = 'age(value) >= 18 && age(value) <= 150'
+```
+
+#### Compiled Schema Format
+
+After compilation, custom scalars appear in `schema.compiled.json`:
+
+```json
+{
+  "custom_types": [
+    {
+      "name": "Email",
+      "description": "Valid RFC 5322 email address",
+      "base_type": "String",
+      "elo_expression": "matches(value, /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/) && length(value) <= 254",
+      "specified_by_url": null
+    },
+    {
+      "name": "ISBN",
+      "description": "International Standard Book Number",
+      "base_type": "String",
+      "elo_expression": "(length(value) == 10 && matches(value, /^[0-9X]{10}$/)) || (length(value) == 13 && matches(value, /^978[0-9]{10}$|^979[0-9]{10}$/))"
+    }
+  ]
+}
+```
+
+### Runtime Validation with Elo
+
+When a query or mutation provides a value of a custom scalar type, FraiseQL's **EloExpressionEvaluator** interprets the Elo expression at runtime:
+
+#### Validation Workflow
+
+1. **Type Lookup**: Retrieve `CustomTypeDef` from registry
+2. **Rule Execution**: Execute any built-in validation rules first
+3. **Elo Evaluation**: If `elo_expression` is present, interpret it with the input value
+4. **Result**: Return success or validation error
+
+Example flow:
+
+```text
+Input Value: "john@example.com"
+    ↓
+CustomTypeRegistry.get("Email")
+    ↓
+Execute elo_expression:
+  matches(value, /^[a-zA-Z0-9._%+-]+@.../) && length(value) <= 254
+    ↓
+Result: ✅ Valid
+```
+
+#### Performance Characteristics
+
+- **Compile time** (schema building): Elo expressions parsed and validated once
+- **Runtime** (per request): Expressions interpreted in <100µs per validation
+- **Memory**: Minimal (evaluator is stateless)
+
+### Multiple Validation Rules
+
+Combine multiple conditions with logical operators:
+
+```python
+@scalar
+class Password(str):
+    """Secure password with minimum requirements"""
+    description = "Password: 8+ chars, uppercase, lowercase, number, special char"
+    elo_expression = '''
+    length(value) >= 8 &&
+    matches(value, /[A-Z]/) &&
+    matches(value, /[a-z]/) &&
+    matches(value, /[0-9]/) &&
+    matches(value, /[!@#$%^&*]/)
+    '''
+```
+
+This expression is evaluated left-to-right with short-circuit AND logic—if `length(value) >= 8` fails, the remaining conditions aren't checked.
+
+### Using Semantic Scalars as Base
+
+Extend semantic scalars with additional Elo validation:
+
+```python
+from fraiseql.scalars import Date
+
+@scalar
+class BirthDate(Date):
+    """Birth date of a person (must be 18 or older)"""
+    elo_expression = 'age(value) >= 18 && age(value) <= 120'
+```
+
+In the compiled schema, `BirthDate` inherits from the `Date` base type but adds the Elo expression constraint.
+
+### Real-World Example: ISBN Validation
+
+Here's a complete example showing how a custom ISBN scalar is defined, compiled, and validated:
+
+#### 1. Define in Schema (Python)
+
+```python
+from fraiseql import scalar, type, query
+
+@scalar
+class ISBN(str):
+    """International Standard Book Number"""
+    description = "ISBN-10 or ISBN-13 format"
+    elo_expression = '''
+    (length(value) == 10 && matches(value, /^[0-9X]{10}$/)) ||
+    (length(value) == 13 && matches(value, /^978[0-9]{10}$|^979[0-9]{10}$/))
+    '''
+
+@type
+class Book:
+    id: ID
+    title: str
+    isbn: ISBN
+    author: str
+
+@query
+def book_by_isbn(isbn: ISBN) -> Book | None:
+    return fraiseql.config(sql_source="v_book_by_isbn")
+```
+
+#### 2. Compile Schema
+
+```bash
+$ fraiseql-cli compile schema.json -o schema.compiled.json
+✅ Custom type 'ISBN' registered
+✅ Elo expression validated: (length(value) == 10...) || (length(value) == 13...)
+✅ 1 custom type compiled
+```
+
+#### 3. Compiled Schema Output
+
+```json
+{
+  "custom_types": [
+    {
+      "name": "ISBN",
+      "description": "ISBN-10 or ISBN-13 format",
+      "base_type": "String",
+      "elo_expression": "(length(value) == 10 && matches(value, /^[0-9X]{10}$/)) || (length(value) == 13 && matches(value, /^978[0-9]{10}$|^979[0-9]{10}$/))",
+      "specified_by_url": null
+    }
+  ],
+  "types": {
+    "Book": {
+      "fields": {
+        "isbn": { "type": "ISBN", "required": true }
+      }
+    }
+  }
+}
+```
+
+#### 4. Runtime Validation
+
+When a client queries:
+
+```graphql
+query {
+  bookByIsbn(isbn: "978-0-13-468599-1") {
+    title
+    author
+  }
+}
+```
+
+FraiseQL's `CustomTypeRegistry`:
+
+1. Looks up `ISBN` custom type definition
+2. Executes the Elo expression: `(length("978-0-13-468599-1") == 10 ...) || ...`
+3. **Result**: `length(...) == 13` → `true`, validates successfully ✅
+
+If the client provides an invalid ISBN:
+
+```graphql
+query {
+  bookByIsbn(isbn: "not-an-isbn") {
+    title
+  }
+}
+```
+
+The validator:
+
+1. Evaluates: `(length("not-an-isbn") == 10 ...) || ...`
+2. **Result**: Both conditions fail → `false`
+3. Returns error: `Validation error: 'not-an-isbn' is not a valid ISBN`
+
+## Common Validation Patterns
+
+### Email Validation
+
+```python
+@scalar
+class Email(str):
+    elo_expression = 'matches(value, /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/) && length(value) <= 254'
+```
+
+### ISBN Validation
+
+```python
+@scalar
+class ISBN(str):
+    """International Standard Book Number (ISBN-10 or ISBN-13)"""
+    elo_expression = '''
+    (length(value) == 10 && matches(value, /^[0-9X]{10}$/)) ||
+    (length(value) == 13 && matches(value, /^978[0-9]{10}$|^979[0-9]{10}$/))
+    '''
+```
+
+### URL Validation
+
+```python
+@scalar
+class URL(str):
+    """HTTPS URL"""
+    elo_expression = 'matches(value, /^https:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/) && length(value) >= 10 && length(value) <= 2048'
+```
+
+### Age-Based Validation
+
+```python
+@scalar
+class AdultBirthDate(Date):
+    """Birth date for adult users (18+)"""
+    elo_expression = 'age(value) >= 18 && age(value) <= 150'
+
+@scalar
+class TeenBirthDate(Date):
+    """Birth date for teen users (13-17)"""
+    elo_expression = 'age(value) >= 13 && age(value) < 18'
+```
+
+### Composite Rules
+
+```python
+@scalar
+class Username(str):
+    """Username: 3-20 chars, alphanumeric + underscore, no leading digit"""
+    elo_expression = '''
+    length(value) >= 3 &&
+    length(value) <= 20 &&
+    matches(value, /^[a-zA-Z_][a-zA-Z0-9_]*$/)
+    '''
+```
+
+### Numeric Range with Precision
+
+```python
+@scalar
+class Price(float):
+    """Product price in USD (0.01 to 999,999.99)"""
+    elo_expression = 'value >= 0.01 && value <= 999999.99'
+
+@scalar
+class Percentage(float):
+    """Percentage value (0-100)"""
+    elo_expression = 'value >= 0 && value <= 100'
+```
+
+### Phone Number Validation
+
+```python
+@scalar
+class USPhoneNumber(str):
+    """US phone number (10 digits)"""
+    elo_expression = 'matches(value, /^[0-9]{3}-[0-9]{3}-[0-9]{4}$|^[0-9]{10}$/) && length(value) >= 10'
+```
+
+## Advanced Features
+
+### Cross-Field Validation
+
+In mutation contexts, reference multiple fields:
+
+```python
+@scalar
+class ValidDateRange(str):
+    """Ensures start_date < end_date in mutations"""
+    elo_expression = 'start_date < end_date'
+```
+
+Use in a mutation:
+
+```python
+@mutation
+class CreateEvent:
+    name: str
+    start_date: Date
+    end_date: Date
+    date_validation: ValidDateRange  # Triggers cross-field check
+```
+
+### Contextual Validation
+
+Access user context in expressions:
+
+```python
+@scalar
+class AdminEmail(str):
+    """Email restricted to admin users"""
+    elo_expression = '_user_role == "admin" && matches(value, /@company\.com$/)'
+```
+
+### Time-Based Validation
+
+```python
+@scalar
+class FutureDate(Date):
+    """Date must be in the future"""
+    elo_expression = 'value > today()'
+
+@scalar
+class RecentDate(Date):
+    """Date must be within last 30 days"""
+    elo_expression = 'age(today(), value) <= 30'
+```
+
+### Compile-Time Schema Optimization
+
+When FraiseQL compiles your schema, it:
+
+1. **Parses** each Elo expression
+2. **Type-checks** against the scalar's base type
+3. **Validates** that all functions are valid
+4. **Optimizes** the expression for target languages
+5. **Generates** database constraints when possible
+
+For example:
+
+```python
+@scalar
+class PositiveInteger(int):
+    elo_expression = 'value > 0'
+```
+
+FraiseQL generates:
+- **PostgreSQL**: `CHECK (column > 0)`
+- **MySQL**: `CHECK (column > 0)`
+- **SQLite**: `CHECK (column > 0)`
+- **SQL Server**: `CHECK ([column] > 0)`
+- **JavaScript**: Compiled function `(value) => value > 0`
+- **Rust**: Type-safe validator function
+
+## Troubleshooting
+
+### Syntax Errors
+
+**Error: "Unknown function 'validate'"**
+```python
+# ❌ Wrong
+elo_expression = 'validate(value)'
+
+# ✅ Correct
+elo_expression = 'length(value) > 0'
+```
+
+### Type Mismatches
+
+**Error: "Cannot compare string to number"**
+```python
+@scalar
+class Age(int):
+    # ❌ Wrong - comparing int to string
+    elo_expression = 'value == "18"'
+
+    # ✅ Correct - comparing int to int
+    elo_expression = 'value == 18'
+```
+
+### Regex Syntax Issues
+
+**Error: "Invalid regex pattern"**
+```python
+@scalar
+class Email(str):
+    # ❌ Wrong - unescaped dots
+    elo_expression = 'matches(value, /^[a-z]+@[a-z]+.[a-z]+$/)'
+
+    # ✅ Correct - escaped special chars
+    elo_expression = 'matches(value, /^[a-z]+@[a-z]+\\.[a-z]+$/)'
+```
+
+### Performance Considerations
+
+**Validation Targets:**
+- **Database level** (<1µs): `CHECK` constraints
+- **Application level** (<100µs): Compiled validators
+- **API boundary** (<1ms): HTTP request validation
+
+**Optimization tips:**
+- Put most restrictive checks first (short-circuit AND)
+- Use database constraints for high-volume checks
+- Cache compiled validators
+- Batch validate in bulk operations
+
+### Testing Elo Expressions
+
+Validate expressions before deployment:
+
+```python
+from fraiseql.validation import validate_elo
+
+# Test expression compiles
+validate_elo('value > 0 && value < 100', base_type='int')
+
+# Test with values
+from fraiseql.elo import compile_expression
+validator = compile_expression('length(value) >= 3', 'string')
+assert validator('hello') == True
+assert validator('hi') == False
+```
+
+## Next Steps
+
+- **[Custom Scalar Types](../guides/custom-scalars.md)** - Learn how to implement and configure custom scalars
+- **[Semantic Scalars Reference](../reference/semantic-scalars.md)** - Explore built-in scalars you can extend
+- **[Type System Guide](./type-system.md)** - Understand FraiseQL's type system
+
+## Resources
+
+- [Elo Language Official Site](https://elo-lang.org/)
+- [Bernard Lambeau's Work](https://github.com/blambeau)
+- [Elo GitHub Repository](https://github.com/elo-lang/elo)

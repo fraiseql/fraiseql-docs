@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Production Status - FraiseQL</title>
+    <meta name="description" content="FraiseQL production readiness status, feature maturity, and deployment guidance.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+        .badge.stable {
+            background: #10b981;
+            color: white;
+        }
+        .badge.planned {
+            background: #6b7280;
+            color: white;
+        }
+        .status-card {
+            transition: transform 0.2s;
+        }
+        .status-card:hover {
+            transform: translateY(-4px);
+        }
+    </style>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-3xl md:text-5xl font-bold leading-tight">Production Status</h1>
+
+            <!-- Dynamic Badges -->
+            <div class="flex flex-wrap justify-center gap-2 mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=for-the-badge&logo=python&logoColor=white" alt="PyPI version">
+                <img src="https://img.shields.io/pypi/status/fraiseql?style=for-the-badge" alt="Status">
+                <img src="https://img.shields.io/github/license/fraiseql/fraiseql?style=for-the-badge" alt="License">
+            </div>
+
+            <p class="leading-normal text-lg md:text-2xl">
+                FraiseQL is production-ready and actively maintained
+            </p>
+        </div>
+    </div>
+
+    <!-- Production Status -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="text-2xl md:text-4xl font-bold text-center text-gray-800 mb-12">Current Status</h2>
+
+            <div class="grid md:grid-cols-3 gap-8 mb-12">
+                <div class="bg-white rounded-lg shadow-lg p-6 status-card border-t-4 border-green-500">
+                    <div class="text-4xl mb-4">✅</div>
+                    <h3 class="text-2xl font-bold mb-2">Production-Ready</h3>
+                    <p class="text-gray-700">
+                        Stable API surface with comprehensive test coverage and real-world usage validation
+                    </p>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-lg p-6 status-card border-t-4 border-blue-500">
+                    <div class="text-4xl mb-4">🚀</div>
+                    <h3 class="text-2xl font-bold mb-2">Active Development</h3>
+                    <p class="text-gray-700">
+                        Regular releases with new features, performance improvements, and bug fixes
+                    </p>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-lg p-6 status-card border-t-4 border-purple-500">
+                    <div class="text-4xl mb-4">🛡️</div>
+                    <h3 class="text-2xl font-bold mb-2">Enterprise Patterns</h3>
+                    <p class="text-gray-700">
+                        Built-in support for multi-tenancy, APQ, CQRS architecture, and audit logging
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature Maturity Table -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="text-2xl md:text-4xl font-bold text-center text-gray-800 mb-8">Feature Maturity</h2>
+
+            <div class="overflow-x-auto">
+                <table class="w-full bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Feature</th>
+                            <th class="px-6 py-3 text-left">Status</th>
+                            <th class="px-6 py-3 text-left">Production Use</th>
+                            <th class="px-6 py-3 text-left">Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4 font-semibold">APQ with Multi-Tenant Isolation</td>
+                            <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                            <td class="px-6 py-4">✅ Production</td>
+                            <td class="px-6 py-4">Sub-5ms cached responses</td>
+                        </tr>
+                         <tr class="border-b bg-gray-50">
+                             <td class="px-6 py-4 font-semibold">Hybrid Table Optimization</td>
+                             <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                             <td class="px-6 py-4">✅ Production</td>
+                             <td class="px-6 py-4">10-100x faster queries<br><small class="text-gray-500">(vs traditional ORM JOINs)</small></td>
+                         </tr>
+                         <tr class="border-b">
+                             <td class="px-6 py-4 font-semibold">Rust Pipeline Performance</td>
+                             <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                             <td class="px-6 py-4">✅ Production</td>
+                             <td class="px-6 py-4">7-10x faster JSON transformation<br><small class="text-gray-500">(Rust vs Python processing)</small></td>
+                         </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4 font-semibold">Database-First CQRS</td>
+                            <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                            <td class="px-6 py-4">✅ Production</td>
+                            <td class="px-6 py-4">PostgreSQL Views & Functions</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4 font-semibold">Specialized PostgreSQL Types</td>
+                            <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                            <td class="px-6 py-4">✅ Production</td>
+                            <td class="px-6 py-4">IPv4/IPv6, LTree, DateRange, etc.</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4 font-semibold">LLM-Optimized Patterns</td>
+                            <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                            <td class="px-6 py-4">✅ Production</td>
+                            <td class="px-6 py-4">Claude/Copilot friendly</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4 font-semibold">Advanced Filtering (38+ Operators)</td>
+                            <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                            <td class="px-6 py-4">✅ Production</td>
+                            <td class="px-6 py-4">Full-text search, JSONB, arrays, regex</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4 font-semibold">Security Architecture</td>
+                            <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                            <td class="px-6 py-4">✅ Production</td>
+                            <td class="px-6 py-4">Explicit contracts, audit trails</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4 font-semibold">AI-Native Development</td>
+                            <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                            <td class="px-6 py-4">✅ Production</td>
+                            <td class="px-6 py-4">LLM-friendly patterns & contracts</td>
+                        </tr>
+                         <tr class="border-b bg-gray-50">
+                             <td class="px-6 py-4 font-semibold">GraphQL Subscriptions</td>
+                             <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                             <td class="px-6 py-4">✅ Production</td>
+                             <td class="px-6 py-4">WebSocket support, filtering, caching</td>
+                         </tr>
+                         <tr class="border-b">
+                             <td class="px-6 py-4">
+                                 <span class="font-semibold">pgvector Integration</span>
+                                 <p class="text-sm text-gray-500">Native vector similarity search with 9+ distance operators</p>
+                             </td>
+                             <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                             <td class="px-6 py-4">✅ Production</td>
+                             <td class="px-6 py-4"><a href="/features/pgvector.html" class="text-red-600 hover:underline">Details →</a></td>
+                         </tr>
+                         <tr class="border-b bg-gray-50">
+                             <td class="px-6 py-4">
+                                 <span class="font-semibold">GraphQL Cascade</span>
+                                 <p class="text-sm text-gray-500">Automatic cache invalidation with mutation side effects</p>
+                             </td>
+                             <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                             <td class="px-6 py-4">✅ Production</td>
+                             <td class="px-6 py-4"><a href="/features/cascade.html" class="text-red-600 hover:underline">Details →</a></td>
+                         </tr>
+                         <tr class="border-b">
+                             <td class="px-6 py-4">
+                                 <span class="font-semibold">LangChain Integration</span>
+                                 <p class="text-sm text-gray-500">Build RAG applications with LangChain + FraiseQL</p>
+                             </td>
+                             <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                             <td class="px-6 py-4">✅ Production</td>
+                             <td class="px-6 py-4"><a href="/features/ai-frameworks.html" class="text-red-600 hover:underline">Details →</a></td>
+                         </tr>
+                         <tr class="border-b bg-gray-50">
+                             <td class="px-6 py-4">
+                                 <span class="font-semibold">LlamaIndex Integration</span>
+                                 <p class="text-sm text-gray-500">Build RAG applications with LlamaIndex + FraiseQL</p>
+                             </td>
+                             <td class="px-6 py-4"><span class="badge stable">Stable</span></td>
+                             <td class="px-6 py-4">✅ Production</td>
+                             <td class="px-6 py-4"><a href="/features/ai-frameworks.html" class="text-red-600 hover:underline">Details →</a></td>
+                         </tr>
+                     </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Production Guidance -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="text-2xl md:text-4xl font-bold text-center text-gray-800 mb-12">Production Deployment Guidance</h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <!-- Recommended -->
+                <div class="bg-green-50 border-2 border-green-500 rounded-lg p-8">
+                    <h3 class="text-2xl font-bold mb-4 text-green-800">✅ Recommended For Production</h3>
+                    <ul class="space-y-3 text-gray-700">
+                        <li class="flex items-start">
+                            <span class="text-green-600 mr-2">✓</span>
+                            <span>Multi-tenant SaaS applications</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-green-600 mr-2">✓</span>
+                            <span>High-performance APIs (sub-10ms requirements)</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-green-600 mr-2">✓</span>
+                            <span>PostgreSQL-first architectures</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-green-600 mr-2">✓</span>
+                            <span>Teams using FastAPI with async/await</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-green-600 mr-2">✓</span>
+                            <span>Projects requiring enterprise patterns (APQ, CQRS, audit logs)</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-green-600 mr-2">✓</span>
+                            <span>Development teams using AI coding assistants</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Consider Alternatives -->
+                <div class="bg-yellow-50 border-2 border-yellow-500 rounded-lg p-8">
+                    <h3 class="text-2xl font-bold mb-4 text-yellow-800">⚠️ Consider Alternatives If</h3>
+                    <ul class="space-y-3 text-gray-700">
+                        <li class="flex items-start">
+                            <span class="text-yellow-600 mr-2">•</span>
+                            <span>You need multi-database support (MySQL, MongoDB, etc.)</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-yellow-600 mr-2">•</span>
+                            <span>Using Django (integration possible but not first-class)</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-yellow-600 mr-2">•</span>
+                            <span>Simple CRUD with no performance requirements</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-yellow-600 mr-2">•</span>
+                            <span>Cannot use Python 3.13+ (framework requirement)</span>
+                        </li>
+                    </ul>
+                    <p class="mt-4 text-sm text-gray-600">
+                        See <a href="https://hasura.io" class="text-blue-600 underline">Hasura</a> or
+                        <a href="https://strawberry.rocks" class="text-blue-600 underline">Strawberry GraphQL</a> for alternatives.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Requirements -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="text-2xl md:text-4xl font-bold text-center text-gray-800 mb-8">Requirements & Compatibility</h2>
+
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold mb-2 text-gray-800">Python</h3>
+                    <p class="text-2xl font-bold text-red-600 mb-2">3.13+</p>
+                    <p class="text-gray-600 text-sm">Required for modern type system features and performance optimizations</p>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold mb-2 text-gray-800">PostgreSQL</h3>
+                    <p class="text-2xl font-bold text-red-600 mb-2">13+</p>
+                    <p class="text-gray-600 text-sm">Uses JSONB, Functions, Views, and specialized types extensively</p>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold mb-2 text-gray-800">FastAPI</h3>
+                    <p class="text-2xl font-bold text-red-600 mb-2">0.115+</p>
+                    <p class="text-gray-600 text-sm">Async-first integration with dependency injection</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Release History -->
+    <section class="bg-white py-12">
+        <div class="container max-w-4xl mx-auto px-6 text-center">
+            <h2 class="text-2xl md:text-4xl font-bold text-gray-800 mb-4">Release History & Changelog</h2>
+            <p class="text-lg text-gray-700 mb-6">
+                For detailed release notes, version history, and breaking changes, see:
+            </p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="https://github.com/fraiseql/fraiseql/releases" class="bg-gray-800 text-white font-bold rounded-full py-3 px-8 shadow hover:bg-gray-700 transition">
+                    GitHub Releases
+                </a>
+                <a href="https://github.com/fraiseql/fraiseql/blob/main/CHANGELOG.md" class="bg-white border-2 border-gray-800 text-gray-800 font-bold rounded-full py-3 px-8 shadow hover:bg-gray-100 transition">
+                    CHANGELOG.md
+                </a>
+                <a href="https://pypi.org/project/fraiseql/#history" class="bg-white border-2 border-gray-800 text-gray-800 font-bold rounded-full py-3 px-8 shadow hover:bg-gray-100 transition">
+                    PyPI History
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql" alt="Version" class="inline mr-2">
+                <img src="https://img.shields.io/github/license/fraiseql/fraiseql" alt="License" class="inline">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-red-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

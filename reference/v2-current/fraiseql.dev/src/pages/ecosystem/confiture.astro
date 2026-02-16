@@ -1,0 +1,166 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="confiture - PostgreSQL Migrations | FraiseQL"
+  description="Fast, deterministic database migrations. 600× faster than traditional migration tools. Supports DDL builds, incremental, production sync, and multi-agent strategies."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>🍓 confiture</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>PostgreSQL Migrations</strong> – Fast, deterministic schema changes
+    </p>
+
+    <section style="margin: 2rem 0;">
+      <h2>What It Does</h2>
+      <p>
+        confiture is a migration orchestrator that optimizes PostgreSQL schema
+        changes for speed and consistency.
+      </p>
+      <ul>
+        <li>
+          <strong>600× faster builds</strong> for dev/test environments
+        </li>
+        <li>
+          <strong>4 migration strategies</strong>: DDL, Incremental, Production,
+          Multi-Agent
+        </li>
+        <li>
+          <strong>Zero-downtime deploys</strong>: Blue/green support
+        </li>
+        <li>
+          <strong>Deterministic execution</strong>: Reproducible results
+        </li>
+        <li>
+          <strong>Dependency tracking</strong>: Automatic ordering
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Why It Exists</h2>
+      <p>
+        Traditional migration tools (Alembic, Flyway, Liquibase) are slow and
+        not optimized for PostgreSQL:
+      </p>
+      <ul>
+        <li>Per-migration overhead costs 500ms+ each</li>
+        <li>No build strategy optimization for test environments</li>
+        <li>Manual coordination for parallel migrations</li>
+        <li>Limited zero-downtime capabilities</li>
+      </ul>
+      <p>confiture solves this with PostgreSQL-native optimization strategies.</p>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Migration Strategies</h2>
+      <ul>
+        <li>
+          <strong>DDL Build</strong>: Create full schema from scratch (<1s for
+          complex schemas)
+        </li>
+        <li>
+          <strong>Incremental</strong>: Apply deltas sequentially (local dev
+          friendly)
+        </li>
+        <li>
+          <strong>Production Sync</strong>: Zero-downtime blue/green with
+          automated failover
+        </li>
+        <li>
+          <strong>Multi-Agent</strong>: Parallel execution with coordination
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Performance</h2>
+      <ul>
+        <li>
+          <strong>Dev/test environments</strong>: 600× faster (1s vs 10min)
+        </li>
+        <li>
+          <strong>Production deploys</strong>: Zero-downtime with 99.99%
+          uptime
+        </li>
+        <li>
+          <strong>Dependency resolution</strong>: O(n) instead of O(n²)
+        </li>
+        <li>
+          <strong>Rollback capability</strong>: Instant rollback with snapshots
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Technology Stack</h2>
+      <ul>
+        <li>
+          <strong>Language</strong>: Rust (high-performance coordination)
+        </li>
+        <li>
+          <strong>Database</strong>: PostgreSQL 13+ (native SQL DDL)
+        </li>
+        <li>
+          <strong>Concurrency</strong>: Tokio for parallel execution
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Integration with Other Tools</h2>
+      <ul>
+        <li>
+          <strong>fraiseql</strong>: Used during compilation to validate schema
+        </li>
+        <li>
+          <strong>fraisier</strong>: Deployment orchestrator uses confiture for
+          production migrations
+        </li>
+        <li>
+          <strong>fraiseql-seed</strong>: Works together for test environment setup
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Quick Start</h2>
+      <pre><code># Install
+npm install confiture-cli
+
+# Define migrations (YAML)
+migrations:
+  001-users:
+    sql: CREATE TABLE users (id BIGSERIAL PRIMARY KEY)
+  002-orders:
+    sql: CREATE TABLE orders (id BIGSERIAL, user_id BIGINT REFERENCES users)
+
+# Apply migrations
+confiture migrate --strategy=ddl  # Dev/test
+confiture migrate --strategy=production-sync  # Production</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>GitHub Repository</h2>
+      <p>
+        <a href="https://github.com/fraiseql/confiture" target="_blank">
+          Visit confiture on GitHub →
+        </a>
+      </p>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Related Tools</h2>
+      <ul>
+        <li><a href="/ecosystem/fraiseql-core">fraiseql</a> – Core engine</li>
+        <li><a href="/ecosystem/fraiseql-seed">fraiseql-seed</a> – Test data</li>
+        <li><a href="/ecosystem">← Back to Ecosystem</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

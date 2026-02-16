@@ -1,0 +1,127 @@
+<svg viewBox="0 0 800 450" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .header { font-size: 20px; font-weight: bold; fill: #e63946; }
+      .label { font-size: 12px; font-weight: bold; fill: #333; }
+      .description { font-size: 11px; fill: #666; }
+      .read-box { fill: #e8f4f8; stroke: #0891b2; stroke-width: 2; }
+      .write-box { fill: #fee2e2; stroke: #dc2626; stroke-width: 2; }
+      .data-box { fill: #f5f3ff; stroke: #7c3aed; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" class="header">CQRS Pattern: Reads vs Writes</text>
+
+  <!-- Center Data Layer -->
+  <rect x="280" y="150" width="240" height="80" rx="8" class="data-box"/>
+  <text x="400" y="175" text-anchor="middle" font-size="14" font-weight="bold" fill="#7c3aed">PostgreSQL Tables</text>
+  <text x="400" y="195" text-anchor="middle" class="description">tb_users, tb_orders, tb_products</text>
+  <text x="400" y="210" text-anchor="middle" class="description">Source of Truth (Write Tables)</text>
+
+  <!-- Read Side (Queries) -->
+  <g transform="translate(50, 60)">
+    <rect x="0" y="0" width="180" height="280" rx="8" class="read-box" opacity="0.3"/>
+
+    <text x="90" y="30" text-anchor="middle" class="header" fill="#0891b2">READ SIDE</text>
+    <text x="90" y="50" text-anchor="middle" class="description">Queries & Selections</text>
+
+    <!-- Logical Views -->
+    <g transform="translate(10, 70)">
+      <rect x="0" y="0" width="160" height="60" rx="4" class="read-box"/>
+      <text x="80" y="20" text-anchor="middle" font-size="11" font-weight="bold" fill="#0891b2">Logical Views (v_*)</text>
+      <text x="80" y="40" text-anchor="middle" class="description">v_user_summary</text>
+      <text x="80" y="55" text-anchor="middle" class="description">v_recent_orders</text>
+    </g>
+
+    <!-- Materialized Views -->
+    <g transform="translate(10, 145)">
+      <rect x="0" y="0" width="160" height="60" rx="4" class="read-box"/>
+      <text x="80" y="20" text-anchor="middle" font-size="11" font-weight="bold" fill="#0891b2">Materialized Views (tv_*)</text>
+      <text x="80" y="40" text-anchor="middle" class="description">tv_user_stats (JSONB)</text>
+      <text x="80" y="55" text-anchor="middle" class="description">tv_sales_dashboard</text>
+    </g>
+
+    <!-- Window Functions -->
+    <g transform="translate(10, 220)">
+      <rect x="0" y="0" width="160" height="50" rx="4" class="read-box"/>
+      <text x="80" y="20" text-anchor="middle" font-size="11" font-weight="bold" fill="#0891b2">Window Functions</text>
+      <text x="80" y="40" text-anchor="middle" class="description">row_number(), rank(), lag()</text>
+    </g>
+
+    <!-- GraphQL Queries -->
+    <g transform="translate(10, 285)">
+      <text x="80" y="0" text-anchor="middle" class="label" fill="#0891b2">→ GraphQL Queries</text>
+      <text x="80" y="15" text-anchor="middle" class="description">users, orders, analytics</text>
+    </g>
+  </g>
+
+  <!-- Write Side (Mutations) -->
+  <g transform="translate(570, 60)">
+    <rect x="0" y="0" width="180" height="280" rx="8" class="write-box" opacity="0.3"/>
+
+    <text x="90" y="30" text-anchor="middle" class="header" fill="#dc2626">WRITE SIDE</text>
+    <text x="90" y="50" text-anchor="middle" class="description">Mutations & Commands</text>
+
+    <!-- SQL Functions -->
+    <g transform="translate(10, 70)">
+      <rect x="0" y="0" width="160" height="60" rx="4" class="write-box"/>
+      <text x="80" y="20" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">SQL Functions (fn_*)</text>
+      <text x="80" y="40" text-anchor="middle" class="description">fn_create_user(...)</text>
+      <text x="80" y="55" text-anchor="middle" class="description">fn_place_order(...)</text>
+    </g>
+
+    <!-- Triggers & Constraints -->
+    <g transform="translate(10, 145)">
+      <rect x="0" y="0" width="160" height="60" rx="4" class="write-box"/>
+      <text x="80" y="20" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">Triggers & Constraints</text>
+      <text x="80" y="40" text-anchor="middle" class="description">Update event log</text>
+      <text x="80" y="55" text-anchor="middle" class="description">Enforce consistency</text>
+    </g>
+
+    <!-- Transactions -->
+    <g transform="translate(10, 220)">
+      <rect x="0" y="0" width="160" height="50" rx="4" class="write-box"/>
+      <text x="80" y="20" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">ACID Transactions</text>
+      <text x="80" y="40" text-anchor="middle" class="description">Strong consistency</text>
+    </g>
+
+    <!-- GraphQL Mutations -->
+    <g transform="translate(10, 285)">
+      <text x="80" y="0" text-anchor="middle" class="label" fill="#dc2626">→ GraphQL Mutations</text>
+      <text x="80" y="15" text-anchor="middle" class="description">createUser, updateOrder</text>
+    </g>
+  </g>
+
+  <!-- Arrows from views to center -->
+  <defs>
+    <marker id="arrowRead" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#0891b2"/>
+    </marker>
+    <marker id="arrowWrite" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <!-- Read arrows -->
+  <path d="M 230,200 L 280,190" stroke="#0891b2" stroke-width="2" fill="none" marker-end="url(#arrowRead)" stroke-dasharray="5,5"/>
+  <text x="255" y="185" text-anchor="middle" class="description">SELECT</text>
+
+  <!-- Write arrows -->
+  <path d="M 570,210 L 520,210" stroke="#dc2626" stroke-width="2" fill="none" marker-end="url(#arrowWrite)" stroke-dasharray="5,5"/>
+  <text x="545" y="225" text-anchor="middle" class="description">INSERT/UPDATE</text>
+
+  <!-- Bottom explanation -->
+  <g transform="translate(50, 370)">
+    <text x="0" y="0" font-size="12" font-weight="bold" fill="#333">Key Principle:</text>
+    <text x="0" y="20" font-size="11" fill="#666">
+      • Reads: Pre-computed views and materialized tables for O(1) performance
+    </text>
+    <text x="0" y="35" font-size="11" fill="#666">
+      • Writes: SQL functions with transactional semantics for consistency
+    </text>
+    <text x="0" y="50" font-size="11" fill="#666">
+      • Separation of concerns: Views for reads, functions for writes
+    </text>
+  </g>
+</svg>

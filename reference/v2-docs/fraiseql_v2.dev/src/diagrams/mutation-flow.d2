@@ -1,0 +1,59 @@
+# GraphQL Mutation Execution Flow
+
+direction: down
+
+mutation: "GraphQL Mutation" {
+  shape: oval
+  style.fill: "#ea580c"
+  style.stroke: "#f97316"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+}
+
+sql: "SQL Function" {
+  shape: cylinder
+  style.fill: "#9333ea"
+  style.stroke: "#a855f7"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+}
+
+sync: "Sync Read Views" {
+  shape: cylinder
+  style.fill: "#ea580c"
+  style.stroke: "#f97316"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+}
+
+response: "Return from Views" {
+  shape: oval
+  style.fill: "#059669"
+  style.stroke: "#10b981"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+}
+
+mutation -> sql: "Parse & validate" {
+  style.stroke-width: 3
+  style.stroke: "#e03131"
+  style.font-size: 16
+  style.bold: true
+  style.font-color: "#7a1616"
+}
+
+sql -> sync: "Write to tb_ tables" {
+  style.stroke-width: 3
+  style.stroke: "#a855f7"
+  style.font-size: 16
+  style.bold: true
+  style.font-color: "#581c87"
+}
+
+sync -> response: "Read from v_ views" {
+  style.stroke-width: 3
+  style.stroke: "#e03131"
+  style.font-size: 16
+  style.bold: true
+  style.font-color: "#7a1616"
+}

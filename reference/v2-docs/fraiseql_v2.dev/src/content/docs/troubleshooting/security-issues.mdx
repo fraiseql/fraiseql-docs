@@ -1,0 +1,860 @@
+---
+title: Security Issues
+description: Troubleshoot FraiseQL security and authentication problems
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Security Issues
+
+Solutions for FraiseQL security and authentication problems.
+
+## Authentication Issues
+
+### Invalid Token
+**Problem**: `Error: Invalid token`
+
+**Causes**:
+- Token expired
+- Token signed with different secret
+- Malformed token
+- Token from different issuer
+
+**Solutions**:
+```bash
+# 1. Decode token to check (without verification)
+python3 -c "
+import jwt
+import json
+token = 'your-token'
+decoded = jwt.decode(token, options={'verify_signature': False})
+print(json.dumps(decoded, indent=2))
+"
+
+# 2. Check token expiration
+# If 'exp' field is in past, token is expired
+python3 -c "
+from datetime import datetime
+import jwt
+decoded = jwt.decode(token, options={'verify_signature': False})
+exp = decoded.get('exp')
+if exp:
+    print('Expires:', datetime.fromtimestamp(exp))
+    print('Expired:', datetime.now().timestamp() > exp)
+"
+
+# 3. Verify JWT_SECRET matches
+echo $JWT_SECRET
+
+# 4. Check if secret changed recently
+# Tokens signed with old secret won't work with new secret
+# Solution: Re-issue tokens
+
+# 5. Verify token format
+# Should be: eyJhbGciOiJIUzI1NiI...
+# Three parts separated by dots: header.payload.signature
+```
+
+### Missing Authorization Header
+**Problem**: `Error: Missing Authorization header`
+
+**Cause**: Client not sending authentication
+
+**Solutions**:
+```bash
+# 1. Check client is sending header
+# JavaScript:
+fetch(url, {
+    headers: {
+        'Authorization': `Bearer ${token}`
+    }
+})
+
+# 2. Check header format
+# Should be: Bearer <token>
+# Not: Token <token>
+# Not: <token> (no prefix)
+
+# 3. Test with curl
+curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8000/graphql
+
+# 4. Check if endpoint requires auth
+# Some endpoints might be public (@public decorator)
+@fraiseql.query
+def public_posts() -> list[Post]:
+    pass
+
+# 5. Check auth middleware is enabled
+# FraiseQL should automatically extract token from header
+# Verify in logs: LOG_LEVEL=debug
+```
+
+### Token Expired
+**Problem**: `Error: Token has expired`
+
+**Solutions**:
+```bash
+# 1. Check token expiration
+decoded = jwt.decode(token, options={'verify_signature': False})
+exp = decoded.get('exp')  # Timestamp when token expires
+
+# 2. Re-issue token
+# Token valid for 1 hour (typical)
+# After 1 hour, must authenticate again
+
+# 3. Implement token refresh
+@fraiseql.mutation
+def refresh_token(refresh_token: str) -> TokenResponse:
+    # Validate refresh token
+    # Issue new access token
+    return TokenResponse(
+        access_token=new_token,
+        expires_in=3600
+    )
+
+# 4. Client auto-refresh
+// When access token expires:
+const new_token = await refresh_token(refresh_token)
+// Store and use new token
+
+# 5. Increase token expiry (not recommended)
+# Short-lived tokens (1 hour) are more secure
+# If needed, use sliding window:
+# Token auto-refreshes if used within last 5 minutes
+```
+
+### CORS Preflight Failed
+**Problem**: `Error: CORS policy: Response to preflight request`
+
+**Cause**: CORS configuration incorrect
+
+**Solutions**:
+```bash
+# 1. Check CORS_ORIGINS
+echo $CORS_ORIGINS
+# Should include your frontend origin
+
+# 2. Add frontend origin if missing
+CORS_ORIGINS=https://app.example.com,https://localhost:3000
+
+# 3. Test preflight request
+curl -X OPTIONS http://localhost:8000/graphql \
+  -H "Origin: https://app.example.com" \
+  -H "Access-Control-Request-Method: POST"
+
+# 4. Verify response includes correct headers
+# Should have:
+# Access-Control-Allow-Origin: https://app.example.com
+# Access-Control-Allow-Methods: GET, POST, OPTIONS
+
+# 5. For development with multiple origins
+CORS_ORIGINS=*  # Allow all (development only!)
+
+# 6. For production
+CORS_ORIGINS=https://app.example.com,https://www.example.com
+```
+
+---
+
+## Authorization Issues
+
+### Permission Denied
+**Problem**: `Error: User does not have permission`
+
+**Cause**: User role lacks required permission
+
+**Solutions**:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```bash
+    # 1. Check user's current role
+    SELECT role FROM users WHERE id = 123;
+
+    # 2. Check what permissions role has
+    SELECT rp.permission
+    FROM user_roles ur
+    JOIN role_permissions rp ON ur.role_id = rp.role_id
+    WHERE ur.user_id = 123;
+
+    # 3. Add missing permission
+    INSERT INTO role_permissions (role_id, permission_id)
+    VALUES (
+        (SELECT role_id FROM user_roles WHERE user_id = 123),
+        (SELECT id FROM permissions WHERE name = 'read:posts')
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```bash
+    # 1. Check user's current role
+    SELECT role FROM users WHERE id = 123;
+
+    # 2. Check what permissions role has
+    SELECT rp.permission
+    FROM user_roles ur
+    INNER JOIN role_permissions rp ON ur.role_id = rp.role_id
+    WHERE ur.user_id = 123;
+
+    # 3. Add missing permission
+    INSERT INTO role_permissions (role_id, permission_id)
+    SELECT ur.role_id, p.id
+    FROM user_roles ur, permissions p
+    WHERE ur.user_id = 123 AND p.name = 'read:posts';
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # 1. Check user's current role
+    SELECT role FROM users WHERE id = 123;
+
+    # 2. Check what permissions role has
+    SELECT rp.permission
+    FROM user_roles ur
+    JOIN role_permissions rp ON ur.role_id = rp.role_id
+    WHERE ur.user_id = 123;
+
+    # 3. Add missing permission
+    INSERT INTO role_permissions (role_id, permission_id)
+    SELECT ur.role_id, p.id
+    FROM user_roles ur, permissions p
+    WHERE ur.user_id = 123 AND p.name = 'read:posts';
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```bash
+    # 1. Check user's current role
+    SELECT role FROM users WHERE id = 123;
+
+    # 2. Check what permissions role has
+    SELECT rp.permission
+    FROM user_roles ur
+    INNER JOIN role_permissions rp ON ur.role_id = rp.role_id
+    WHERE ur.user_id = 123;
+
+    # 3. Add missing permission
+    INSERT INTO role_permissions (role_id, permission_id)
+    SELECT ur.role_id, p.id
+    FROM user_roles ur, permissions p
+    WHERE ur.user_id = 123 AND p.name = 'read:posts';
+    ```
+  </TabItem>
+</Tabs>
+
+```python
+# 4. Check query requires correct scope
+@fraiseql.query(requires_scope="read:posts")
+def posts() -> list[Post]:
+    pass
+
+# 5. Verify user token includes required scope
+decoded = jwt.decode(token, options={'verify_signature': False})
+scopes = decoded.get('scopes', [])
+# Should include required scope
+```
+
+### Insufficient Scope
+**Problem**: `Error: Insufficient scope for this operation`
+
+**Cause**: Token doesn't have required permission
+
+**Solutions**:
+```bash
+# 1. Check token scopes
+python3 -c "
+import jwt
+token = 'your-token'
+decoded = jwt.decode(token, options={'verify_signature': False})
+print('Scopes:', decoded.get('scopes'))
+"
+
+# 2. Check what scope is required
+@fraiseql.mutation(requires_scope="write:posts")
+def create_post(...) -> Post:
+    pass
+
+# 3. Get new token with correct scopes
+# Authenticate with required scopes
+POST /auth/login
+{
+    "username": "user",
+    "password": "pass",
+    "scopes": ["read:posts", "write:posts"]
+}
+
+# 4. Check if token was issued with scopes
+# When creating token:
+jwt.encode({
+    'user_id': 123,
+    'scopes': ['read:posts', 'write:posts'],
+    'exp': datetime.utcnow() + timedelta(hours=1)
+}, secret, algorithm='HS256')
+
+# 5. Verify query/mutation requires scope
+# Check @fraiseql.query/@fraiseql.mutation decorators
+```
+
+---
+
+## Token Issues
+
+### Token Revoked
+**Problem**: `Error: Token has been revoked`
+
+**Cause**: User logged out or token explicitly invalidated
+
+**Solutions**:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```bash
+    # 1. Implement token blacklist
+    CREATE TABLE revoked_tokens (
+        token_id VARCHAR(255) PRIMARY KEY,
+        revoked_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP
+    );
+
+    # 2. On logout, add token to blacklist
+    INSERT INTO revoked_tokens (token_id, expires_at)
+    VALUES ('token_value', NOW() + INTERVAL '1 hour');
+
+    # 3. Check before accepting token
+    SELECT COUNT(*) FROM revoked_tokens
+    WHERE token_id = 'token_value' AND expires_at > NOW();
+
+    # 4. Clean up expired tokens periodically
+    DELETE FROM revoked_tokens WHERE expires_at < NOW();
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```bash
+    # 1. Implement token blacklist
+    CREATE TABLE revoked_tokens (
+        token_id VARCHAR(255) PRIMARY KEY,
+        revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP
+    );
+
+    # 2. On logout, add token to blacklist
+    INSERT INTO revoked_tokens (token_id, expires_at)
+    VALUES ('token_value', TIMESTAMPADD(HOUR, 1, NOW()));
+
+    # 3. Check before accepting token
+    SELECT COUNT(*) FROM revoked_tokens
+    WHERE token_id = 'token_value' AND expires_at > NOW();
+
+    # 4. Clean up expired tokens periodically
+    DELETE FROM revoked_tokens WHERE expires_at < NOW();
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # 1. Implement token blacklist
+    CREATE TABLE revoked_tokens (
+        token_id TEXT PRIMARY KEY,
+        revoked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME
+    );
+
+    # 2. On logout, add token to blacklist
+    INSERT INTO revoked_tokens (token_id, expires_at)
+    VALUES ('token_value', datetime('now', '+1 hour'));
+
+    # 3. Check before accepting token
+    SELECT COUNT(*) FROM revoked_tokens
+    WHERE token_id = 'token_value' AND expires_at > datetime('now');
+
+    # 4. Clean up expired tokens periodically
+    DELETE FROM revoked_tokens WHERE expires_at < datetime('now');
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```bash
+    # 1. Implement token blacklist
+    CREATE TABLE revoked_tokens (
+        token_id VARCHAR(255) PRIMARY KEY,
+        revoked_at DATETIME DEFAULT GETUTCDATE(),
+        expires_at DATETIME
+    );
+
+    # 2. On logout, add token to blacklist
+    INSERT INTO revoked_tokens (token_id, expires_at)
+    VALUES ('token_value', DATEADD(HOUR, 1, GETUTCDATE()));
+
+    # 3. Check before accepting token
+    SELECT COUNT(*) FROM revoked_tokens
+    WHERE token_id = 'token_value' AND expires_at > GETUTCDATE();
+
+    # 4. Clean up expired tokens periodically
+    DELETE FROM revoked_tokens WHERE expires_at < GETUTCDATE();
+    ```
+  </TabItem>
+</Tabs>
+
+# 5. Or use short-lived tokens + refresh
+# If token revoked, create new token after 1 hour max
+
+### Wrong Audience
+**Problem**: `Error: Invalid token audience`
+
+**Cause**: Token issued for different app/audience
+
+**Solutions**:
+```bash
+# 1. Check token audience
+decoded = jwt.decode(token, options={'verify_signature': False})
+aud = decoded.get('aud')  # Should match app ID
+
+# 2. When issuing token, set audience
+jwt.encode({
+    'user_id': 123,
+    'aud': 'fraiseql-api',  # Specify audience
+    'exp': ...
+}, secret)
+
+# 3. When verifying, check audience
+jwt.decode(token, secret, algorithms=['HS256'], audience='fraiseql-api')
+
+# 4. For multiple apps, each gets different audience
+# App A: audience='app-a'
+# App B: audience='app-b'
+# Token for app-a won't work in app-b
+```
+
+---
+
+## Data Access Issues
+
+### Unauthorized Data Access
+**Problem**: User can access data they shouldn't
+
+**Cause**: Missing row-level security or authorization
+
+**Solutions**:
+
+1. Implement row-level security in your FraiseQL queries:
+
+```python
+@fraiseql.query
+def user_posts(user_id: ID) -> list[Post]:
+    # WRONG: Returns all posts
+    # SELECT * FROM posts
+
+    # RIGHT: Returns only user's posts
+    # SELECT * FROM posts WHERE owner_id = current_user_id()
+```
+
+2. For database-level RLS policies:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```bash
+    # Check existing RLS policies
+    SELECT * FROM pg_policies;
+
+    # Enable RLS on table
+    ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
+
+    # Create tenant isolation policy
+    CREATE POLICY posts_tenant_isolation ON posts
+    USING (user_id = current_setting('app.user_id')::integer);
+
+    # Set user context before query
+    SET app.user_id = 123;
+    SELECT * FROM posts;  -- Returns only user 123's posts
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```bash
+    # MySQL doesn't have RLS, use views or application layer
+    # Create filtered view for user's posts
+    CREATE VIEW user_posts_view AS
+    SELECT * FROM posts
+    WHERE user_id = @current_user_id;
+
+    # Set user context as session variable
+    SET @current_user_id = 123;
+    SELECT * FROM user_posts_view;  -- Returns only user 123's posts
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # SQLite doesn't have RLS, use triggers or views
+    # Create filtered view for user's posts
+    CREATE VIEW user_posts_view AS
+    SELECT * FROM posts
+    WHERE user_id = (
+        SELECT value FROM context WHERE key = 'current_user_id'
+    );
+
+    # Store context in context table
+    UPDATE context SET value = '123' WHERE key = 'current_user_id';
+    SELECT * FROM user_posts_view;  -- Returns user 123's posts
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```bash
+    # SQL Server doesn't have RLS in standard edition,
+    # but Enterprise has static/dynamic RLS
+
+    # For standard edition, use views or stored procedures
+    CREATE VIEW user_posts_view AS
+    SELECT * FROM posts
+    WHERE user_id = SESSION_CONTEXT(N'user_id');
+
+    -- Set user context before query
+    EXEC sp_set_session_context @key = N'user_id', @value = 123;
+    SELECT * FROM user_posts_view;  -- Returns user 123's posts
+    ```
+  </TabItem>
+</Tabs>
+
+3. For FraiseQL, set tenant context in middleware before queries:
+
+```python
+@fraiseql.middleware
+async def set_user_context(request, next):
+    user_id = request.user.id
+    await db.execute(f"SET app.user_id = {user_id}")
+    return await next(request)
+```
+
+### SQL Injection via Input
+**Problem**: Malicious SQL executed from user input
+
+**Cause**: Unsanitized input in queries
+
+**Solutions**:
+```bash
+# WRONG: Vulnerable to injection
+query = f"SELECT * FROM users WHERE email = '{email}'"
+# If email = "'; DROP TABLE users; --"
+# Query becomes: SELECT * FROM users WHERE email = ''; DROP TABLE users; --'
+
+# RIGHT: Use parameterized queries
+@fraiseql.query
+def user_by_email(email: str) -> User:
+    # FraiseQL automatically parameterizes
+    # Equivalent to: SELECT * FROM users WHERE email = $1
+    pass
+
+# 3. Never concatenate user input into queries
+# Always use parameterized queries/ORM
+
+# 4. Validate input format
+import re
+if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
+    raise ValueError('Invalid email format')
+```
+
+---
+
+## API Key Issues
+
+### Invalid API Key
+**Problem**: `Error: Invalid API key`
+
+**Solutions**:
+
+```bash
+# 1. Check API key format
+# Should be: sk_xxxxxxxxxxxxx (starts with sk_)
+
+# 2. Create new key if lost
+POST /api/keys
+Response: { "key": "sk_..." }
+
+# 3. Rotate keys periodically
+# Create new key, migrate clients, revoke old key
+```
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```bash
+    # Verify key is active
+    SELECT * FROM api_keys
+    WHERE key = 'sk_...' AND revoked = false;
+
+    # Check key permissions
+    SELECT scopes FROM api_keys WHERE key = 'sk_...';
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```bash
+    # Verify key is active
+    SELECT * FROM api_keys
+    WHERE `key` = 'sk_...' AND revoked = 0;
+
+    # Check key permissions
+    SELECT scopes FROM api_keys WHERE `key` = 'sk_...';
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # Verify key is active
+    SELECT * FROM api_keys
+    WHERE key = 'sk_...' AND revoked = 0;
+
+    # Check key permissions
+    SELECT scopes FROM api_keys WHERE key = 'sk_...';
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```bash
+    # Verify key is active
+    SELECT * FROM api_keys
+    WHERE [key] = 'sk_...' AND revoked = 0;
+
+    # Check key permissions
+    SELECT scopes FROM api_keys WHERE [key] = 'sk_...';
+    ```
+  </TabItem>
+</Tabs>
+
+### API Key Exposure
+**Problem**: Key was leaked/compromised
+
+**Cause**: Key committed to git, exposed in logs, etc.
+
+**Solutions**:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```bash
+    # 1. IMMEDIATELY revoke key
+    UPDATE api_keys SET revoked = true WHERE key = 'sk_...';
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```bash
+    # 1. IMMEDIATELY revoke key
+    UPDATE api_keys SET revoked = 1 WHERE `key` = 'sk_...';
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # 1. IMMEDIATELY revoke key
+    UPDATE api_keys SET revoked = 1 WHERE key = 'sk_...';
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```bash
+    # 1. IMMEDIATELY revoke key
+    UPDATE api_keys SET revoked = 1 WHERE [key] = 'sk_...';
+    ```
+  </TabItem>
+</Tabs>
+
+```bash
+# 2. Create new key
+POST /api/keys
+
+# 3. Update all clients with new key
+
+# 4. Scan git history (if committed)
+git log -S "sk_" --oneline  # Find commits with key
+git filter-branch --force --index-filter "git rm -rf --cached --ignore-unmatch .env" HEAD
+
+# 5. Prevent in future
+# Add to .gitignore
+echo ".env" >> .gitignore
+echo "*.key" >> .gitignore
+
+# 6. Use secrets management
+# AWS Secrets Manager, Google Secret Manager, Azure Key Vault
+# Not as environment variables
+```
+
+---
+
+## SSL/TLS Issues
+
+### SSL Certificate Invalid
+**Problem**: `Error: certificate verify failed`
+
+**Cause**: SSL certificate issue
+
+**Solutions**:
+```bash
+# 1. Check certificate validity
+openssl x509 -in cert.pem -noout -dates
+# Verify: notAfter is in future
+
+# 2. Check certificate chain
+openssl verify -CAfile ca.pem cert.pem
+
+# 3. For self-signed certificates (development only)
+openssl x509 -in cert.pem -noout -subject
+# Should match your hostname
+
+# 4. For production, use valid certificate
+# Let's Encrypt (free)
+# DigiCert, Comodo, etc. (paid)
+
+# 5. Update certificate before expiration
+# Get alerts 30 days before expiry
+```python
+
+### Mixed Content Error
+**Problem**: `Error: Mixed Content: The page at was loaded over HTTPS, but requested an insecure resource`
+
+**Cause**: HTTPS page loading from HTTP endpoint
+
+**Solutions**:
+```bash
+# 1. Use HTTPS everywhere
+# Frontend: https://app.example.com
+# API: https://api.example.com
+
+# 2. Add HSTS header
+# Tells browser: Always use HTTPS
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+# 3. Redirect HTTP to HTTPS
+server {
+    listen 80;
+    return 301 https://$server_name$request_uri;
+}
+
+# 4. Check redirect chain
+curl -L -I http://api.example.com
+# Should eventually reach https://
+```
+
+---
+
+## Rate Limiting Security
+
+### Rate Limit Bypass
+**Problem**: Attacker bypassing rate limits
+
+**Causes**:
+- Using multiple IPs
+- Distributed attack
+- Rate limit not enabled
+
+**Solutions**:
+```bash
+# 1. Enable rate limiting
+RATE_LIMIT_REQUESTS=1000
+RATE_LIMIT_WINDOW_SECONDS=60
+
+# 2. Use per-user limit (requires auth)
+PER_USER_RATE_LIMIT=100
+PER_USER_RATE_LIMIT_WINDOW_SECONDS=60
+
+# 3. For anonymous users, use per-IP
+# But be careful: shared ISP proxies affect multiple users
+
+# 4. Implement progressive delays
+# First 100: instant
+# 100-200: 100ms delay
+# 200-300: 500ms delay
+# Slows down attacks without blocking legitimate users
+
+# 5. Use CAPTCHA for suspicious traffic
+# After N failed attempts, require CAPTCHA
+```
+
+---
+
+## Data Exposure
+
+### Sensitive Data in Logs
+**Problem**: Passwords, tokens, PII in logs
+
+**Solutions**:
+```bash
+# 1. Filter sensitive fields from logs
+@fraiseql.middleware
+async def sanitize_logs(request, response):
+    # Remove password, token from logs
+    if request.body:
+        body = request.body
+        body['password'] = '***REDACTED***'
+    log_request(body)  # Safe to log
+
+# 2. Check logs for sensitive data
+sudo grep -r "password\|token\|ssn" /var/log/
+
+# 3. Rotate any exposed secrets
+# Change all passwords, issue new tokens
+
+# 4. Set log retention
+# Keep logs for X days, then delete
+LOG_RETENTION_DAYS=30
+
+# 5. Encrypt logs at rest
+# Use TLS for log transmission
+# Encrypt log file storage
+```
+
+### PII Exposure in Error Messages
+**Problem**: Personal data revealed in error responses
+
+**Solutions**:
+```bash
+# WRONG: Exposes user email
+@fraiseql.mutation
+def send_email(email: str):
+    user = find_user_by_email(email)
+    # Error: "No user found with email: alice@example.com"
+    # Attacker learns valid emails
+
+# RIGHT: Generic error
+@fraiseql.mutation
+def send_email(email: str):
+    user = find_user_by_email(email)
+    # Error: "Email not found"
+    # Or: "If account exists, email will be sent"
+
+# 2. Check error messages don't leak data
+curl -X POST http://localhost:8000/graphql -d '{"query":"..."}'
+# Check response for: email, name, phone, SSN, etc.
+
+# 3. In production, use generic errors
+@fraiseql.error_handler
+def handle_not_found(error):
+    # Don't include what wasn't found
+    return {"message": "Resource not found"}
+```
+
+---
+
+## Summary Table
+
+| Issue | Severity | Fix Time |
+|-------|----------|----------|
+| Invalid token | HIGH | 2 min |
+| Missing header | HIGH | 1 min |
+| Permission denied | HIGH | 5 min |
+| Token expired | MEDIUM | 1 min |
+| CORS failed | MEDIUM | 5 min |
+| SSL error | HIGH | 10 min |
+| Rate limit bypass | MEDIUM | 15 min |
+| PII in logs | CRITICAL | 30 min |
+
+---
+
+## See Also
+
+- [Security Guide](/features/security)
+- [Error Handling](/guides/error-handling)
+- [Common Issues](/troubleshooting/common-issues)
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)

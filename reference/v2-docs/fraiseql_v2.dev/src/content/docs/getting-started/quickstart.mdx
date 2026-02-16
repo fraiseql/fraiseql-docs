@@ -1,0 +1,401 @@
+---
+title: Quick Start
+description: Get a FraiseQL GraphQL API running in 5 minutes
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Get a FraiseQL GraphQL API running in 5 minutes. This guide assumes you have a PostgreSQL database with tables already set up. For the full workflow including database setup with 🍯 Confiture, see [Your First API](/getting-started/first-api).
+
+## Prerequisites
+
+- PostgreSQL database with tables created
+- Your preferred schema language installed (Python 3.10+, Node.js 18+, or Go 1.21+)
+
+## Step 1: Install FraiseQL
+
+```bash
+# Using cargo (if you have Rust)
+cargo install fraiseql
+
+# Or using the install script
+curl -fsSL https://fraiseql.dev/install.sh | sh
+```
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```bash
+    # Using uv (recommended)
+    uv tool install fraiseql
+
+    # Using pipx
+    pipx install fraiseql
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```bash
+    # Using npm
+    npm install -g fraiseql
+
+    # Using pnpm
+    pnpm add -g fraiseql
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```bash
+    go install github.com/fraiseql/fraiseql@latest
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 2: Write Your SQL Views
+
+Create SQL views that follow the `.data` JSONB pattern. Each view has an `id` column and a `data` column:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'name', u.name,
+            'email', u.email,
+            'created_at', u.created_at
+        ) AS data
+    FROM tb_user u;
+    ```
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        jsonb_build_object(
+            'id', p.id::text,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email,
+            'created_at', u.created_at
+        ) AS data
+    FROM tb_user u;
+    ```
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        JSON_OBJECT(
+            'id', p.id,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email,
+            'created_at', u.created_at
+        ) AS data
+    FROM tb_user u;
+    ```
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        json_object(
+            'id', p.id,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW dbo.v_user
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT u.id, u.name, u.email, u.created_at
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+    ```
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW dbo.v_post
+    WITH SCHEMABINDING AS
+    SELECT
+        p.id,
+        (
+            SELECT p.id, p.title, p.content, vu.data AS author
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p
+    JOIN dbo.tb_user u ON u.pk_user = p.fk_user
+    JOIN dbo.v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+Apply these views to your database (or use `confiture build` — see [🍯 Confiture](/confiture)).
+
+## Step 3: Define Your GraphQL Schema
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    Create a file called `schema.py`:
+
+    ```python title="schema.py"
+    import fraiseql
+    from fraiseql.scalars import ID, Email, DateTime
+
+    @fraiseql.type
+    class User:
+        """A user in the system."""
+        id: ID
+        name: str
+        email: Email
+        created_at: DateTime
+
+    @fraiseql.type
+    class Post:
+        """A blog post."""
+        id: ID
+        title: str
+        content: str
+        author: User
+        published: bool
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    Create a file called `schema.ts`:
+
+    ```typescript title="schema.ts"
+    import { type } from 'fraiseql';
+    import { ID, Email, DateTime } from 'fraiseql/scalars';
+
+    @type()
+    class User {
+      /** A user in the system. */
+      id: ID;
+      name: string;
+      email: Email;
+      createdAt: DateTime;
+    }
+
+    @type()
+    class Post {
+      /** A blog post. */
+      id: ID;
+      title: string;
+      content: string;
+      author: User;
+      published: boolean;
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    Create a file called `schema.go`:
+
+    ```go title="schema.go"
+    package schema
+
+    import "github.com/fraiseql/fraiseql-go/scalars"
+
+    // User represents a user in the system.
+    type User struct {
+        ID        scalars.ID       `fraiseql:"type"`
+        Name      string
+        Email     scalars.Email
+        CreatedAt scalars.DateTime
+    }
+
+    // Post represents a blog post.
+    type Post struct {
+        ID        scalars.ID `fraiseql:"type"`
+        Title     string
+        Content   string
+        Author    User
+        Published bool
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 4: Configure Your Project
+
+Create `fraiseql.toml` with your database connection string:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```toml title="fraiseql.toml"
+    [project]
+    name = "quickstart"
+    version = "0.1.0"
+
+    [database]
+    type = "postgresql"
+    url = "postgresql://localhost:5432/mydb"
+
+    [server]
+    port = 8080
+    host = "127.0.0.1"
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```toml title="fraiseql.toml"
+    [project]
+    name = "quickstart"
+    version = "0.1.0"
+
+    [database]
+    type = "mysql"
+    url = "mysql://localhost:3306/mydb"
+
+    [server]
+    port = 8080
+    host = "127.0.0.1"
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```toml title="fraiseql.toml"
+    [project]
+    name = "quickstart"
+    version = "0.1.0"
+
+    [database]
+    type = "sqlite"
+    url = "sqlite://./mydb.db"
+
+    [server]
+    port = 8080
+    host = "127.0.0.1"
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```toml title="fraiseql.toml"
+    [project]
+    name = "quickstart"
+    version = "0.1.0"
+
+    [database]
+    type = "sqlserver"
+    url = "sqlserver://localhost:1433;Database=mydb;Trusted_Connection=true"
+
+    [server]
+    port = 8080
+    host = "127.0.0.1"
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 5: Compile and Serve
+
+```bash
+# Compile the mapping between your types and SQL views
+fraiseql compile
+
+# Start the server
+fraiseql serve
+```
+
+You should see:
+
+```
+✓ Compiled 2 types → mapped to SQL views
+✓ Built query executor
+→ GraphQL API running at http://localhost:8080/graphql
+```
+
+## Step 6: Query Your API
+
+Open your browser to `http://localhost:8080/graphql` or use curl:
+
+```bash
+curl -s -X POST http://localhost:8080/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ users { id name email } }"}' | jq .
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "users": [
+      {
+        "id": "1",
+        "name": "Alice",
+        "email": "alice@example.com"
+      }
+    ]
+  }
+}
+```
+
+If a query references a field that doesn't exist, FraiseQL returns a structured error:
+
+```json
+{
+  "errors": [
+    {
+      "message": "Cannot query field 'phone' on type 'User'",
+      "locations": [{ "line": 1, "column": 28 }]
+    }
+  ]
+}
+```
+
+## What Just Happened?
+
+1. **SQL views created** — You wrote views following the `.data` JSONB pattern
+2. **Schema compiled** — FraiseQL mapped your GraphQL types to those SQL views
+3. **Query executor built** — Pre-compiled query paths for each type
+4. **API served** — Every GraphQL query resolves to a single SQL statement
+
+No resolvers. No N+1 problems. No generated SQL you can't read.
+
+## Next Steps
+
+- [Your First API](/getting-started/first-api) — Build a complete blog API with 🍯 Confiture
+- [Developer-Owned SQL](/concepts/developer-owned-sql) — Why you write the views
+- [TOML Configuration](/concepts/configuration) — All configuration options
+- [Schema Definition](/concepts/schema) — Advanced schema patterns

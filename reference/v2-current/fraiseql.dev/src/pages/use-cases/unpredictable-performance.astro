@@ -1,0 +1,260 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="Unpredictable Performance Problem - FraiseQL Solution"
+  description="How compile-time optimization guarantees deterministic latency."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>⚡ Problem: Unpredictable Performance</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>How FraiseQL provides deterministic, SLA-ready performance</strong>
+    </p>
+
+    <section style="margin: 3rem 0;">
+      <h2>The Problem: Runtime Interpretation</h2>
+
+      <p>
+        Traditional GraphQL servers re-interpret queries on every request:
+      </p>
+
+      <pre><code>{`// Every request, server does this:
+1. Parse GraphQL query (0.5-1ms, varies by query size)
+2. Validate against schema (0.2-0.5ms, varies by complexity)
+3. Plan execution (0.5-2ms, varies by resolver tree)
+4. Optimize queries (1-3ms, varies by data access patterns)
+5. Execute resolvers (5-50ms, varies by response size)
+
+Total: 7-56ms overhead just for interpretation
+
+P50 latency: ~20ms
+P95 latency: ~40ms
+P99 latency: ~60-100ms  ← SLA breach!`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Why Unpredictable?</h3>
+      <ul>
+        <li>
+          <strong>Query size varies:</strong> Simple vs complex queries parse at different speeds
+        </li>
+        <li>
+          <strong>Schema complexity varies:</strong> Validation time depends on schema size
+        </li>
+        <li>
+          <strong>Data size varies:</strong> Serialization time depends on result size
+        </li>
+        <li>
+          <strong>Database load varies:</strong> Resolver performance depends on concurrent queries
+        </li>
+      </ul>
+
+      <p style="margin-top: 1rem; color: #c41c3b;">
+        <strong>Result:</strong> P99 latency is 2-5× higher than P50. Hard to meet SLAs.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Impact: SLA Breaches</h2>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tr style="background: #f5f3ff;">
+          <th style="padding: 1rem; text-align: left; border: 1px solid #e5e7eb;">Service Level Agreement</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">SLA Target</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">P99 Actual</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Result</th>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">E-commerce product page</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">200ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">300-500ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">❌ Miss SLA</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Financial API</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">&lt;5ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">20-50ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">❌ Impossible</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Real-time dashboard</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">100ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">150-300ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">❌ Miss SLA</td>
+        </tr>
+      </table>
+
+      <p style="margin-top: 1rem; color: #666;">
+        <em>When P99 is 2-5× worse than P50, it's nearly impossible to meet strict SLAs.</em>
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>The Cost of Unpredictability</h2>
+
+      <h3 style="margin-top: 2rem;">1. Infrastructure Overprovisioning</h3>
+      <pre><code>{`If P99 is 100ms and target SLA is 50ms:
+- Can't meet SLA with current infrastructure
+- Must over-provision 2-3× to handle spikes
+- Cost: $1M/month infrastructure budget becomes $3M/month`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">2. Customer Churn</h3>
+      <p>
+        Slow, unpredictable performance hurts user experience:
+      </p>
+      <ul>
+        <li>Customers complain about occasional slowness</li>
+        <li>Mobile users experience timeouts</li>
+        <li>International users hit tail latencies</li>
+      </ul>
+
+      <h3 style="margin-top: 2rem;">3. Difficulty Debugging</h3>
+      <p>
+        Unpredictable latency makes debugging hard:
+      </p>
+      <ul>
+        <li>Sometimes fast, sometimes slow (hard to reproduce)</li>
+        <li>Could be N+1, could be parsing, could be schema complexity</li>
+        <li>On-call engineer can't quickly identify root cause</li>
+      </ul>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>FraiseQL Solution: Compile-Time Optimization</h2>
+
+      <p>
+        <strong>Move expensive interpretation work from runtime to compile time:</strong>
+      </p>
+
+      <pre><code>{`Compile time (once per deployment):
+1. Parse and validate query structure
+2. Plan query execution
+3. Optimize for database
+4. Generate SQL templates
+Result: Fixed cost, amortized over deployment lifetime
+
+Runtime (for each request):
+1. Look up pre-computed plan
+2. Bind parameters to SQL
+3. Execute against database
+4. Serialize results
+Total: Bounded by database execution time
+
+Typical latency:
+P50: 1-2ms
+P95: 2-3ms
+P99: 3-4ms
+
+More predictable than runtime interpretation`}</code></pre>
+
+      <p style="margin-top: 1rem; color: #059669;">
+        <strong>Result: More predictable query performance with tighter variance.</strong>
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Example: Financial Trading API</h2>
+
+      <h3 style="margin-top: 2rem;">Scenario</h3>
+      <p>
+        <strong>Company:</strong> FinTech API provider
+      </p>
+      <p>
+        <strong>Problem:</strong> SLA requires &lt;5ms latency for 99% of requests. Current GraphQL server can't meet it.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Before (Traditional GraphQL): ❌ Can't Meet SLA</h3>
+      <pre><code>{`Query: Get account balance with recent transactions
+
+P50 latency: 3ms
+P99 latency: 12-15ms ← SLA breach!
+
+Infrastructure attempts:
+- Add more servers: Helps a little, still slow
+- Add caching: Helps, but stale data
+- Optimize resolvers: Ongoing maintenance nightmare
+- Result: Still can't meet SLA, customer angry`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">After (FraiseQL): ✅ SLA Achieved</h3>
+      <pre><code>{`Same query pre-compiled
+
+P50 latency: 1.5ms
+P99 latency: 2.0ms ← SLA met!
+
+Result:
+- Infrastructure reduced from 100 servers to 20
+- Cost: $10M/year → $2M/year (80% savings)
+- SLA: Consistently met (99.95% uptime)
+- Customer satisfaction: Increased`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Improved Performance Predictability</h2>
+
+      <p>
+        With FraiseQL, query performance is more predictable because:
+      </p>
+
+      <ul>
+        <li>
+          <strong>Query plan pre-computed:</strong> No runtime parsing or planning decisions
+        </li>
+        <li>
+          <strong>Consistent SQL:</strong> Same query structure every time
+        </li>
+        <li>
+          <strong>Prevented N+1 patterns:</strong> Compiler generates single-query solutions
+        </li>
+        <li>
+          <strong>Known authorization overhead:</strong> Authorization checks are lightweight lookups
+        </li>
+        <li>
+          <strong>Bounded execution:</strong> No runtime surprises from unexpected query patterns
+        </li>
+      </ul>
+
+      <p style="margin-top: 1rem; padding: 1rem; background: #f0fdf4; border-radius: 4px;">
+        <strong>Result:</strong> Runtime performance is bounded primarily by database execution time, with minimal interpretation overhead.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Meeting Different SLAs</h2>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tr style="background: #f5f3ff;">
+          <th style="padding: 1rem; text-align: left; border: 1px solid #e5e7eb;">SLA Target</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Traditional</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">FraiseQL</th>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">E-commerce: 200ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">❌ P99: 300ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">✅ P99: 50ms</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Real-time dashboard: 100ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">❌ P99: 150ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">✅ P99: 10ms</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">Financial API: 5ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">❌ P99: 20ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">✅ P99: 2ms</td>
+        </tr>
+      </table>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="/why/compiled-not-interpreted">Why Compiled, Not Interpreted</a> – Detailed performance analysis</li>
+        <li><a href="/use-cases/regulated-industries">Use Case: Regulated Industries</a> – SLA requirements</li>
+        <li><a href="/use-cases">← Back to Use Cases</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Hybrid Table Optimization - FraiseQL</title>
+    <meta name="description" content="Hybrid tables with Rust-fast queries. 10-100x faster indexed performance with 7-10x JSON processing speed.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+    </style>
+    <link rel="stylesheet" href="/prism.min.css"/>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-5xl font-bold leading-tight">
+                🚀 Hybrid Table Optimization
+            </h1>
+            <p class="leading-normal text-2xl mb-8">
+                Best of both worlds: Fast indexed columns + flexible JSONB. FraiseQL automatically chooses the fastest path.
+            </p>
+        </div>
+    </div>
+
+    <!-- What are Hybrid Tables -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                What are Hybrid Tables?
+            </h2>
+            <p class="text-gray-700 text-lg mb-8 text-center max-w-3xl mx-auto">
+                Hybrid tables combine the performance of indexed SQL columns with the flexibility of JSONB fields. FraiseQL exposes both indexed columns and JSONB in views, allowing PostgreSQL's query planner to automatically choose the fastest execution path, delivering 10-100x performance improvements without code changes.
+            </p>
+
+            <!-- Performance Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Operation</th>
+                            <th class="px-6 py-3 text-left">JSONB Only</th>
+                            <th class="px-6 py-3 text-left">Hybrid Table</th>
+                            <th class="px-6 py-3 text-left">Speedup</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Filter by ID (1M rows)</td>
+                            <td class="px-6 py-4">~500ms</td>
+                            <td class="px-6 py-4 font-bold">✅ ~5ms</td>
+                            <td class="px-6 py-4 font-bold">✅ 100x faster</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Filter by Foreign Key</td>
+                            <td class="px-6 py-4">~200ms</td>
+                            <td class="px-6 py-4 font-bold">✅ ~10ms</td>
+                            <td class="px-6 py-4 font-bold">✅ 20x faster</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Field Detection</td>
+                            <td class="px-6 py-4">~10ms (DB introspection)</td>
+                            <td class="px-6 py-4 font-bold">✅ 0.4μs (metadata)</td>
+                            <td class="px-6 py-4 font-bold">✅ 25,000x faster</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Join Performance</td>
+                            <td class="px-6 py-4">Sequential scan</td>
+                            <td class="px-6 py-4 font-bold">✅ Index scan</td>
+                            <td class="px-6 py-4 font-bold">✅ 10-50x faster</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                How It Works
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <!-- Step 1 -->
+                <div class="w-full lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">1. Define Hybrid Table Schema</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-sql">-- PostgreSQL table with both indexed columns and JSONB
+CREATE TABLE tb_machine (
+    pk_machine SERIAL PRIMARY KEY,
+    id UUID UNIQUE DEFAULT gen_random_uuid(),
+    identifier VARCHAR(50) NOT NULL UNIQUE,  -- Indexed!
+    fk_organization INT NOT NULL,            -- Indexed!
+    data JSONB NOT NULL,                     -- Flexible schema
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_tb_machine_org ON tb_machine(fk_organization);
+CREATE INDEX idx_tb_machine_id ON tb_machine(identifier);
+
+-- JSONB contains flexible data
+INSERT INTO tb_machine (identifier, fk_organization, data) VALUES
+  ('M-001', 123, '{"name": "CNC Mill", "status": "active"}');</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="w-full lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">2. GraphQL Query (Developer View)</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python"># Developer writes natural GraphQL filter
+{
+  machines(where: {
+    machine: { id: { eq: "M-001" } }
+    organization: { id: { eq: 123 } }
+  }) {
+    id
+    name
+    status
+  }
+}</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="w-full lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">3. FraiseQL Auto-Optimization</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-sql">-- FraiseQL generates optimized SQL
+SELECT * FROM tb_machine
+WHERE identifier = 'M-001'      -- Uses index!
+  AND fk_organization = 123;    -- Uses index!
+-- Result: 5-10ms with index scans ✅
+
+-- Without hybrid tables (pure JSONB):
+SELECT * FROM tb_machine
+WHERE data->'machine'->>'id' = 'M-001'
+  AND data->'organization'->>'id' = '123';
+-- Result: 200-500ms with sequential scan ❌
+
+-- FraiseQL automatically:
+-- 1. Detects machine_id and organization_id columns
+-- 2. Maps GraphQL filters to indexed columns
+-- 3. Falls back to JSONB for flexible fields
+-- 4. Delivers 10-100x faster queries</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Benefits -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Key Benefits
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">⚡</div>
+                        <h3 class="text-xl font-bold mb-2">10-100x Faster Queries</h3>
+                        <p class="text-gray-600">Automatic index usage for filtered fields. Production queries execute in 5-10ms instead of 200-500ms.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🎯</div>
+                        <h3 class="text-xl font-bold mb-2">Zero Configuration</h3>
+                        <p class="text-gray-600">FraiseQL exposes indexed columns in views. PostgreSQL's query planner automatically optimizes. No manual tuning needed.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🔧</div>
+                        <h3 class="text-xl font-bold mb-2">Best of Both Worlds</h3>
+                        <p class="text-gray-600">Fast indexed columns for common queries. Flexible JSONB for dynamic fields.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🚀</div>
+                        <h3 class="text-xl font-bold mb-2">0.4μs Field Detection</h3>
+                        <p class="text-gray-600">Metadata registration vs 10ms database introspection. 25,000x faster schema resolution.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🛡️</div>
+                        <h3 class="text-xl font-bold mb-2">Production-Proven</h3>
+                        <p class="text-gray-600">Intelligent query planner prevents slow queries. Your API stays fast under load.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🔍</div>
+                        <h3 class="text-xl font-bold mb-2">Developer-Friendly</h3>
+                        <p class="text-gray-600">Write natural GraphQL filters. FraiseQL handles SQL optimization automatically.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Configuration -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Setup and Configuration
+            </h2>
+
+            <div class="code-block">
+                <pre class="p-6 overflow-x-auto"><code class="language-python">from fraiseql import fraiseql
+
+# Define your GraphQL types
+@fraiseql.type
+class Machine:
+    id: str
+    name: str
+    status: str
+    organization: "Organization"
+
+@fraiseql.type
+class Organization:
+    id: int
+    name: str
+
+# FraiseQL automatically:
+# 1. Detects that 'machine_id' column exists
+# 2. Detects that 'organization_id' foreign key exists
+# 3. Registers metadata for 0.4μs lookup
+# 4. Uses indexed columns when available
+
+# No manual configuration needed!
+# Queries automatically use fast indexed columns.
+
+# Advanced: Override field mapping if needed
+@fraiseql.type
+class Machine:
+    id: str = fraiseql.field(column="machine_id")  # Explicit mapping
+    org_id: int = fraiseql.field(column="organization_id")
+    # ... rest uses JSONB automatically</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Use Cases -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Perfect For
+            </h2>
+
+            <ul class="text-lg space-y-3 max-w-2xl mx-auto">
+                <li>✅ Multi-tenant applications filtering by organization_id</li>
+                <li>✅ IoT/manufacturing systems with device/machine identifiers</li>
+                <li>✅ SaaS platforms with user_id or account_id foreign keys</li>
+                <li>✅ Applications needing flexible schema + fast lookups</li>
+                <li>✅ Production systems requiring 10-50ms query performance</li>
+                <li>✅ High-traffic APIs serving millions of requests per day</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- Comparison -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Why This is Unique
+            </h2>
+
+            <div class="overflow-x-auto mb-8">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Approach</th>
+                            <th class="px-6 py-3 text-left">Performance</th>
+                            <th class="px-6 py-3 text-left">Flexibility</th>
+                            <th class="px-6 py-3 text-left">Auto-Optimization</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Traditional ORM (all columns)</td>
+                            <td class="px-6 py-4 font-bold">Fast</td>
+                            <td class="px-6 py-4">❌ Rigid schema</td>
+                            <td class="px-6 py-4">❌ Manual indexes</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Pure JSONB (all data)</td>
+                            <td class="px-6 py-4">❌ Slow filters</td>
+                            <td class="px-6 py-4 font-bold">Flexible</td>
+                            <td class="px-6 py-4">❌ No optimization</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">FraiseQL Hybrid Tables</td>
+                            <td class="px-6 py-4 font-bold">✅ 10-100x faster</td>
+                            <td class="px-6 py-4 font-bold">✅ Flexible JSONB</td>
+                            <td class="px-6 py-4 font-bold">✅ Automatic</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p class="text-gray-700 text-lg text-center max-w-3xl mx-auto">
+                <strong>No other GraphQL framework has this optimization.</strong> Hasura, PostGraphile, Strawberry, and Graphene all require manual query tuning or accept slow JSONB traversal. FraiseQL's intelligent query planner gives you the best of both worlds automatically.
+            </p>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="bg-white py-12">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-4xl font-bold text-gray-800 mb-4">Ready for 10-100x Faster Queries?</h2>
+            <p class="text-xl text-gray-700 mb-8">Hybrid table optimization is a core feature of FraiseQL+</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="https://fraiseql.readthedocs.io/en/latest/features/in-postgresql-everything/" class="gradient text-white font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Read the Docs
+                </a>
+                <a href="https://github.com/fraiseql/fraiseql/tree/main/examples/hybrid_tables" class="bg-white text-gray-800 border-2 border-gray-300 font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    See Examples
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-red-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+    <script src="/prism-python.min.js"></script>
+    <script src="/prism-graphql.min.js"></script>
+    <script src="/prism-sql.min.js"></script>
+    <script src="/prism-bash.min.js"></script>
+</body>
+</html>

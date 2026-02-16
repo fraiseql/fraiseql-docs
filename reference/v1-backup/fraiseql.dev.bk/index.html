@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>FraiseQL - Python GraphQL Framework for PostgreSQL</title>
+    <meta name="description" content="FraiseQL: The Explicit GraphQL Framework for the LLM Era. No N+1 queries. No ORM. Rust-fast responses. Simple patterns you—and your AI assistant—actually understand.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link rel="stylesheet" href="/prism.min.css"/>
+    <link rel="canonical" href="https://fraiseql.dev">
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+        /* Navbar scroll state */
+        #header.scrolled .toggleColour {
+            color: #1f2937 !important; /* gray-800 */
+        }
+        #header.scrolled .toggleColour:hover {
+            color: #dc2626 !important; /* red-600 */
+        }
+    </style>
+</head>
+<body class="leading-normal tracking-normal text-white gradient" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 text-white" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="toggleColour text-white no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white lg:bg-transparent text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="toggleColour inline-block text-black lg:text-white no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="toggleColour inline-block text-black lg:text-white no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="toggleColour inline-block text-black lg:text-white no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="toggleColour inline-block text-black lg:text-white no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="toggleColour inline-block text-black lg:text-white no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline bg-white text-gray-800 font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+        <hr class="border-b border-gray-100 opacity-25 my-0 py-0" />
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24">
+        <div class="container px-3 mx-auto flex flex-wrap flex-col md:flex-row items-center">
+            <!-- Left Col -->
+            <div class="flex flex-col w-full md:w-3/5 justify-center items-start text-center md:text-left">
+                <p class="uppercase tracking-loose w-full">🍓 Python GraphQL Framework</p>
+                <h1 class="my-4 text-3xl md:text-5xl font-bold leading-tight">
+                    The Explicit GraphQL Framework<br class="hidden md:inline">for the LLM Era
+                </h1>
+                <p class="leading-normal text-xl md:text-2xl mb-4">
+                    Simple patterns. High performance. PostgreSQL at the center.
+                </p>
+                <p class="leading-normal text-base md:text-lg mb-8 opacity-80">
+                    No N+1 queries. No ORM. Rust-fast responses. Patterns you—and your AI assistant—actually understand.
+                </p>
+
+                <!-- Dynamic PyPI Badges -->
+                <div class="flex flex-wrap gap-2 mb-4 justify-center md:justify-start">
+                    <img src="https://img.shields.io/pypi/v/fraiseql?style=for-the-badge&logo=python&logoColor=white" alt="PyPI version">
+                    <img src="https://img.shields.io/pypi/status/fraiseql?style=for-the-badge" alt="Status">
+                    <img src="https://img.shields.io/github/stars/fraiseql/fraiseql?style=for-the-badge&logo=github" alt="GitHub stars">
+                    <img src="https://img.shields.io/pypi/dm/fraiseql?style=for-the-badge" alt="Downloads">
+                </div>
+
+                <!-- Requirements -->
+                <div class="bg-white/10 rounded-lg px-4 py-2 inline-block mb-6">
+                    <span class="text-white/80">Requires:</span>
+                    <span class="font-bold">Python 3.13+</span> ·
+                    <span class="font-bold">PostgreSQL 13+</span>
+                </div>
+
+                <div class="flex flex-col md:flex-row gap-4 mb-8">
+                    <a href="/getting-started.html" class="mx-auto md:mx-0 hover:underline bg-white text-gray-800 font-bold rounded-full py-4 px-8 shadow-lg focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                        Get Started
+                    </a>
+                    <a href="https://github.com/fraiseql/fraiseql" class="mx-auto md:mx-0 hover:underline bg-transparent border-2 border-white text-white font-bold rounded-full py-4 px-8 shadow-lg focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                        View on GitHub
+                    </a>
+                </div>
+            </div>
+
+            <!-- Right Col - Code Example -->
+            <div class="w-full md:w-2/5 py-6 text-center">
+                <div class="code-block shadow-2xl">
+                    <div class="code-header">GraphQL Query</div>
+                    <pre class="p-4 text-left overflow-x-auto"><code class="language-graphql">{
+  users {
+    id
+    name
+    posts {
+      title
+      comments {
+        text
+      }
+    }
+  }
+}</code></pre>
+                </div>
+                <div class="text-3xl my-4">↓</div>
+                <div class="code-block shadow-2xl">
+                    <div class="code-header">One PostgreSQL Query</div>
+                    <pre class="p-4 text-left overflow-x-auto"><code class="language-sql">SELECT data FROM tv_user
+-- Pre-computed JSONB with nested posts
+-- Sub-millisecond response time</code></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wave -->
+    <div class="relative -mt-6 md:-mt-12 lg:-mt-24">
+        <svg viewBox="0 0 1428 174" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+            <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+                <g transform="translate(-2.000000, 44.000000)" fill="#FFFFFF" fill-rule="nonzero">
+                    <path d="M0,0 C90.7283404,0.927527913 147.912752,27.187927 291.910178,59.9119003 C387.908462,81.7278826 543.605069,89.334785 759,82.7326078 C469.336065,156.254352 216.336065,153.6679 0,74.9732496" opacity="0.100000001"></path>
+                    <path d="M100,104.708498 C277.413333,72.2345949 426.147877,52.5246657 546.203633,45.5787101 C666.259389,38.6327546 810.524845,41.7979068 979,55.0741668 C931.069965,56.122511 810.303266,74.8455141 616.699903,111.243176 C423.096539,147.640838 250.863238,145.462612 100,104.708498 Z" opacity="0.100000001"></path>
+                    <path d="M1046,51.6521276 C1130.83045,29.328812 1279.08318,17.607883 1439,40.1656806 L1439,120 C1271.17211,77.9435312 1140.17211,55.1609071 1046,51.6521276 Z" opacity="0.200000003"></path>
+                </g>
+                <g transform="translate(-4.000000, 76.000000)" fill="#FFFFFF" fill-rule="nonzero">
+                    <path d="M0.457,34.035 C57.086,53.198 98.208,65.809 123.822,71.865 C181.454,85.495 234.295,90.29 272.033,93.459 C311.355,96.759 396.635,95.801 461.025,91.663 C486.76,90.01 518.727,86.372 556.926,80.752 C595.747,74.596 622.372,70.008 636.799,66.991 C663.913,61.324 712.501,49.503 727.605,46.128 C780.47,34.317 818.839,22.532 856.324,15.904 C922.689,4.169 955.676,2.522 1011.185,0.432 C1060.705,1.477 1097.39,3.129 1121.236,5.387 C1161.703,9.219 1208.621,17.821 1235.4,22.304 C1285.855,30.748 1354.351,47.432 1440.886,72.354 L1441.191,104.352 L1.121,104.031 L0.457,34.035 Z"></path>
+                </g>
+            </g>
+        </svg>
+    </div>
+
+    <!-- Features Section -->
+    <section class="bg-white border-b py-16">
+        <div class="container max-w-5xl mx-auto m-8">
+            <h2 class="w-full my-2 text-3xl md:text-5xl font-bold leading-tight text-center text-gray-800">
+                Why FraiseQL?
+            </h2>
+            <div class="w-full mb-4">
+                <div class="h-1 mx-auto gradient w-64 opacity-25 my-0 py-0 rounded-t"></div>
+            </div>
+
+            <div class="flex flex-wrap">
+                <!-- Row 1: Core Differentiators -->
+                <div class="w-full md:w-1/3 p-6 flex flex-col flex-grow flex-shrink">
+                    <div class="flex-1 bg-white rounded-t rounded-b-none overflow-hidden shadow">
+                        <div class="w-full font-bold text-xl text-gray-800 px-6 pt-6">⚡ Rust-Accelerated Pipeline</div>
+                        <p class="text-gray-800 text-base px-6 py-4">
+                            Rust performs field selection, snake_case → camelCase transformation, and streams JSON to clients. No ORM, no Python in the read path, no object hydration.
+                        </p>
+                        <p class="px-6 pb-6">
+                            <a href="/features/rust-pipeline.html" class="text-red-600 hover:text-red-700 font-semibold">Learn more →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/3 p-6 flex flex-col flex-grow flex-shrink">
+                    <div class="flex-1 bg-white rounded-t rounded-b-none overflow-hidden shadow">
+                        <div class="w-full font-bold text-xl text-gray-800 px-6 pt-6">🎯 Zero N+1 by Design</div>
+                        <p class="text-gray-800 text-base px-6 py-4">
+                            PostgreSQL composes nested data once in JSONB. Views contain all relations. One query regardless of GraphQL complexity. DataLoader is unnecessary.
+                        </p>
+                        <p class="px-6 pb-6">
+                            <a href="/features/database-first-cqrs.html" class="text-red-600 hover:text-red-700 font-semibold">Learn more →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/3 p-6 flex flex-col flex-grow flex-shrink">
+                    <div class="flex-1 bg-white rounded-t rounded-b-none overflow-hidden shadow">
+                        <div class="w-full font-bold text-xl text-gray-800 px-6 pt-6">🤖 AI-Native Development</div>
+                        <p class="text-gray-800 text-base px-6 py-4">
+                            <strong>Mutations are self-contained PostgreSQL functions</strong> — LLMs see validation, business logic, and sync in one place. No resolver chains to trace. <code class="bg-gray-100 px-1 rounded text-sm">tb_entity_change_log</code> captures every side effect explicitly.
+                        </p>
+                        <p class="px-6 pb-6">
+                            <a href="/features/ai-native.html" class="text-red-600 hover:text-red-700 font-semibold">Learn more →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Row 2: Security, Infrastructure, RAG -->
+                <div class="w-full md:w-1/3 p-6 flex flex-col flex-grow flex-shrink">
+                    <div class="flex-1 bg-white rounded-t rounded-b-none overflow-hidden shadow">
+                        <div class="w-full font-bold text-xl text-gray-800 px-6 pt-6">🔒 Security by Architecture</div>
+                        <p class="text-gray-800 text-base px-6 py-4">
+                            JSONB views define exactly what's exposed. Impossible to accidentally leak sensitive fields. No ORM over-fetching. What's not in the view cannot be queried.
+                        </p>
+                        <p class="px-6 pb-6">
+                            <a href="/features/security-architecture.html" class="text-red-600 hover:text-red-700 font-semibold">Learn more →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/3 p-6 flex flex-col flex-grow flex-shrink">
+                    <div class="flex-1 bg-white rounded-t rounded-b-none overflow-hidden shadow">
+                        <div class="w-full font-bold text-xl text-gray-800 px-6 pt-6">💰 Simplified Infrastructure</div>
+                        <p class="text-gray-800 text-base px-6 py-4">
+                            Table views eliminate Redis. Cascade eliminates refetch queries. Built-in audit trails (tb_entity_change_log). Fewer services, simpler ops.
+                        </p>
+                        <p class="px-6 pb-6">
+                            <a href="/features/postgresql-everything.html" class="text-red-600 hover:text-red-700 font-semibold">Learn more →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/3 p-6 flex flex-col flex-grow flex-shrink">
+                    <div class="flex-1 bg-white rounded-t rounded-b-none overflow-hidden shadow">
+                        <div class="w-full font-bold text-xl text-gray-800 px-6 pt-6">🔍 RAG & Vector Search</div>
+                        <p class="text-gray-800 text-base px-6 py-4">
+                            Native pgvector integration with 9+ distance operators. LangChain and LlamaIndex support built-in. Build semantic search and RAG systems with GraphQL.
+                        </p>
+                        <p class="px-6 pb-6">
+                            <a href="/features/pgvector.html" class="text-red-600 hover:text-red-700 font-semibold">Learn more →</a>
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Explore All Features Link -->
+            <div class="text-center mt-8">
+                <a href="/features/" class="text-red-600 hover:text-red-700 font-semibold text-lg">
+                    Explore all 14 features →
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonial -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-4xl mx-auto px-6 text-center">
+            <h2 class="text-3xl font-bold text-gray-800 mb-8">What Experts Say</h2>
+
+            <blockquote class="text-xl text-gray-700 italic mb-6">
+                "That's a clever concept — let the database do the hard stuff and the API layer
+                can be very lightweight and carefree. And the SQL is straightforward.
+                Indeed a clever and robust concept!"
+            </blockquote>
+
+            <blockquote class="text-xl text-gray-700 italic mb-8 max-w-2xl mx-auto">
+                "I've reviewed your Rust and Python code, and it's clear you're operating
+                at a very high level. Great craftsmanship and attention to detail."
+            </blockquote>
+
+            <p class="text-gray-600 font-semibold">
+                <a href="https://www.linkedin.com/in/thomaszeutschler/"
+                   class="text-red-600 hover:underline" target="_blank" rel="noopener">
+                    Thomas Zeutschler
+                </a>
+            </p>
+            <p class="text-gray-500 text-sm">
+                Principal Business Engineer & Co-Founder at 45level<br>
+                Fellow & Senior Analyst at BARC
+            </p>
+        </div>
+    </section>
+
+    <!-- The PostgreSQL Philosophy -->
+    <section class="gradient py-16">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-3xl md:text-4xl font-bold text-center text-white mb-8">The Trade-Off We Made</h2>
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white rounded-lg p-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-4">Storage Over Compute</h3>
+                    <p class="text-gray-700 mb-4">
+                        Projection tables pre-compute and store denormalized JSONB data. This costs <strong>2-4× storage</strong> for typical schemas. Projection tables can be fully rebuilt from base tables—they don't need separate backups.
+                    </p>
+                    <p class="text-gray-700 mb-4">
+                        In exchange, reads become a single <code class="bg-gray-100 px-1 rounded">SELECT data FROM tv_{entity}</code> query with no JOINs on the hot path. Compute savings come from one simple query per read, no ORM, no Python.
+                    </p>
+                    <p class="text-gray-600 text-sm italic">
+                        Storage is cheap; CPU cycles on every read are not.
+                    </p>
+                </div>
+                <div class="bg-white rounded-lg p-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-4">When NOT to Use FraiseQL</h3>
+                    <ul class="space-y-3 text-gray-700">
+                        <li class="flex items-start">
+                            <span class="text-red-600 mr-2">✗</span>
+                            <span><strong>Read-light, write-heavy</strong> — table view sync adds overhead if you rarely query</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-red-600 mr-2">✗</span>
+                            <span><strong>Massive data, few users</strong> — if storage cost dominates your bill, reconsider</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-red-600 mr-2">✗</span>
+                            <span><strong>Simple CRUD</strong> — if your queries are already fast, you don't need this</span>
+                        </li>
+                    </ul>
+                    <p class="text-green-700 mt-4 font-semibold">
+                        ✓ Best for: Read-heavy APIs, real-time dashboards, multi-tenant SaaS
+                    </p>
+                </div>
+            </div>
+            <div class="text-center mt-8">
+                <a href="/benefits/economics.html" class="text-white underline hover:no-underline">See detailed cost analysis →</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Start Section -->
+    <section class="bg-gray-100 py-16">
+        <div class="container mx-auto px-2 pt-4 pb-12 text-gray-800">
+            <h2 class="w-full my-2 text-3xl md:text-5xl font-bold leading-tight text-center text-gray-800">
+                Quick Start
+            </h2>
+            <div class="w-full mb-4">
+                <div class="h-1 mx-auto gradient w-64 opacity-25 my-0 py-0 rounded-t"></div>
+            </div>
+
+            <div class="flex flex-wrap">
+                <div class="w-full md:w-1/3 p-6 flex flex-col flex-grow flex-shrink">
+                    <div class="flex-1 bg-white rounded-lg overflow-hidden shadow-lg">
+                        <div class="w-full font-bold text-xl text-gray-800 px-6 pt-6 pb-2">1. Install</div>
+                        <div class="code-block m-4">
+                            <pre class="p-4 overflow-x-auto"><code class="language-bash">pip install fraiseql</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/3 p-6 flex flex-col flex-grow flex-shrink">
+                    <div class="flex-1 bg-white rounded-lg overflow-hidden shadow-lg">
+                        <div class="w-full font-bold text-xl text-gray-800 px-6 pt-6 pb-2">2. Define Schema</div>
+                        <div class="code-block m-4">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python">import fraiseql
+
+@fraiseql.type
+class User:
+    id: int
+    name: str
+
+@fraiseql.query
+async def users(info) -> list[User]:
+    return await info.context.repo.fetch()</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/3 p-6 flex flex-col flex-grow flex-shrink">
+                    <div class="flex-1 bg-white rounded-lg overflow-hidden shadow-lg">
+                        <div class="w-full font-bold text-xl text-gray-800 px-6 pt-6 pb-2">3. Run</div>
+                        <div class="code-block m-4">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python">from fraiseql.fastapi import FraiseQLConfig, create_fraiseql_app
+
+config = FraiseQLConfig(database_url="postgresql://localhost/db")
+app = create_fraiseql_app(types=[User, Post], config=config)</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Performance Section -->
+    <section class="bg-white border-b py-16">
+        <div class="container mx-auto flex flex-wrap pt-4 pb-12">
+            <h2 class="w-full my-2 text-3xl md:text-5xl font-bold leading-tight text-center text-gray-800">
+                Honest Performance Comparison
+            </h2>
+            <div class="w-full mb-4">
+                <div class="h-1 mx-auto gradient w-64 opacity-25 my-0 py-0 rounded-t"></div>
+            </div>
+
+            <div class="w-full px-4">
+                <!-- What Are We Comparing Against? -->
+                <div class="bg-gray-50 rounded-lg p-6 mb-8 max-w-5xl mx-auto">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4 text-center">What Are We Comparing Against?</h3>
+                    <div class="grid md:grid-cols-4 gap-4">
+                        <div class="bg-white p-4 rounded shadow">
+                            <h4 class="font-bold text-red-600">Naive ORM</h4>
+                            <p class="text-sm text-gray-600">N+1 queries, full object hydration, no caching. The "it works" first pass.</p>
+                        </div>
+                        <div class="bg-white p-4 rounded shadow">
+                            <h4 class="font-bold text-yellow-600">Basic Python</h4>
+                            <p class="text-sm text-gray-600">Single JOINed query, json.dumps serialization. Competent code, no optimization.</p>
+                        </div>
+                        <div class="bg-white p-4 rounded shadow">
+                            <h4 class="font-bold text-blue-600">Optimized Stack</h4>
+                            <p class="text-sm text-gray-600">DataLoaders, Redis, Pydantic DTOs, orjson. Production-tuned by senior devs.</p>
+                        </div>
+                        <div class="bg-white p-4 rounded shadow border-2 border-green-500">
+                            <h4 class="font-bold text-green-600">FraiseQL</h4>
+                            <p class="text-sm text-gray-600">Table views, Rust pipeline, single query per read. Database-first architecture.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Multi-scenario performance table -->
+                <div class="overflow-x-auto mb-8">
+                    <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                        <thead class="bg-gray-800 text-white">
+                            <tr>
+                                <th class="px-6 py-3 text-left">Scenario</th>
+                                <th class="px-6 py-3 text-center">Response Time</th>
+                                <th class="px-6 py-3 text-center">QPS/vCPU</th>
+                                <th class="px-6 py-3 text-center">vs FraiseQL</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-700">
+                            <tr class="border-b">
+                                <td class="px-6 py-4"><strong>Naive ORM</strong><br><small class="text-gray-500">N+1 queries, no optimization</small></td>
+                                <td class="px-6 py-4 text-center">~300ms</td>
+                                <td class="px-6 py-4 text-center">~3</td>
+                                <td class="px-6 py-4 text-center text-red-600 font-semibold">100-300x slower</td>
+                            </tr>
+                            <tr class="border-b bg-gray-50">
+                                <td class="px-6 py-4"><strong>Basic Python</strong><br><small class="text-gray-500">JOINs, standard serialization</small></td>
+                                <td class="px-6 py-4 text-center">~30ms</td>
+                                <td class="px-6 py-4 text-center">~30</td>
+                                <td class="px-6 py-4 text-center text-yellow-600 font-semibold">20-60x slower</td>
+                            </tr>
+                            <tr class="border-b">
+                                <td class="px-6 py-4"><strong>Optimized Stack</strong><br><small class="text-gray-500">DataLoaders, Redis, DTOs</small></td>
+                                <td class="px-6 py-4 text-center">~3ms (cached)</td>
+                                <td class="px-6 py-4 text-center">~250</td>
+                                <td class="px-6 py-4 text-center text-yellow-600 font-semibold">2-3x slower</td>
+                            </tr>
+                            <tr class="bg-green-50">
+                                <td class="px-6 py-4"><strong>FraiseQL</strong><br><small class="text-gray-500">Table views, Rust pipeline</small></td>
+                                <td class="px-6 py-4 text-center text-green-600 font-semibold">Sub-millisecond</td>
+                                <td class="px-6 py-4 text-center text-green-600 font-semibold">~500-600</td>
+                                <td class="px-6 py-4 text-center text-green-600 font-semibold">baseline</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Honest messaging -->
+                <div class="bg-blue-50 border-l-4 border-blue-500 p-6 rounded-r-lg mb-8 max-w-4xl mx-auto">
+                    <p class="text-blue-800">
+                        Performance varies by baseline. Against <strong>naive ORM patterns</strong> (N+1 queries),
+                        expect 100-300x improvement. Against <strong>basic Python</strong> with JOINs, expect
+                        20-60x improvement. Against <strong>fully optimized stacks</strong> with Redis and
+                        DataLoaders, expect 2-3x improvement—but with simpler architecture.
+                    </p>
+                </div>
+
+                <!-- Write performance note -->
+                <div class="bg-yellow-50 border-l-4 border-yellow-500 p-6 rounded-r-lg mb-8 max-w-4xl mx-auto">
+                    <h4 class="font-bold text-yellow-800 mb-2">Honest About Writes</h4>
+                    <p class="text-yellow-800">
+                        FraiseQL's advantage is primarily in <strong>reads</strong>. Write performance (~3.5-5.5ms)
+                        is similar to optimized stacks due to table view sync overhead. For write-heavy workloads
+                        (&gt;50% writes), evaluate carefully.
+                    </p>
+                </div>
+
+                 <p class="text-sm text-gray-600 text-center max-w-3xl mx-auto">
+                     Read performance based on nested query (1 user + 10 posts + 50 comments). Benchmarks run on
+                     a 10-year-old dual-core laptop—expect higher throughput on modern hardware.<br><br>
+                     <strong>Key insight:</strong> The 2-3x advantage vs optimized stacks comes with simpler ops—no Redis, no cache invalidation logic, no DataLoader boilerplate.<br><br>
+                     <a href="https://github.com/fraiseql/fraiseql/tree/main/benchmarks" class="text-red-600 hover:text-red-700 font-semibold">
+                         Reproduce these benchmarks →
+                     </a>
+                 </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Cost Savings Section -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-3xl md:text-4xl font-bold text-center text-gray-800 mb-8">
+                💰 Eliminate Redis, Simplify Ops
+            </h2>
+            <p class="text-xl text-center text-gray-700 mb-8">
+                Replace caching infrastructure with pre-computed table views. Fewer moving parts, lower costs.
+            </p>
+
+            <div class="overflow-x-auto">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Traditional Stack</th>
+                            <th class="px-6 py-3 text-left">FraiseQL Stack</th>
+                            <th class="px-6 py-3 text-left">Annual Savings</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">PostgreSQL: $50/mo</td>
+                            <td class="px-6 py-4">PostgreSQL: $50-80/mo (more storage)</td>
+                            <td class="px-6 py-4">-$360/yr</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Redis Cloud: $50-500/mo</td>
+                            <td class="px-6 py-4"><span class="font-bold text-green-600">✅ Not needed</span></td>
+                            <td class="px-6 py-4 font-bold" style="color: #e63946;">$600-6,000/yr</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Extra compute (4 instances)</td>
+                            <td class="px-6 py-4"><span class="font-bold text-green-600">✅ 1-2 instances</span></td>
+                            <td class="px-6 py-4 font-bold" style="color: #e63946;">$1,200-2,500/yr</td>
+                        </tr>
+                        <tr class="bg-gray-100 font-bold">
+                            <td class="px-6 py-4">Total: $350-1,200/mo</td>
+                            <td class="px-6 py-4">Total: $120-250/mo</td>
+                            <td class="px-6 py-4" style="color: #e63946;">$2,800-11,400/yr</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p class="text-sm text-gray-600 text-center max-w-3xl mx-auto mt-6">
+                Savings depend on your current optimization level. If you're already running Redis and multiple API instances,
+                expect significant savings. Simpler stacks see smaller absolute savings but benefit from reduced complexity.
+            </p>
+
+            <div class="mt-8 text-center">
+                <a href="/benefits/economics.html" class="inline-block bg-red-600 text-white font-bold rounded-full py-3 px-8 shadow-lg hover:bg-red-700 transition">
+                    Full Cost Analysis →
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- When NOT to Use Section -->
+    <section class="bg-gray-100 py-16">
+        <div class="container mx-auto px-4 text-gray-800">
+            <h2 class="w-full my-2 text-3xl md:text-5xl font-bold leading-tight text-center text-gray-800">
+                When NOT to Use FraiseQL
+            </h2>
+            <div class="w-full mb-8">
+                <div class="h-1 mx-auto gradient w-64 opacity-25 my-0 py-0 rounded-t"></div>
+            </div>
+            <div class="max-w-3xl mx-auto">
+                <div class="bg-white rounded-lg shadow-lg p-8 border-l-4 border-red-400">
+                    <p class="text-xl text-center mb-8 text-gray-600">We believe in honest engineering. FraiseQL isn't for everyone:</p>
+                    <ul class="text-lg space-y-4">
+                        <li class="flex items-start">
+                            <span class="text-red-500 mr-3 mt-1">✕</span>
+                            <span><strong>Multiple database support</strong> — PostgreSQL 13+ only, by design</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-red-500 mr-3 mt-1">✕</span>
+                            <span><strong>Existing ORM patterns</strong> — Large codebases with different patterns</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-red-500 mr-3 mt-1">✕</span>
+                            <span><strong>GraphQL-layer business logic</strong> — Use PostgreSQL Functions instead</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-red-500 mr-3 mt-1">✕</span>
+                            <span><strong>Simple CRUD-only APIs</strong> — REST might be simpler for basic needs</span>
+                        </li>
+                    </ul>
+                    <p class="text-lg mt-8 text-center text-gray-600">
+                        If these are deal-breakers, check out <a href="https://hasura.io" class="text-red-600 hover:text-red-700 font-semibold">Hasura</a> or <a href="https://www.graphile.org/postgraphile/" class="text-red-600 hover:text-red-700 font-semibold">PostGraphile</a>.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8">
+            <div class="w-full flex flex-col md:flex-row py-6">
+                <div class="flex-1 mb-6 text-white">
+                    <a class="text-white no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                        🍓 FraiseQL
+                    </a>
+                </div>
+                <div class="flex-1">
+                    <p class="uppercase text-gray-400 md:mb-6">Links</p>
+                    <ul class="list-none mb-6">
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://fraiseql.readthedocs.io" class="no-underline hover:underline text-gray-400 hover:text-pink-500">Documentation</a>
+                        </li>
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://github.com/fraiseql/fraiseql" class="no-underline hover:underline text-gray-400 hover:text-pink-500">GitHub</a>
+                        </li>
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://pypi.org/project/fraiseql/" class="no-underline hover:underline text-gray-400 hover:text-pink-500">PyPI</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="w-full pt-6 pb-6 text-sm text-center text-gray-400 border-t border-gray-700">
+                <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-pink-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-pink-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var header = document.getElementById("header");
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Scroll behavior: toggle header background
+            document.addEventListener("scroll", function() {
+                if (window.scrollY > 10) {
+                    header.classList.add("bg-white", "shadow", "scrolled");
+                    navContent.classList.remove("bg-gray-100");
+                    navContent.classList.add("bg-white");
+                } else {
+                    header.classList.remove("bg-white", "shadow", "scrolled");
+                    navContent.classList.remove("bg-white");
+                    navContent.classList.add("bg-gray-100");
+                }
+            });
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+    <script src="/prism-python.min.js"></script>
+    <script src="/prism-bash.min.js"></script>
+    <script src="/prism-graphql.min.js"></script>
+    <script src="/prism-sql.min.js"></script>
+</body>
+</html>

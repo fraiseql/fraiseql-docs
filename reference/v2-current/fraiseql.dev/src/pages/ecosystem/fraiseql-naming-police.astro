@@ -1,0 +1,137 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="fraiseql-naming-police - Naming Convention Enforcement | FraiseQL"
+  description="Enforce consistent naming patterns in FraiseQL schemas. Linter for database and GraphQL naming conventions."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>👮 fraiseql-naming-police</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>Naming Convention Enforcement</strong> – Schema linting
+    </p>
+
+    <section style="margin: 2rem 0;">
+      <h2>What It Does</h2>
+      <p>
+        fraiseql-naming-police enforces consistent naming conventions across your schema and compiled GraphQL.
+      </p>
+      <ul>
+        <li>
+          <strong>Pattern enforcement</strong>: snake_case for tables, camelCase for GraphQL fields
+        </li>
+        <li>
+          <strong>Linting rules</strong>: 50+ configurable naming rules
+        </li>
+        <li>
+          <strong>Pre-compile validation</strong>: Catch naming issues before compilation
+        </li>
+        <li>
+          <strong>Auto-fix</strong>: Automatically correct naming violations
+        </li>
+        <li>
+          <strong>Team consistency</strong>: Enforce team conventions
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Why It Exists</h2>
+      <p>
+        Without naming conventions, schemas become inconsistent:
+      </p>
+      <ul>
+        <li>Some tables use snake_case, others camelCase</li>
+        <li>Inconsistent GraphQL field names</li>
+        <li>Hard to onboard new developers</li>
+        <li>Migration mistakes due to unclear patterns</li>
+        <li>Inconsistent API surface</li>
+      </ul>
+      <p>fraiseql-naming-police enforces conventions automatically.</p>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Key Features</h2>
+      <ul>
+        <li>
+          <strong>Built-in Presets</strong>: PostgreSQL, REST, GraphQL standard conventions
+        </li>
+        <li>
+          <strong>Custom Rules</strong>: Define organization-specific patterns
+        </li>
+        <li>
+          <strong>Lint Integration</strong>: Works with fraiseql-cli compile
+        </li>
+        <li>
+          <strong>Pre-commit Hooks</strong>: Catch issues before commit
+        </li>
+        <li>
+          <strong>CI/CD Integration</strong>: Fail builds on violations
+        </li>
+        <li>
+          <strong>Auto-fix Mode</strong>: Automatically correct violations
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Example Rules</h2>
+      <pre><code>{`# fraiseql.yaml
+naming_rules:
+  tables: "^[a-z_]+$"           # snake_case
+  columns: "^[a-z_]+$"          # snake_case
+  views: "^v_[a-z_]+$"          # v_* prefix for views
+  functions: "^fn_[a-z_]+$"     # fn_* prefix for functions
+  graphql_fields: "^[a-z][a-zA-Z0-9]*$"  # camelCase`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Technology Stack</h2>
+      <ul>
+        <li>
+          <strong>Language</strong>: Rust (pattern matching)
+        </li>
+        <li>
+          <strong>Integration</strong>: fraiseql-cli plugin
+        </li>
+        <li>
+          <strong>Configuration</strong>: YAML-based rulesets
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Integration with Other Tools</h2>
+      <ul>
+        <li>
+          <strong>fraiseql-cli</strong>: Runs automatically during compilation
+        </li>
+        <li>
+          <strong>Pre-commit</strong>: Git hook integration available
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>GitHub Repository</h2>
+      <p>
+        <a href="https://github.com/fraiseql/fraiseql-naming-police" target="_blank">
+          Visit fraiseql-naming-police on GitHub →
+        </a>
+      </p>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Related Tools</h2>
+      <ul>
+        <li><a href="/ecosystem/fraiseql-core">fraiseql</a> – Core engine</li>
+        <li><a href="/ecosystem">← Back to Ecosystem</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

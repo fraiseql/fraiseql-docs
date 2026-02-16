@@ -1,0 +1,579 @@
+---
+title: Schema Design
+description: GraphQL API design principles and FraiseQL-specific patterns
+---
+
+This guide covers both general GraphQL best practices and FraiseQL-specific patterns for designing effective, maintainable APIs.
+
+## Part 1: GraphQL Design Principles
+
+### Design for the Client
+
+Your GraphQL schema is a contract with your clients. Design it around client needs, not database structure:
+
+```python
+from fraiseql.scalars import ID, Decimal
+
+# Good: Client-focused
+@fraiseql.type
+class Order:
+    id: ID
+    customer: Customer
+    items: list[OrderItem]
+    total: Decimal
+    status: OrderStatus
+
+# Avoid: Database-focused
+@fraiseql.type
+class TbOrder:
+    pk_order: int      # Exposes internals
+    fk_customer: int   # Meaningless to clients
+```
+
+### Naming Conventions
+
+**Types**: PascalCase, singular nouns
+
+```python
+class User: ...        # Good
+class BlogPost: ...    # Good
+class Users: ...       # Avoid (plural)
+class blog_post: ...   # Avoid (snake_case)
+```
+
+**Fields**: camelCase (FraiseQL converts from snake_case)
+
+```python
+# Python
+created_at: DateTime
+order_items: list[OrderItem]
+
+# Becomes GraphQL
+# createdAt: DateTime!
+# orderItems: [OrderItem!]!
+```
+
+**Queries**: Noun-based, describe what you get
+
+```python
+def user(id: ID) -> User: ...              # Single entity
+def users(limit: int) -> list[User]: ...   # Collection
+def posts_by_author(author_id: ID) -> list[Post]: ...  # Filtered
+```
+
+**Mutations**: Verb + noun, describe the action
+
+```python
+def create_user(...) -> User: ...
+def update_post(...) -> Post: ...
+def publish_post(...) -> Post: ...   # Domain action, not CRUD
+def cancel_order(...) -> Order: ...
+```
+
+### Nullability
+
+**Be intentional.** Null should have meaning:
+
+```python
+from fraiseql.scalars import Email, DateTime
+
+@fraiseql.type
+class User:
+    email: Email                  # Required - every user has email
+    bio: str | None               # Optional - not everyone writes a bio
+    deleted_at: DateTime | None   # Null = not deleted (meaningful)
+```
+
+**Never use nullable collections:**
+
+```python
+posts: list[Post]        # Good: empty list if none
+posts: list[Post] | None # Bad: null vs [] is confusing
+```
+
+**List item nullability:**
+
+```python
+tags: list[Tag]    # [Tag!]! - list required, items required (most common)
+tags: list[Tag | None]  # [Tag]! - allows null items (rare, avoid)
+```
+
+### ID Design
+
+Use opaque IDs that don't leak information:
+
+```python
+@fraiseql.type
+class User:
+    id: ID  # "usr_a1b2c3d4" or UUID - opaque, secure
+```
+
+Avoid:
+- Sequential integers (enumeration attacks)
+- Meaningful IDs that leak data (`user_admin_1`)
+- Internal database IDs
+
+### Relationships
+
+**Composition over references:**
+
+```python
+# Good: Rich nested data
+@fraiseql.type
+class Post:
+    author: User  # Full user object
+
+# Acceptable for large collections
+@fraiseql.type
+class User:
+    post_ids: list[ID]  # IDs only, fetch separately
+```
+
+**Many-to-many with relationship data:**
+
+```python
+from fraiseql.scalars import DateTime
+
+@fraiseql.type
+class Membership:
+    user: User
+    team: Team
+    role: str           # Data on the relationship
+    joined_at: DateTime
+```
+
+### Pagination
+
+**Always paginate collections:**
+
+```python
+@fraiseql.query(sql_source="v_post")
+def posts(
+    limit: int = 20,    # Default limit
+    offset: int = 0
+) -> list[Post]: ...
+```
+
+**Connection pattern for cursor pagination:**
+
+```python
+@fraiseql.type
+class PostConnection:
+    edges: list[PostEdge]
+    page_info: PageInfo
+    total_count: int
+
+@fraiseql.type
+class PostEdge:
+    node: Post
+    cursor: str
+```
+
+### Input Types
+
+**Use input types for complex mutations:**
+
+```python
+@fraiseql.input
+class CreatePostInput:
+    title: str
+    content: str
+    tags: list[str] | None = None
+    is_draft: bool = True
+
+@fraiseql.mutation(sql_source="fn_create_post", operation="CREATE")
+def create_post(input: CreatePostInput) -> Post: ...
+```
+
+**Partial updates with optional fields:**
+
+```python
+from fraiseql.scalars import URL
+
+@fraiseql.input
+class UpdateUserInput:
+    name: str | None = None
+    bio: str | None = None
+    avatar_url: URL | None = None
+    # Only provided fields are updated
+```
+
+### Enums
+
+Use for truly fixed values only:
+
+```python
+@fraiseql.enum
+class OrderStatus(Enum):
+    PENDING = "pending"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+
+# Don't use enums for:
+# - Categories (change over time)
+# - Tags (user-created)
+# - Roles (configurable)
+```
+
+### Schema Evolution
+
+**Safe changes:**
+- Adding new types
+- Adding nullable fields to existing types
+- Adding new queries/mutations
+- Deprecating fields (with `@deprecated`)
+
+**Breaking changes (avoid):**
+- Removing fields/types
+- Making nullable fields required
+- Changing field types
+- Renaming fields
+
+```python
+# Deprecation pattern
+@fraiseql.type
+class User:
+    name: str
+    username: Annotated[str, fraiseql.field(
+        deprecated="Use 'name' instead. Will be removed in v3."
+    )]
+```
+
+---
+
+## Part 2: FraiseQL-Specific Patterns
+
+### Leverage Rich Scalar Types
+
+FraiseQL provides 47+ domain-specific scalar types with built-in validation and specialized filter operators. Use them instead of generic `str`:
+
+```python
+from fraiseql.scalars import Email, URL, PhoneNumber, CountryCode, DateTime, Decimal
+
+@fraiseql.type
+class Customer:
+    id: ID
+    email: Email            # RFC 5322 validated, filters: _domain_eq, _is_corporate
+    website: URL | None     # RFC 3986 validated, filters: _domain_eq, _is_secure
+    phone: PhoneNumber      # E.164 format, filters: _country_code_eq, _is_mobile
+    country: CountryCode    # ISO 3166-1, filters: _in_eu, _gdpr_applicable
+    created_at: DateTime
+    balance: Decimal        # Arbitrary precision for financial data
+```python
+
+**Benefits:**
+- **Automatic validation** at API boundary
+- **Domain-specific filters** (e.g., `email: { _is_corporate: true }`)
+- **Self-documenting** schema (Email vs str)
+- **Type safety** across Python, GraphQL, and PostgreSQL
+
+See [Scalar Types](/reference/scalars) for the complete list.
+
+### CQRS-Aware Design
+
+FraiseQL separates reads and writes. Design your schema accordingly:
+
+**Queries read from views (`v_`, `tv_`):**
+
+```python
+@fraiseql.query(sql_source="v_user")  # Reads from view
+def user(id: ID) -> User: ...
+
+@fraiseql.query(sql_source="tv_user")  # Reads from materialized table
+def users(limit: int = 20) -> list[User]: ...
+```
+
+**Mutations write through functions (`fn_`):**
+
+```python
+from fraiseql.scalars import Email
+
+@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+def create_user(email: Email, name: str) -> User: ...
+```
+
+**Implication:** Your read types can be more denormalized than your write inputs. The view handles the denormalization.
+
+### View Composition Constraints
+
+Views embed other views via `.data`. This affects type design:
+
+**Avoid cycles:** If Post embeds User (author), User cannot embed Post (posts):
+
+```python
+# v_post embeds full author
+@fraiseql.type
+class Post:
+    author: User  # Full user data from v_user.data
+
+# v_user returns post IDs only (breaks the cycle)
+@fraiseql.type
+class User:
+    post_ids: list[ID]  # Not full Post objects
+```
+
+                                                                                                      ─
+
+### Trinity Identifier Pattern
+
+Every entity has three identifiers. Only expose two:
+
+```python
+from fraiseql.scalars import ID, Slug
+
+@fraiseql.type
+class User:
+    id: ID           # UUID - external, exposed in API
+    identifier: Slug # Human-readable (username, slug)
+    # pk_user: int   # NEVER expose - internal only
+```
+
+Design queries to support both:
+
+```python
+@fraiseql.query(sql_source="v_user")
+def user(id: ID | None = None, identifier: Slug | None = None) -> User | None:
+    """Fetch by UUID or human-readable identifier."""
+    pass
+```
+
+### Automatic Where Types
+
+FraiseQL generates filter types automatically. Design knowing this:
+
+```python
+from fraiseql.scalars import DateTime
+
+# Your type
+@fraiseql.type
+class Post:
+    title: str
+    is_published: bool
+    created_at: DateTime
+
+# FraiseQL generates PostWhere with:
+# - title_eq, title_contains, title_starts_with
+# - is_published_eq
+# - created_at_gt, created_at_lt, created_at_gte, created_at_lte
+```
+
+**Index accordingly:**
+
+```sql
+-- Index fields you expect to filter on
+CREATE INDEX idx_post_published ON tb_post(is_published);
+CREATE INDEX idx_post_created ON tb_post(created_at DESC);
+CREATE INDEX idx_tv_post_title ON tv_post((data->>'title'));
+```
+
+### Materialization Decisions
+
+Some views should be materialized to `tv_` tables. Design for this:
+
+**Good candidates for `tv_`:**
+- High-traffic queries (homepage, listings)
+- Complex JOINs (5+ tables)
+- Aggregated data (counts, sums)
+
+**Keep as `v_` views:**
+- Rarely accessed types
+- Real-time accuracy required
+- Simple queries (1-2 JOINs)
+
+```python
+# Hot path - use tv_
+@fraiseql.query(sql_source="tv_post")
+def featured_posts() -> list[Post]: ...
+
+# Rare access - use v_
+@fraiseql.query(sql_source="v_audit_log")
+def audit_logs(user_id: ID) -> list[AuditLog]: ...
+```
+
+### Side Effects in Observers
+
+Mutations should only change data. Side effects belong in observers:
+
+```python
+# Mutation: just creates the order
+@fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
+def create_order(input: CreateOrderInput) -> Order:
+    """Creates order. Notification handled by observer."""
+    pass
+```
+
+```python
+# Observer: handles side effects
+@fraiseql.observer(
+    entity_type="Order",
+    on=["CREATE"],
+    actions=[
+        SendEmail(template="order_confirmation"),
+        CallWebhook(url="${WEBHOOK_URL}"),
+        NotifySlack(channel="#orders")
+    ]
+)
+def on_order_created(order: Order): ...
+```
+
+**Don't design mutations expecting synchronous side effects.** The API returns immediately; side effects happen asynchronously.
+
+### Compiled Query Constraints
+
+FraiseQL compiles your schema to SQL. There are no runtime resolvers:
+
+**Every field must map to SQL:**
+
+```python
+from fraiseql.scalars import ID, Email
+
+# Good: All fields come from the view
+@fraiseql.type
+class User:
+    id: ID
+    name: str
+    email: Email
+    post_count: int  # Computed in the view
+
+# Cannot do: Runtime-computed fields
+@fraiseql.type
+class User:
+    id: ID
+    name: str
+    greeting: str  # "Hello, {name}" - no runtime resolvers!
+```
+
+**Solution:** Compute in the view:
+
+```sql
+CREATE VIEW v_user AS
+SELECT
+    id,
+    jsonb_build_object(
+        'id', id,
+        'name', name,
+        'greeting', 'Hello, ' || name  -- Computed in SQL
+    ) AS data
+FROM tb_user;
+```
+
+### Designing for Performance
+
+**Pre-compute aggregations:**
+
+```sql
+-- In v_user, include counts
+jsonb_build_object(
+    'id', u.id,
+    'name', u.name,
+    'post_count', (SELECT COUNT(*) FROM tb_post WHERE fk_user = u.pk_user),
+    'follower_count', (SELECT COUNT(*) FROM tb_follow WHERE fk_followed = u.pk_user)
+) AS data
+```
+
+**Limit nested depth:**
+
+```python
+# Good: Shallow nesting
+@fraiseql.type
+class Post:
+    author: User      # 1 level deep
+
+# Avoid: Deep nesting
+@fraiseql.type
+class Comment:
+    post: Post        # Post includes author...
+        # author: User  # who includes posts...
+            # posts: [Post]  # which include comments...
+```
+
+**Use IDs for deep relationships:**
+
+```python
+@fraiseql.type
+class Comment:
+    post_id: ID       # Just the ID
+    author_id: ID     # Client fetches separately if needed
+```
+
+---
+
+## Anti-Patterns
+
+### Leaking Database Structure
+
+```python
+# Avoid
+@fraiseql.type
+class User:
+    pk_user: int       # Internal ID
+    fk_org: int        # Internal FK
+    tb_user_id: int    # Table prefix
+```
+
+### God Types
+
+```python
+# Avoid: 50+ fields
+@fraiseql.type
+class User:
+    # ... endless fields
+
+# Better: Split into focused types
+@fraiseql.type
+class User:
+    id: ID
+    profile: UserProfile
+    settings: UserSettings
+    security: UserSecurity
+```
+
+### Cyclic Type References
+
+```python
+# Cannot work in FraiseQL
+@fraiseql.type
+class User:
+    posts: list[Post]  # Full posts
+
+@fraiseql.type
+class Post:
+    author: User       # Full user (cycle!)
+```
+
+### Synchronous Side Effects
+
+```python
+# Wrong mental model
+def create_order(input: CreateOrderInput) -> Order:
+    # Mutation returns, THEN email sends
+    # Don't promise "order created and email sent"
+    pass
+```
+
+---
+
+## Checklist
+
+Before finalizing your schema:
+
+- [ ] Types named as PascalCase singular nouns?
+- [ ] Fields use camelCase (via snake_case in Python)?
+- [ ] IDs are opaque (UUIDs, not sequential)?
+- [ ] Rich scalar types used where applicable (Email, URL, etc.)?
+- [ ] Nullable only where null has meaning?
+- [ ] Collections are non-nullable with non-nullable items?
+- [ ] All collections paginated?
+- [ ] No cyclic type references?
+- [ ] Complex mutations use input types?
+- [ ] Side effects delegated to observers?
+- [ ] Hot paths use `tv_` tables?
+- [ ] Common filter fields indexed?
+
+## Next Steps
+
+- [Scalar Types](/reference/scalars) — All 47+ rich scalar types
+- [Naming Conventions](/reference/naming-conventions) — Complete naming guide
+- [CQRS Pattern](/concepts/cqrs) — Write vs read separation
+- [View Composition](/concepts/view-composition) — How views compose
+- [Observers](/concepts/observers) — Side effect handling

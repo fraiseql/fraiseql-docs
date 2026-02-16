@@ -1,0 +1,39 @@
+# FraiseQL Solution: Separated at Compile Time
+
+direction: right
+
+tb_user: {
+  shape: sql_table
+  style.fill: "#c2410c"
+  style.stroke: "#78350f"
+  style.font-color: "#ffffff"
+  style.font-size: 18
+
+  pk_user: int {constraint: primary_key}
+  id: uuid {constraint: unique}
+  identifier: text {constraint: unique}
+  email: "varchar(255)" {constraint: unique}
+  name: "varchar(255)"
+  bio: text
+  created_at: timestamptz
+  updated_at: timestamptz
+}
+
+v_user: {
+  shape: sql_table
+  style.fill: "#0369a1"
+  style.stroke: "#0c4a6e"
+  style.font-color: "#ffffff"
+  style.font-size: 18
+
+  id: uuid {constraint: primary_key}
+  data: jsonb
+}
+
+tb_user -> v_user: "Auto-Sync" {
+  style.stroke-width: 3
+  style.stroke: "#16a34a"
+  style.font-size: 18
+  style.bold: true
+  style.font-color: "#15803d"
+}

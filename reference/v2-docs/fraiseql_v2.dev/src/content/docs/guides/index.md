@@ -1,0 +1,81 @@
+---
+title: Guides Overview
+description: Comprehensive guides for FraiseQL development, deployment, and best practices
+---
+
+# Guides
+
+Comprehensive guides for building, deploying, and optimizing FraiseQL applications.
+
+## Getting Started
+
+- **[Authentication](/guides/authentication)** — JWT, OAuth, API keys, and custom auth
+- **[Error Handling](/guides/error-handling)** — Comprehensive error handling patterns
+
+## Architecture & Design
+
+- **[Schema Design](/guides/schema-design)** — Best practices for schema definition
+- **[Multi-Tenancy](/guides/multi-tenancy)** — Multi-tenant architecture patterns
+- **[Advanced Patterns](/guides/advanced-patterns)** — Soft deletes, audit trails, versioning
+
+## Operations
+
+- **[Testing](/guides/testing)** — Unit tests, integration tests, performance testing
+- **[Performance](/guides/performance)** — Query optimization and tuning
+- **[Performance Benchmarks](/guides/performance-benchmarks)** — Performance comparisons and metrics
+- **[Deployment](/guides/deployment)** — Deployment strategies and checklist
+
+## Integration
+
+- **[Apollo Sandbox Security](/guides/apollo-sandbox-security)** — Secure GraphQL testing
+- **[Federation & NATS Integration](/guides/federation-nats-integration)** — Multi-database federation setup
+
+## Reference
+
+- **[FAQ](/guides/faq)** — Frequently asked questions and answers
+
+---
+
+## By Use Case
+
+### Building APIs
+1. Start with [Schema Design](/guides/schema-design)
+2. Follow [Best Practices](/guides/advanced-patterns)
+3. Implement [Testing](/guides/testing)
+4. Review [Error Handling](/guides/error-handling)
+
+### Going to Production
+1. Plan [Deployment](/guides/deployment)
+2. Set up [Authentication](/guides/authentication)
+3. Configure [Performance](/guides/performance)
+4. Monitor with [Benchmarks](/guides/performance-benchmarks)
+
+### Multi-Tenant Applications
+1. Learn [Multi-Tenancy](/guides/multi-tenancy) architecture
+2. Implement [Advanced Patterns](/guides/advanced-patterns)
+3. Set up [Federation](/guides/federation-nats-integration) if needed
+4. Test with [Testing](/guides/testing) guide
+
+---
+
+## Quick Reference
+
+| Guide | Purpose | Audience |
+|-------|---------|----------|
+| [Schema Design](/guides/schema-design) | Structure your data model | All developers |
+| [Advanced Patterns](/guides/advanced-patterns) | Enterprise patterns | Experienced developers |
+| [Multi-Tenancy](/guides/multi-tenancy) | SaaS architectures | SaaS developers |
+| [Testing](/guides/testing) | Ensure code quality | QA engineers, developers |
+| [Performance](/guides/performance) | Optimize queries | DevOps, backend developers |
+| [Deployment](/guides/deployment) | Go to production | DevOps engineers |
+| [Authentication](/guides/authentication) | Secure your API | Backend developers |
+| [Error Handling](/guides/error-handling) | Handle errors gracefully | All developers |
+| [FAQ](/guides/faq) | Common questions | All users |
+
+---
+
+## Next Steps
+
+- **New to FraiseQL?** Start with [Getting Started](/getting-started/introduction)
+- **Specific problem?** Check [Troubleshooting](/troubleshooting)
+- **Need examples?** Browse [Examples](/examples)

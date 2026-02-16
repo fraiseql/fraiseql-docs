@@ -1,0 +1,309 @@
+---
+title: FAQ - Frequently Asked Questions
+description: Answers to common FraiseQL questions about architecture, performance, deployment, and usage
+---
+
+# Frequently Asked Questions
+
+Find answers to the most common FraiseQL questions.
+
+## Getting Started (10)
+
+**Q: What is FraiseQL?**
+A: FraiseQL is a code-first GraphQL backend framework that automatically generates APIs from Python type definitions and database schema. It compiles to optimized resolvers, eliminating boilerplate and N+1 queries.
+
+**Q: Do I need GraphQL experience to use FraiseQL?**
+A: No. While helpful, FraiseQL teaches GraphQL concepts gradually. Start with the [Quick Start](/getting-started/quickstart) guide - it works even without GraphQL knowledge.
+
+**Q: Can I use FraiseQL without a database?**
+A: FraiseQL is designed for database-backed applications. For in-memory data, use a SQLite database (no server needed).
+
+**Q: What databases does FraiseQL support?**
+A: PostgreSQL, MySQL, SQLite, and SQL Server. Each has optimized drivers and connection pooling.
+
+**Q: Is FraiseQL free?**
+A: Yes, FraiseQL is open source (Apache 2.0 license). No licensing fees, even for commercial use.
+
+**Q: How is FraiseQL different from Hasura?**
+A: Hasura is database-first (generates from DB schema). FraiseQL is code-first (generates from Python types). This makes FraiseQL more versioning-friendly and IDE-friendly. See [comparison](/vs/hasura).
+
+**Q: How is FraiseQL different from Apollo Server?**
+A: Apollo requires manual resolver implementation. FraiseQL maps GraphQL types to pre-written SQL views, eliminating resolvers entirely along with N+1 problems. See [comparison](/vs/apollo).
+
+**Q: Can I migrate from Prisma to FraiseQL?**
+A: Yes! FraiseQL offers better performance and is API-first instead of ORM-first. See [Prisma Migration Guide](/migrations/from-prisma).
+
+**Q: What languages does FraiseQL support?**
+A: FraiseQL itself is written in Python. It provides schema authoring SDKs for 15 languages (Python, TypeScript, Go, Java, Rust, etc.) See [SDK Guide](/sdk).
+
+**Q: Is FraiseQL suitable for production?**
+A: Yes. It's used in production by companies handling millions of requests. See [deployment guides](/deployment) for setup.
+
+---
+
+## Architecture & Design (10)
+
+**Q: How does FraiseQL eliminate N+1 queries?**
+A: FraiseQL automatically batches related queries. When fetching 10 users with posts, it uses 2 queries (users + batched posts), not 11. This is automatic and requires zero configuration.
+
+**Q: Can I use FraiseQL with my existing database?**
+A: Yes. FraiseQL introspects existing schema and generates APIs from it. No migration needed.
+
+**Q: Does FraiseQL require special database schema?**
+A: No. FraiseQL works with any schema, but respects database constraints (foreign keys, indexes, etc.) for optimal performance.
+
+**Q: Is FraiseQL a replacement for my ORM?**
+A: Yes, for GraphQL APIs. FraiseQL is not a generic ORM - it's specifically designed for GraphQL backend APIs. For non-GraphQL use cases, stick with traditional ORMs.
+
+**Q: Can I write custom resolver logic?**
+A: Yes. You can add custom mutations and subscribers. FraiseQL handles the boilerplate; you add business logic.
+
+**Q: Does FraiseQL support complex queries (JOINs, aggregations)?**
+A: Yes. FraiseQL supports all SQL operations: complex joins, aggregations, window functions, etc. These are automatically exposed via GraphQL.
+
+**Q: Can I implement custom authentication?**
+A: Yes. FraiseQL integrates with any authentication system (OAuth, JWT, SAML, etc.) and supports role-based access control.
+
+**Q: What about data validation?**
+A: Validation happens at multiple levels: GraphQL schema validation, application-level validation (decorators), and database constraints.
+
+**Q: Can FraiseQL handle real-time features (subscriptions)?**
+A: Yes. FraiseQL integrates with NATS for event streaming and real-time subscriptions. See [NATS integration](/features/nats).
+
+**Q: Does FraiseQL support transactions?**
+A: Yes. FraiseQL respects database transactions and supports distributed transactions across federated databases via the saga pattern.
+
+---
+
+## Performance (8)
+
+**Q: How fast is FraiseQL compared to Prisma?**
+A: 2.5x faster (18ms vs 45ms p50 latency) due to automatic batching. See [performance benchmarks](/guides/performance-benchmarks).
+
+**Q: How fast is FraiseQL compared to Apollo?**
+A: 5x faster (18ms vs 90ms p50 latency) because Apollo requires manual resolver optimization. See [benchmarks](/guides/performance-benchmarks).
+
+**Q: What's the typical response time?**
+A: p50: < 100ms, p95: < 200ms, p99: < 500ms on production hardware with proper indexing.
+
+**Q: How many requests per second can one instance handle?**
+A: Depends on query complexity and hardware, but typically 1,000-5,000 RPS per instance. With auto-scaling, handle millions of RPS.
+
+**Q: How do I optimize slow queries?**
+A: 1) Add database indexes, 2) Simplify query complexity, 3) Cache results. See [performance troubleshooting](/troubleshooting/performance-issues).
+
+**Q: Does FraiseQL cache queries?**
+A: Yes, but not by default. You can add caching with `@cached(ttl=3600)` decorator or external cache (Redis).
+
+**Q: What causes N+1 problems in FraiseQL?**
+A: Usually custom resolvers that query separately. FraiseQL's view-based approach eliminates batching concerns by pre-composing joins in SQL views. See [advanced patterns](/guides/advanced-patterns).
+
+**Q: How do I monitor performance?**
+A: FraiseQL exports Prometheus metrics. Monitor p95 latency, error rate, database query count, and memory usage. See [monitoring](/guides/performance-benchmarks#monitoring).
+
+---
+
+## Deployment (8)
+
+**Q: Where can I deploy FraiseQL?**
+A: Anywhere Python runs: Docker, Kubernetes, AWS (ECS/Fargate), Google Cloud Run, Azure App Service, self-hosted servers, etc.
+
+**Q: What's the easiest way to deploy FraiseQL?**
+A: Docker Compose for development, Google Cloud Run for production (serverless). No infrastructure management needed.
+
+**Q: How do I scale FraiseQL?**
+A: Horizontal scaling: add more instances behind a load balancer. Auto-scaling: configure based on CPU/memory/RPS. Vertical scaling: increase instance resources.
+
+**Q: Can FraiseQL run serverless?**
+A: Yes, with Google Cloud Run or AWS Lambda (cold start ~500ms for Python). Ideal for variable load.
+
+**Q: How do I implement database failover?**
+A: Use managed database (AWS RDS, Cloud SQL) with automatic failover, or set up replication with manual failover.
+
+**Q: What's the database connection pool strategy?**
+A: FraiseQL uses connection pooling (PgBouncer for PostgreSQL). Rule of thumb: (num_instances × 5) + buffer connections.
+
+**Q: How do I deploy with zero downtime?**
+A: Kubernetes rolling updates or deployment slots (Azure). Ensure graceful shutdown (30s timeout) for in-flight requests.
+
+**Q: Can I deploy FraiseQL on AWS Lambda?**
+A: Yes, but with caveats: cold start overhead, connection pooling challenges, no persistent processes. Better alternatives: ECS/Fargate.
+
+---
+
+## Security (7)
+
+**Q: Is FraiseQL secure?**
+A: Yes, with proper configuration. Like all APIs, security depends on implementation: authentication, authorization, input validation, HTTPS, etc.
+
+**Q: How do I implement authentication?**
+A: Use JWT tokens with issuer validation, or OAuth/SAML. FraiseQL integrates with any auth system. See [security guide](/features/security).
+
+**Q: How do I implement authorization?**
+A: Role-Based Access Control (RBAC) with scopes. FraiseQL's `@requires_scope` decorator enforces permissions. See [advanced patterns](/guides/advanced-patterns).
+
+**Q: Is GraphQL vulnerable to injection attacks?**
+A: No, GraphQL is type-safe. FraiseQL parameterizes all database queries. SQL injection, NoSQL injection are prevented.
+
+**Q: Can I implement row-level security?**
+A: Yes. FraiseQL supports database row-level security (RLS) for PostgreSQL and works with filters for other databases.
+
+**Q: How do I handle secrets (API keys, etc.)?**
+A: Never commit secrets. Use: environment variables (dev), Secrets Manager (AWS/GCP/Azure), or key vaults. See [deployment guides](/deployment).
+
+**Q: What about CORS and HTTPS?**
+A: FraiseQL supports both. Configure `CORS_ORIGINS` for cross-origin requests. Use HTTPS everywhere in production.
+
+---
+
+## Features & Integration (8)
+
+**Q: Does FraiseQL support subscriptions?**
+A: Yes, via WebSocket. Integrate with NATS for event streaming. See [subscriptions guide](/features/subscriptions).
+
+**Q: Can I use FraiseQL with multiple databases?**
+A: Yes, with federation. Combine PostgreSQL, MySQL, SQLite, SQL Server in one API. See [federation guide](/features/federation).
+
+**Q: How do I integrate external APIs?**
+A: Write custom mutations that call external services. FraiseQL handles the GraphQL part.
+
+**Q: Can I implement file uploads?**
+A: Yes. FraiseQL supports file uploads and integrates with cloud storage (S3, GCS). See [file storage guide](/features/file-storage).
+
+**Q: Does FraiseQL support webhooks?**
+A: Yes, for event notifications. Trigger webhooks on mutations. See [webhooks guide](/features/webhooks).
+
+**Q: How do I implement complex business logic?**
+A: Write custom mutations/resolvers in Python. FraiseQL handles boilerplate; you implement logic.
+
+**Q: Can I use FraiseQL with existing microservices?**
+A: Yes. FraiseQL can be a facade over multiple services. Implement custom resolvers that call services.
+
+**Q: How do I handle rate limiting?**
+A: FraiseQL supports global and per-user rate limits. Configure with `RATE_LIMIT_REQUESTS` and window size.
+
+---
+
+## Data & Database (7)
+
+**Q: How do I handle soft deletes?**
+A: Add `deleted_at: datetime | None` field. Filter queries with `WHERE deleted_at IS NULL`. See [advanced patterns](/guides/advanced-patterns).
+
+**Q: How do I implement audit trails?**
+A: Log changes in database triggers or application middleware. FraiseQL example: [audit logging guide](/features/audit-logging).
+
+**Q: How do I implement pagination?**
+A: Cursor-based pagination (best) or limit/offset. See [pagination guide](/features/pagination).
+
+**Q: Can I implement multi-tenancy?**
+A: Yes, with row-level security or separate databases. See [multi-tenancy guide](/guides/advanced-patterns#multi-tenancy).
+
+**Q: How do I handle cascade deletes?**
+A: Define CASCADE rules in database foreign keys. FraiseQL respects these rules. Important for GraphQL design.
+
+**Q: What about data versioning?**
+A: Implement version tables alongside main tables. See [advanced patterns](/guides/advanced-patterns).
+
+**Q: Can I query across databases?**
+A: Yes, with federation. Query data from multiple databases in single GraphQL request. See [federation guide](/features/federation).
+
+---
+
+## Troubleshooting (6)
+
+**Q: How do I debug slow queries?**
+A: Enable `LOG_LEVEL=debug`, check database query count (should be < 5 per request), add indexes, analyze with EXPLAIN. See [performance troubleshooting](/troubleshooting/performance-issues).
+
+**Q: What does "too many connections" mean?**
+A: Database connection pool exhausted. Increase `PGBOUNCER_MAX_POOL_SIZE` or add instances. See [connection issues](/troubleshooting/common-issues#too-many-connections).
+
+**Q: How do I fix "database is locked"?**
+A: SQLite issue - enable WAL mode: `PRAGMA journal_mode=WAL;` See [SQLite troubleshooting](/troubleshooting/by-database/sqlite).
+
+**Q: What does "N+1 query" problem mean?**
+A: Resolving relationships without batching: 1 query for parent + N queries for each child = N+1 total. FraiseQL auto-batches this. See [common issues](/troubleshooting/common-issues#n1-queries).
+
+**Q: How do I troubleshoot authentication errors?**
+A: Check token validity, JWT_SECRET, CORS settings, and Authorization header. See [security issues](/troubleshooting/security-issues).
+
+**Q: Where can I get help?**
+A: [Discord](https://discord.gg/fraiseql) for quick questions, [GitHub Discussions](https://github.com/fraiseql/fraiseql/discussions) for deep dives, [Troubleshooting Guide](/troubleshooting) for solutions.
+
+---
+
+## Comparison & Migration (6)
+
+**Q: Should I use Prisma or FraiseQL?**
+A: Prisma is good for simple backends and ORMs. FraiseQL is better for public APIs needing GraphQL, performance, and type safety. See [comparison](/vs/prisma).
+
+**Q: Should I use Apollo or FraiseQL?**
+A: Apollo requires manual resolver coding. FraiseQL maps GraphQL types to SQL views for better performance. For simple APIs, either works. For complexity, FraiseQL saves time. See [comparison](/vs/apollo).
+
+**Q: Should I use Hasura or FraiseQL?**
+A: Hasura is database-first; FraiseQL is code-first. FraiseQL has better IDE support and versioning. Choose based on workflow preference. See [comparison](/vs/hasura).
+
+
+                                           ─                ─
+
+**Q: Can I migrate from Apollo?**
+A: Yes. Replace manual resolvers with FraiseQL decorators. See [Apollo migration guide](/migrations/from-apollo).
+
+**Q: Can I migrate from Hasura?**
+A: Yes. Convert YAML config to Python types. See [Hasura migration guide](/migrations/from-hasura).
+
+---
+
+## Advanced Questions (5)
+
+**Q: Can I use FraiseQL with REST APIs?**
+A: No, FraiseQL specifically generates GraphQL. If you need REST, use a different tool or add REST endpoints manually.
+
+**Q: Can I customize the GraphQL schema?**
+A: Yes, FraiseQL allows schema customization via decorators and custom fields. Control exactly what's exposed.
+
+**Q: How does FraiseQL handle concurrency?**
+A: Database handles concurrent requests. FraiseQL connection pooling ensures efficient resource use. See [scaling guide](/deployment/scaling).
+
+**Q: Can I use FraiseQL with a NoSQL database?**
+A: FraiseQL is SQL-first. For NoSQL, use different tools (Hasura, Apollo + custom resolvers).
+
+**Q: Is FraiseQL suitable for my use case?**
+A: FraiseQL is best for: GraphQL APIs, relational data, public/internal APIs, rapid development. See [getting started](/getting-started/introduction) for comparison.
+
+---
+
+## Performance Tuning (5)
+
+**Q: How do I optimize database queries?**
+A: 1) Add indexes, 2) Analyze EXPLAIN output, 3) Simplify joins, 4) Cache results. See [performance guide](/guides/performance-benchmarks).
+
+**Q: How do I reduce memory usage?**
+A: 1) Paginate results, 2) Use selective field fetching, 3) Cache at query level, 4) Monitor memory growth. See [performance issues](/troubleshooting/performance-issues).
+
+**Q: What's the best caching strategy?**
+A: HTTP caching for static data (ttl=3600), Redis for computed data, database for authoritative data. Never cache PII.
+
+**Q: How do I handle bursty traffic?**
+A: Use auto-scaling based on RPS or CPU. For databases, use read replicas. Cache aggressively.
+
+**Q: When should I optimize?**
+A: After profiling (measure first). Follow: 1) Add indexes, 2) Cache, 3) optimize queries, 4) auto-scale infrastructure.
+
+---
+
+## Still have questions?
+
+**Discord**: [Join our Discord](https://discord.gg/fraiseql) for community help
+**GitHub**: [Create an issue](https://github.com/fraiseql/fraiseql/issues) for bugs
+**Discussions**: [GitHub Discussions](https://github.com/fraiseql/fraiseql/discussions) for feature requests
+**Email**: [support@fraiseql.dev](mailto:support@fraiseql.dev) for commercial support
+
+---
+
+## Related Resources
+
+- [Troubleshooting Guide](/troubleshooting)
+- [Common Issues](/troubleshooting/common-issues)
+- [Performance Benchmarks](/guides/performance-benchmarks)
+- [Getting Started](/getting-started/introduction)
+- [API Reference](/reference/graphql-api)

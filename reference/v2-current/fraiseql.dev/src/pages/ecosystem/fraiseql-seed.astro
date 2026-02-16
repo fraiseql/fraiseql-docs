@@ -1,0 +1,158 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="fraiseql-seed - Auto-Resolving Test Data | FraiseQL"
+  description="Intelligent test data generation with automatic foreign key resolution. 300× faster than manual seeding or generic factories."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>🌱 fraiseql-seed</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>Test Data Generation</strong> – Smart fixture creation
+    </p>
+
+    <section style="margin: 2rem 0;">
+      <h2>What It Does</h2>
+      <p>
+        fraiseql-seed generates test data with automatic relationship resolution, eliminating manual FK juggling.
+      </p>
+      <ul>
+        <li>
+          <strong>300× faster seeding</strong> than manual creation
+        </li>
+        <li>
+          <strong>Auto-resolve foreign keys</strong>: Relationships created automatically
+        </li>
+        <li>
+          <strong>Deterministic factories</strong>: Reproducible test data
+        </li>
+        <li>
+          <strong>Schema-aware generation</strong>: Respects database constraints
+        </li>
+        <li>
+          <strong>Bulk operations</strong>: Generate 1000s of records efficiently
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Why It Exists</h2>
+      <p>
+        Manual test data creation is error-prone and slow:
+      </p>
+      <ul>
+        <li>Must manually create parent records first</li>
+        <li>Foreign key constraints cause failures</li>
+        <li>Factories are verbose and hard to maintain</li>
+        <li>Seeding takes 10-30 seconds per test run</li>
+      </ul>
+      <p>fraiseql-seed automates this with schema introspection.</p>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Key Features</h2>
+      <ul>
+        <li>
+          <strong>Automatic FK Resolution</strong>: Create parents as needed
+        </li>
+        <li>
+          <strong>Faker Integration</strong>: Realistic data for all types
+        </li>
+        <li>
+          <strong>Deterministic Seeds</strong>: Reproducible across runs
+        </li>
+        <li>
+          <strong>Bulk Seeding</strong>: INSERT ...SELECT for speed
+        </li>
+        <li>
+          <strong>Cleanup Utilities</strong>: Truncate with CASCADE
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Performance</h2>
+      <ul>
+        <li>
+          <strong>Data generation</strong>: 300× faster than manual
+        </li>
+        <li>
+          <strong>Seeding time per test</strong>: <100ms for 1000 records
+        </li>
+        <li>
+          <strong>Cleanup time</strong>: <50ms (single CASCADE statement)
+        </li>
+        <li>
+          <strong>Test execution overhead</strong>: Negligible
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Technology Stack</h2>
+      <ul>
+        <li>
+          <strong>Language</strong>: Rust (schema introspection) + Language bindings
+        </li>
+        <li>
+          <strong>SDKs</strong>: Python, TypeScript, Rust, Go
+        </li>
+        <li>
+          <strong>Faker</strong>: Integrated faker libraries
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Integration with Other Tools</h2>
+      <ul>
+        <li>
+          <strong>confiture</strong>: Works with migration system
+        </li>
+        <li>
+          <strong>fraiseql</strong>: Schema introspection via compiled schema
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Quick Start</h2>
+      <pre><code>{`from fraiseql_seed import seed_factory
+
+# Define factory
+user_factory = seed_factory("users", {
+  "name": "faker.name()",
+  "email": "faker.email()"
+})
+
+# Generate test data - FKs auto-resolved
+users = user_factory.create_batch(10)
+orders = seed_factory("orders", {
+  "user_id": users[0].id,
+  "total": "faker.pydecimal()"
+}).create_batch(5)`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>GitHub Repository</h2>
+      <p>
+        <a href="https://github.com/fraiseql/fraiseql-seed" target="_blank">
+          Visit fraiseql-seed on GitHub →
+        </a>
+      </p>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Related Tools</h2>
+      <ul>
+        <li><a href="/ecosystem/confiture">confiture</a> – Migrations</li>
+        <li><a href="/ecosystem">← Back to Ecosystem</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

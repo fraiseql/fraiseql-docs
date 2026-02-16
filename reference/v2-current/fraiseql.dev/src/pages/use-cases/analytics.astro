@@ -1,0 +1,279 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="FraiseQL for Analytics - High-Performance Data Delivery"
+  description="Use case: Real-time dashboards, data warehousing, analytics workloads."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>📊 Analytics: Real-Time Dashboards & Data Warehousing</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>Memory-efficient, columnar data delivery for analytics at scale</strong>
+    </p>
+
+    <section style="margin: 3rem 0;">
+      <h2>The Challenge</h2>
+      <ul>
+        <li><strong>Large result sets:</strong> 100K - 1B rows per query</li>
+        <li><strong>Memory efficiency:</strong> Traditional approaches buffer entire result in RAM</li>
+        <li><strong>Latency:</strong> Dashboards need &lt;1 second response time</li>
+        <li><strong>Compression:</strong> Network bandwidth is expensive</li>
+        <li><strong>Integration:</strong> Must work with Polars, DuckDB, Pandas, BigQuery, Snowflake</li>
+      </ul>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>FraiseQL Analytics Stack</h2>
+
+      <h3 style="margin-top: 2rem;">1. Materialized Views for Pre-Aggregation</h3>
+      <pre><code>{`# Instead of streaming 1B rows and aggregating in Python:
+# Pre-compute aggregations in database (2,083× faster refresh via pg_tviews)
+
+CREATE MATERIALIZED VIEW mv_daily_sales AS
+SELECT
+  DATE(created_at) as date,
+  region,
+  SUM(amount) as total_amount,
+  COUNT(*) as transaction_count,
+  AVG(amount) as avg_amount
+FROM sales
+GROUP BY DATE(created_at), region;
+
+# Query returns aggregated data (1 row per day-region)
+# Load time: 50ms (vs 5 minutes to aggregate 1B rows)
+# Memory: 1MB (vs 5GB for full dataset)`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">2. Arrow Flight for Columnar Transport</h3>
+      <pre><code>{`# Transfer data in columnar format (25-40% smaller)
+# Zero-copy streaming (constant memory usage)
+
+query DailySalesMetrics {
+  daily_sales {
+    date
+    region
+    total_amount
+    transaction_count
+    avg_amount
+  }
+}
+
+# Response: Arrow Flight columnar data
+# - All dates in one column (highly compressible)
+# - All regions in one column (dictionary encoded)
+# - All amounts in one column (Float32, 50% smaller)
+
+# Client receives streaming chunks
+# Memory: 1MB buffered (constant)
+# Compression: 30% of JSON size`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">3. Real-Time Incremental Updates</h3>
+      <pre><code>{`# Dashboard updates every 5 minutes
+# Only new/changed data is sent
+
+subscription OnMetricsUpdate {
+  metrics_update {
+    timestamp
+    delta_rows      # Only rows that changed
+    affected_dates  # Which time periods to refresh
+  }
+}
+
+# Result:
+# - Initial load: 100ms (full dataset)
+# - Each update: 10ms (only deltas)
+# - Dashboard feels real-time to users`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Example: SaaS Analytics Dashboard</h2>
+
+      <h3 style="margin-top: 2rem;">Scenario</h3>
+      <p>
+        <strong>Company:</strong> DataViz, analytics platform for e-commerce
+      </p>
+      <p>
+        <strong>Problem:</strong> Customer dashboards slow (30-60s load). Memory usage high. Network traffic expensive.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Architecture: Before (Traditional)</h3>
+      <pre><code>{`Client browser
+    ↓
+REST API (Node.js)
+    ↓ (SELECT * query)
+PostgreSQL (fetch 100M rows)
+    ↓
+Application memory (5GB)
+    ↓ (aggregate in JavaScript)
+JSON serialization (500MB)
+    ↓
+Browser (parse 500MB JSON)
+    ↓
+JavaScript aggregation (10 seconds)
+    ↓
+Render chart (40 seconds total)
+
+Issues:
+- Memory spike: 5GB on server
+- CPU spike: Aggregating 100M rows
+- Network: 500MB transfer
+- Latency: 40+ seconds`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Architecture: After (FraiseQL)</h3>
+      <pre><code>{`Client browser
+    ↓
+FraiseQL API
+    ↓ (SELECT date, region, SUM(amount) FROM daily_sales GROUP BY ...)
+PostgreSQL (materialized view, 5K rows)
+    ↓
+Arrow Flight columnar encoding (50MB)
+    ↓
+Browser (parse Arrow, zero-copy)
+    ↓
+Polars (instant aggregation, already computed)
+    ↓
+Render chart (1 second total)
+
+Benefits:
+- Memory: 1MB on server (constant streaming)
+- CPU: Zero (materialized view pre-computed)
+- Network: 50MB transfer (90% reduction)
+- Latency: 1 second (40× faster)`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Results</h3>
+      <ul>
+        <li>✅ Dashboard load time: 40s → 1s (40× faster)</li>
+        <li>✅ Server memory: 5GB → 1MB (5000× reduction)</li>
+        <li>✅ Network bandwidth: 90% reduction (cost savings)</li>
+        <li>✅ Concurrent users: 10 → 1000+ per server</li>
+        <li>✅ Infrastructure: Reduced from 100 servers to 5</li>
+      </ul>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Data Integration Patterns</h2>
+
+      <h3 style="margin-top: 2rem;">Pattern 1: Stream to Data Warehouse</h3>
+      <pre><code>{`# Fetch from FraiseQL, push to BigQuery/Snowflake
+
+import pyarrow.flight as flight
+
+client = flight.connect("grpc://api.example.com:4000")
+
+# Get streaming table
+table = client.do_get("""
+  query HistoricalSales {
+    sales_history { date amount region product }
+  }
+""")
+
+# Write to Snowflake
+snowflake.load_table_from_pandas(
+    table.to_pandas(),
+    "analytics.sales_fact"
+).result()
+
+# Result: 1B rows loaded in 5 minutes (vs 2 hours with JSON)`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Pattern 2: Real-Time Streaming to Kafka</h3>
+      <pre><code>{`# Subscribe to events, publish to Kafka for downstream analytics
+
+subscription OnTransactionEvent {
+  transactions_created {
+    id
+    timestamp
+    amount
+    customer_id
+    region
+  }
+}
+
+# Each new transaction streamed to Kafka topic
+# Data engineers subscribe to kafka-topic-transactions
+# Available in real-time for downstream processing`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Pattern 3: DuckDB Local Analytics</h3>
+      <pre><code>{`# Fetch from FraiseQL, analyze locally with DuckDB (no server needed)
+
+import duckdb
+import pyarrow.flight as flight
+
+client = flight.connect("grpc://api.example.com:4000")
+table = client.do_get("query { sales { date amount region } }")
+
+# Create local DuckDB table
+conn = duckdb.from_arrow(table)
+
+# SQL queries on local machine
+result = conn.execute("""
+  SELECT
+    region,
+    SUM(amount) as revenue,
+    COUNT(*) as transactions,
+    AVG(amount) as avg_transaction
+  FROM table
+  GROUP BY region
+  ORDER BY revenue DESC
+""").fetchall()
+
+# Result: 100 billion rows analyzed locally (no server query needed)`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Performance Benchmarks</h2>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tr style="background: #f5f3ff;">
+          <th style="padding: 1rem; text-align: left; border: 1px solid #e5e7eb;">Metric</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Traditional</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">FraiseQL</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Improvement</th>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Query latency (100M rows)</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">30-60s</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">500ms</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">60-120×</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Memory usage</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">5GB</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1MB</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">5000×</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Network transfer</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">500MB</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">50MB</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">10×</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Concurrent users per server</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">10-50</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1000+</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">20-100×</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Infrastructure cost</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">$100,000/yr</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">$5,000/yr</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">20× savings</td>
+        </tr>
+      </table>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="/for/data-engineers">For Data Engineers</a> – Arrow Flight and analytics patterns</li>
+        <li><a href="/ecosystem/fraiseql-wire">fraiseql-wire</a> – Transport protocol details</li>
+        <li><a href="/ecosystem/pg-tviews">pg_tviews</a> – Incremental view refresh</li>
+        <li><a href="/use-cases">← Back to Use Cases</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

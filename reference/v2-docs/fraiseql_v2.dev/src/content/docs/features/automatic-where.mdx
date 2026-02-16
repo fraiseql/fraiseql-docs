@@ -1,0 +1,749 @@
+---
+title: Automatic Where
+description: Automatic filter types and WHERE clause mapping
+---
+
+import EmbeddedSandbox from '../../../components/EmbeddedSandbox.astro';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL automatically generates filter input types for your queries, providing powerful filtering capabilities without manual implementation.
+
+## Overview
+
+When you enable `auto_params`, FraiseQL generates:
+- Filter input types for each field
+- Logical operators (`_and`, `_or`, `_not`)
+- Type-specific comparison operators
+
+## Enabling Auto-Params
+
+```python
+@fraiseql.query(
+    sql_source="v_user",
+    auto_params={"where": True}
+)
+def users(where: UserWhereInput | None = None) -> list[User]:
+    """Query users with automatic filtering."""
+    pass
+```
+
+## Generated Filter Types
+
+For this type:
+
+```python
+from fraiseql.scalars import ID, DateTime, Email, CountryCode, Json
+
+@fraiseql.type
+class User:
+    id: ID
+    name: str
+    email: Email                 # Rich type - gets specialized filter
+    country: CountryCode         # Rich type - gets specialized filter
+    age: int
+    is_active: bool
+    created_at: DateTime
+    tags: list[str]
+    metadata: Json
+```
+
+FraiseQL generates:
+
+```graphql
+input UserWhereInput {
+    id: IDFilter
+    name: StringFilter
+    email: EmailFilter           # Rich type filter
+    country: CountryCodeFilter   # Rich type filter
+    age: IntFilter
+    is_active: BooleanFilter
+    created_at: DateTimeFilter
+    tags: StringArrayFilter
+    metadata: JsonFilter
+
+    _and: [UserWhereInput!]
+    _or: [UserWhereInput!]
+    _not: UserWhereInput
+}
+
+input IDFilter {
+    _eq: ID
+    _neq: ID
+    _in: [ID!]
+    _nin: [ID!]
+    _is_null: Boolean
+}
+
+input StringFilter {
+    _eq: String
+    _neq: String
+    _in: [String!]
+    _nin: [String!]
+    _like: String
+    _ilike: String
+    _regex: String
+    _is_null: Boolean
+}
+
+input EmailFilter {
+    _eq: Email
+    _neq: Email
+    _in: [Email!]
+    _nin: [Email!]
+    _contains: String            # Domain contains
+    _endsWith: String            # e.g., "@company.com"
+    _is_null: Boolean
+}
+
+# ... additional filter types
+```
+
+## Using Filters
+
+### Basic Equality
+
+```graphql
+query {
+    users(where: { email: { _eq: "john@example.com" } }) {
+        id
+        name
+    }
+}
+```
+
+### Rich Type Operators
+
+Use domain-specific operators for rich types:
+
+```graphql
+query {
+    users(where: {
+        email: { _endsWith: "@company.com" }  # Email domain filter
+        country: { _continent: "EU" }          # Country continent filter
+    }) {
+        id
+        name
+        email
+        country
+    }
+}
+```
+
+### Multiple Conditions
+
+Conditions at the same level are ANDed:
+
+```graphql
+query {
+    users(where: {
+        is_active: { _eq: true }
+        age: { _gte: 18 }
+    }) {
+        id
+        name
+    }
+}
+```
+
+## Try It Yourself
+
+Execute queries below to see automatic where filtering in action:
+
+<EmbeddedSandbox
+  endpoint="https://demo.fraiseql.dev/graphql"
+  title="Automatic Where Example"
+  description="Filter users by active status and age range. Modify the query to try different filters!"
+  height="700px"
+  preloadedQuery={`query FilterUsers {
+  users(where: {
+    is_active: { _eq: true }
+    age: { _gte: 18 }
+  }) {
+    id
+    name
+    email
+    is_active
+    age
+  }
+}`}
+/>
+
+### OR Conditions
+
+```graphql
+query {
+    users(where: {
+        _or: [
+            { email: { _ilike: "%@company.com" } }
+            { is_active: { _eq: true } }
+        ]
+    }) {
+        id
+        name
+    }
+}
+```
+
+### NOT Conditions
+
+```graphql
+query {
+    users(where: {
+        _not: { status: { _eq: "banned" } }
+    }) {
+        id
+        name
+    }
+}
+```
+
+### Complex Queries
+
+```graphql
+query {
+    users(where: {
+        _and: [
+            { is_active: { _eq: true } }
+            {
+                _or: [
+                    { role: { _eq: "admin" } }
+                    {
+                        _and: [
+                            { role: { _eq: "user" } }
+                            { verified: { _eq: true } }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }) {
+        id
+        name
+        role
+    }
+}
+```
+
+## SQL Mapping
+
+FraiseQL translates filters to SQL against your views:
+
+```graphql
+# Input
+query {
+    users(where: {
+        is_active: { _eq: true }
+        email: { _ilike: "%@example.com" }
+        age: { _gte: 21, _lt: 65 }
+    }) { id }
+}
+```
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Resulting query
+    SELECT data FROM v_user
+    WHERE (data->>'is_active')::boolean = true
+      AND data->>'email' ILIKE '%@example.com'
+      AND (data->>'age')::int >= 21
+      AND (data->>'age')::int < 65
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- Resulting query
+    SELECT data FROM v_user
+    WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.is_active')) = true
+      AND JSON_UNQUOTE(JSON_EXTRACT(data, '$.email')) LIKE '%@example.com'
+      AND CAST(JSON_UNQUOTE(JSON_EXTRACT(data, '$.age')) AS SIGNED) >= 21
+      AND CAST(JSON_UNQUOTE(JSON_EXTRACT(data, '$.age')) AS SIGNED) < 65
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- Resulting query
+    SELECT data FROM v_user
+    WHERE json_extract(data, '$.is_active') = true
+      AND json_extract(data, '$.email') LIKE '%@example.com'
+      AND CAST(json_extract(data, '$.age') AS INTEGER) >= 21
+      AND CAST(json_extract(data, '$.age') AS INTEGER) < 65
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Resulting query
+    SELECT data FROM dbo.v_user
+    WHERE CAST(JSON_VALUE(data, '$.is_active') AS BIT) = 1
+      AND JSON_VALUE(data, '$.email') LIKE '%@example.com'
+      AND CAST(JSON_VALUE(data, '$.age') AS INT) >= 21
+      AND CAST(JSON_VALUE(data, '$.age') AS INT) < 65
+    ```
+  </TabItem>
+</Tabs>
+
+## Field-Specific Operators
+
+### String Fields
+
+| Operator | SQL | Example |
+|----------|-----|---------|
+| `_eq` | `=` | Exact match |
+| `_neq` | `<>` | Not equal |
+| `_in` | `IN (...)` | In list |
+| `_nin` | `NOT IN (...)` | Not in list |
+| `_like` | `LIKE` | Pattern (case-sensitive) |
+| `_ilike` | `ILIKE` | Pattern (case-insensitive) |
+| `_nlike` | `NOT LIKE` | Not pattern |
+| `_regex` | `~` | Regex match |
+| `_iregex` | `~*` | Regex (case-insensitive) |
+| `_is_null` | `IS NULL` | Null check |
+
+### Numeric Fields
+
+| Operator | SQL | Example |
+|----------|-----|---------|
+| `_eq` | `=` | Equal |
+| `_neq` | `<>` | Not equal |
+| `_gt` | `>` | Greater than |
+| `_gte` | `>=` | Greater or equal |
+| `_lt` | `<` | Less than |
+| `_lte` | `<=` | Less or equal |
+| `_in` | `IN (...)` | In list |
+| `_nin` | `NOT IN (...)` | Not in list |
+| `_is_null` | `IS NULL` | Null check |
+
+### Array Fields
+
+| Operator | SQL | Example |
+|----------|-----|---------|
+| `_contains` | `@> ARRAY[...]` | Contains element |
+| `_contained_in` | `<@ ARRAY[...]` | Contained in |
+| `_has_any` | `&& ARRAY[...]` | Has any element |
+| `_has_all` | `@> ARRAY[...]` | Has all elements |
+| `_is_empty` | `= '{}'` | Is empty array |
+
+### JSON Fields
+
+| Operator | SQL | Example |
+|----------|-----|---------|
+| `_contains` | `@>` | Contains JSON |
+| `_contained_in` | `<@` | Contained in JSON |
+| `_has_key` | `?` | Has key |
+| `_has_keys_any` | `?\|` | Has any key |
+| `_has_keys_all` | `?&` | Has all keys |
+
+## Rich Type Filters
+
+FraiseQL's [rich scalar types](/reference/scalars) automatically generate specialized filter types with domain-appropriate operators. These go far beyond basic string matching—each type gets operators tailored to its semantics.
+
+### Using Rich Types
+
+```python
+from fraiseql.scalars import (
+    Email, PhoneNumber, URL, CountryCode, Coordinates,
+    VIN, IBAN, CurrencyCode, Money, SemanticVersion,
+    IPAddress, AirportCode, TrackingNumber, MimeType
+)
+
+@fraiseql.type
+class Customer:
+    id: ID
+    email: Email                  # EmailFilter
+    phone: PhoneNumber            # PhoneNumberFilter
+    country: CountryCode          # CountryCodeFilter
+    location: Coordinates         # CoordinatesFilter
+    vehicle_vin: VIN              # VINFilter
+    bank_account: IBAN            # IBANFilter
+    preferred_currency: CurrencyCode  # CurrencyCodeFilter
+```
+
+### Generated Rich Type Filters
+
+```graphql
+input CustomerWhereInput {
+    id: IDFilter
+    email: EmailFilter              # Domain, freemail detection
+    phone: PhoneNumberFilter        # Country code, mobile detection
+    country: CountryCodeFilter      # Continent, EU, GDPR groupings
+    location: CoordinatesFilter     # Geospatial radius/bounds
+    vehicle_vin: VINFilter          # Manufacturer, model year
+    bank_account: IBANFilter        # Country, bank code, SEPA
+    preferred_currency: CurrencyCodeFilter  # Fiat, crypto, major
+
+    _and: [CustomerWhereInput!]
+    _or: [CustomerWhereInput!]
+    _not: CustomerWhereInput
+}
+```
+
+### Rich Type Filter Examples
+
+**Email Filtering:**
+```graphql
+query {
+    # Corporate emails only (not Gmail, Yahoo, etc.)
+    leads(where: {
+        email: { _is_corporate: true }
+    }) { id email company }
+
+    # All .edu domain emails
+    students(where: {
+        email: { _domain_endswith: ".edu" }
+    }) { id email }
+
+    # Specific company domain
+    employees(where: {
+        email: { _domain_eq: "acme.com" }
+    }) { id email department }
+}
+```
+
+**Country/Region Filtering:**
+```graphql
+query {
+    # EU customers (for GDPR compliance)
+    customers(where: {
+        country: { _gdpr_applicable: true }
+    }) { id name country }
+
+    # Asian market expansion
+    leads(where: {
+        country: { _continent_eq: "AS" }
+    }) { id company country }
+
+    # G20 economies only
+    enterprises(where: {
+        country: { _in_g20: true }
+    }) { id name country }
+}
+```
+
+**Geospatial Filtering:**
+```graphql
+query {
+    # Stores within 50km of NYC
+    stores(where: {
+        location: {
+            _within_radius: { lat: 40.7128, lng: -74.006, radius_km: 50 }
+        }
+    }) { id name location }
+
+    # Drivers closer than 5km
+    drivers(where: {
+        position: {
+            _distance_from_lt: { lat: 40.7128, lng: -74.006, km: 5 }
+        }
+    }) { id name position }
+}
+```
+
+**VIN Filtering:**
+```graphql
+query {
+    # German manufacturers (WMI starts with W)
+    vehicles(where: {
+        vin: { _wmi_startswith: "W" }
+    }) { id vin manufacturer }
+
+    # Toyota and Honda vehicles
+    vehicles(where: {
+        vin: { _manufacturer_in: ["Toyota", "Honda"] }
+    }) { id vin model }
+
+    # Model year 2020 and newer
+    vehicles(where: {
+        vin: { _model_year_gte: 2020 }
+    }) { id vin model_year }
+}
+```
+
+**Financial Filtering:**
+```graphql
+query {
+    # SEPA-compatible accounts
+    accounts(where: {
+        iban: { _is_sepa: true }
+    }) { id iban holder_name }
+
+    # Major fiat currencies only
+    transactions(where: {
+        currency: { _is_major: true, _is_fiat: true }
+    }) { id amount currency }
+
+    # High-value USD transactions
+    transactions(where: {
+        amount: { _amount_gte: "10000", _currency_eq: "USD" }
+    }) { id amount }
+}
+```
+
+**Network Filtering:**
+```graphql
+query {
+    # Private IP addresses
+    connections(where: {
+        ip: { _is_private: true }
+    }) { id ip path }
+
+    # Specific subnet
+    requests(where: {
+        ip: { _in_subnet: "10.0.0.0/8" }
+    }) { id ip user }
+}
+```
+
+**Version Filtering:**
+```graphql
+query {
+    # Compatible with ^2.0.0
+    packages(where: {
+        version: { _satisfies: "^2.0.0" }
+    }) { id name version }
+
+    # Stable releases only
+    releases(where: {
+        version: { _is_stable: true }
+    }) { id version published_at }
+}
+```
+
+**Transportation Filtering:**
+```graphql
+query {
+    # FedEx express shipments
+    shipments(where: {
+        tracking: { _carrier_eq: "FEDEX", _service_type_eq: "EXPRESS" }
+    }) { id tracking status }
+
+    # Flights from US hub airports
+    flights(where: {
+        departure: { _country_eq: "US", _is_hub: true }
+    }) { id flight_number departure }
+}
+```
+
+### Available Rich Type Filters
+
+| Category | Type | Key Operators |
+|----------|------|---------------|
+| **Contact** | Email | `_domain_eq`, `_domain_endswith`, `_is_freemail`, `_is_corporate` |
+| | PhoneNumber | `_country_code_eq`, `_is_mobile`, `_region_eq` |
+| | URL | `_domain_eq`, `_protocol_eq`, `_is_secure`, `_path_startswith` |
+| **Geography** | CountryCode | `_continent_eq`, `_in_eu`, `_gdpr_applicable`, `_in_g20` |
+| | Coordinates | `_within_radius`, `_within_bounds`, `_distance_from_lt` |
+| | PostalCode | `_startswith`, `_zip5_eq`, `_area_eq` |
+| **Financial** | CurrencyCode | `_is_fiat`, `_is_major`, `_is_crypto`, `_decimals_eq` |
+| | Money | `_amount_gte`, `_currency_eq`, `_converted_gte` |
+| | IBAN | `_country_eq`, `_bank_code_eq`, `_is_sepa` |
+| **Identifiers** | VIN | `_wmi_eq`, `_manufacturer_eq`, `_model_year_gte`, `_region_eq` |
+| | SemanticVersion | `_major_eq`, `_satisfies`, `_is_stable`, `_gte` |
+| | TrackingNumber | `_carrier_eq`, `_service_type_eq` |
+| **Transport** | AirportCode | `_country_eq`, `_is_hub`, `_within_radius` |
+| | FlightNumber | `_airline_eq`, `_airline_alliance_eq` |
+| **Content** | MimeType | `_is_image`, `_is_document`, `_type_eq` |
+| | Color | `_is_dark`, `_is_grayscale`, `_hue_gte` |
+| **Network** | IPAddress | `_in_subnet`, `_is_private`, `_is_ipv6` |
+| | Port | `_is_privileged`, `_is_database` |
+| **Database** | LTree | `_ancestor_of`, `_descendant_of`, `_nlevel_eq` |
+| | DateRange | `_contains_date`, `_overlaps`, `_adjacent` |
+
+For complete filter definitions, see [Query Operators](/reference/operators#rich-type-filters).
+
+## Customizing Filters
+
+### Exclude Fields
+
+```python
+@fraiseql.type
+class User:
+    id: ID
+    name: str
+    password_hash: Annotated[str, fraiseql.field(filterable=False)]
+```
+
+### Custom Filter Types
+
+```python
+@fraiseql.filter_type
+class EmailFilter(StringFilter):
+    """Custom filter for email fields."""
+    _domain: str  # Filter by domain
+
+@fraiseql.type
+class User:
+    email: Annotated[str, fraiseql.field(filter_type=EmailFilter)]
+```
+
+### Limit Operators
+
+```python
+@fraiseql.type
+class User:
+    # Only allow equality checks
+    email: Annotated[str, fraiseql.field(
+        filter_operators=["_eq", "_neq", "_in"]
+    )]
+```
+
+## Nested Object Filtering
+
+Filter on related entities:
+
+```python
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    author: User
+
+@fraiseql.query(
+    sql_source="v_post",
+    auto_params={"where": True}
+)
+def posts(where: PostWhereInput | None = None) -> list[Post]:
+    pass
+```
+
+```graphql
+query {
+    posts(where: {
+        author: {
+            is_active: { _eq: true }
+            email: { _ilike: "%@company.com" }
+        }
+    }) {
+        id
+        title
+    }
+}
+```
+
+## Performance Considerations
+
+### Indexing
+
+Create indexes for commonly filtered fields:
+
+```sql
+-- JSONB field indexes
+CREATE INDEX idx_tv_user_email ON tv_user ((data->>'email'));
+CREATE INDEX idx_tv_user_active ON tv_user ((data->>'is_active'));
+
+-- Composite for common filter combinations
+CREATE INDEX idx_tv_user_active_email ON tv_user (
+    (data->>'is_active'),
+    (data->>'email')
+);
+```
+
+### Avoid Non-Indexed Filters
+
+```graphql
+# Good: Uses indexed field
+{ email: { _eq: "..." } }
+
+# Slower: Full table scan
+{ bio: { _ilike: "%keyword%" } }
+```
+
+### Limit Complex Conditions
+
+```graphql
+# Complex nested conditions can be slow
+{
+    _or: [
+        { _and: [...] }
+        { _or: [...] }
+    ]
+}
+```
+
+## Combining with Other Parameters
+
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    auto_params={
+        "where": True,
+        "limit": True,
+        "offset": True,
+        "order_by": True
+    }
+)
+def posts(
+    where: PostWhereInput | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    order_by: PostOrderByInput | None = None
+) -> list[Post]:
+    pass
+```
+
+```graphql
+query {
+    posts(
+        where: { is_published: { _eq: true } }
+        order_by: { created_at: DESC }
+        limit: 10
+        offset: 0
+    ) {
+        id
+        title
+    }
+}
+```
+
+## Type Safety
+
+Filter types are validated at compile time:
+
+```graphql
+# Error: age expects IntFilter, not StringFilter
+query {
+    users(where: { age: { _ilike: "twenty" } }) { id }
+}
+# → Error: Field 'age' does not accept operator '_ilike'
+```
+
+## Best Practices
+
+### Index Filtered Fields
+
+```sql
+CREATE INDEX idx_posts_published ON tv_post ((data->>'is_published'))
+WHERE data->>'is_published' = 'true';
+```
+
+### Use Specific Operators
+
+```graphql
+# Better: Specific operator
+{ email: { _eq: "user@example.com" } }
+
+# Slower: Pattern matching
+{ email: { _like: "user@example.com" } }
+```
+
+### Combine with Pagination
+
+Always paginate filtered results:
+
+```graphql
+query {
+    users(
+        where: { is_active: { _eq: true } }
+        limit: 20  # Always limit
+    ) { id }
+}
+```
+
+## Next Steps
+
+- [Rich Filters](/features/rich-filters) — Advanced filtering with semantic types
+- [Operators](/reference/operators) — Complete operator reference
+- [Pagination](/features/pagination) — Limit and offset
+- [Performance](/guides/performance) — Query optimization

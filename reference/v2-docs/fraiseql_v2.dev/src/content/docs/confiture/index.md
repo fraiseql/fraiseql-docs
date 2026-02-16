@@ -1,0 +1,119 @@
+---
+title: "\U0001F36F Confiture"
+description: Database lifecycle management for FraiseQL
+---
+
+FraiseQL is database-first — you write SQL tables and views, and FraiseQL maps them to GraphQL. But who manages the database itself? You **🍯 confiture** it.
+
+> **confiture** */kɔ̃.fi.tyʁ/* — French for *jam, preserve*. Sounds like **configure**. That's the point.
+
+🍯 Confiture is a database schema evolution framework that provides four strategies ("Mediums") for every database lifecycle scenario. It treats your DDL files as the single source of truth, not migration history. You don't configure your database — you 🍯 confiture it.
+
+## The 4 Mediums
+
+| Medium | What It Does | When to Use |
+|--------|-------------|-------------|
+| [**Build**](/confiture/build) | Creates a fresh database from DDL files in under 1s | Development, CI/CD, testing |
+| [**Migrate**](/confiture/migrate) | Applies incremental ALTER statements | Production schema changes |
+| [**Sync**](/confiture/sync) | Copies production data with anonymization | Realistic local development |
+| [**Schema-to-Schema**](/confiture/schema-to-schema) | Zero-downtime migration via FDW | Major production refactoring |
+
+## FraiseQL + 🍯 Confiture Workflow
+
+The typical development cycle:
+
+```bash
+# 1. Write your SQL (tables in 01_write/, views in 02_read/)
+vim db/schema/01_write/tb_order.sql
+vim db/schema/02_read/v_order.sql
+
+# 2. Build fresh database
+confiture build --env local
+
+# 3. Define GraphQL types
+vim schema.py
+
+# 4. Compile the mapping
+fraiseql compile
+
+# 5. Serve
+fraiseql serve
+```
+
+For existing databases:
+
+```bash
+# 1. Update SQL files
+vim db/schema/01_write/tb_user.sql  # Add new column
+
+# 2. Create migration for existing data
+confiture migrate generate add_avatar_url
+
+# 3. Apply migration
+confiture migrate up --env local
+
+# 4. Update view to include new field
+vim db/schema/02_read/v_user.sql
+
+# 5. Rebuild views (or apply view migration)
+confiture build --env local --views-only
+
+# 6. Recompile and serve
+fraiseql compile && fraiseql serve
+```
+
+## Configuration
+
+🍯 Confiture uses a `confiture.yaml` configuration file:
+
+```yaml title="confiture.yaml"
+project:
+  name: my-fraiseql-app
+
+environments:
+  local:
+    database:
+      host: localhost
+      port: 5432
+      database: myapp
+      user: postgres
+      password: postgres
+    schema_dirs:
+      - db/schema/00_extensions
+      - db/schema/01_write
+      - db/schema/02_read
+      - db/schema/03_functions
+    migrations_dir: db/migrations
+
+  production:
+    database:
+      host: ${DB_HOST}
+      port: ${DB_PORT}
+      database: ${DB_NAME}
+      user: ${DB_USER}
+      password: ${DB_PASSWORD}
+    schema_dirs:
+      - db/schema/00_extensions
+      - db/schema/01_write
+      - db/schema/02_read
+      - db/schema/03_functions
+    migrations_dir: db/migrations
+```
+
+## When to Use Which Medium
+
+| Scenario | Medium | Command |
+|----------|--------|---------|
+| Fresh dev environment | [Build](/confiture/build) | `confiture build --env local` |
+| CI/CD test database | [Build](/confiture/build) | `confiture build --env ci` |
+| Add column to production | [Migrate](/confiture/migrate) | `confiture migrate up` |
+| Test with realistic data | [Sync](/confiture/sync) | `confiture sync --from prod --to local --anonymize` |
+| Rename column on 50M row table | [Schema-to-Schema](/confiture/schema-to-schema) | `confiture migrate schema-to-schema ...` |
+| Reset local database | [Build](/confiture/build) | `confiture build --env local` |
+
+## Next Steps
+
+- [Build from DDL](/confiture/build) — Instant database creation
+- [Incremental Migrations](/confiture/migrate) — Schema evolution with data
+- [Production Data Sync](/confiture/sync) — Safe data synchronization
+- [Schema-to-Schema](/confiture/schema-to-schema) — Zero-downtime refactoring

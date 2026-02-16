@@ -1,0 +1,128 @@
+---
+interface Props {
+  code: string;
+  language?: string;
+  title?: string;
+  highlightLines?: number[];
+}
+
+const {
+  code,
+  language = "typescript",
+  title,
+  highlightLines = [],
+} = Astro.props;
+
+// Simple syntax highlighting (in production, use Prism.js via client component)
+const highlightCode = (code: string, lang: string): string => {
+  // This is a placeholder - in production, we'd use Prism.js client-side
+  return code.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+};
+
+const highlightedCode = highlightCode(code, language);
+const lines = highlightedCode.split("\n");
+---
+
+<div class="code-block">
+  {title && <div class="code-block-title">{title}</div>}
+  <div class="code-block-content">
+    <pre><code class={`language-${language}`}>{highlightedCode}</code></pre>
+    <button class="copy-btn" aria-label="Copy code" title="Copy code">
+      📋 Copy
+    </button>
+  </div>
+</div>
+
+<style>
+  .code-block {
+    background: var(--code-bg);
+    border-radius: var(--radius-lg);
+    margin: var(--spacing-4) 0;
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+  }
+
+  .code-block-title {
+    background: var(--code-bg);
+    color: var(--code-comment);
+    padding: var(--spacing-3) var(--spacing-4);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    border-bottom: 1px solid rgba(212, 212, 212, 0.1);
+  }
+
+  .code-block-content {
+    position: relative;
+    overflow-x: auto;
+  }
+
+  pre {
+    margin: 0;
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    color: var(--code-fg);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    line-height: var(--leading-relaxed);
+  }
+
+  code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    border-radius: 0;
+  }
+
+  .copy-btn {
+    position: absolute;
+    top: var(--spacing-3);
+    right: var(--spacing-3);
+    background: rgba(212, 212, 212, 0.1);
+    color: var(--code-fg);
+    border: 1px solid rgba(212, 212, 212, 0.2);
+    padding: var(--spacing-2) var(--spacing-3);
+    border-radius: var(--radius-md);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    opacity: 0;
+  }
+
+  .code-block-content:hover .copy-btn {
+    opacity: 1;
+  }
+
+  .copy-btn:hover {
+    background: rgba(212, 212, 212, 0.2);
+    border-color: rgba(212, 212, 212, 0.4);
+  }
+
+  @media (max-width: 640px) {
+    .copy-btn {
+      opacity: 1;
+    }
+
+    pre {
+      font-size: 0.75rem;
+    }
+  }
+</style>
+
+<script>
+  // Copy button functionality
+  document.querySelectorAll(".copy-btn").forEach((btn) => {
+    btn.addEventListener("click", function () {
+      const codeBlock = this.parentElement?.querySelector("code");
+      if (codeBlock) {
+        const text = codeBlock.textContent || "";
+        navigator.clipboard.writeText(text).then(() => {
+          const originalText = this.textContent;
+          this.textContent = "✅ Copied!";
+          setTimeout(() => {
+            this.textContent = originalText;
+          }, 2000);
+        });
+      }
+    });
+  });
+</script>

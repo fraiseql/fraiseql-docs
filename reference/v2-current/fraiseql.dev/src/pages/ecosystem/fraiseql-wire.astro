@@ -1,0 +1,165 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="fraiseql-wire - Streaming JSON Wire Protocol | FraiseQL"
+  description="Memory-efficient streaming JSON transport protocol for FraiseQL. 200,000× better memory efficiency than traditional buffered responses."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>📡 fraiseql-wire</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>Streaming JSON Wire Protocol</strong> – Unbounded memory streaming
+    </p>
+
+    <section style="margin: 2rem 0;">
+      <h2>What It Does</h2>
+      <p>
+        fraiseql-wire is a hybrid transport protocol that combines PostgreSQL
+        streaming with Rust-side filtering and transformation.
+      </p>
+      <ul>
+        <li>
+          <strong>Bounded memory</strong>: Streams 1GB of results in 1KB of RAM
+        </li>
+        <li>
+          <strong>200,000× more efficient</strong> than traditional buffered
+          drivers
+        </li>
+        <li>
+          <strong>Zero-copy JSON</strong>: Direct DB-to-client streaming
+        </li>
+        <li>
+          <strong>Hybrid filtering</strong>: PostgreSQL + Rust transformation
+        </li>
+        <li>
+          <strong>Chunked delivery</strong>: Progressive results as they arrive
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Why It Exists</h2>
+      <p>
+        Traditional database drivers buffer entire result sets in memory before
+        sending to clients:
+      </p>
+      <ul>
+        <li>1GB result set = 1GB memory requirement</li>
+        <li>Unpredictable latency while buffering</li>
+        <li>Connection timeouts on large queries</li>
+        <li>Limited to available RAM</li>
+      </ul>
+      <p>
+        fraiseql-wire solves this with progressive streaming and on-the-fly
+        transformation.
+      </p>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Key Features</h2>
+      <ul>
+        <li>
+          <strong>Streaming Parser</strong>: Process JSON while reading from DB
+        </li>
+        <li>
+          <strong>Chunked JSON</strong>: Send results in streaming chunks</li>
+        <li>
+          <strong>On-the-Fly Filtering</strong>: Transform rows mid-stream
+        </li>
+        <li>
+          <strong>Backpressure Handling</strong>: Pause/resume stream flow
+        </li>
+        <li>
+          <strong>Error Resilience</strong>: Continue streaming on partial errors
+        </li>
+        <li>
+          <strong>Memory Pooling</strong>: Reuse buffers across streams
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Performance</h2>
+      <ul>
+        <li>
+          <strong>Memory efficiency</strong>: 200,000× reduction for large result
+          sets
+        </li>
+        <li>
+          <strong>Latency</strong>: First byte in <10ms, no buffering overhead
+        </li>
+        <li>
+          <strong>Throughput</strong>: Limited only by network bandwidth
+        </li>
+        <li>
+          <strong>Scalability</strong>: Constant memory regardless of result size
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Technology Stack</h2>
+      <ul>
+        <li>
+          <strong>Language</strong>: Rust (streaming, zero-copy)
+        </li>
+        <li>
+          <strong>Database</strong>: PostgreSQL COPY protocol + custom extensions
+        </li>
+        <li>
+          <strong>JSON</strong>: Simd-json for streaming parsing
+        </li>
+        <li>
+          <strong>Async</strong>: Tokio streams and channels
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Integration with Other Tools</h2>
+      <ul>
+        <li>
+          <strong>fraiseql</strong>: Core engine uses fraiseql-wire for all responses
+        </li>
+        <li>
+          <strong>fraisier</strong>: Deployment includes wire protocol by default
+        </li>
+        <li>
+          <strong>SDKs</strong>: All 16+ SDKs support streaming responses
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Quick Start</h2>
+      <p>fraiseql-wire is built-in to the fraiseql runtime:</p>
+      <pre><code>{`// JavaScript SDK - automatic streaming
+const stream = await client.stream(query);
+for await (const row of stream) {
+  console.log(row);
+}`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>GitHub Repository</h2>
+      <p>
+        <a href="https://github.com/fraiseql/fraiseql-wire" target="_blank">
+          Visit fraiseql-wire on GitHub →
+        </a>
+      </p>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Related Tools</h2>
+      <ul>
+        <li><a href="/ecosystem/fraiseql-core">fraiseql</a> – Core engine</li>
+        <li><a href="/ecosystem">← Back to Ecosystem</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

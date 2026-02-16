@@ -1,0 +1,326 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="Why Database-First - FraiseQL Philosophy"
+  description="Understand why FraiseQL treats the database as the optimizer, not an implementation detail."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>Why Database-First?</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>The database is your optimizer, not your implementation detail.</strong>
+    </p>
+
+    <section style="margin: 3rem 0;">
+      <h2>The Problem with Application-Centric Architectures</h2>
+      <p>
+        Most modern frameworks treat the database as a dumb storage engine. The "smart" code lives in your application layer:
+      </p>
+      <ul>
+        <li>
+          <strong>ORMs hide SQL</strong> – Developers write Python/JavaScript, ORM generates SQL (often poorly)
+        </li>
+        <li>
+          <strong>Resolvers handle joins</strong> – GraphQL resolvers fetch data in N queries instead of one join
+        </li>
+        <li>
+          <strong>Application memory is the cache</strong> – DataLoader, Redis, memcached because database queries are slow
+        </li>
+        <li>
+          <strong>Business logic is scattered</strong> – Validation, transformation, aggregation split between database and application
+        </li>
+        <li>
+          <strong>Performance is unpredictable</strong> – No way to know query performance until request time
+        </li>
+      </ul>
+      <p style="margin-top: 1rem; padding: 1rem; background: #fef2f2; border-radius: 4px;">
+        <strong>Result:</strong> N+1 queries, unpredictable performance, scattered business logic, expensive infrastructure.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Why the Database is Better at Optimization</h2>
+
+      <h3 style="margin-top: 2rem;">Databases have 50 years of query optimization</h3>
+      <p>
+        PostgreSQL, MySQL, SQL Server have spent decades optimizing:
+      </p>
+      <ul>
+        <li><strong>Query planning:</strong> Cost-based optimizer analyzes join order, index usage, parallelization</li>
+        <li><strong>Joins:</strong> Hash joins, nested loop joins, merge joins – database picks best for your data</li>
+        <li><strong>Aggregation:</strong> GROUP BY optimizations, window functions, vectorization</li>
+        <li><strong>Caching:</strong> Intelligent buffer pools, query result caching</li>
+        <li><strong>Parallelization:</strong> Multi-core query execution, partitioned queries</li>
+      </ul>
+      <p style="margin-top: 1rem; color: #666;">
+        <em>Your application layer will never match decades of database engineering.</em>
+      </p>
+
+      <h3 style="margin-top: 2rem;">Databases see your entire query at once</h3>
+      <p>
+        When you send SQL to the database, it has complete context:
+      </p>
+      <pre><code>{`SELECT users.id, users.name, posts.title, comments.text
+FROM users
+JOIN posts ON users.id = posts.user_id
+JOIN comments ON posts.id = comments.post_id
+WHERE users.created_at > NOW() - INTERVAL 30 DAY;`}</code></pre>
+      <p style="margin-top: 1rem;">
+        The database sees all tables, all filters, all aggregations. It can optimize the entire query holistically.
+      </p>
+      <p>
+        Compare to application-layer resolution:
+      </p>
+      <pre><code>{`// Resolver for users (1 query)
+const users = await db.select().from('users');
+
+// For EACH user, resolver for posts (N queries)
+for (const user of users) {
+  user.posts = await db.select().from('posts').where({ user_id: user.id });
+
+  // For EACH post, resolver for comments (N×M queries)
+  for (const post of user.posts) {
+    post.comments = await db.select().from('comments').where({ post_id: post.id });
+  }
+}`}</code></pre>
+      <p style="margin-top: 1rem; color: #c41c3b;">
+        <strong>Result:</strong> Application never sees that this could be a single join. Executes 1 + N + N×M queries instead of 1.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Databases have indices that application code can't use</h3>
+      <p>
+        When you hide queries in application code, you can't leverage database indices effectively:
+      </p>
+      <ul>
+        <li><strong>Composite indices:</strong> `CREATE INDEX idx_user_posts ON posts(user_id, created_at, status)` – Application code can't express "fetch posts for user, ordered by date, active only"</li>
+        <li><strong>Partial indices:</strong> `CREATE INDEX idx_active_posts ON posts(user_id) WHERE status = 'active'` – Saves space, speeds up common queries</li>
+        <li><strong>Expression indices:</strong> `CREATE INDEX idx_lower_email ON users(LOWER(email))` – Index on function results</li>
+      </ul>
+      <p style="margin-top: 1rem; color: #666;">
+        <em>With database-first SQL, every index is available. With application-layer ORMs, indices are largely invisible.</em>
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>FraiseQL's Database-First Approach</h2>
+
+      <h3 style="margin-top: 2rem;">The Philosophy</h3>
+      <p>
+        Instead of ORMs and resolvers, let the database be the optimizer:
+      </p>
+      <ol>
+        <li>
+          <strong>Define views for reads</strong> – `CREATE VIEW v_user_posts AS SELECT user.*, posts.* FROM users JOIN posts ...` – Pre-computed optimal SQL
+        </li>
+        <li>
+          <strong>Define functions for writes</strong> – `CREATE FUNCTION fn_create_post(user_id, title) RETURNS post` – Transaction logic at database layer
+        </li>
+        <li>
+          <strong>Compile GraphQL to SQL</strong> – fraiseql-cli transforms GraphQL schema → views/functions → pre-optimized SQL templates
+        </li>
+        <li>
+          <strong>Execute efficiently</strong> – Runtime is just parameter binding and SQL execution. Database optimizer handles the rest.
+        </li>
+      </ol>
+
+      <h3 style="margin-top: 2rem;">Example: N+1 Query Prevention</h3>
+      <p>
+        <strong>Traditional ORM (N+1 risk):</strong>
+      </p>
+      <pre><code>{`// Fetch user (1 query)
+const user = await orm.user.findById(1);
+
+// Fetch posts for user (N queries!)
+const posts = await orm.post.findByUserId(user.id);
+
+// Fetch comments for each post (N×M queries!)
+for (const post of posts) {
+  post.comments = await orm.comment.findByPostId(post.id);
+}`}</code></pre>
+      <p style="margin-top: 1rem;">
+        <strong>FraiseQL Database-First:</strong>
+      </p>
+      <pre><code>{`-- Create efficient view (single JOIN)
+CREATE VIEW v_user_with_posts_and_comments AS
+SELECT
+  u.id as user_id, u.name,
+  p.id as post_id, p.title,
+  c.id as comment_id, c.text
+FROM users u
+LEFT JOIN posts p ON u.id = p.user_id
+LEFT JOIN comments c ON p.id = c.post_id
+ORDER BY u.id, p.id;
+
+-- FraiseQL compiles this to ONE SQL query
+-- GraphQL query returns all data in optimal shape`}</code></pre>
+
+      <p style="margin-top: 1rem; color: #059669;">
+        <strong>Result:</strong> 1 query instead of 1+N+N×M. Database optimizer handles join order, indices, parallelization.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Example: Aggregation Performance</h3>
+      <p>
+        <strong>Application Layer (Slow):</strong>
+      </p>
+      <pre><code>{`// Fetch all posts (millions of rows into memory)
+const posts = await db.select().from('posts');
+
+// Application calculates sum, avg, group-by in JavaScript
+const stats = {};
+for (const post of posts) {
+  if (!stats[post.category]) stats[post.category] = { sum: 0, count: 0 };
+  stats[post.category].sum += post.views;
+  stats[post.category].count++;
+}`}</code></pre>
+      <p style="margin-top: 1rem;">
+        <strong>Database-First (Fast):</strong>
+      </p>
+      <pre><code>{`-- Let database calculate aggregation
+CREATE VIEW v_post_stats AS
+SELECT
+  category,
+  SUM(views) as total_views,
+  AVG(views) as avg_views,
+  COUNT(*) as post_count
+FROM posts
+GROUP BY category;
+
+-- Returned in milliseconds, not minutes`}</code></pre>
+
+      <p style="margin-top: 1rem; color: #059669;">
+        <strong>Performance difference:</strong> 2 minutes (load millions of rows) vs 50ms (database aggregation). 2400× faster.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>The CQRS Pattern (Reads vs Writes)</h2>
+      <p>
+        Database-first naturally leads to CQRS (Command Query Responsibility Segregation):
+      </p>
+      <ul>
+        <li>
+          <strong>Reads (Queries):</strong> Optimized views (`v_*`), pre-computed joins, minimal business logic
+        </li>
+        <li>
+          <strong>Writes (Mutations):</strong> Functions (`fn_*`), transactions, constraints, triggers
+        </li>
+      </ul>
+      <p style="margin-top: 1rem;">
+        This separation is <strong>more efficient</strong> than trying to handle both in application code:
+      </p>
+      <ul>
+        <li>
+          <strong>Read optimization:</strong> Views can be refreshed independently (pg_tviews – 2,083× faster incremental refresh)
+        </li>
+        <li>
+          <strong>Write safety:</strong> Database constraints and triggers prevent corruption
+        </li>
+        <li>
+          <strong>Audit trail:</strong> All writes go through functions → easy to log and verify
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Multi-Database Support Through Database-First</h2>
+      <p>
+        Database-first design enables true multi-database support:
+      </p>
+      <p>
+        Instead of an ORM pretending all databases are the same, FraiseQL generates <strong>database-specific SQL</strong> from the same schema:
+      </p>
+      <ul>
+        <li>
+          <strong>PostgreSQL:</strong> Full-text search, JSON operators, window functions, array types
+        </li>
+        <li>
+          <strong>MySQL:</strong> Different function names, JSON path syntax, aggregation features
+        </li>
+        <li>
+          <strong>SQLite:</strong> Limited functions, single-threaded writes, but fast for analytical queries
+        </li>
+        <li>
+          <strong>SQL Server:</strong> Transact-SQL extensions, CTEs, specific window function syntax
+        </li>
+      </ul>
+      <p style="margin-top: 1rem;">
+        Each database's strengths are preserved. No lowest-common-denominator API.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Performance Impact</h2>
+
+      <p>
+        <strong>Scenario: User dashboard with posts, comments, likes</strong>
+      </p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tr style="background: #f5f3ff;">
+          <th style="padding: 1rem; text-align: left; border: 1px solid #e5e7eb;">Approach</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Queries</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Latency</th>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">ORM with N+1</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1 + 50 + 500 = 551</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">5-15 seconds</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">ORM with DataLoader</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1 + 3 + 3 = 7</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">500-1000ms</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;">FraiseQL (database-first)</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">1</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">5-10ms</td>
+        </tr>
+      </table>
+
+      <p style="margin-top: 1rem; color: #059669;">
+        <strong>Database-first wins by 100-1000×.</strong> Not through caching or tricks – through fundamentally better query planning.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>The Tradeoff: Requires Database Thinking</h2>
+      <p>
+        Database-first means developers need to understand:
+      </p>
+      <ul>
+        <li><strong>Views vs tables</strong> – When to use each</li>
+        <li><strong>SQL</strong> – Can't avoid it; it's your business logic layer</li>
+        <li><strong>Indices</strong> – Which queries need which indices</li>
+        <li><strong>Transactions</strong> – Functions need explicit transaction boundaries</li>
+        <li><strong>Database-specific features</strong> – Each database has strengths (PG JSON, MySQL partitioning, etc.)</li>
+      </ul>
+      <p style="margin-top: 1rem; padding: 1rem; background: #fef2f2; border-radius: 4px;">
+        <strong>Note:</strong> This is a feature, not a bug. Understanding your database deeply leads to better systems. FraiseQL makes this knowledge accessible without needing a DBA.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Bottom Line</h2>
+      <p>
+        <strong>Treat your database as a peer developer, not a storage engine.</strong>
+      </p>
+      <ul>
+        <li>✅ Database has 50 years of optimization knowledge</li>
+        <li>✅ Database sees entire query context</li>
+        <li>✅ Database-level indices are worth 100× application-level caching</li>
+        <li>✅ CQRS pattern naturally falls out of database-first thinking</li>
+        <li>✅ Multi-database support is achievable without ORM compromises</li>
+        <li>✅ Performance is deterministic and predictable</li>
+      </ul>
+      <p style="margin-top: 2rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #059669; border-radius: 4px;">
+        <strong>FraiseQL philosophy:</strong> Stop fighting your database. Start building around it.
+      </p>
+    </section>
+
+    <p style="margin-top: 3rem;">
+      <a href="/why/compiled-not-interpreted">Next: Why Compiled, Not Interpreted →</a> | <a href="/">Home</a>
+    </p>
+  </div>
+</BaseLayout>

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FraiseQL for Internal Tools - Build Admin Panels Fast</title>
+    <meta name="description" content="Build internal tools and admin panels with FraiseQL. Perfect for dashboards, data management, and business operations.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link rel="stylesheet" href="/style.css">
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+    </style>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-3xl md:text-5xl font-bold leading-tight">
+                Internal Tools That Just Work
+            </h1>
+            <p class="leading-normal text-lg md:text-2xl mb-8">
+                Build admin panels, dashboards, and data tools your team will actually use.
+            </p>
+        </div>
+    </div>
+
+    <!-- Why FraiseQL -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Why FraiseQL for Internal Tools?
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">📊 Direct Database Access</h3>
+                    <p class="text-gray-700">Query your production data safely with read-only views. No ETL pipelines or data warehouses needed.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🔒 Built-in Security</h3>
+                    <p class="text-gray-700">Role-based access control, audit logs, and SQL injection protection out of the box.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">⚡ Real-Time Data</h3>
+                    <p class="text-gray-700">See live production data. No caching delays or stale information.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🎨 Frontend Flexible</h3>
+                    <p class="text-gray-700">Use React Admin, Retool, or build custom UIs. GraphQL works with any frontend.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Example -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Admin Panel in Minutes
+            </h2>
+            <div class="max-w-4xl mx-auto">
+                <pre class="bg-gray-900 text-gray-300 p-6 rounded-lg overflow-x-auto"><code># Customer support dashboard
+@fraise_type
+class CustomerInfo:
+    id: UUID
+    email: str
+    name: str
+    created_at: datetime
+    subscription_status: str
+    total_spent: float
+    support_tickets: list[Ticket]
+
+@fraiseql.query
+async def customer_search(
+    info,
+    query: str,
+    status: str = None
+) -> list[CustomerInfo]:
+    """Search customers by email, name, or ID"""
+    filters = {"search": query}
+    if status:
+        filters["subscription_status"] = status
+
+    return await info.context.repo.find(
+        "tv_customer_admin",
+        where=filters,
+        limit=50
+    )
+
+@fraiseql.mutation
+async def update_customer_status(
+    info,
+    customer_id: UUID,
+    new_status: str,
+    reason: str
+) -> CustomerInfo:
+    """Admin action with audit trail"""
+    # Automatic audit logging
+    await info.context.repo.log_admin_action(
+        user_id=info.context["user_id"],
+        action="status_change",
+        target_id=customer_id,
+        details={"new_status": new_status, "reason": reason}
+    )
+
+    return await info.context.repo.update(
+        "customers",
+        customer_id,
+        {"subscription_status": new_status}
+    )</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Common Patterns -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Common Internal Tool Patterns
+            </h2>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Operations Dashboard</h3>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✓ Order management</li>
+                        <li>✓ Inventory tracking</li>
+                        <li>✓ Fulfillment status</li>
+                        <li>✓ Performance metrics</li>
+                    </ul>
+                </div>
+
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Customer Support</h3>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✓ User lookup</li>
+                        <li>✓ Account modifications</li>
+                        <li>✓ Transaction history</li>
+                        <li>✓ Support tickets</li>
+                    </ul>
+                </div>
+
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Data Management</h3>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✓ Bulk imports/exports</li>
+                        <li>✓ Data validation</li>
+                        <li>✓ Scheduled reports</li>
+                        <li>✓ Data cleanup tools</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Comparison -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Build vs Buy Comparison
+            </h2>
+            <div class="overflow-x-auto">
+                <table class="w-full bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="py-3 px-6 text-left">Solution</th>
+                            <th class="py-3 px-6 text-left">Setup Time</th>
+                            <th class="py-3 px-6 text-left">Monthly Cost</th>
+                            <th class="py-3 px-6 text-left">Customization</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="py-3 px-6">Retool/Tooljet</td>
+                            <td class="py-3 px-6">1-2 days</td>
+                            <td class="py-3 px-6">$500-2000/month</td>
+                            <td class="py-3 px-6">Limited</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="py-3 px-6">Custom Build (Traditional)</td>
+                            <td class="py-3 px-6">2-4 weeks</td>
+                            <td class="py-3 px-6">Developer time</td>
+                            <td class="py-3 px-6">Full control</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-6">FraiseQL + React Admin</td>
+                            <td class="py-3 px-6">2-3 days</td>
+                            <td class="py-3 px-6">~$0 (self-hosted)</td>
+                            <td class="py-3 px-6 text-green-600 font-semibold">Full control</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Sales Example -->
+    <section class="bg-white py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Example: Sales Operations Tool
+            </h2>
+            <div class="max-w-4xl mx-auto">
+                <pre class="bg-gray-900 text-gray-300 p-6 rounded-lg overflow-x-auto"><code># Sales metrics and team management
+@fraise_type
+class SalesMetrics:
+    rep_id: UUID
+    rep_name: str
+    current_month_revenue: float
+    quota_attainment: float
+    deals_in_pipeline: int
+    average_deal_size: float
+
+@fraise_type
+class DealUpdate:
+    deal_id: UUID
+    stage: str
+    amount: float
+    notes: str
+
+@fraiseql.query
+async def sales_dashboard(info) -> SalesMetrics:
+    """Real-time sales metrics for the dashboard"""
+    return await info.context.repo.find_one(
+        "v_sales_metrics"
+    )
+
+@fraiseql.mutation
+async def update_deal_stage(
+    info,
+    input: DealUpdate
+) -> Deal:
+    """Sales reps update their deals"""
+    # Validation and business rules
+    if input.stage == "closed_won":
+        await send_celebration_slack(input.deal_id)
+
+    return await info.context.repo.update(
+        "deals",
+        input.deal_id,
+        {"stage": input.stage, "amount": input.amount}
+    )</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Use Cases -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Perfect For These Use Cases
+            </h2>
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-green-50 p-6 rounded-lg border-l-4 border-green-600">
+                    <h3 class="text-xl font-bold text-green-800 mb-4">✅ Great Fit</h3>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>• Admin panels & dashboards</li>
+                        <li>• Data exploration tools</li>
+                        <li>• Customer support interfaces</li>
+                        <li>• Operations management</li>
+                        <li>• Reporting & analytics</li>
+                        <li>• Content management systems</li>
+                    </ul>
+                </div>
+                <div class="bg-red-50 p-6 rounded-lg border-l-4 border-red-600">
+                    <h3 class="text-xl font-bold text-red-800 mb-4">❌ Not Ideal For</h3>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>• Real-time collaboration (use WebSockets)</li>
+                        <li>• Heavy computation (use background jobs)</li>
+                        <li>• File processing (use dedicated services)</li>
+                        <li>• Complex workflows (use workflow engines)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="gradient py-16">
+        <div class="container max-w-4xl mx-auto px-6 text-center text-white">
+            <h2 class="text-3xl md:text-4xl font-bold mb-4">Stop Building CRUD Interfaces</h2>
+            <p class="text-lg md:text-xl mb-8">Let FraiseQL handle the boring parts so you can focus on what makes your tools unique.</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="/getting-started.html" class="bg-white text-red-600 font-bold rounded-full py-4 px-8 shadow-lg hover:bg-gray-100 transition-colors">Start Building</a>
+                <a href="https://github.com/fraiseql/fraiseql/tree/main/examples/admin-panel" class="bg-transparent border-2 border-white text-white font-bold rounded-full py-4 px-8 hover:bg-white hover:text-red-600 transition-colors">View Example</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version" class="inline-block">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-red-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

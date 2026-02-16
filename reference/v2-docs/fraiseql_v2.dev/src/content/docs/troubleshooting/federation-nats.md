@@ -1,0 +1,943 @@
+---
+title: Federation & NATS Troubleshooting
+description: Solutions for 100+ common federation and NATS issues
+---
+
+# Federation & NATS Troubleshooting
+
+This guide covers solutions for common issues when using FraiseQL's federation and NATS capabilities.
+
+## Federation Issues
+
+### Connection Issues
+
+#### "Cannot connect to database X"
+
+**Symptoms**: `DatabaseConnectionError: Failed to connect to database 'inventory'`
+
+**Causes**:
+- Network connectivity issue
+- Database server is down
+- Wrong credentials in config
+- Firewall blocking connection
+
+**Solutions**:
+
+```bash
+# 1. Test database connectivity
+fraiseql health --database inventory
+
+# 2. Check configuration
+cat fraiseql.toml | grep -A 5 "\[databases.inventory\]"
+
+# 3. Verify credentials
+echo $INVENTORY_DATABASE_URL  # Check URL format
+
+# 4. Test manual connection
+psql $INVENTORY_DATABASE_URL -c "SELECT 1"
+```
+
+```python
+# 4. Add connection logging
+@fraiseql.config
+def configure_federation():
+    return {
+        "databases": {
+            "inventory": {
+                "url": "${INVENTORY_DATABASE_URL}",
+                "pool_size": 10,
+                "debug": True  # Enable connection logging
+            }
+        }
+    }
+```
+
+#### "Pool exhausted - no available connections"
+
+**Symptoms**: `PoolExhaustedError: No available connections in pool for database 'inventory'`
+
+**Causes**:
+- Pool size too small for load
+- Connections leaking (not being released)
+- Long-running queries blocking other requests
+- Deadlock in pool acquisition
+
+**Solutions**:
+
+```toml
+# 1. Increase pool size
+[databases.inventory]
+pool_size = 50  # Was 10, now 50
+pool_timeout = 30000  # Timeout waiting for connection
+
+[databases.inventory.idle]
+max_age = 3600000  # Close idle connections after 1 hour
+```
+
+```python
+# 2. Add connection monitoring
+@fraiseql.middleware
+async def log_connection_usage(request, next):
+    """Log connection pool stats."""
+
+    stats_before = await fraiseql.get_pool_stats("inventory")
+
+    response = await next(request)
+
+    stats_after = await fraiseql.get_pool_stats("inventory")
+
+    if stats_after.waiting_requests > stats_before.waiting_requests:
+        logging.warning(
+            f"Connection pool contention: "
+            f"{stats_after.waiting_requests} waiting requests"
+        )
+
+    return response
+
+# 3. Identify slow queries
+await fraiseql.enable_query_logging(
+    database="inventory",
+    slow_query_threshold=1000  # Log queries > 1 second
+)
+```
+
+### Query Issues
+
+#### "Timeout in federated query"
+
+**Symptoms**: `FederationTimeoutError: Federated query to 'inventory' timed out after 5000ms`
+
+**Causes**:
+- Network latency between databases
+- Query on remote database is slow
+- Default timeout too aggressive
+
+**Solutions**:
+
+```toml
+# 1. Increase federation timeout
+[federation]
+default_timeout = 10000  # Increased from 5000ms
+batch_size = 50  # Smaller batches = faster queries
+
+# 2. Per-database timeout
+[federation.database_timeouts]
+inventory = 10000
+payments = 15000  # Slower database needs more time
+```
+
+```python
+# 2. Optimize federated field definition
+@fraiseql.type(database="primary")
+class Order:
+    id: ID
+
+    # Inefficient: No optimization hints
+    items: list[OrderItem] = fraiseql.federated(
+        database="inventory",
+        lookup="order_id"
+    )
+
+    # Better: With optimization hints
+    items: list[OrderItem] = fraiseql.federated(
+        database="inventory",
+        lookup="order_id",
+        batch_size=100,
+        timeout=10000
+    )
+
+# 3. Add database indexes
+-- On inventory database
+CREATE INDEX idx_order_item_order_id ON tb_order_item(order_id);
+```
+
+#### "Circular reference in federation"
+
+                                                                          ─           ─
+
+**Causes**:
+- Bidirectional federated references
+- Deeply nested federated queries
+
+**Solutions**:
+
+```python
+# BAD: Circular reference
+@fraiseql.type(database="primary")
+class Order:
+    items: list[OrderItem] = fraiseql.federated(
+        database="inventory",
+        lookup="order_id"
+    )
+
+@fraiseql.type(database="inventory")
+class OrderItem:
+    order: Order = fraiseql.federated(
+        database="primary",
+        lookup="order_id"  # Circular!
+    )
+
+# GOOD: Only federate in one direction
+@fraiseql.type(database="primary")
+class Order:
+    items: list[OrderItem] = fraiseql.federated(
+        database="inventory",
+        lookup="order_id"
+    )
+
+@fraiseql.type(database="inventory")
+class OrderItem:
+    order_id: ID  # Just store the ID, don't federate
+```
+
+#### "Inconsistent foreign keys across databases"
+
+**Symptoms**: `ForeignKeyError: Order references Product ID that doesn't exist`
+
+**Causes**:
+- Data deleted in one database but not cascaded
+- Race condition between databases
+- Data inconsistency
+
+**Solutions**:
+
+```python
+# 1. Add validation before federation
+@fraiseql.mutation
+async def add_item_to_order(order_id: ID, product_id: ID) -> OrderItem:
+    """Validate product exists before adding."""
+
+    # Check product exists in inventory database
+    product = await fraiseql.query(
+        f"""
+        query {{
+            product(id: "{product_id}") {{
+                id
+            }}
+        }}
+        """
+    )
+
+    if not product:
+        raise ValueError(f"Product {product_id} not found")
+
+    # Now safe to create item
+    return await create_order_item(order_id, product_id)
+
+# 2. Implement foreign key constraints
+-- On primary database
+ALTER TABLE tb_order_item
+ADD CONSTRAINT fk_product_exists
+CHECK (
+    product_id IN (
+        SELECT id FROM v_product_from_inventory
+    )
+);
+```
+
+### Saga/Transaction Issues
+
+#### "Saga compensation failed"
+
+**Symptoms**: `SagaCompensationError: Compensation step 'reserve_inventory' failed`
+
+**Causes**:
+- Compensation function has bugs
+- Database state changed unexpectedly
+- Compensation takes too long (timeout)
+
+**Solutions**:
+
+```python
+# 1. Add detailed compensation logging
+@compensate("reserve_inventory")
+async def compensate_reserve_inventory(ctx):
+    """Release reserved inventory with logging."""
+
+    try:
+        logging.info(f"Compensating reservations: {ctx.reservations}")
+
+        for reservation_id in ctx.reservations:
+            logging.debug(f"Releasing reservation {reservation_id}")
+
+            await execute_sql(
+                "UPDATE tb_reservation SET status = 'released' WHERE id = $1",
+                [reservation_id]
+            )
+
+            logging.debug(f"Released reservation {reservation_id}")
+
+    except Exception as e:
+        logging.error(f"Compensation failed: {e}", exc_info=True)
+
+        # Re-raise so saga knows it failed
+        raise SagaCompensationError(
+            step="reserve_inventory",
+            reason=str(e)
+        ) from e
+
+# 2. Make compensation idempotent
+@compensate("process_payment")
+async def compensate_payment(ctx):
+    """Refund payment (idempotent)."""
+
+    transaction = await execute_sql(
+        "SELECT status FROM tb_transaction WHERE id = $1",
+        [ctx.transaction_id]
+    )
+
+    # Only refund if not already refunded
+    if transaction['status'] == 'refunded':
+        logging.info(f"Payment already refunded: {ctx.transaction_id}")
+        return
+
+    # Process refund
+    await refund_payment(ctx.transaction_id)
+
+    # Mark as refunded
+    await execute_sql(
+        "UPDATE tb_transaction SET status = 'refunded' WHERE id = $1",
+        [ctx.transaction_id]
+    )
+
+# 3. Increase timeout for compensation
+@saga(
+    steps=["create_order", "reserve_inventory"],
+    compensation_timeout=30000  # 30 seconds for compensation
+)
+async def create_order(...):
+    pass
+```
+
+#### "Saga stuck in pending state"
+
+**Symptoms**: Order created but saga never completes; stuck in `pending` status.
+
+**Causes**:
+- One saga step is hanging
+- Network issue between databases
+- Database deadlock
+
+**Solutions**:
+
+```python
+# 1. Monitor saga progress
+@fraiseql.middleware
+async def log_saga_progress(request, next):
+    """Log saga execution progress."""
+
+    if "saga" in request.context:
+        saga_id = request.context["saga"]
+        logging.info(f"Saga starting: {saga_id}")
+
+        response = await next(request)
+
+        logging.info(f"Saga completed: {saga_id}")
+        return response
+
+    return await next(request)
+
+# 2. Implement saga timeout
+@saga(
+    steps=["create_order", "reserve_inventory"],
+    timeout=60000  # Overall saga timeout: 60 seconds
+)
+async def create_order(...):
+    pass
+
+# 3. Check stuck sagas in database
+SELECT *
+FROM tb_saga_execution
+WHERE status = 'pending'
+  AND created_at < NOW() - INTERVAL '5 minutes'
+ORDER BY created_at DESC;
+
+# 4. Manual cleanup of stuck sagas
+@fraiseql.mutation
+async def cleanup_stuck_saga(saga_id: ID) -> bool:
+    """Manually trigger compensation for stuck saga."""
+
+    saga = await execute_sql(
+        "SELECT * FROM tb_saga_execution WHERE id = $1",
+        [saga_id]
+    )
+
+    if saga['status'] != 'pending':
+        raise ValueError(f"Saga not pending: {saga['status']}")
+
+    # Trigger compensations in reverse order
+    for step in reversed(saga['completed_steps']):
+        await trigger_compensation(step, saga)
+
+    await execute_sql(
+        "UPDATE tb_saga_execution SET status = 'compensated' WHERE id = $1",
+        [saga_id]
+    )
+
+    return True
+```
+
+### Performance Issues
+
+#### "Federated queries are slow"
+
+**Symptoms**: Query with federated field takes 10+ seconds
+
+**Causes**:
+- Network latency
+- Missing indexes
+- Cartesian product (N+1 problem)
+- Query hitting large tables
+
+**Solutions**:
+
+```python
+# 1. Check if federation is batching correctly
+@fraiseql.query
+def orders_with_items(limit: int = 100) -> list[Order]:
+    """
+    With batching: Should be 2 queries total
+    - 1 query: SELECT * FROM orders LIMIT 100
+    - 1 query: SELECT * FROM order_items WHERE order_id IN (...)
+    """
+    pass
+
+# Enable query logging to verify
+await fraiseql.enable_query_logging(
+    database="primary",
+    database="inventory"
+)
+
+# 2. Denormalize to reduce federated queries
+@fraiseql.type(database="primary")
+class Order:
+    item_count: int  # Denormalized count
+
+    # Still have detailed items for when needed
+    items: list[OrderItem] = fraiseql.federated(
+        database="inventory",
+        lookup="order_id"
+    )
+
+# 3. Use selective federation
+@fraiseql.query
+def order_summary(id: ID) -> dict:
+    """
+    Return only needed fields to avoid full federation.
+    """
+    return {
+        "id": order.id,
+        "total": order.total,
+        "item_count": order.item_count
+        # Don't federate full items if not needed
+    }
+
+# 4. Add indexes
+-- On inventory database
+CREATE INDEX idx_order_items_order_id_product_id
+ON tb_order_item(order_id, product_id);
+```
+
+## NATS Issues
+
+### Connection Issues
+
+#### "NATS connection refused"
+
+**Symptoms**: `NatsConnectionError: Failed to connect to NATS server`
+
+**Causes**:
+- NATS server not running
+- Wrong URL/port
+- Firewall blocking
+
+**Solutions**:
+
+```bash
+# 1. Check NATS server status
+nats server info
+
+# 2. Test connection
+nats ping
+
+# 3. Check configuration
+cat fraiseql.toml | grep -A 3 "\[nats\]"
+
+# 4. Verify URL format
+echo $NATS_URL  # Should be: nats://host:4222
+
+# 5. Start NATS if not running
+docker run -it --rm -p 4222:4222 nats
+```
+
+#### "NATS authentication failed"
+
+**Symptoms**: `AuthorizationError: NATS authentication failed`
+
+**Causes**:
+- Wrong token/credentials
+- Expired credentials
+- Insufficient permissions
+
+**Solutions**:
+
+```toml
+# 1. Update credentials
+[nats.auth]
+type = "token"
+token = "${NATS_TOKEN}"  # Ensure env var is set
+
+# 2. Verify token
+echo $NATS_TOKEN
+
+# 3. Use NKey authentication (more secure)
+[nats.auth]
+type = "nkey"
+nkey = "${NATS_NKEY}"
+```
+
+```bash
+# 4. Generate new credentials
+nats user create fraiseql-user
+nats nkey gen user -o fraiseql.nk  # NKey
+```
+
+### JetStream Issues
+
+#### "JetStream stream not found"
+
+**Symptoms**: `StreamNotFoundError: Stream 'orders' not found`
+
+**Causes**:
+- Stream not created
+- Stream name mismatch
+- Configuration issue
+
+**Solutions**:
+
+```bash
+# 1. List existing streams
+nats stream list
+
+# 2. Check stream configuration
+nats stream info orders
+
+# 3. Create missing stream
+nats stream add orders \
+    --subjects "fraiseql.order.>" \
+    --max-msgs 1000000 \
+    --max-bytes 10GB \
+    --retention limits
+```
+
+```toml
+# 4. Ensure stream is configured
+[nats.jetstream.streams.orders]
+subjects = ["fraiseql.order.>"]
+replicas = 3
+max_msgs = 1000000
+max_bytes = 10737418240
+```
+
+#### "Consumer lag is high"
+
+**Symptoms**: Consumer far behind in processing; queue backs up
+
+**Causes**:
+- Consumer processing is slow
+- Consumer crashed/restarted
+- Not enough instances of consumer
+
+**Solutions**:
+
+```bash
+# 1. Check consumer status
+nats consumer info orders order-processor
+
+# Output shows:
+# Pending: 50000  # Many messages waiting
+# Delivered: 1000
+# Acked: 800
+
+# 2. Increase processing capacity
+# Scale up consumer service: 1 instance → 3 instances
+
+# 3. Check consumer queue group
+nats consumer info orders order-processor
+
+# 4. Increase ack wait if processing is slow
+[nats.jetstream.consumers.order-processor]
+ack_wait = "60s"  # Increased from 30s
+```
+
+```python
+# 5. Optimize event handler
+@subscribe("fraiseql.order.created", queue_group="order-processors")
+async def process_order(event: dict):
+    """Process order efficiently."""
+
+    # SLOW: Database query for every event
+    # ❌ await db.query(f"SELECT * FROM orders WHERE id = {event['order_id']}")
+
+    # FAST: Use data from event
+    # ✅ order_data = event['data']
+    # Process immediately
+
+    order_id = event["data"]["order_id"]
+
+    # Batch process if possible
+    cache_key = f"processed:{order_id}"
+    if await redis.exists(cache_key):
+        return  # Already processed
+
+    # Do work
+    await process_order_work(event)
+
+    # Mark as done
+    await redis.set(cache_key, "true", ex=3600)
+```
+
+#### "Messages not being delivered"
+
+**Symptoms**: Event published but subscribers don't receive it
+
+**Causes**:
+- Subscriber not running
+- Subject mismatch
+- Consumer has unprocessed limit
+
+**Solutions**:
+
+```bash
+# 1. Check consumer status
+nats consumer info orders order-processor
+
+# Look for:
+# - NumPending (messages waiting)
+# - NumAckPending (unacked messages)
+
+# 2. Check subject matches
+# Published to: fraiseql.order.created
+# Subscribed to: fraiseql.order.>  ✓ Match
+# Subscribed to: orders.created    ✗ No match
+```
+
+```python
+# 3. Verify subscriber is running
+@subscribe("fraiseql.order.created")
+async def handle_order_created(event: dict):
+    """Handle order created."""
+    logging.info(f"Received order event: {event['order_id']}")
+    # If this log never appears, subscriber isn't running
+```
+
+```python
+# 4. Check max deliver limit
+# If message is redelivered more than max_deliver times,
+# it goes to dead letter queue
+
+[nats.jetstream.consumers.order-processor]
+max_deliver = 3  # Redelivered max 3 times
+
+# Check dead letter queue
+@subscribe("fraiseql.dlq")
+async def handle_dead_letter(event: dict):
+    logging.error(f"Dead letter: {event}")
+```
+
+### Event Processing Issues
+
+#### "Events are processed out of order"
+
+**Symptoms**: Status changed events arrive before creation event
+
+**Causes**:
+- Multiple consumer instances processing same events
+- Network reordering
+- Consumer group distributing across instances
+
+**Solutions**:
+
+```python
+# 1. Process events sequentially per order
+@subscribe("fraiseql.order.>", queue_group="order-seq")
+async def process_order_event_sequentially(event: dict):
+    """Process orders sequentially (one at a time)."""
+
+    order_id = event["data"]["order_id"]
+
+    # Use distributed lock per order
+    async with distributed_lock(f"order:{order_id}"):
+        # Only one process can handle events for this order at a time
+        await process_event(event)
+
+# 2. OR partition by order ID to ensure ordering
+[nats.partitions]
+enabled = true
+key = "order_id"  # Same order always goes to same partition
+count = 8
+```
+
+```toml
+# 3. Use durable consumer with explicit ack
+[nats.jetstream.consumers.order-processor]
+deliver_policy = "all"  # Start from beginning
+ack_policy = "explicit"  # Must explicitly ACK
+ack_wait = "30s"  # Timeout if not ACKed
+max_deliver = 3  # Retry 3 times
+```
+
+#### "Duplicate event processing"
+
+**Symptoms**: Same event processed multiple times; duplicate orders created
+
+**Causes**:
+- No idempotency checks
+- At-least-once delivery semantics
+- Retry without deduplication
+
+**Solutions**:
+
+```python
+# 1. Implement idempotent handler
+@subscribe("fraiseql.order.created")
+async def handle_order_created_idempotent(event: dict):
+    """Process event idempotently."""
+
+    # Generate deterministic event ID
+    event_id = f"{event['order_id']}-{event['timestamp']}"
+
+    # Check if already processed
+    if await is_processed(event_id):
+        logging.debug(f"Event already processed: {event_id}")
+        return
+
+    # Process
+    try:
+        await create_order(event)
+        await mark_processed(event_id)
+    except Exception as e:
+        logging.error(f"Error processing event: {e}")
+        raise  # Let NATS retry
+
+async def is_processed(event_id: str) -> bool:
+    """Check if event ID was already processed."""
+    return await redis.exists(f"event_processed:{event_id}")
+
+async def mark_processed(event_id: str):
+    """Mark event as processed (idempotency key)."""
+    await redis.setex(
+        f"event_processed:{event_id}",
+        30 * 24 * 3600,  # 30-day TTL
+        "true"
+    )
+
+# 2. Use event version/correlation ID
+event = {
+    "id": "evt_550e8400",  # Unique event ID
+    "correlation_id": "order_550e8400",  # Links to entity
+    "version": 1,  # Version for this event type
+    "type": "order.created",
+    "data": {...}
+}
+```
+
+## Federation + NATS Issues
+
+#### "Saga completes but event never publishes"
+
+**Symptoms**: Order created successfully but notification service doesn't receive event
+
+**Causes**:
+- Event publish happens after saga completes but before response
+- NATS publish fails silently
+- Network partition after federation but before NATS
+
+**Solutions**:
+
+```python
+# 1. Wait for event confirmation
+@saga.step("publish_confirmation")
+async def step_publish_confirmation(ctx):
+    """Final step: publish confirmation with retry."""
+
+    max_retries = 3
+    retry_count = 0
+
+    while retry_count < max_retries:
+        try:
+            await publish(
+                subject="fraiseql.order.confirmed",
+                data={...},
+                timeout=5000
+            )
+            return
+
+        except Exception as e:
+            retry_count += 1
+            if retry_count >= max_retries:
+                raise
+
+            wait_time = 2 ** retry_count  # Exponential backoff
+            await asyncio.sleep(wait_time)
+
+# 2. Store events in database for guaranteed delivery
+@saga.step("store_events")
+async def step_store_events(ctx):
+    """Store events in DB for async publishing."""
+
+    await execute_sql(
+        """
+        INSERT INTO tb_pending_events (order_id, event_type, payload)
+        VALUES ($1, $2, $3)
+        """,
+        [ctx.order_id, "order.created", json.dumps({...})]
+    )
+
+    # Separate service publishes from DB to NATS
+    # Guaranteed to eventually publish
+
+# 3. Add publishing monitoring
+@fraiseql.after_mutation("create_order")
+async def after_create_order_monitored(order):
+    """Publish with monitoring."""
+
+    try:
+        await metrics.time("event.publish", async_fn=lambda: publish(...))
+    except Exception as e:
+        await metrics.increment("event.publish.error")
+        await alert_ops(f"Failed to publish event for order {order.id}")
+```
+
+#### "Race condition: Event arrives before federation completes"
+
+**Symptoms**: Notification service processes event but queries return empty
+
+**Causes**:
+- Event subscriber queries federation before saga completes
+- Event published before database transaction commits
+- Clock skew or timing issue
+
+**Solutions**:
+
+```python
+# 1. Only publish after transaction commits
+@saga.step("final_publish")
+async def step_final_publish(ctx):
+    """Publish only after all federation steps complete."""
+
+    # Ensure all federation updates are committed
+    # This is the final step - publish here
+    await publish(
+        subject="fraiseql.order.confirmed",
+        data={...}
+    )
+
+# 2. Event handler waits for data availability
+@subscribe("fraiseql.order.created")
+async def handle_order_created_with_retry(event: dict):
+    """Handle event with retry for data availability."""
+
+    order_id = event["data"]["order_id"]
+
+    # Retry if order not yet available
+    max_retries = 5
+    for attempt in range(max_retries):
+        order = await fraiseql.query(
+            f'query {{ order(id: "{order_id}") {{ id }} }}'
+        )
+
+        if order:
+            await process_order(order)
+            return
+
+        if attempt < max_retries - 1:
+            await asyncio.sleep(2 ** attempt)  # Backoff
+
+    logging.error(f"Order not found after retries: {order_id}")
+
+# 3. Include data in event (denormalization)
+# Don't require subscribers to query federation
+await publish(
+    subject="fraiseql.order.created",
+    data={
+        "order_id": order.id,
+        "customer_id": order.customer_id,
+        "total": str(order.total),
+        "items": [...]  # Include items in event
+        # No need for subscriber to federate
+    }
+)
+```
+
+## Database-Specific Gotchas
+
+### PostgreSQL
+
+#### "Deadlock between federation and saga"
+
+```sql
+-- Problem: Saga holds lock while federation waits
+-- Solution: Use lower isolation level
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+```
+
+### MySQL
+
+#### "Federated queries with large result sets OOM"
+
+```python
+# Use streaming results
+@fraiseql.query
+async def large_order_list():
+    # Use cursor-based pagination
+    cursor = None
+    while True:
+        orders = await fraiseql.query(
+            f'query {{ orders(after: "{cursor}", limit: 100) {{ id }} }}'
+        )
+        if not orders:
+            break
+        for order in orders:
+            yield order
+        cursor = orders[-1]["id"]
+```
+
+### SQLite
+
+#### "SQLite locking issues with federation"
+
+```python
+# SQLite has single writer - serialize federated writes
+class SQLiteSerializer:
+    _lock = asyncio.Lock()
+
+    @classmethod
+    async def federated_write(cls, query):
+        async with cls._lock:
+            return await execute_federation_write(query)
+```
+
+## Monitoring and Debugging Checklist
+
+- [ ] Enable query logging for all databases
+- [ ] Monitor federation query latency (p50, p95, p99)
+- [ ] Track NATS message throughput and lag
+- [ ] Monitor saga completion rates and failures
+- [ ] Set up alerts for dead letter queues
+- [ ] Track event processing latency
+- [ ] Monitor connection pool exhaustion
+- [ ] Check for circular federation references
+- [ ] Verify event handler idempotency
+- [ ] Test failure scenarios regularly
+
+## Related Guides
+
+- [Federation](/features/federation) - Federation reference
+- [NATS](/features/nats) - NATS reference
+- [Error Handling](/guides/error-handling) - Error patterns
+- [Federation Example](/examples/federation-ecommerce) - Federation example
+- [NATS Example](/examples/nats-event-pipeline) - NATS example
+- [Federation + NATS Integration](/guides/federation-nats-integration) - Combined usage
+`3
+`3

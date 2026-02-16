@@ -1,0 +1,394 @@
+---
+title: Troubleshooting Guide
+description: Troubleshoot common FraiseQL issues and find solutions
+---
+
+# Troubleshooting Guide
+
+Find solutions to common FraiseQL issues organized by category.
+
+## Quick Links
+
+**By Problem Type**:
+- [Common Issues (50+ problems)](/troubleshooting/common-issues) - Most frequent issues and solutions
+- [Performance Issues](/troubleshooting/performance-issues) - Slow queries, high latency, database load
+- [Security Issues](/troubleshooting/security-issues) - Authorization, authentication, data exposure
+- [Database-Specific Issues](#database-specific-issues) - PostgreSQL, MySQL, SQLite, SQL Server
+
+**By Symptom**:
+- [Error Messages](#by-error-message) - Find solution by error text
+- [Behavior Issues](#by-behavior) - App behaves unexpectedly
+- [Infrastructure Issues](#by-infrastructure) - Deployment, scaling, networking
+
+---
+
+## By Error Message
+
+### Connection Errors
+
+**"Connection refused"**
+- [Common Issues: Connection Refused](/troubleshooting/common-issues#connection-refused)
+- Check database is running: `psql -c "SELECT 1"`
+- Check DATABASE_URL is correct
+- Check network connectivity
+
+**"Too many connections"**
+- Database connection pool exhausted
+- See [Performance Issues: Connection Pool Exhaustion](/troubleshooting/performance-issues#connection-pool-exhaustion)
+- Increase `PGBOUNCER_MAX_POOL_SIZE`
+
+**"Connection timeout"**
+- Database is overloaded or unreachable
+- Check database CPU/memory
+- Check network latency: `ping database.host`
+- Reduce `PGBOUNCER_CONNECTION_TIMEOUT`
+
+### Authentication Errors
+
+**"Invalid token"**
+- [Security Issues: Invalid Token](/troubleshooting/security-issues#invalid-token)
+- Verify JWT_SECRET hasn't changed
+- Check token expiration: `jwt.decode(token)`
+- Check token signature matches secret
+
+**"Missing Authorization header"**
+- Query requires authentication but header missing
+- Verify client sends: `Authorization: Bearer <token>`
+- Check authorization middleware is enabled
+
+**"Insufficient permissions"**
+- User lacks required scope/role
+- [Security Issues: Permission Denied](/troubleshooting/security-issues#permission-denied)
+- Verify user role has required permission
+- Check role-permission mapping in database
+
+### Validation Errors
+
+**"Field validation failed"**
+- Input doesn't match schema
+- Check field types: String, Int, ID, Boolean, DateTime
+- Check field constraints: required, max length, format
+- Review [Validation Rules Reference](/reference/validation-rules)
+
+**"Type mismatch"**
+- Field type doesn't match schema definition
+- Check query matches GraphQL schema
+- Run introspection query to see current schema
+- See [Type System Concepts](/concepts/type-system)
+
+---
+
+## By Behavior
+
+### Queries Return Empty
+
+**"Query returns null/empty but should have data"**
+- Check filtering isn't too restrictive
+- Verify data actually exists in database: `SELECT COUNT(*) FROM table`
+- Check row-level security (RLS) isn't filtering data
+- See [Common Issues: Empty Results](/troubleshooting/common-issues#query-returns-empty)
+
+**"Related objects are null"**
+- Foreign key might not match
+- Related record might be soft-deleted
+- Check relationship definition in schema
+- See [Common Issues: Null Relationships](/troubleshooting/common-issues#null-relationships)
+
+### Mutations Fail Silently
+
+**"Mutation runs but data doesn't change"**
+- Check mutation is committing: `BEGIN; ... COMMIT;`
+- Check database triggers aren't blocking
+- Verify user has write permission
+- See [Common Issues: Silent Failures](/troubleshooting/common-issues#silent-failures)
+
+**"Mutation succeeds but related data unchanged"**
+- Related records might be in different database
+- See Federation documentation
+- Check cascade rules in database
+- Run mutation in transaction
+
+### Performance Degradation
+
+**"Queries started slow suddenly"**
+- Database might be full
+- Check disk space: `df -h`
+- Check database statistics need updating: `ANALYZE`
+- See [Performance Issues](/troubleshooting/performance-issues)
+
+**"Intermittent slow queries"**
+- Connection pool saturation
+- Database load spikes
+- Network latency
+- Check monitoring dashboards (CloudWatch, Datadog, Prometheus)
+
+---
+
+## By Infrastructure
+
+### Docker Issues
+
+**"Container won't start"**
+- Check logs: `docker logs <container>`
+- Check environment variables: `docker exec <container> env`
+- Check network: `docker network ls`
+- See [Docker Deployment Guide](/deployment/docker)
+
+**"Connection to database fails"**
+- Verify database container is running: `docker ps`
+- Check service name in DATABASE_URL matches docker-compose.yml
+- Verify network isolation: `docker network inspect <network>`
+- See [Docker Troubleshooting](/deployment/docker#troubleshooting)
+
+### Kubernetes Issues
+
+**"Pod won't start (CrashLoopBackOff)"**
+- Check pod logs: `kubectl logs <pod>`
+- Check events: `kubectl describe pod <pod>`
+- Verify resource requests fit in cluster
+- See [Kubernetes Troubleshooting](/deployment/kubernetes#troubleshooting)
+
+**"Service unreachable"**
+- Check service exists: `kubectl get svc`
+- Check endpoints: `kubectl get endpoints`
+- Test with port-forward: `kubectl port-forward svc/fraiseql 8000:8000`
+- See [Kubernetes Troubleshooting](/deployment/kubernetes#troubleshooting)
+
+### Cloud Deployment Issues
+
+**AWS**: See [AWS Troubleshooting](/deployment/aws#troubleshooting)
+**GCP**: See [GCP Troubleshooting](/deployment/gcp#troubleshooting)
+**Azure**: See [Azure Troubleshooting](/deployment/azure#troubleshooting)
+
+---
+
+## Database-Specific Issues
+
+
+─
+
+
+─
+
+
+─
+
+
+─
+
+---
+
+## Diagnostic Commands
+
+### Check FraiseQL Status
+
+```bash
+# Test API health
+curl http://localhost:8000/health/live
+
+# Test readiness
+curl http://localhost:8000/health/ready
+
+# View logs
+docker logs fraiseql
+
+# Check environment
+docker exec fraiseql env | grep DATABASE
+```
+
+### Check Database
+
+```bash
+# PostgreSQL
+psql postgresql://user:pass@host/db -c "SELECT 1"
+pg_isready -h host -U user
+
+# MySQL
+mysql -h host -u user -p -e "SELECT 1"
+
+# SQLite
+sqlite3 fraiseql.db "SELECT 1"
+
+# SQL Server
+sqlcmd -S host -U user -P pass -Q "SELECT 1"
+```
+
+### Check Connectivity
+
+```bash
+# DNS resolution
+nslookup database.example.com
+
+# Network latency
+ping database.example.com
+
+# Port connectivity
+nc -zv database.example.com 5432
+
+# Full connection test
+timeout 5 bash -c 'cat </dev/null >/dev/tcp/host/5432' && echo "OK" || echo "FAIL"
+```
+
+### View Metrics
+
+```bash
+# Prometheus metrics
+curl http://localhost:9000/metrics | grep fraiseql
+
+# Database connections
+# PostgreSQL
+SELECT datname, count(*) FROM pg_stat_activity GROUP BY datname;
+
+# MySQL
+SHOW PROCESSLIST;
+```
+
+---
+
+## Getting Help
+
+### Before Asking for Help
+
+1. **Check logs** - Most issues are visible in logs
+   ```bash
+   LOG_LEVEL=debug python -m fraiseql serve
+   ```
+
+2. **Search documentation** - Use Ctrl+F on this page
+   - Try searching error message
+   - Try searching symptom (e.g., "slow", "connection")
+
+3. **Check existing issues** - GitHub issues might have solution
+   - https://github.com/fraiseql/fraiseql/issues
+
+4. **Test in isolation** - Narrow down the problem
+   ```bash
+   # Minimal reproduction
+   curl -X POST http://localhost:8000/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ __schema { types { name } } }"}'
+   ```
+
+### Where to Get Help
+
+**Discord (Real-time chat)**
+- https://discord.gg/fraiseql
+- Best for quick questions
+
+**GitHub Discussions (Archived answers)**
+- https://github.com/fraiseql/fraiseql/discussions
+- Good for complex issues
+
+**GitHub Issues (Bug reports)**
+- https://github.com/fraiseql/fraiseql/issues
+- For confirmed bugs
+
+**Stack Overflow (Searchable)**
+- Tag: `fraiseql`
+- For best-practice questions
+
+### Reporting Issues
+
+When reporting an issue, include:
+
+1. **FraiseQL version**
+   ```bash
+   python -m fraiseql --version
+   ```
+
+2. **Error message** (full traceback)
+   ```
+   Traceback (most recent call last):
+     ...
+   ```
+
+3. **Minimal reproduction** (simplified code that shows issue)
+   ```python
+   @fraiseql.query
+   def broken_query() -> User:
+       pass
+   ```
+
+4. **Environment**
+   - OS (Linux, macOS, Windows)
+   - Python version
+   - Database (PostgreSQL 16, MySQL 8.0, etc.)
+   - Deployment (Docker, Kubernetes, bare metal)
+
+5. **Logs** (with `LOG_LEVEL=debug`)
+   ```json
+   [DEBUG] Loading schema...
+   [ERROR] Failed to execute query
+   ```
+
+---
+
+## Issue Resolution Template
+
+### Step 1: Identify the Problem
+- What exactly is happening?
+- When did it start?
+- Is it consistent or intermittent?
+
+### Step 2: Gather Information
+- Check logs: `docker logs fraiseql`
+- Check database: `SELECT COUNT(*) FROM table`
+- Check configuration: `printenv | grep FRAISEQL`
+- Check metrics: CPU, memory, disk space
+
+### Step 3: Search for Solution
+- Search this troubleshooting guide
+- Search GitHub issues
+- Search Discord history
+- Check relevant deployment/database guide
+
+### Step 4: Try Common Fixes
+1. Restart application
+2. Check network connectivity
+3. Check database availability
+4. Review configuration
+5. Check permissions
+
+### Step 5: Apply Solution
+- Follow step-by-step instructions
+- Verify fix worked
+- Document what worked
+
+### Step 6: Ask for Help
+- If stuck, ask on Discord/GitHub
+- Include all diagnostic info from Step 2
+- Include minimal reproduction from Step 3
+
+---
+
+## Most Common Issues (Quick Reference)
+
+| Issue | Solution | Time |
+|-------|----------|------|
+| "Connection refused" | Check database running | 2 min |
+| "Too many connections" | Increase connection pool | 5 min |
+| Slow queries | Add database indexes | 10 min |
+| "Insufficient permissions" | Check user role | 5 min |
+| Empty results | Check filtering/RLS | 5 min |
+| Type mismatch | Check schema definition | 3 min |
+| Pod crashes | Check resource limits | 5 min |
+| High CPU | Check query complexity | 15 min |
+
+---
+
+## Next Steps
+
+1. **If specific error**: Search error message above
+2. **If database issue**: Go to [Database-Specific Issues](#database-specific-issues)
+3. **If performance issue**: Go to [Performance Issues](/troubleshooting/performance-issues)
+4. **If security issue**: Go to [Security Issues](/troubleshooting/security-issues)
+5. **If not listed**: Search [Common Issues](/troubleshooting/common-issues) or ask for help
+
+---
+
+## Related Resources
+
+- [Error Handling Guide](/guides/error-handling)
+- [Performance Guide](/guides/performance-benchmarks)
+- [Deployment Guides](/deployment)
+- [FAQ](/guides/faq)

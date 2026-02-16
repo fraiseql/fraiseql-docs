@@ -1,0 +1,127 @@
+---
+title: "Build from DDL"
+description: "Create fresh databases from DDL files in under 1 second"
+---
+
+The Build medium creates a complete database by concatenating and executing all your DDL files in order. No migration history to replay, no ORM to bootstrap — just SQL files executed once.
+
+## How It Works
+
+```bash
+confiture build --env local
+```
+
+```
+✓ Schema built successfully in 0.4s
+  → Created 3 tables, 3 views, 2 functions
+```
+
+🍯 Confiture reads your SQL files from numbered directories and executes them in alphabetical order:
+
+```
+db/schema/
+├── 00_extensions/
+│   └── extensions.sql
+├── 01_write/
+│   ├── tb_user.sql
+│   ├── tb_post.sql
+│   └── tb_comment.sql
+├── 02_read/
+│   ├── v_user.sql
+│   ├── v_comment.sql
+│   └── v_post.sql
+└── 03_functions/
+    ├── fn_create_user.sql
+    └── fn_create_post.sql
+```
+
+Tables before views. Views before functions. The directory numbering controls the order.
+
+## Why Build Instead of Migrations?
+
+Traditional ORMs create databases by replaying every migration in sequence — `001_initial.sql`, `002_add_column.sql`, ... `087_fix_index.sql`. For a project with 87 migrations, that means executing 87 files to create what could be expressed in 5.
+
+Build takes the opposite approach: **your current DDL files are the source of truth.** One execution, one database, under 1 second.
+
+| Approach | Fresh DB Time | Files Executed | Source of Truth |
+|----------|--------------|----------------|-----------------|
+| Migration replay | 2-30 seconds | All migrations (cumulative) | Migration history |
+| 🍯 Confiture Build | Under 1 second | Current DDL files only | DDL files |
+
+## Commands
+
+```bash
+# Build for a specific environment
+confiture build --env local
+confiture build --env test
+confiture build --env ci
+
+# Dry run — show what would be executed
+confiture build --env local --dry-run
+
+# Rebuild only views (preserves table data)
+confiture build --env local --views-only
+```
+
+### The `--views-only` Flag
+
+During development, you often modify views without changing tables. Instead of dropping and recreating the entire database:
+
+```bash
+# Only recreate views — table data is preserved
+confiture build --env local --views-only
+```
+
+This drops and recreates all `v_*` views and `tv_*` materialized tables, leaving `tb_*` tables (and their data) intact.
+
+## Directory Structure
+
+🍯 Confiture processes directories alphabetically. The numbering convention ensures correct execution order:
+
+| Directory | Contents | Why This Order |
+|-----------|----------|----------------|
+| `00_extensions/` | `CREATE EXTENSION` statements | Extensions must exist before tables use them |
+| `01_write/` | `CREATE TABLE` statements (`tb_*`) | Tables must exist before views reference them |
+| `02_read/` | `CREATE VIEW` statements (`v_*`) | Views depend on tables |
+| `03_functions/` | `CREATE FUNCTION` statements (`fn_*`) | Functions may reference tables and views |
+| `04_indexes/` | `CREATE INDEX` statements | Indexes reference tables |
+| `05_seeds/` | `INSERT` statements | Seed data requires tables to exist |
+
+Within each directory, files are also processed alphabetically. If `v_post` depends on `v_user`, name them accordingly (e.g., `01_v_user.sql`, `02_v_post.sql`) or rely on `CREATE OR REPLACE` with proper ordering.
+
+## When to Use Build
+
+**Use Build for:**
+- Local development — reset your database with one command
+- CI/CD pipelines — create test databases instantly
+- Fresh staging environments — no migration history to manage
+- Demo databases — reproducible setup in under 1 second
+- Onboarding — new team members get a working database immediately
+
+**Don't use Build for:**
+- Production databases with data — use [Migrate](/confiture/migrate) instead
+- Partial schema changes — use [Migrate](/confiture/migrate) for targeted ALTERs
+
+## Integration with FraiseQL
+
+The typical development loop:
+
+```bash
+# Edit a SQL view
+vim db/schema/02_read/v_user.sql
+
+# Rebuild views only (fast, preserves data)
+confiture build --env local --views-only
+
+# Recompile the GraphQL mapping
+fraiseql compile
+
+# Serve
+fraiseql serve
+```
+
+## Next Steps
+
+- [🍯 Confiture Overview](/confiture) — All 4 Mediums
+- [Incremental Migrations](/confiture/migrate) — For existing databases with data
+- [Developer-Owned SQL](/concepts/developer-owned-sql) — Why you write the SQL

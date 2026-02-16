@@ -1,0 +1,601 @@
+---
+title: Naming Conventions
+description: Complete guide to FraiseQL naming conventions for tables, views, and columns
+---
+
+FraiseQL uses consistent naming conventions across database objects, Python types, and GraphQL schema. This reference documents all conventions.
+
+## Identifier Columns
+
+Every entity uses the **Trinity Identifier Pattern**:
+
+| Column | Type | Purpose | Exposed in API |
+|--------|------|---------|----------------|
+| `pk_{entity}` | `BIGINT` | Internal primary key for JOINs | Never |
+| `id` | `UUID` | External identifier for API | Always |
+| `identifier` | `TEXT` | Human-readable slug/code | Typically |
+
+### pk_ (Primary Key)
+
+Internal-only, auto-incrementing integer:
+
+```sql
+pk_user INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+pk_post INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+pk_order INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+```
+
+**Properties:**
+- Fast integer JOINs
+- Never exposed in API
+- Never changes
+- Sequential (no gaps in transaction)
+
+### id (External ID)
+
+UUID v4 for API access:
+
+```sql
+id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL
+```
+
+**Properties:**
+- Exposed in GraphQL as `ID` scalar
+- Prevents enumeration attacks
+- URL-safe (no encoding needed)
+- Globally unique
+
+### identifier (Human-Readable)
+
+Business-meaningful identifier:
+
+```sql
+identifier TEXT UNIQUE NOT NULL
+```
+
+**Examples:**
+- User: `email` or `username`
+- Post: `slug` (e.g., `my-first-post`)
+- Product: `sku` (e.g., `WIDGET-001`)
+- Order: `order_number` (e.g., `ORD-2024-0001`)
+
+## Table Prefixes
+
+### tb_ (Base Tables)
+
+Write-side tables for normalized data:
+
+```sql
+CREATE TABLE tb_user (...);
+CREATE TABLE tb_post (...);
+CREATE TABLE tb_order (...);
+CREATE TABLE tb_order_item (...);
+```
+
+**Properties:**
+- Normalized structure
+- Enforced constraints
+- Target of INSERT/UPDATE/DELETE
+- Source for read views
+
+### v_ (Views)
+
+Read-side views with JSONB data:
+
+```sql
+CREATE VIEW v_user AS SELECT id, jsonb_build_object(...) AS data FROM tb_user;
+CREATE VIEW v_post AS SELECT id, jsonb_build_object(...) AS data FROM tb_post;
+```
+
+**Properties:**
+- Denormalized for reads
+- Return JSONB `data` column
+- Compose with other views
+- Real-time (always current)
+
+### tv_ (Table-backed Views)
+
+Materialized projections for high-traffic reads:
+
+```sql
+CREATE TABLE tv_user (id UUID PRIMARY KEY, data JSONB NOT NULL);
+CREATE TABLE tv_post (id UUID PRIMARY KEY, data JSONB NOT NULL);
+```
+
+**Properties:**
+- Faster than views (no JOIN at query time)
+- Must be synced after writes
+- Use for hot read paths
+- Structure matches corresponding `v_` view
+
+## Arrow Dataplane Prefixes
+
+For columnar analytics:
+
+### va_ (Views for Arrow)
+
+Views optimized for Arrow Flight:
+
+```sql
+CREATE VIEW va_sales_by_day AS
+SELECT
+    date_trunc('day', created_at) AS day,
+    SUM(total) AS revenue,
+    COUNT(*) AS order_count
+FROM tb_order
+GROUP BY 1;
+```
+
+### ta_ (Tables for Arrow)
+
+Tables with columnar storage:
+
+```sql
+CREATE TABLE ta_events (
+    event_id UUID,
+    event_type TEXT,
+    user_id UUID,
+    properties JSONB,
+    created_at TIMESTAMPTZ
+);
+```
+
+## Analytics Tables
+
+### tb_calendar (Calendar Dimension Table)
+
+Master calendar table providing pre-computed temporal dimensions for all fact tables:
+
+```sql
+CREATE TABLE tb_calendar (
+    id UUID DEFAULT gen_random_uuid() UNIQUE,
+    reference_date DATE PRIMARY KEY,
+
+    -- Time period numbers
+    week INT,
+    week_n_days INT,                    -- Always 7
+    half_month INT,                     -- 1 or 2
+    half_month_n_days INT,              -- Days in this half
+    month INT,
+    month_n_days INT,                   -- 28-31
+    quarter INT,                        -- 1-4
+    quarter_n_days INT,                 -- 90-92
+    semester INT,                       -- 1 or 2
+    semester_n_days INT,                -- 181-184
+    year INT,
+    year_n_days INT,                    -- 365 or 366
+
+    -- Pre-computed JSONB for each granularity
+    date_info JSONB,                    -- All buckets at day level
+    week_info JSONB,
+    half_month_info JSONB,
+    month_info JSONB,
+    quarter_info JSONB,
+    semester_info JSONB,
+    year_info JSONB,
+
+    -- Reference dates (first day of each period)
+    week_reference_date DATE,           -- Monday of week
+    half_month_reference_date DATE,     -- 1st or 16th
+    month_reference_date DATE,          -- 1st of month
+    quarter_reference_date DATE,        -- 1st of quarter
+    semester_reference_date DATE,       -- Jan 1 or Jul 1
+    year_reference_date DATE,           -- Jan 1
+
+    -- Boolean flags for reference dates
+    is_week_reference_date BOOLEAN,     -- Is Monday?
+    is_half_month_reference_date BOOLEAN, -- Is 1st or 16th?
+    is_month_reference_date BOOLEAN,    -- Is 1st of month?
+    is_quarter_reference_date BOOLEAN,  -- Is 1st of quarter?
+    is_semester_reference_date BOOLEAN, -- Is Jan 1 or Jul 1?
+    is_year_reference_date BOOLEAN,     -- Is Jan 1?
+
+    -- Array of all interval reference dates
+    array_interval_dates DATE[]
+);
+```
+
+**date_info JSONB structure:**
+
+```json
+{
+    "date": "2024-03-15",
+    "week": 11,
+    "half_month": 1,
+    "month": 3,
+    "quarter": 1,
+    "semester": 1,
+    "year": 2024
+}
+```
+
+**Seed data generation (2015-2035):**
+
+```sql
+INSERT INTO tb_calendar (reference_date, week, month, quarter, semester, year, date_info, ...)
+SELECT
+    d::DATE AS reference_date,
+    EXTRACT(WEEK FROM d)::INT AS week,
+    EXTRACT(MONTH FROM d)::INT AS month,
+    EXTRACT(QUARTER FROM d)::INT AS quarter,
+    CASE WHEN EXTRACT(MONTH FROM d) <= 6 THEN 1 ELSE 2 END AS semester,
+    EXTRACT(YEAR FROM d)::INT AS year,
+    jsonb_build_object(
+        'date', d::text,
+        'week', EXTRACT(WEEK FROM d),
+        'half_month', CASE WHEN EXTRACT(DAY FROM d) <= 15 THEN 1 ELSE 2 END,
+        'month', EXTRACT(MONTH FROM d),
+        'quarter', EXTRACT(QUARTER FROM d),
+        'semester', CASE WHEN EXTRACT(MONTH FROM d) <= 6 THEN 1 ELSE 2 END,
+        'year', EXTRACT(YEAR FROM d)
+    ) AS date_info,
+    DATE_TRUNC('month', d)::DATE AS month_reference_date,
+    (EXTRACT(DAY FROM d) = 1) AS is_month_reference_date
+    -- ... other columns
+FROM generate_series('2015-01-01'::date, '2035-12-31'::date, '1 day') AS d;
+```
+
+**Benefits:**
+
+- Single source of truth for all calendar dimensions
+- Reference dates enable efficient time-series aggregation
+- Boolean flags support "first day of period" filtering
+- `*_n_days` columns enable weighted averages
+- No trigger overhead on fact table inserts
+
+### tf_ (Fact Tables)
+
+Star schema fact tables for analytics, joining to `tb_calendar`:
+
+```sql
+CREATE TABLE tf_sales (
+    pk_sales BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+    -- Measures (direct columns for fast aggregation)
+    quantity INT NOT NULL,
+    revenue DECIMAL(12,2) NOT NULL,
+    cost DECIMAL(12,2) NOT NULL,
+    discount DECIMAL(12,2) DEFAULT 0,
+
+    -- Dimension data (JSONB for flexibility)
+    data JSONB NOT NULL,
+
+    -- Calendar foreign key (joins to tb_calendar)
+    occurred_at DATE NOT NULL,
+
+    -- Denormalized columns for indexed filtering
+    customer_id UUID NOT NULL,
+    product_id UUID NOT NULL,
+    product_category TEXT,
+    customer_region TEXT
+);
+
+CREATE INDEX idx_tf_sales_occurred ON tf_sales(occurred_at);
+CREATE INDEX idx_tf_sales_data ON tf_sales USING GIN(data);
+```
+
+**Query-side view with calendar JOIN:**
+
+```sql
+CREATE VIEW v_sales AS
+SELECT
+    s.pk_sales,
+    jsonb_build_object(
+        'dimensions', s.data || jsonb_build_object('date_info', cal.date_info),
+        'measures', jsonb_build_object(
+            'quantity', s.quantity,
+            'revenue', s.revenue,
+            'cost', s.cost
+        )
+    ) AS data
+FROM tf_sales s
+LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at;
+```
+
+**Dimension data (`data` column):**
+
+```json
+{
+    "category": "electronics",
+    "region": "US",
+    "channel": "online",
+    "product": {
+        "id": "prod-123",
+        "name": "Widget Pro",
+        "category": "Electronics"
+    },
+    "customer": {
+        "id": "cust-456",
+        "name": "Acme Corp",
+        "type": "Enterprise"
+    }
+}
+```
+
+**Performance impact (using tb_calendar JOIN):**
+
+| Rows | Runtime DATE_TRUNC | Pre-computed calendar | Speedup |
+|------|---------------------|----------------------|---------|
+| 100K | 50ms | 5ms | 10x |
+| 1M | 500ms | 30ms | 16x |
+| 10M | 5000ms | 300ms | 16x |
+
+## Foreign Keys
+
+Foreign keys reference internal primary keys:
+
+```sql
+fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user)
+fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post)
+fk_parent_comment INTEGER REFERENCES tb_comment(pk_comment)
+```
+
+**Convention:** `fk_{entity}` references `pk_{entity}`
+
+**Properties:**
+- Uses fast integer JOINs internally
+- Never exposed in API
+- API uses `id` (UUID) for references
+
+### Composite Foreign Keys
+
+For junction tables:
+
+```sql
+CREATE TABLE tb_post_tag (
+    pk_post_tag INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post),
+    fk_tag INTEGER NOT NULL REFERENCES tb_tag(pk_tag),
+    UNIQUE(fk_post, fk_tag)
+);
+```
+
+## Function Naming
+
+### fn_ (SQL Functions)
+
+Mutation functions:
+
+```sql
+CREATE FUNCTION fn_create_user(...) RETURNS UUID
+CREATE FUNCTION fn_update_user(...) RETURNS BOOLEAN
+CREATE FUNCTION fn_delete_user(...) RETURNS BOOLEAN
+CREATE FUNCTION fn_publish_post(...) RETURNS BOOLEAN
+```
+
+**Convention:** `fn_{action}_{entity}`
+
+### sync_ (Sync Functions)
+
+Projection synchronization:
+
+```sql
+CREATE FUNCTION sync_tv_user() RETURNS VOID
+CREATE FUNCTION sync_tv_post() RETURNS VOID
+CREATE FUNCTION sync_tv_user_single(user_id UUID) RETURNS VOID
+```
+
+**Convention:** `sync_{target_table}` or `sync_{target_table}_single`
+
+## Python Type Naming
+
+### Types
+
+PascalCase, singular:
+
+```python
+@fraiseql.type
+class User: ...
+
+@fraiseql.type
+class BlogPost: ...  # Not "blog_post" or "BlogPosts"
+
+@fraiseql.type
+class OrderItem: ...
+```
+
+### Fields
+
+snake_case (auto-converted to camelCase in GraphQL):
+
+```python
+
+
+
+
+                             ─
+                             ─
+                             ─
+```
+
+### Queries
+
+snake_case, descriptive:
+
+```python
+@fraiseql.query(sql_source="v_user")
+def user(id: ID) -> User | None: ...
+
+@fraiseql.query(sql_source="v_user")
+def users(limit: int = 20) -> list[User]: ...
+
+@fraiseql.query(sql_source="v_post")
+def posts_by_author(author_id: ID) -> list[Post]: ...
+```
+
+### Mutations
+
+snake_case, verb + noun:
+
+```python
+@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+def create_user(...) -> User: ...
+
+@fraiseql.mutation(sql_source="fn_update_user", operation="UPDATE")
+def update_user(...) -> User: ...
+
+@fraiseql.mutation(sql_source="fn_publish_post", operation="UPDATE")
+def publish_post(...) -> Post: ...
+```python
+
+## GraphQL Naming
+
+FraiseQL converts Python conventions to GraphQL conventions:
+
+| Python | GraphQL |
+|--------|---------|
+| `class User` | `type User` |
+| `created_at: DateTime` | `createdAt: DateTime!` |
+| `def create_user(...)` | `createUser(...)` |
+| `list[Post]` | `[Post!]!` |
+| `str \| None` | `String` (nullable) |
+
+## Index Naming
+
+```sql
+-- Primary key (automatic)
+-- pk_user_pkey
+
+-- Unique constraint
+CREATE UNIQUE INDEX idx_user_id ON tb_user(id);
+CREATE UNIQUE INDEX idx_user_identifier ON tb_user(identifier);
+
+-- Foreign key
+CREATE INDEX idx_post_fk_user ON tb_post(fk_user);
+
+-- JSONB field
+CREATE INDEX idx_tv_user_email ON tv_user((data->>'email'));
+
+-- Composite
+CREATE INDEX idx_post_published ON tb_post(is_published, published_at DESC);
+
+-- Partial
+CREATE INDEX idx_post_published_only ON tb_post(published_at DESC)
+    WHERE is_published = true;
+```
+
+**Convention:** `idx_{table}_{column(s)}`
+
+## Complete Example
+
+```sql
+-- Write table
+CREATE TABLE tb_user (
+    pk_user INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT UNIQUE NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    bio TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Read view (use snake_case - FraiseQL converts to camelCase)
+CREATE VIEW v_user AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id', u.id::text,
+        'identifier', u.identifier,
+        'email', u.email,
+        'name', u.name,
+        'bio', u.bio,
+        'is_active', u.is_active,
+        'created_at', u.created_at,
+        'updated_at', u.updated_at
+    ) AS data
+FROM tb_user u;
+
+-- Projection table
+CREATE TABLE tv_user (
+    id UUID PRIMARY KEY,
+    data JSONB NOT NULL
+);
+
+-- Sync function
+CREATE FUNCTION sync_tv_user() RETURNS VOID AS $$
+BEGIN
+    DELETE FROM tv_user;
+    INSERT INTO tv_user (id, data)
+    SELECT id, data FROM v_user;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Mutation function
+CREATE FUNCTION fn_create_user(
+    user_email TEXT,
+    user_name TEXT
+) RETURNS UUID AS $$
+DECLARE
+    new_id UUID;
+BEGIN
+    INSERT INTO tb_user (email, name, identifier)
+    VALUES (user_email, user_name, user_email)
+    RETURNING id INTO new_id;
+
+    PERFORM sync_tv_user();
+    RETURN new_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Indexes
+CREATE INDEX idx_user_email ON tb_user(email);
+CREATE INDEX idx_tv_user_data ON tv_user USING GIN (data);
+```
+
+```python
+# Python schema
+import fraiseql
+from fraiseql.scalars import ID, DateTime
+
+@fraiseql.type
+class User:
+    id: ID
+    identifier: str
+    email: str
+    name: str
+    bio: str | None
+    is_active: bool
+    created_at: DateTime
+    updated_at: DateTime
+
+@fraiseql.query(sql_source="v_user")
+def user(id: ID) -> User | None:
+    pass
+
+@fraiseql.query(sql_source="v_user")
+def users(limit: int = 20, offset: int = 0) -> list[User]:
+    pass
+
+@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+def create_user(email: str, name: str) -> User:
+    pass
+```
+
+## Quick Reference
+
+| Object | Convention | Example |
+|--------|------------|---------|
+| Base table | `tb_{entity}` | `tb_user` |
+| Read view | `v_{entity}` | `v_user` |
+| Projection table | `tv_{entity}` | `tv_user` |
+| Arrow view | `va_{entity}` | `va_analytics` |
+| Arrow table | `ta_{entity}` | `ta_events` |
+| Fact table | `tf_{entity}` | `tf_sales` |
+| Calendar dimension | `tb_calendar` | `tb_calendar` |
+| Primary key | `pk_{entity}` | `pk_user` |
+| Foreign key | `fk_{entity}` | `fk_user` |
+| External ID | `id` | `id UUID` |
+| Human ID | `identifier` | `identifier TEXT` |
+| Mutation function | `fn_{action}_{entity}` | `fn_create_user` |
+| Sync function | `sync_{table}` | `sync_tv_user` |
+| Index | `idx_{table}_{columns}` | `idx_user_email` |
+| Calendar info columns | `*_info` | `date_info`, `month_info` |
+
+## Next Steps
+
+- [CQRS Pattern](/concepts/cqrs) — Understanding the architecture
+- [Schema Design](/guides/schema-design) — Best practices
+- [Scalars](/reference/scalars) — Type reference

@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>AI-Native Development - Built for Claude, Copilot, ChatGPT</title>
+    <meta name="description" content="LLM-optimized GraphQL framework. Clear context in SQL functions. Explicit JSONB contracts. No abstraction layers. AI generates correct code on first try.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+    </style>
+    <link rel="stylesheet" href="/prism.min.css"/>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white lg:bg-transparent text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-black lg:text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-black lg:text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-black lg:text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline bg-red-600 text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+        <hr class="border-b border-gray-100 opacity-25 my-0 py-0" />
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24">
+        <div class="container px-3 mx-auto flex flex-wrap flex-col md:flex-row items-center">
+            <!-- Left Col -->
+            <div class="flex flex-col w-full md:w-2/5 justify-center items-start text-center md:text-left">
+                <p class="uppercase tracking-loose w-full">🤖 AI-Native Development</p>
+                <h1 class="my-4 text-5xl font-bold leading-tight">
+                    Built for the LLM Era
+                </h1>
+                <p class="leading-normal text-xl mb-8">
+                    Clear context in SQL functions. Explicit JSONB contracts.
+                    No abstraction layers. AI generates correct code on first try.
+                </p>
+                <a href="/getting-started.html" class="bg-red-600 text-white font-bold rounded-full py-4 px-8 shadow-lg hover:bg-red-700 transition">
+                    Code with AI →
+                </a>
+            </div>
+
+            <!-- Right Col - AI Comparison -->
+            <div class="w-full md:w-3/5 py-6 text-center">
+                <div class="bg-white rounded-lg shadow-2xl p-8">
+                    <h3 class="text-2xl font-bold mb-6 text-gray-800">AI Development Comparison</h3>
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <!-- ORM Confusion -->
+                        <div class="border-2 border-red-200 rounded-lg p-4">
+                            <h4 class="font-bold text-red-800 mb-3">❌ ORM Magic (AI Struggles)</h4>
+                            <div class="text-sm text-gray-700 space-y-2">
+                                <div>• Hidden SQL generation</div>
+                                <div>• Complex relationship mapping</div>
+                                <div>• Lazy loading surprises</div>
+                                <div>• Metaclass magic</div>
+                                <div>• Query optimization guesswork</div>
+                            </div>
+                            <div class="mt-3 text-xs text-red-600 font-semibold">AI generates wrong code frequently</div>
+                        </div>
+
+                        <!-- FraiseQL Clarity -->
+                        <div class="border-2 border-green-500 rounded-lg p-4">
+                            <h4 class="font-bold text-green-800 mb-3">✅ FraiseQL Clarity (AI Excels)</h4>
+                            <div class="text-sm text-gray-700 space-y-2">
+                                <div>• Explicit SQL functions</div>
+                                <div>• Clear JSONB contracts</div>
+                                <div>• Direct field mapping</div>
+                                <div>• Type hints everywhere</div>
+                                <div>• Predictable patterns</div>
+                            </div>
+                            <div class="mt-3 text-xs text-green-600 font-semibold">AI generates correct code on first try</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Why SQL + Python Wins -->
+    <section class="bg-gray-50 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Why SQL + Python Wins for AI
+            </h2>
+
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-6 mb-8">
+                <h3 class="text-xl font-bold text-blue-900 mb-4">SQL: The Ideal LLM Target Language</h3>
+                <p class="text-blue-800 mb-4">
+                    SQL is one of the most documented languages in existence. LLMs generate it reliably because patterns haven't changed in decades.
+                </p>
+                <ul class="list-disc list-inside text-blue-800 space-y-2">
+                    <li><strong>Fewer tokens:</strong> PL/pgSQL is 30-50% shorter than equivalent Python. Cheaper inference.</li>
+                    <li><strong>Lower hallucination:</strong> Stable syntax since the 1990s. LLMs rarely invent SQL.</li>
+                    <li><strong>Single context:</strong> Validation, business logic, and data access in one function.</li>
+                    <li><strong>Type hints + decorators:</strong> Python contract layer LLMs understand perfectly.</li>
+                </ul>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-green-50 border-l-4 border-green-500 p-6">
+                    <h3 class="text-xl font-bold text-green-900 mb-4">Clear Context in PostgreSQL</h3>
+                    <p class="text-green-800 mb-4">
+                        Business logic lives in PostgreSQL functions with clear names and parameters.
+                        AI can understand intent immediately from function names and SQL comments.
+                    </p>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-sql">-- AI can understand this immediately
+CREATE FUNCTION fn_get_user_posts(
+    p_user_id int,
+    p_limit int DEFAULT 10
+) RETURNS jsonb AS $$
+    -- Get posts for a specific user
+    SELECT jsonb_agg(
+        jsonb_build_object(
+            'id', p.id,
+            'title', p.title,
+            'content', p.content
+        )
+    )
+    FROM tb_post p
+    WHERE p.fk_author = p_user_id
+    AND p.published = true
+    ORDER BY p.created_at DESC
+    LIMIT p_limit;
+$$ LANGUAGE sql SECURITY DEFINER;</code></pre>
+                    </div>
+                </div>
+
+                <div class="bg-green-50 border-l-4 border-green-500 p-6">
+                    <h3 class="text-xl font-bold text-green-900 mb-4">Explicit JSONB Contracts</h3>
+                    <p class="text-green-800 mb-4">
+                        Every field is explicitly defined. No hidden behavior, no magic mapping.
+                        AI can see exactly what data is available and how it's structured.
+                    </p>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-python"># AI understands this perfectly
+@fraiseql.type
+class Post:
+    id: int              # Primary key
+    title: str          # Post title
+    content: str        # Full content
+    author_id: int      # Who wrote it
+    created_at: str     # ISO timestamp
+    published: bool     # Is it live?
+
+@fraiseql.query
+async def posts(info) -> list[Post]:
+    # Clear intent, clear return type
+    return await info.context.repo.fetch()</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Real AI Examples -->
+    <section class="bg-white py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Real AI Development Examples
+            </h2>
+
+            <div class="space-y-8">
+                <div class="bg-gray-50 rounded-lg p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Claude Code: "Add user authentication"</h3>
+                    <p class="text-gray-700 mb-4">
+                        <strong>Prompt:</strong> "Add user authentication to my FraiseQL GraphQL API"
+                    </p>
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <h4 class="font-semibold text-green-800 mb-2">✅ What Claude Generates (Correct)</h4>
+                            <div class="code-block">
+                                <pre class="p-3 text-xs"><code class="language-python"># Clear PostgreSQL function
+CREATE FUNCTION authenticate_user(
+    p_email text,
+    p_password text
+) RETURNS jsonb;
+
+# Clear GraphQL type
+@fraiseql.type
+class AuthResult:
+    success: bool
+    token: str | None
+    user: User | None
+
+@fraiseql.mutation
+async def login(info, email: str, password: str) -> AuthResult:
+    return await info.context.repo.call_function(
+        "authenticate_user", email, password
+    )</code></pre>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-red-800 mb-2">❌ ORM Alternative (Wrong)</h4>
+                            <div class="code-block">
+                                <pre class="p-3 text-xs"><code class="language-python"># Complex, error-prone
+from sqlalchemy import select
+from passlib.hash import pbkdf2_sha256
+
+user = session.execute(
+    select(User).where(User.email == email)
+).scalar_one_or_none()
+
+if user and pbkdf2_sha256.verify(password, user.password_hash):
+    # Complex JWT generation...
+    # Session management...
+    # Error handling...</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-lg p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">GitHub Copilot: "Add filtering"</h3>
+                    <p class="text-gray-700 mb-4">
+                        <strong>Prompt:</strong> Type <code>@fraiseql.query</code> and let Copilot complete it
+                    </p>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-python"># Copilot generates this correctly
+@fraiseql.query
+async def users(
+    info,
+    name_filter: str = None,
+    age_min: int = None,
+    age_max: int = None,
+    limit: int = 10
+) -> list[User]:
+    """
+    Get users with optional filtering.
+    AI understands: clear parameters, clear return type,
+    obvious intent from function name.
+    """
+    where_clause = {}
+    if name_filter:
+        where_clause["name__icontains"] = name_filter
+    if age_min is not None:
+        where_clause["age__gte"] = age_min
+    if age_max is not None:
+        where_clause["age__lte"] = age_max
+
+    return await info.context.repo.fetch(
+        where=where_clause,
+        limit=limit
+    )</code></pre>
+                    </div>
+                    <p class="text-sm text-gray-600 mt-2">
+                        Copilot generates working, type-safe code because FraiseQL patterns are clear and consistent.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- No Abstraction Layers -->
+    <section class="bg-gray-50 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                No Abstraction Layers Confusing AI
+            </h2>
+
+            <div class="bg-yellow-50 border-l-4 border-yellow-500 p-6 mb-6">
+                <h3 class="text-xl font-bold text-yellow-900 mb-4">The ORM Abstraction Problem</h3>
+                <p class="text-yellow-800 mb-4">
+                    ORMs hide the database layer behind complex abstractions. AI can't see the actual SQL,
+                    making it hard to generate correct queries or understand performance implications.
+                </p>
+                <div class="code-block">
+                    <pre class="p-4 text-sm"><code class="language-python"># What does this actually do?
+posts = Post.objects.select_related('author', 'tags').filter(
+    published=True,
+    author__name__icontains='john'
+).prefetch_related('comments')
+
+# AI sees: method chaining, magic methods
+# AI doesn't know: joins, indexes, execution plan
+# Result: Wrong queries, performance issues</code></pre>
+                </div>
+            </div>
+
+            <div class="bg-green-50 border-l-4 border-green-500 p-6">
+                <h3 class="text-xl font-bold text-green-900 mb-4">FraiseQL's Direct Approach</h3>
+                <p class="text-green-800 mb-4">
+                    Everything is explicit. AI can see the SQL, understand the data flow,
+                    and generate correct code because there are no hidden layers.
+                </p>
+                <div class="code-block">
+                    <pre class="p-4 text-sm"><code class="language-python"># AI sees exactly what happens
+@fraiseql.query
+async def posts(info, author_name: str = None) -> list[Post]:
+    # Call PostgreSQL function directly
+    return await info.context.repo.call_function(
+        "get_posts_by_author",  # Clear function name
+        author_name             # Clear parameter
+    )
+
+# PostgreSQL function is visible to AI:
+-- get_posts_by_author(p_author_name text)
+-- Returns posts with author details
+-- Uses proper indexes
+-- AI can understand and modify this</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Type Safety -->
+    <section class="bg-white py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Type Safety = AI Reliability
+            </h2>
+
+            <div class="max-w-4xl mx-auto">
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div class="bg-blue-50 border-l-4 border-blue-500 p-6">
+                        <h3 class="text-xl font-bold text-blue-900 mb-4">Strong Type Hints</h3>
+                        <p class="text-blue-800 mb-4">
+                            Every function parameter and return value is typed.
+                            AI can understand data flow and generate correct code.
+                        </p>
+                        <div class="code-block">
+                            <pre class="p-4 text-sm"><code class="language-python">from typing import List, Optional
+
+@fraiseql.query
+async def users(
+    info,
+    limit: int = 10,                    # Clear type
+    offset: int = 0,                    # Clear type
+    name_filter: Optional[str] = None   # Clear optional
+) -> List[User]:                        # Clear return type
+    # AI understands exactly what to return
+    pass</code></pre>
+                        </div>
+                    </div>
+
+                    <div class="bg-green-50 border-l-4 border-green-500 p-6">
+                        <h3 class="text-xl font-bold text-green-900 mb-4">Consistent Patterns</h3>
+                        <p class="text-green-800 mb-4">
+                            Same patterns everywhere. Once AI learns the FraiseQL way,
+                            it can generate correct code for any feature.
+                        </p>
+                        <div class="code-block">
+                            <pre class="p-4 text-sm"><code class="language-python"># AI recognizes this pattern instantly
+@fraiseql.type
+class Product:
+    id: int
+    name: str
+    price: float
+
+@fraiseql.query
+async def products(info) -> List[Product]:
+    return await info.context.repo.fetch()
+
+@fraiseql.mutation
+async def create_product(info, name: str, price: float) -> Product:
+    return await info.context.repo.call_function(
+        "create_product", name, price
+    )</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-4xl font-bold text-gray-800 mb-4">Ready to Code with AI?</h2>
+            <p class="text-xl text-gray-700 mb-8">Clear patterns, explicit contracts, type safety. AI generates correct code on first try.</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="/getting-started.html" class="gradient text-white font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Start Building
+                </a>
+                <a href="https://fraiseql.readthedocs.io/en/latest/ai-ml/rag-tutorial/" class="bg-white text-gray-800 border-2 border-gray-300 font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    AI Development Guide
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8">
+            <div class="w-full flex flex-col md:flex-row py-6">
+                <div class="flex-1 mb-6 text-white">
+                    <a class="text-white no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                        🍓 FraiseQL
+                    </a>
+                </div>
+                <div class="flex-1">
+                    <p class="uppercase text-gray-400 md:mb-6">Links</p>
+                    <ul class="list-none mb-6">
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://fraiseql.readthedocs.io" class="no-underline hover:underline text-gray-400 hover:text-pink-500">Documentation</a>
+                        </li>
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://github.com/fraiseql/fraiseql" class="no-underline hover:underline text-gray-400 hover:text-pink-500">GitHub</a>
+                        </li>
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://pypi.org/project/fraiseql/" class="no-underline hover:underline text-gray-400 hover:text-pink-500">PyPI</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="w-full pt-6 pb-6 text-sm text-center text-gray-400 border-t border-gray-700">
+                <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-pink-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-pink-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        var scrollpos = window.scrollY;
+        var header = document.getElementById("header");
+        var navcontent = document.getElementById("nav-content");
+        var navaction = document.getElementById("navAction");
+        var brandname = document.getElementById("brandname");
+        var toToggle = document.querySelectorAll(".toggleColour");
+
+        document.addEventListener("scroll", function () {
+            scrollpos = window.scrollY;
+
+            if (scrollpos > 10) {
+                header.classList.add("bg-white");
+                navaction.classList.remove("bg-white");
+                navaction.classList.add("gradient");
+                navaction.classList.remove("text-gray-800");
+                navaction.classList.add("text-white");
+                for (var i = 0; i < toToggle.length; i++) {
+                    toToggle[i].classList.add("text-gray-800");
+                    toToggle[i].classList.remove("text-white");
+                }
+                header.classList.add("shadow");
+                navcontent.classList.remove("bg-gray-100");
+                navcontent.classList.add("bg-white");
+            } else {
+                header.classList.remove("bg-white");
+                navaction.classList.remove("gradient");
+                navaction.classList.add("bg-white");
+                navaction.classList.remove("text-white");
+                navaction.classList.add("text-gray-800");
+                for (var i = 0; i < toToggle.length; i++) {
+                    toToggle[i].classList.add("text-white");
+                    toToggle[i].classList.remove("text-gray-800");
+                }
+                header.classList.remove("shadow");
+                navcontent.classList.remove("bg-white");
+                navcontent.classList.add("bg-gray-100");
+            }
+        });
+
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+    <script src="/prism-python.min.js"></script>
+    <script src="/prism-bash.min.js"></script>
+    <script src="/prism-graphql.min.js"></script>
+    <script src="/prism-sql.min.js"></script>
+</body>
+</html>

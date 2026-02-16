@@ -1,0 +1,615 @@
+---
+title: Developer-Owned SQL
+description: Why FraiseQL puts you in control of your SQL views
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL is database-first. You write the SQL views that power your GraphQL API. This is a deliberate choice — and it's the reason FraiseQL can guarantee single-query execution, zero N+1 problems, and predictable performance.
+
+## Why SQL, Not Abstraction
+
+Most GraphQL frameworks generate SQL behind the scenes. You write resolvers or schema definitions, and something you can't see produces queries you can't easily debug. When performance degrades, you're reverse-engineering an abstraction layer.
+
+FraiseQL takes the opposite approach: **you write the SQL**. The view you write is the query that runs. There's nothing hidden.
+
+This gives you:
+
+- **Predictable performance** — you see the query plan, you understand the cost
+- **Full database power** — CTEs, window functions, stored procedures, custom aggregations (PostgreSQL, SQL Server, MySQL, SQLite — extensible to any database with a Rust driver)
+- **No ORM impedance mismatch** — your data model is your data model, not a compromise
+- **Debuggable queries** — `EXPLAIN ANALYZE` on the exact SQL that serves your API
+
+## The Pattern Is Simple
+
+Every SQL view in FraiseQL follows the same pattern: an `id` column and a `data` JSONB column.
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE VIEW dbo.v_user
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT u.id, u.name, u.email
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+    ```
+  </TabItem>
+</Tabs>
+
+That's it. The pattern is consistent across all databases, and you have a view that FraiseQL maps to a `User` GraphQL type.
+
+### Composing Views
+
+To embed related data, reference another view's `.data` column:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        jsonb_build_object(
+            'id', p.id::text,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        JSON_OBJECT(
+            'id', p.id,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        json_object(
+            'id', p.id,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE VIEW dbo.v_post
+    WITH SCHEMABINDING AS
+    SELECT
+        p.id,
+        (
+            SELECT p.id, p.title, p.content, vu.data AS author
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p
+    JOIN dbo.tb_user u ON u.pk_user = p.fk_user
+    JOIN dbo.v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+`SELECT data FROM v_post` returns the full nested response — author included. One query. No N+1.
+
+### One-to-Many With Aggregation
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE VIEW v_user_with_posts AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'name', u.name,
+            'posts', COALESCE(
+                jsonb_agg(vp.data ORDER BY vp.data->>'created_at' DESC)
+                FILTER (WHERE vp.id IS NOT NULL),
+                '[]'::jsonb
+            )
+        ) AS data
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+    LEFT JOIN v_post vp ON vp.id = p.id
+    GROUP BY u.id, u.name;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE VIEW v_user_with_posts AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'name', u.name,
+            'posts', COALESCE(
+                JSON_ARRAYAGG(vp.data),
+                JSON_ARRAY()
+            )
+        ) AS data
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+    LEFT JOIN v_post vp ON vp.id = p.id
+    GROUP BY u.id, u.name;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE VIEW v_user_with_posts AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'name', u.name,
+            'posts', COALESCE(
+                json_group_array(vp.data),
+                json_array()
+            )
+        ) AS data
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+    LEFT JOIN v_post vp ON vp.id = p.id
+    GROUP BY u.id, u.name;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE VIEW dbo.v_user_with_posts
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT u.id, u.name,
+                (
+                    SELECT json_group_array(vp.data)
+                    FROM dbo.tb_post p
+                    JOIN dbo.v_post vp ON vp.id = p.id
+                    WHERE p.fk_user = u.pk_user
+                ) AS posts
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+    ```
+  </TabItem>
+</Tabs>
+
+The pattern is consistent: JSON object building for single objects, array aggregation for lists.
+
+## AI-Friendly by Design
+
+The view pattern is simple and consistent enough that language models generate it accurately — including local models like Llama and Mistral.
+
+### Why It Works for LLMs
+
+- **Consistent structure** — every view follows the same `id` + `data` pattern
+- **Limited vocabulary** — `jsonb_build_object`, `jsonb_agg`, `COALESCE`, `FILTER`
+- **Clear inputs** — the table schema defines what goes into the view
+- **No ambiguity** — the naming convention (`tb_*`, `v_*`, `pk_*`, `fk_*`) removes guesswork
+
+### Example Prompt
+
+Given this table:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE TABLE tb_order (
+        pk_order INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+        total NUMERIC(10, 2) NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE TABLE tb_order (
+        pk_order BIGINT PRIMARY KEY AUTO_INCREMENT,
+        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
+        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
+        total DECIMAL(10, 2) NOT NULL,
+        status VARCHAR(255) NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE TABLE tb_order (
+        pk_order INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+        total REAL NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE TABLE dbo.tb_order (
+        pk_order BIGINT PRIMARY KEY IDENTITY(1,1),
+        id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),
+        fk_user BIGINT NOT NULL REFERENCES dbo.tb_user(pk_user),
+        total DECIMAL(10, 2) NOT NULL,
+        status NVARCHAR(255) NOT NULL DEFAULT 'pending',
+        created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    );
+    ```
+  </TabItem>
+</Tabs>
+
+Ask any LLM: *"Write a FraiseQL view for this table that includes the user's data from v_user."*
+
+The output is predictable:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE VIEW v_order AS
+    SELECT
+        o.id,
+        jsonb_build_object(
+            'id', o.id::text,
+            'total', o.total,
+            'status', o.status,
+            'created_at', o.created_at,
+            'customer', vu.data
+        ) AS data
+    FROM tb_order o
+    JOIN tb_user u ON u.pk_user = o.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE VIEW v_order AS
+    SELECT
+        o.id,
+        JSON_OBJECT(
+            'id', o.id,
+            'total', o.total,
+            'status', o.status,
+            'created_at', o.created_at,
+            'customer', JSON_PARSE(vu.data)
+        ) AS data
+    FROM tb_order o
+    JOIN tb_user u ON u.pk_user = o.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE VIEW v_order AS
+    SELECT
+        o.id,
+        json_object(
+            'id', o.id,
+            'total', o.total,
+            'status', o.status,
+            'created_at', o.created_at,
+            'customer', json(vu.data)
+        ) AS data
+    FROM tb_order o
+    JOIN tb_user u ON u.pk_user = o.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE VIEW dbo.v_order
+    WITH SCHEMABINDING AS
+    SELECT
+        o.id,
+        (
+            SELECT
+                o.id,
+                o.total,
+                o.status,
+                o.created_at,
+                (SELECT vu.data) AS customer
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_order o
+    JOIN dbo.tb_user u ON u.pk_user = o.fk_user
+    JOIN dbo.v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+You review it, adjust if needed, and commit. The SQL is yours.
+
+## When You Need More
+
+The basic pattern covers most cases. But because you own the SQL, you can go further:
+
+### Computed Fields
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    'order_total', (
+        SELECT SUM(oi.price * oi.quantity)
+        FROM tb_order_item oi
+        WHERE oi.fk_order = o.pk_order
+    )
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    'order_total', (
+        SELECT SUM(oi.price * oi.quantity)
+        FROM tb_order_item oi
+        WHERE oi.fk_order = o.pk_order
+    )
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    'order_total', (
+        SELECT SUM(oi.price * oi.quantity)
+        FROM tb_order_item oi
+        WHERE oi.fk_order = o.pk_order
+    )
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    'order_total', (
+        SELECT SUM(oi.price * oi.quantity)
+        FROM dbo.tb_order_item oi
+        WHERE oi.fk_order = o.pk_order
+    )
+    ```
+  </TabItem>
+</Tabs>
+
+### Window Functions
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    'rank', ROW_NUMBER() OVER (PARTITION BY p.fk_user ORDER BY p.created_at DESC)
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    'rank', ROW_NUMBER() OVER (PARTITION BY p.fk_user ORDER BY p.created_at DESC)
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    'rank', ROW_NUMBER() OVER (PARTITION BY p.fk_user ORDER BY p.created_at DESC)
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    'rank', ROW_NUMBER() OVER (PARTITION BY p.fk_user ORDER BY p.created_at DESC)
+    ```
+  </TabItem>
+</Tabs>
+
+### Conditional Logic
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    'badge', CASE
+        WHEN post_count >= 100 THEN 'power-user'
+        WHEN post_count >= 10 THEN 'active'
+        ELSE 'newcomer'
+    END
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    'badge', CASE
+        WHEN post_count >= 100 THEN 'power-user'
+        WHEN post_count >= 10 THEN 'active'
+        ELSE 'newcomer'
+    END
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    'badge', CASE
+        WHEN post_count >= 100 THEN 'power-user'
+        WHEN post_count >= 10 THEN 'active'
+        ELSE 'newcomer'
+    END
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    'badge', CASE
+        WHEN post_count >= 100 THEN 'power-user'
+        WHEN post_count >= 10 THEN 'active'
+        ELSE 'newcomer'
+    END
+    ```
+  </TabItem>
+</Tabs>
+
+### Full-Text Search
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE VIEW v_post_search AS
+    SELECT
+        p.id,
+        jsonb_build_object(
+            'id', p.id::text,
+            'title', p.title,
+            'snippet', ts_headline('english', p.content, query),
+            'rank', ts_rank(p.search_vector, query)
+        ) AS data
+    FROM tb_post p, plainto_tsquery('english', $1) query
+    WHERE p.search_vector @@ query;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE VIEW v_post_search AS
+    SELECT
+        p.id,
+        JSON_OBJECT(
+            'id', p.id,
+            'title', p.title,
+            'snippet', SUBSTRING(p.content, 1, 100),
+            'rank', MATCH(p.title, p.content) AGAINST (? IN BOOLEAN MODE)
+        ) AS data
+    FROM tb_post p
+    WHERE MATCH(p.title, p.content) AGAINST (? IN BOOLEAN MODE);
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE VIRTUAL TABLE ft_post USING fts5(id, title, content);
+
+    CREATE VIEW v_post_search AS
+    SELECT
+        p.id,
+        json_object(
+            'id', p.id,
+            'title', p.title,
+            'snippet', SUBSTRING(p.content, 1, 100),
+            'rank', ft.rank
+        ) AS data
+    FROM tb_post p
+    JOIN ft_post ft ON p.id = ft.id
+    WHERE ft_post MATCH ?;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE FULLTEXT INDEX ON dbo.tb_post(title, content)
+    KEY INDEX PK_tb_post ON ft_catalog;
+
+    CREATE VIEW dbo.v_post_search AS
+    SELECT
+        p.id,
+        (
+            SELECT
+                p.id,
+                p.title,
+                SUBSTRING(p.content, 1, 100) AS snippet,
+                ft.RANK AS rank
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p
+    JOIN FREETEXTTABLE(dbo.tb_post, (title, content), @searchterm) ft
+        ON p.pk_post = ft.[KEY];
+    ```
+  </TabItem>
+</Tabs>
+
+None of this requires FraiseQL to "support" it. It's just SQL.
+
+## Comparison With Other Approaches
+
+| Aspect | ORM/Query Builder | GraphQL Auto-Generation | FraiseQL |
+|--------|-------------------|------------------------|----------|
+| SQL visibility | Hidden | Hidden | Written by you |
+| Full SQL features | Subset | Subset | Everything your database offers |
+| Performance debugging | Reverse-engineer | Reverse-engineer | `EXPLAIN ANALYZE` directly |
+| AI generation | Complex (ORM DSL) | N/A | Simple (consistent pattern) |
+| Learning curve | ORM-specific API | Framework-specific config | SQL + one pattern |
+
+## Next Steps
+
+- [View Composition](/concepts/view-composition) — Detailed composition patterns
+- [CQRS Pattern](/concepts/cqrs) — Table and view separation
+- [🍯 Confiture](/confiture) — Managing your database lifecycle
+- [How It Works](/concepts/how-it-works) — The full architecture

@@ -1,0 +1,448 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="FraiseQL for DevOps Engineers - Deployment & Operations"
+  description="Production deployment, monitoring, and operations guide for FraiseQL servers."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>🚀 FraiseQL for DevOps Engineers</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>Production-ready deployment and operations for GraphQL APIs</strong>
+    </p>
+
+    <section style="margin: 2rem 0;">
+      <h2>Your Role</h2>
+      <p>
+        As a DevOps engineer, you're responsible for:
+      </p>
+      <ul>
+        <li>Deploying FraiseQL servers to production</li>
+        <li>Managing database migrations and schema versions</li>
+        <li>Monitoring performance and availability</li>
+        <li>Implementing zero-downtime deployments</li>
+        <li>Handling secrets, TLS, and security</li>
+        <li>Scaling infrastructure under load</li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Deployment: Works Everywhere</h2>
+      <p style="color: #666; margin-bottom: 1.5rem;">
+        FraiseQL runs on any infrastructure: bare metal, containers, VMs, Kubernetes, cloud providers (AWS, GCP, Azure), or self-hosted. Choose what works for your organization.
+      </p>
+
+      <h3 style="margin-top: 1.5rem;">Binary Deployment</h3>
+      <pre><code>{`# Download fraiseql-cli
+wget https://releases.fraiseql.dev/fraiseql-cli-linux-amd64
+
+# Compile schema and SQL templates
+./fraiseql-cli compile schema.json fraiseql.toml
+# Outputs: schema.compiled.json (immutable, deploy-ready)
+
+# Deploy server binary
+./fraiseql-server --config fraiseql.toml --schema schema.compiled.json
+
+# Server is ready to receive GraphQL queries`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Container Deployment</h3>
+      <pre><code>{`# Dockerfile (works with Docker, Podman, containerd, etc.)
+FROM ghcr.io/fraiseql/fraiseql-server:latest
+
+COPY schema.compiled.json /app/
+COPY fraiseql.toml /app/
+
+EXPOSE 4000
+CMD ["fraiseql-server", "--config", "fraiseql.toml", "--schema", "schema.compiled.json"]
+
+# Build and run
+docker build -t my-api:1.0 .
+docker run -p 4000:4000 -e DATABASE_URL=postgres://... my-api:1.0
+podman build -t my-api:1.0 .    # Podman also works`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Kubernetes / Orchestration</h3>
+      <pre><code>{`# Helm chart available at https://charts.fraiseql.dev/
+
+helm install fraiseql fraiseql/fraiseql \\
+  --set image.tag=latest \\
+  --set replicas=3 \\
+  --set resources.requests.cpu=500m \\
+  --set resources.requests.memory=512Mi \\
+  -f values.yaml
+
+# Or use fraisier orchestrator for zero-downtime deploys
+fraisier deploy \\
+  --schema schema.compiled.json \\
+  --blue-env production-blue \\
+  --green-env production-green \\
+  --health-query "query { __typename }"
+`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Self-Hosted (Proxmox, VMware, Hyperv, etc.)</h3>
+      <pre><code>{`# Deploy as binary on any hypervisor
+# 1. Create VM with Linux (Ubuntu, CentOS, Alpine, etc.)
+# 2. Copy fraiseql-server binary
+# 3. Copy schema.compiled.json and fraiseql.toml
+# 4. Configure network and database connectivity
+# 5. systemd unit file for auto-start
+
+[Unit]
+Description=FraiseQL GraphQL Server
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=fraiseql
+ExecStart=/usr/local/bin/fraiseql-server \\
+  --config /etc/fraiseql/fraiseql.toml \\
+  --schema /etc/fraiseql/schema.compiled.json
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Cloud Deployment (AWS, GCP, Azure, etc.)</h3>
+      <pre><code>{`# Option 1: Deploy as container
+# AWS ECS, Google Cloud Run, Azure Container Instances, etc.
+# Use same container image as above
+
+# Option 2: Lambda / Serverless Function
+# Package fraiseql-server with schema for FaaS platforms
+# (cold start: ~50-200ms depending on platform)
+
+# Option 3: Cloud VMs (EC2, Compute Engine, Azure VM)
+# Same as binary deployment + systemd unit file above
+
+# Example: AWS Lambda with custom runtime
+# 1. Package fraiseql-server as Lambda custom runtime
+# 2. Deploy schema.compiled.json as Lambda function package
+# 3. API Gateway + Lambda integration for GraphQL endpoint`}</code></pre>
+
+      <p style="margin-top: 1.5rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #059669; border-radius: 4px;">
+        <strong>The compiled artifact</strong> (<code>schema.compiled.json</code>) <strong>is platform-agnostic.</strong> Deploy it anywhere you run the fraiseql-server binary.
+      </p>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Configuration Management</h2>
+
+      <h3 style="margin-top: 1.5rem;">fraiseql.toml (Compile-Time Configuration)</h3>
+      <pre><code>{`[fraiseql]
+name = "my-api"
+version = "1.0.0"
+
+[fraiseql.server]
+host = "0.0.0.0"
+port = 4000
+max_connections = 100
+
+[fraiseql.security.rate_limiting]
+enabled = true
+auth_start_max_requests = 100
+auth_start_window_secs = 60
+
+[fraiseql.security.audit_logging]
+enabled = true
+log_level = "info"
+
+[fraiseql.security.field_encryption]
+enabled = true
+key_rotation_days = 90`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Environment Variables (Runtime Overrides)</h3>
+      <pre><code>{`# Database connection
+DATABASE_URL=postgres://user:pass@host:5432/db
+
+# Server settings
+FRAISEQL_HOST=0.0.0.0
+FRAISEQL_PORT=4000
+FRAISEQL_LOG_LEVEL=info
+
+# TLS certificates
+FRAISEQL_TLS_CERT=/etc/certs/cert.pem
+FRAISEQL_TLS_KEY=/etc/certs/key.pem
+
+# Secrets management
+FRAISEQL_VAULT_ADDR=https://vault.example.com
+FRAISEQL_VAULT_TOKEN=\${VAULT_TOKEN}
+
+# Rate limiting override
+FRAISEQL_RATE_LIMIT_BURST=200
+FRAISEQL_RATE_LIMIT_WINDOW=60`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Database Migrations</h2>
+
+      <h3 style="margin-top: 1.5rem;">Using confiture</h3>
+      <pre><code>{`# confiture handles schema versioning automatically
+# 600× faster than traditional migrations
+
+# Automatic migration on deploy
+confiture migrate --database postgres --schema schema.compiled.json
+
+# Supports multiple strategies:
+# 1. DDL Build (dev/test, <1s): Full schema rebuild
+# 2. Incremental (local dev): Fast delta updates
+# 3. Production Sync (zero-downtime): Blue/green migration
+# 4. Multi-agent (parallel): Distributed schema coordination`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Monitoring & Observability</h2>
+
+      <h3 style="margin-top: 1.5rem;">Prometheus Metrics</h3>
+      <pre><code>{`# Metrics exposed on :9090/metrics
+
+fraiseql_graphql_queries_total{query_type="read"}
+fraiseql_graphql_mutations_total{mutation_type="create"}
+fraiseql_query_duration_ms{query_name="GetUserWithPosts", percentile="p99"}
+fraiseql_db_connection_pool{state="active"}
+fraiseql_db_connection_pool{state="idle"}
+fraiseql_rate_limit_events_total{endpoint="/graphql"}
+fraiseql_audit_log_entries_total{mutation="create_post"}
+
+# Grafana dashboard available at:
+# https://grafana.com/grafana/dashboards/fraiseql`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Distributed Tracing (OpenTelemetry)</h3>
+      <pre><code>{`# FraiseQL exports traces for all queries
+# Configuration:
+
+[fraiseql.observability]
+tracing_enabled = true
+otel_exporter_otlp_endpoint = "http://jaeger:4317"
+
+# Each GraphQL query gets:
+# - Trace ID (correlates across services)
+# - Span: Query parsing
+# - Span: Query compilation
+# - Span: SQL generation
+# - Span: Database execution
+# - Span: Result serialization`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Structured Logging</h3>
+      <pre><code>{`# All logs are JSON for easy aggregation
+# Ship to ELK, Datadog, CloudWatch, etc.
+
+{
+  "timestamp": "2024-02-06T12:34:56Z",
+  "level": "INFO",
+  "service": "fraiseql",
+  "event": "query_executed",
+  "query_name": "GetUserWithPosts",
+  "duration_ms": 2.5,
+  "db_queries": 1,
+  "user_id": "user-123",
+  "trace_id": "abc123def456"
+}
+
+# Severity levels: DEBUG, INFO, WARN, ERROR, FATAL`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Scaling & Performance</h2>
+
+      <h3 style="margin-top: 1.5rem;">Connection Pooling</h3>
+      <pre><code>{`# Configure in fraiseql.toml
+[fraiseql.database]
+pool_size = 20
+pool_timeout_secs = 30
+idle_timeout_secs = 300
+
+# For 100,000 req/sec:
+# - Need ~1000 connections total (10 servers × 100 connections each)
+# - Database connection limit: 2000+
+# - Each request uses connection for <1ms (fast queries)`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Horizontal Scaling</h3>
+      <pre><code>{`# All FraiseQL instances are stateless
+# Load balance across N servers
+
+# Each server handles requests independently
+# No session affinity needed (schema is pre-compiled)
+# Scale up/down based on CPU and request volume
+
+# Recommended autoscaling:
+# - CPU threshold: 70% → scale up
+# - CPU threshold: 30% → scale down
+# - Min replicas: 3 (high availability)
+# - Max replicas: 100 (burst capacity)`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Production Runbooks</h2>
+
+      <h3 style="margin-top: 1.5rem;">Scenario: Performance Degradation</h3>
+      <pre><code>{`1. Check metrics: Prometheus dashboard
+   - Query latency spiking?
+   - Connection pool exhausted?
+   - Database CPU high?
+
+2. Identify slow queries
+   - Pull query traces from Jaeger
+   - Look for N+1 patterns (shouldn't exist in FraiseQL)
+   - Check for database lock contention
+
+3. Solutions
+   - Scale up servers (if CPU-bound)
+   - Add database read replicas (if DB CPU-bound)
+   - Check for index missing (run pg_tviews refresh)
+
+4. Root cause
+   - Schema change broke assumptions?
+   - Recompile with fraiseql-cli
+   - Deploy new schema.compiled.json with fraisier`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Scenario: Database Migration Failure</h3>
+      <pre><code>{`1. Detected: confiture migration rollback
+   - Transaction failed (schema conflict)
+   - Constraint violation
+
+2. Immediate action
+   - Database still on previous version (safe)
+   - No data loss
+
+3. Resolution
+   - Review migration logs: confiture migration-logs
+   - Fix constraint in schema definition
+   - Recompile: fraiseql compile schema.json
+   - Retry migration: confiture migrate --retry`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Scenario: Zero-Downtime Deploy</h3>
+      <pre><code>{`1. Using fraisier orchestrator
+   $ fraisier deploy --schema schema.compiled.json \\
+       --blue-env prod-blue --green-env prod-green
+
+2. Process
+   - Compile new schema
+   - Deploy to GREEN environment
+   - Run health checks against GREEN
+   - If all pass: Switch traffic BLUE → GREEN (instant)
+   - If any fail: Rollback (keep BLUE active)
+
+3. Result
+   - Zero downtime
+   - Instant rollback if needed
+   - Old environment still running (fallback)`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Security & Secrets</h2>
+
+      <h3 style="margin-top: 1.5rem;">HashiCorp Vault Integration</h3>
+      <pre><code>{`# Store secrets in Vault, not in code
+
+[fraiseql.secrets]
+vault_addr = "https://vault.example.com"
+vault_path = "secret/fraiseql/prod"
+auto_rotate_days = 30
+
+# Credentials automatically rotated
+# FraiseQL handles refresh without restart`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">TLS/HTTPS</h3>
+      <pre><code>{`# Enable TLS
+[fraiseql.server]
+tls_enabled = true
+tls_cert_path = "/etc/certs/cert.pem"
+tls_key_path = "/etc/certs/key.pem"
+
+# Or use environment variables
+FRAISEQL_TLS_CERT=/etc/certs/cert.pem
+FRAISEQL_TLS_KEY=/etc/certs/key.pem
+
+# Certificate rotation: Use cert-manager (Kubernetes) or similar`}</code></pre>
+
+      <h3 style="margin-top: 1.5rem;">Audit Logging</h3>
+      <pre><code>{`# All mutations are logged for compliance
+# 100% audit trail (not sampled)
+
+[fraiseql.security.audit_logging]
+enabled = true
+destination = "postgres"  # or "elasticsearch"
+retention_days = 2555     # 7 years
+
+# Each audit log contains:
+# - Timestamp
+# - User ID
+# - Mutation type
+# - Input parameters (sanitized)
+# - Result
+# - Signature (HMAC-SHA256)`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Disaster Recovery</h2>
+
+      <h3 style="margin-top: 1.5rem;">Backup Strategy</h3>
+      <ul>
+        <li>
+          <strong>Database backups:</strong> WAL-based continuous backup (PostgreSQL)
+        </li>
+        <li>
+          <strong>Configuration backups:</strong> Git repo for fraiseql.toml and schema changes
+        </li>
+        <li>
+          <strong>Compiled schema backups:</strong> Archive schema.compiled.json versions
+        </li>
+      </ul>
+
+      <h3 style="margin-top: 1.5rem;">Recovery Procedures</h3>
+      <ul>
+        <li>
+          <strong>Service failure:</strong> Restart fraiseql-server (stateless, &lt;5s recovery)
+        </li>
+        <li>
+          <strong>Database failure:</strong> Point-in-time recovery from WAL backups
+        </li>
+        <li>
+          <strong>Schema corruption:</strong> Rollback to previous schema.compiled.json version
+        </li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Quick Reference: Commands</h2>
+      <pre><code>{`# Compile schema
+fraiseql-cli compile schema.json fraiseql.toml
+
+# Run server
+fraiseql-server --config fraiseql.toml --schema schema.compiled.json
+
+# Database migration
+confiture migrate --database postgres --schema schema.compiled.json
+
+# Deploy with fraisier
+fraisier deploy --schema schema.compiled.json \\
+  --blue-env production-blue \\
+  --green-env production-green
+
+# Check health
+curl http://localhost:4000/health
+# Returns: { "status": "ok", "uptime": "..." }
+
+# View metrics
+curl http://localhost:9090/metrics | grep fraiseql
+
+# Read logs
+docker logs fraiseql-server | jq .`}</code></pre>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Additional Resources</h2>
+      <ul>
+        <li><a href="/for/architects">For Architects</a> – Deployment architecture patterns</li>
+        <li><a href="/for/compliance">For Compliance Officers</a> – Audit and monitoring setup</li>
+        <li><a href="/ecosystem/fraisier">fraisier</a> – Deployment orchestration tool</li>
+        <li><a href="/ecosystem/confiture">confiture</a> – Migration tool</li>
+        <li><a href="/ecosystem">← Back to Ecosystem</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

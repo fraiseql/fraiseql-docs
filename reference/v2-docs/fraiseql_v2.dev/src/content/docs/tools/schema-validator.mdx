@@ -1,0 +1,238 @@
+---
+title: Schema Validator
+description: Interactive browser-based validator for FraiseQL mutation return shapes and GraphQL Cascade patterns
+---
+
+import SchemaValidator from '../../../components/tools/SchemaValidator.astro';
+
+## Overview
+
+The **FraiseQL Schema Validator** is an interactive tool that validates your schema definitions directly in your browser. It checks:
+
+- ✅ Mutation return shapes (UUID, BOOLEAN, INTEGER, JSONB, TABLE)
+- ✅ GraphQL Cascade patterns and structures
+- ✅ Type definitions and references
+- ✅ SQL function naming conventions
+- ✅ Multi-database support (PostgreSQL, MySQL, SQLite, SQL Server)
+
+**100% client-side validation. No network calls. No schema upload.**
+
+## Features
+
+### Real-Time Validation
+
+- Validates as you type
+- Line-by-line error reporting
+- Actionable fix suggestions
+- Mutation counting (valid vs invalid)
+
+### Multi-Database Support
+
+- **PostgreSQL**: JSONB, PERFORM, plpgsql
+- **MySQL**: JSON, CALL procedures
+- **SQLite**: JSON1, triggers
+- **SQL Server**: NVARCHAR JSON, EXEC
+
+### GraphQL Cascade Support
+
+- Validates cascade field presence
+- Checks entity operation types
+- Verifies invalidation hints
+- Validates metadata completeness
+
+### Export & Share
+
+- Export errors as JSON
+- Export reports as Markdown
+- Copy validator URL with schema
+
+## Quick Start
+
+1. **Choose a database dialect** - PostgreSQL, MySQL, SQLite, or SQL Server
+2. **Select input format** - JSON or YAML
+3. **Paste your schema** or load an example
+4. **Enable Cascade validation** if using GraphQL Cascade
+5. **Click "Validate Schema"** to see results
+
+## Example Schemas
+
+Load built-in examples to learn FraiseQL patterns:
+
+- **Simple CRUD** - Basic create/update/delete
+- **GraphQL Cascade** - Multi-entity mutations with cache invalidation
+- **JSONB Returns** - Complex return structures
+- **MySQL with JSON** - MySQL-specific patterns
+- **SQL Server** - SQL Server patterns
+
+## Validation Rules
+
+### Mutation Structure
+
+- **Required fields**: `name`, `success_type`, `sql_source`, `operation`
+- **Name format**: alphanumeric and underscores
+- **Operation types**: CREATE, UPDATE, DELETE, CUSTOM
+- **SQL source convention**: `fn_<name>` (snake_case)
+
+### Return Shapes
+
+#### ID Returns (UUID)
+
+- Must have corresponding view: `v_<table>`
+- Should call `sync_tv_<table>()` in function
+
+#### JSONB Returns
+
+- All fields must be present
+- Field names must match type definition (case-sensitive)
+- No extra fields beyond type
+
+#### TABLE Returns
+
+- Columns must match type fields
+- Order matters for column mapping
+- Types must be compatible
+
+### Cascade Validation
+
+When `enable_cascade: true`:
+
+- Success type **must have** `cascade` field
+- Cascade entities require:
+  - `id` (required)
+  - `operation` (CREATED, UPDATED, or DELETED)
+  - `entity` (full entity data object)
+- Invalidations must have:
+  - `strategy` (one of: INVALIDATE, REFETCH, REMOVE)
+  - `scope` (invalidation scope)
+  - `queryName` (optional but recommended)
+- Metadata **must have** (per GraphQL Cascade specification):
+  - `timestamp` (ISO 8601 format, required)
+  - `affectedCount` (number of affected entities)
+  - `depth` (relationship traversal depth, minimum 1)
+  - `transactionId` (optional for debugging)
+
+## Dialect-Specific Notes
+
+### PostgreSQL
+
+- Uses `PERFORM sync_tv_*()` for syncs
+- JSONB type for JSON returns
+- LANGUAGE plpgsql required
+- Helper functions: cascade_entity_created, cascade_merge, etc.
+
+### MySQL
+
+- UUID stored as `CHAR(36)`
+- Uses `CALL sync_tv_*()` for syncs
+- JSON instead of JSONB
+- No ARRAY type (use JSON instead)
+
+### SQLite
+
+- UUID stored as TEXT
+- Uses triggers for synchronization
+- JSON1 extension required
+- Limited type system
+
+### SQL Server
+
+- UUID as UNIQUEIDENTIFIER
+- JSON stored as NVARCHAR(MAX)
+- Uses `EXEC sync_tv_*` for procedures
+- BIT type for booleans
+
+## Validation Tool
+
+<SchemaValidator />
+
+## API Reference
+
+### Validation Options
+
+- **format**: `json` | `yaml` - Input format
+- **dialect**: `postgresql` | `mysql` | `sqlite` | `sqlserver` - Database dialect
+- **validateCascade**: boolean - Enable GraphQL Cascade validation
+- **validateFunctionBodies**: boolean - Analyze SQL function bodies
+
+### Validation Report
+
+```json
+{
+  "isValid": boolean,
+  "errors": [
+    {
+      "id": string,
+      "severity": "error" | "warning",
+      "message": string,
+      "path": string,
+      "location": {
+        "line": number,
+        "column": number
+      },
+      "fix": string
+    }
+  ],
+  "summary": {
+    "totalErrors": number,
+    "totalWarnings": number,
+    "validMutations": number,
+    "invalidMutations": number
+  }
+}
+```
+
+## Tips & Tricks
+
+### Using Examples
+
+- Click **Load Example** to see complete valid schemas
+- Modify examples to understand validation rules
+- Use examples as templates for your own schemas
+
+### Debugging Errors
+
+1. Look at the error message and path
+2. Read the "Fix" suggestion
+3. Check line number in your schema
+4. Compare against example schemas
+
+### Cascade Validation
+
+- Start with **Validate Cascade** unchecked
+- Enable it once your basic schema is valid
+- Use cascade example to understand structure
+- Verify all cascade entities have `id`, `operation`, and `entity` fields
+- Verify metadata has required `timestamp`, `affectedCount`, and `depth` fields
+
+## Common Issues
+
+### "Type not found"
+
+- Check type name spelling
+- Ensure type is defined in `types` array
+- Types are case-sensitive
+
+### "View not found"
+
+- For ID returns, ensure view `v_<table>` exists
+- Check naming convention: `v_` prefix
+- View name should match table name
+
+### "Missing timestamp in cascade metadata"
+
+- Cascade metadata MUST include `timestamp` (ISO 8601 format)
+- Required per GraphQL Cascade specification
+- Example: `"timestamp": "2025-01-15T10:30:00Z"`
+
+### "Invalid JSONB structure"
+
+- All required type fields must be present
+- Field names must match exactly (case-sensitive)
+- Use type definition as template
+
+## Next Steps
+
+- [Function Shapes](/features/function-shapes) - Deep dive into return patterns
+- [GraphQL Cascade](/features/function-shapes#graphql-cascade-advanced-mutations-with-side-effects) - Cascade pattern guide
+- [Semantic Scalars](/reference/semantic-scalars) - Strong typing guide
+`3

@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>FastAPI-Native Integration - FraiseQL</title>
+    <meta name="description" content="FastAPI + Rust pipeline. Async-first, type-safe, LLM-optimized with 7-10x faster JSON processing.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code.hljs {
+            background: #1E1E1E;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+            padding: 1rem;
+        }
+    </style>
+    <link rel="stylesheet" href="/prism.min.css"/>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-5xl font-bold leading-tight">
+                🔧 FastAPI-Native Integration
+            </h1>
+            <p class="leading-normal text-2xl mb-8">
+                FraiseQL is deliberately opinionated about FastAPI. Async-first, type-safe, LLM-optimized development.
+            </p>
+        </div>
+    </div>
+
+    <!-- Why FastAPI -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Why FastAPI?
+            </h2>
+            <p class="text-gray-700 text-lg mb-8 text-center max-w-3xl mx-auto">
+                FraiseQL isn't just compatible with FastAPI—it's <strong>built for FastAPI</strong>. This opinionated choice aligns performance, architecture, and developer experience around a common philosophy: speed, type safety, and clarity.
+            </p>
+
+            <!-- Advantage Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Benefit</th>
+                            <th class="px-6 py-3 text-left">Why It Matters</th>
+                            <th class="px-6 py-3 text-left">Result</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Async-First</td>
+                            <td class="px-6 py-4">Both FraiseQL and FastAPI built on async/await</td>
+                            <td class="px-6 py-4 font-bold">✅ Fully non-blocking stack</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Minimal Overhead</td>
+                            <td class="px-6 py-4">FastAPI adds &lt;0.5ms, FraiseQL adds &lt;0.1ms</td>
+                            <td class="px-6 py-4 font-bold">✅ Sub-50ms responses</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Type Safety</td>
+                            <td class="px-6 py-4">Pydantic + Python 3.13+ type hints</td>
+                            <td class="px-6 py-4 font-bold">✅ Catch errors at dev time</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">CQRS Architecture</td>
+                            <td class="px-6 py-4">Database-layer separation (Views/Functions)</td>
+                            <td class="px-6 py-4 font-bold">✅ Queries → Views, Mutations → Functions</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">LLM-Optimized</td>
+                            <td class="px-6 py-4">Explicit types, decorators, DI patterns</td>
+                            <td class="px-6 py-4 font-bold">✅ AI-assisted development</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                How It Works
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <!-- Step 1 -->
+                <div class="w-full lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">1. Define Your Schema</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python">import fraiseql
+from uuid import UUID
+
+@fraiseql.type
+class User:
+    """User account.
+
+    Fields:
+        id: Unique identifier
+        username: Display name
+        email: Contact email
+    """
+    id: UUID
+    username: str
+    email: str
+
+@fraiseql.query
+async def users(info) -> list[User]:
+    """Get all users."""
+    db = info.context["db"]
+    return await db.find("users")
+
+@fraiseql.mutation
+async def create_user(
+    info,
+    username: str,
+    email: str
+) -> User:
+    """Create new user."""
+    db = info.context["db"]
+    user_id = await db.insert(
+        "users",
+        {"username": username, "email": email}
+    )
+    return await db.find_one(
+        "users", id=user_id
+    )</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="w-full lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">2. Create FastAPI App</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python">from fraiseql.fastapi import (
+    create_fraiseql_app
+)
+
+# Create complete app
+app = create_fraiseql_app(
+    database_url="postgresql://...",
+    types=[User],
+    mutations=[create_user],
+    queries=[users],
+    title="My API",
+    production=False
+)
+
+# FastAPI instance ready
+# /graphql endpoint configured</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="w-full lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">3. Run and Query</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python"># Start server
+import uvicorn
+uvicorn.run(
+    app,
+    host="0.0.0.0",
+    port=8000
+)</code></pre>
+                        </div>
+                        <div class="code-block mt-4">
+                            <pre class="p-4 overflow-x-auto"><code class="language-graphql"># Query (POST /graphql)
+query {
+  users {
+    id
+    username
+    email
+  }
+}
+
+# Mutation (POST /graphql)
+mutation {
+  createUser(
+    username: "alice"
+    email: "alice@example.com"
+  ) {
+    id
+    username
+  }
+}</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Benefits -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Key Benefits
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">⚡</div>
+                        <h3 class="text-xl font-bold mb-2">Performance Alignment</h3>
+                        <p class="text-gray-600">Async/await throughout. FastAPI + FraiseQL + asyncpg = fully non-blocking, sub-50ms responses.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🏗️</div>
+                        <h3 class="text-xl font-bold mb-2">Database-Layer CQRS</h3>
+                        <p class="text-gray-600">GraphQL queries execute PostgreSQL Views, mutations execute Functions. True separation of concerns at the database level.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🤖</div>
+                        <h3 class="text-xl font-bold mb-2">LLM-Optimized</h3>
+                        <p class="text-gray-600">Explicit type hints, decorator patterns, dependency injection. AI tools understand and generate code confidently.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🔧</div>
+                        <h3 class="text-xl font-bold mb-2">Dependency Injection</h3>
+                        <p class="text-gray-600">FastAPI's DI system integrates seamlessly. Clean, testable, maintainable code.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">📊</div>
+                        <h3 class="text-xl font-bold mb-2">Auto-Documentation</h3>
+                        <p class="text-gray-600">OpenAPI schema + GraphQL schema. Your API is self-documenting out of the box.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🎯</div>
+                        <h3 class="text-xl font-bold mb-2">Type Safety</h3>
+                        <p class="text-gray-600">Pydantic models + Python 3.13+ type hints. Catch errors before deployment.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- LLM-Optimized Development -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                LLM-Optimized Development
+            </h2>
+            <p class="text-gray-700 text-lg mb-8 text-center">
+                FraiseQL + FastAPI is designed for the AI-assisted development era. Here's why Claude, Copilot, and other LLMs excel with this stack:
+            </p>
+
+            <div class="space-y-6">
+                <!-- Example 1 -->
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-800 mb-2">1. Explicit Type Hints</h4>
+                    <p class="text-gray-600 mb-3">LLMs understand intent from function signatures</p>
+                    <div class="code-block">
+                        <pre class="p-4 overflow-x-auto"><code class="language-python">@fraiseql.query
+async def user(
+    info, id: UUID
+) -> User | None:
+    """Get user by ID.
+
+    Returns:
+        User if found, else None
+    """
+    db = info.context["db"]
+    return await db.find_one(
+        "users", id=id
+    )</code></pre>
+                    </div>
+                </div>
+
+                <!-- Example 2 -->
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-800 mb-2">2. Decorator Patterns + Docstrings</h4>
+                    <p class="text-gray-600 mb-3">Self-documenting code with clear, repeatable patterns</p>
+                    <div class="code-block">
+                        <pre class="p-4 overflow-x-auto"><code class="language-python">@fraiseql.type
+class Post:
+    """Blog post.
+
+    Fields:
+        id: Unique identifier
+        title: Post headline
+        author_id: Ref to User.id
+    """
+    id: UUID
+    title: str
+    author_id: UUID</code></pre>
+                    </div>
+                </div>
+
+                <!-- Example 3 -->
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-800 mb-2">3. Input Validation</h4>
+                    <p class="text-gray-600 mb-3">Clear contracts with documented fields</p>
+                    <div class="code-block">
+                        <pre class="p-4 overflow-x-auto"><code class="language-python">@fraiseql.input
+class CreatePostInput:
+    """Input for new post.
+
+    Fields:
+        title: Headline
+        content: Post body
+        tags: Optional tags
+    """
+    title: str
+    content: str
+    tags: list[str] | None = None</code></pre>
+                    </div>
+                </div>
+
+                <!-- Example 4 -->
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-800 mb-2">4. Result Types</h4>
+                    <p class="text-gray-600 mb-3">LLMs understand success/error shapes from type signatures</p>
+                    <div class="code-block">
+                        <pre class="p-4 overflow-x-auto"><code class="language-python">@fraiseql.mutation
+async def create_post(
+    info,
+    input: CreatePostInput
+) -> CreatePostSuccess | CreatePostError:
+    """Create new post.
+
+    Returns:
+        Success with post or Error
+    """
+    db = info.context["db"]
+    # Validation logic...
+    return CreatePostSuccess(
+        post=new_post
+    )</code></pre>
+                    </div>
+                </div>
+
+                <!-- Summary -->
+                <div class="bg-green-50 border-l-4 border-green-500 p-4 mt-6">
+                    <p class="text-green-800 font-medium">
+                        ✅ AI tools generate correct,
+                        maintainable code
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Philosophy -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                The FastAPI + FraiseQL Philosophy
+            </h2>
+            <p class="text-gray-700 text-lg mb-8 text-center">
+                Every layer of the stack is opinionated for the same goals:
+            </p>
+
+            <div class="max-w-2xl mx-auto mb-8">
+                <!-- Client Request -->
+                <div class="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 text-center">
+                    <div class="font-bold text-lg text-blue-900">Client</div>
+                    <div class="text-sm text-blue-700">GraphQL Query/Mutation (POST /graphql)</div>
+                </div>
+                <div class="flex justify-center my-2">
+                    <svg class="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v10.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 14.586V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+
+                <!-- FastAPI Layer -->
+                <div class="bg-green-50 border-2 border-green-300 rounded-lg p-4 text-center">
+                    <div class="font-bold text-lg text-green-900">FastAPI</div>
+                    <div class="text-sm text-green-700">Async HTTP server, type-safe routing</div>
+                </div>
+                <div class="flex justify-center my-2">
+                    <svg class="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v10.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 14.586V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+
+                <!-- FraiseQL Layer -->
+                <div class="bg-red-50 border-2 border-red-300 rounded-lg p-4 text-center">
+                    <div class="font-bold text-lg text-red-900">FraiseQL</div>
+                    <div class="text-sm text-red-700">GraphQL schema → PostgreSQL translator</div>
+                </div>
+                <div class="flex justify-center my-2">
+                    <svg class="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v10.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 14.586V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+
+                <!-- PostgreSQL Layer -->
+                <div class="bg-indigo-50 border-2 border-indigo-300 rounded-lg p-4 text-center">
+                    <div class="font-bold text-lg text-indigo-900">PostgreSQL</div>
+                    <div class="text-sm text-indigo-700">Views for reads, Functions for writes</div>
+                </div>
+                <div class="flex justify-center my-2">
+                    <svg class="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v10.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 14.586V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+
+                <!-- TurboRouter Layer -->
+                <div class="bg-purple-50 border-2 border-purple-300 rounded-lg p-4 text-center">
+                    <div class="font-bold text-lg text-purple-900">TurboRouter</div>
+                    <div class="text-sm text-purple-700">Zero-copy JSONB passthrough</div>
+                </div>
+                <div class="flex justify-center my-2">
+                    <svg class="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v10.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 14.586V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+
+                <!-- Client Response -->
+                <div class="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 text-center">
+                    <div class="font-bold text-lg text-blue-900">Client</div>
+                    <div class="text-sm text-blue-700">JSON response, no Python object overhead</div>
+                </div>
+
+                <!-- Summary -->
+                <div class="mt-6 text-center text-gray-700 font-medium">
+                    Every layer optimized for: <span class="text-red-600">Performance</span> + <span class="text-blue-600">Type Safety</span> + <span class="text-green-600">AI-Friendliness</span>
+                </div>
+            </div>
+
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">When NOT FastAPI?</h3>
+            <ul class="text-lg space-y-3">
+                <li>❌ Using Django? Integration possible but not first-class</li>
+                <li>❌ Using Flask? Works, but loses async benefits</li>
+                <li>❌ Custom server? Can integrate, but manual wiring required</li>
+            </ul>
+
+            <p class="text-gray-700 text-lg mt-6"><strong>Bottom line:</strong> FraiseQL + FastAPI is the "golden path"—tested, documented, optimized.</p>
+        </div>
+    </section>
+
+    <!-- Comparison -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Why Not Framework-Agnostic?
+            </h2>
+
+            <div class="overflow-x-auto">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Approach</th>
+                            <th class="px-6 py-3 text-left">Flexibility</th>
+                            <th class="px-6 py-3 text-left">Performance</th>
+                            <th class="px-6 py-3 text-left">Developer Experience</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Framework-Agnostic</td>
+                            <td class="px-6 py-4 font-bold">✅ High flexibility</td>
+                            <td class="px-6 py-4">❌ Lowest common denominator</td>
+                            <td class="px-6 py-4">❌ Generic patterns</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Multi-Framework Support</td>
+                            <td class="px-6 py-4 font-bold">✅ Some flexibility</td>
+                            <td class="px-6 py-4">❌ Compromises for compatibility</td>
+                            <td class="px-6 py-4">❌ Inconsistent DX</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">FraiseQL (FastAPI-Native)</td>
+                            <td class="px-6 py-4">❌ Opinionated choice</td>
+                            <td class="px-6 py-4 font-bold">✅ Optimized async stack</td>
+                            <td class="px-6 py-4 font-bold">✅ Best-in-class DX</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p class="text-center text-lg text-gray-700 mt-8"><strong>FraiseQL's philosophy:</strong> Being opinionated allows optimization. FastAPI's async-first, type-safe architecture aligns perfectly with FraiseQL's performance goals and PostgreSQL-first approach.</p>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="bg-white py-12">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-4xl font-bold text-gray-800 mb-4">Ready for the Golden Path?</h2>
+            <p class="text-xl text-gray-700 mb-8">FastAPI-native integration is a core feature of FraiseQL+</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="/getting-started.html" class="gradient text-white font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+                <a href="https://github.com/fraiseql/fraiseql/tree/main/examples/fastapi" class="bg-white text-gray-800 border-2 border-gray-300 font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    See Examples
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-red-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+        </div>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/graphql.min.js"></script>
+    <script>hljs.highlightAll();</script>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+    <script src="/prism-python.min.js"></script>
+    <script src="/prism-graphql.min.js"></script>
+    <script src="/prism-sql.min.js"></script>
+    <script src="/prism-bash.min.js"></script>
+</body>
+</html>

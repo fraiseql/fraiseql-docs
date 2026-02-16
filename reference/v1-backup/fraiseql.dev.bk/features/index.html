@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Features - FraiseQL</title>
+    <meta name="description" content="Explore FraiseQL's powerful features: TurboRouter, CQRS architecture, SQL injection protection, and more.">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+        .feature-card {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+    </style>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-3xl md:text-5xl font-bold leading-tight">
+                Features
+            </h1>
+            <p class="leading-normal text-lg md:text-2xl mb-8">
+                Everything you need for production-ready GraphQL APIs
+            </p>
+        </div>
+    </div>
+
+    <!-- Core Features -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-12">
+                Core Features
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <!-- Rust Pipeline -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/rust-pipeline.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">⚡</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">Rust Pipeline</h3>
+                            <p class="text-gray-600 mb-4">PostgreSQL → Rust → HTTP. No Python in the hot path. Other frameworks can't do this.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ 7-10x faster JSON transformation</li>
+                                <li>✅ No GIL contention, compiled performance</li>
+                                <li>✅ Zero Python serialization overhead</li>
+                                <li>✅ Direct database-to-HTTP response path</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Security by Architecture -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/security-architecture.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">🔒</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">Security by Architecture</h3>
+                            <p class="text-gray-600 mb-4">JSONB views define exactly what's exposed. Impossible to accidentally leak sensitive fields.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ Explicit field whitelisting in views</li>
+                                <li>✅ No ORM over-fetching risks</li>
+                                <li>✅ What's not in the view cannot be queried</li>
+                                <li>✅ Two-layer verification (SQL + Python)</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Zero N+1 by Design -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/database-first-cqrs.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">🎯</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">Zero N+1 by Design</h3>
+                            <p class="text-gray-600 mb-4">PostgreSQL composes nested data once in JSONB. Views contain all relations.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ One query regardless of GraphQL complexity</li>
+                                <li>✅ DataLoader is unnecessary</li>
+                                <li>✅ Nested relations pre-composed in views</li>
+                                <li>✅ No resolver chains to optimize</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- AI-Native Development -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/ai-native.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">🤖</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">AI-Native Development</h3>
+                            <p class="text-gray-600 mb-4">SQL + Python are massively trained languages. LLMs generate correct FraiseQL code on first try.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ Complete business logic in one file</li>
+                                <li>✅ No hidden ORM magic to confuse LLMs</li>
+                                <li>✅ 30-50% fewer tokens than Python</li>
+                                <li>✅ Stable syntax since the 1990s</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- In PostgreSQL Everything -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/postgresql-everything.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">💰</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">Simplified Infrastructure</h3>
+                            <p class="text-gray-600 mb-4">Three features that simplify your stack and eliminate infrastructure.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ Table views eliminate Redis</li>
+                                <li>✅ Cascade eliminates refetch queries</li>
+                                <li>✅ tb_entity_change_log = built-in audit</li>
+                                <li>✅ One database, ACID everywhere</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Database-First CQRS -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/database-first-cqrs.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">🏗️</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">Database-First CQRS</h3>
+                            <p class="text-gray-600 mb-4">Views for queries, functions for mutations. Business logic in PostgreSQL with ACID guarantees.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ Clear separation of reads and writes</li>
+                                <li>✅ No ORM abstraction layer</li>
+                                <li>✅ Structured error handling</li>
+                                <li>✅ Enterprise audit trails built-in</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Auto-Generated Filters -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/type-aware-filters.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">🎨</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">Auto-Generated Filters</h3>
+                            <p class="text-gray-600 mb-4">Define your types, get 35+ WHERE operators automatically. Zero filter boilerplate.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ String → contains, startsWith, regex</li>
+                                <li>✅ Date → gt, lt, between, ranges</li>
+                                <li>✅ IP → subnet, contains, overlaps</li>
+                                <li>✅ AND/OR/NOT logical operators</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- 50+ Specialized Types -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/specialized-types.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">🎯</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">50+ Specialized Types</h3>
+                            <p class="text-gray-600 mb-4">Native PostgreSQL types with type-aware operators no other GraphQL framework has.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ IPv4/IPv6 with subnet operations</li>
+                                <li>✅ LTree hierarchies with ancestor queries</li>
+                                <li>✅ DateRange with overlap/containment</li>
+                                <li>✅ CUSIP/ISIN, pgvector for semantic search</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Automatic Persisted Queries -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/apq.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">📡</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">Automatic Persisted Queries</h3>
+                            <p class="text-gray-600 mb-4">70% bandwidth reduction. Skip query parsing. Optional security hardening.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ Send hash instead of full query text</li>
+                                <li>✅ Pre-parsed queries, lookup only</li>
+                                <li>✅ Persisted-only mode blocks arbitrary queries</li>
+                                <li>✅ Apollo APQ specification compatible</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Query Authorization -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <a href="/features/apq.html" class="block">
+                        <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card border-2 border-red-500">
+                            <div class="text-5xl mb-4">🛡️</div>
+                            <h3 class="text-2xl font-bold mb-3 text-gray-800">Query Authorization</h3>
+                            <p class="text-gray-600 mb-4">Register allowed queries via APQ. Block arbitrary GraphQL in production.</p>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>✅ Persisted-only mode whitelists queries</li>
+                                <li>✅ Block introspection in production</li>
+                                <li>✅ Zero-parsing for registered queries</li>
+                                <li>✅ Security events logged</li>
+                            </ul>
+                            <div class="mt-4 text-red-600 font-bold">Learn more →</div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Additional Features -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-12">
+                Additional Features
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <!-- Security First -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card">
+                        <div class="text-4xl mb-4">🛡️</div>
+                        <h3 class="text-xl font-bold mb-3 text-gray-800">Security First</h3>
+                        <p class="text-gray-600 mb-4">Built-in protection against common vulnerabilities.</p>
+                        <ul class="text-sm text-gray-600 space-y-2">
+                            <li>• SQL injection prevention</li>
+                            <li>• Input validation layer</li>
+                            <li>• Parameterized queries only</li>
+                            <li>• Pattern detection for malicious input</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Flexible Authentication -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card">
+                        <div class="text-4xl mb-4">🔐</div>
+                        <h3 class="text-xl font-bold mb-3 text-gray-800">Flexible Authentication</h3>
+                        <p class="text-gray-600 mb-4">Pluggable auth system with built-in providers.</p>
+                        <ul class="text-sm text-gray-600 space-y-2">
+                            <li>• Auth0 integration</li>
+                            <li>• Development auth mode</li>
+                            <li>• Custom provider support</li>
+                            <li>• Role-based access control</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Code Generation -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card">
+                        <div class="text-4xl mb-4">🚀</div>
+                        <h3 class="text-xl font-bold mb-3 text-gray-800">Code Generation</h3>
+                        <p class="text-gray-600 mb-4">Generate boilerplate code from your types.</p>
+                        <ul class="text-sm text-gray-600 space-y-2">
+                            <li>• Database migrations</li>
+                            <li>• CRUD operations</li>
+                            <li>• GraphQL schema export</li>
+                            <li>• Type-safe repositories</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Performance Optimized -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card">
+                        <div class="text-4xl mb-4">📊</div>
+                        <h3 class="text-xl font-bold mb-3 text-gray-800">Performance Optimized</h3>
+                        <p class="text-gray-600 mb-4">Designed for speed from the ground up.</p>
+                        <ul class="text-sm text-gray-600 space-y-2">
+                            <li>• Single query for nested data</li>
+                            <li>• Connection pooling</li>
+                            <li>• Query result caching</li>
+                            <li>• N+1 query elimination</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Developer Experience -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card">
+                        <div class="text-4xl mb-4">🔧</div>
+                        <h3 class="text-xl font-bold mb-3 text-gray-800">Developer Experience</h3>
+                        <p class="text-gray-600 mb-4">Built by developers, for developers.</p>
+                        <ul class="text-sm text-gray-600 space-y-2">
+                            <li>• Full type hints</li>
+                            <li>• GraphQL Playground</li>
+                            <li>• Detailed error messages</li>
+                            <li>• Hot reloading</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Production Ready -->
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card">
+                        <div class="text-4xl mb-4">🌐</div>
+                        <h3 class="text-xl font-bold mb-3 text-gray-800">Production Ready</h3>
+                        <p class="text-gray-600 mb-4">Everything you need for real-world deployments.</p>
+                        <ul class="text-sm text-gray-600 space-y-2">
+                            <li>• FastAPI integration</li>
+                            <li>• CORS support</li>
+                            <li>• Health checks</li>
+                            <li>• Configurable via environment</li>
+                        </ul>
+                     </div>
+                 </div>
+
+                 <!-- AI & RAG Features -->
+                 <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                     <a href="/features/pgvector.html" class="block">
+                         <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card hover:border-red-500 border-2 border-transparent">
+                             <div class="text-4xl mb-4">🔍</div>
+                             <h3 class="text-xl font-bold mb-3 text-gray-800">Vector Search (pgvector)</h3>
+                             <p class="text-gray-600 mb-4">Native PostgreSQL vector similarity search with 9+ distance operators.</p>
+                             <span class="text-red-600 text-sm font-semibold">Learn more →</span>
+                         </div>
+                     </a>
+                 </div>
+
+                 <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                     <a href="/features/cascade.html" class="block">
+                         <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card hover:border-red-500 border-2 border-transparent">
+                             <div class="text-4xl mb-4">🌊</div>
+                             <h3 class="text-xl font-bold mb-3 text-gray-800">GraphQL Cascade</h3>
+                             <p class="text-gray-600 mb-4">No refetch after mutations. 50% fewer round-trips. Automatic cache updates for Apollo & Relay.</p>
+                             <span class="text-red-600 text-sm font-semibold">Learn more →</span>
+                         </div>
+                     </a>
+                 </div>
+
+                 <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                     <a href="/features/ai-frameworks.html" class="block">
+                         <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card hover:border-red-500 border-2 border-transparent">
+                             <div class="text-4xl mb-4">🦜🦙</div>
+                             <h3 class="text-xl font-bold mb-3 text-gray-800">LangChain & LlamaIndex</h3>
+                             <p class="text-gray-600 mb-4">Build RAG applications with your favorite AI framework.</p>
+                             <span class="text-red-600 text-sm font-semibold">Learn more →</span>
+                         </div>
+                     </a>
+                 </div>
+
+                 <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                     <a href="/benefits/sustainability.html" class="block">
+                         <div class="bg-white rounded-lg shadow-lg p-6 h-full feature-card hover:border-green-500 border-2 border-transparent">
+                             <div class="text-4xl mb-4">🌱</div>
+                             <h3 class="text-xl font-bold mb-3 text-gray-800">Energy Efficiency</h3>
+                             <p class="text-gray-600 mb-4">10-100x fewer CPU cycles. Run on smaller hardware. Lower carbon footprint.</p>
+                             <span class="text-green-600 text-sm font-semibold">Learn more →</span>
+                         </div>
+                     </a>
+                 </div>
+             </div>
+         </div>
+     </section>
+
+    <!-- Feature Comparison -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-2xl md:text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Feature Comparison
+            </h2>
+
+            <div class="overflow-x-auto">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Feature</th>
+                            <th class="px-6 py-3 text-left">FraiseQL</th>
+                            <th class="px-6 py-3 text-left">Traditional ORM + GraphQL</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">JSON Transformation</td>
+                            <td class="px-6 py-4 font-bold">✅ Rust (7-10x faster)</td>
+                            <td class="px-6 py-4">❌ Python serialization</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">N+1 Query Problem</td>
+                            <td class="px-6 py-4 font-bold">✅ Impossible by design</td>
+                            <td class="px-6 py-4">⚠️ Requires DataLoader</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Field Exposure Control</td>
+                            <td class="px-6 py-4 font-bold">✅ View-enforced whitelist</td>
+                            <td class="px-6 py-4">❌ ORM can over-fetch</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Recursion Depth Attacks</td>
+                            <td class="px-6 py-4 font-bold">✅ Structurally impossible</td>
+                            <td class="px-6 py-4">⚠️ Middleware required</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">LLM Code Generation</td>
+                            <td class="px-6 py-4 font-bold">✅ SQL + Python (native)</td>
+                            <td class="px-6 py-4">⚠️ Framework-specific DSLs</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Database Support</td>
+                            <td class="px-6 py-4">⚠️ PostgreSQL only</td>
+                            <td class="px-6 py-4 font-bold">✅ Multiple databases</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-2xl md:text-4xl font-bold text-gray-800 mb-4">Ready to Build Fast APIs?</h2>
+            <p class="text-xl text-gray-700 mb-8">Get started with FraiseQL in minutes</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="/getting-started.html" class="gradient text-white font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+                <a href="https://github.com/fraiseql/fraiseql" class="bg-white text-gray-800 border-2 border-gray-300 font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    View Source
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-red-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

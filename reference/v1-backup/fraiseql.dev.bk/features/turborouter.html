@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>TurboRouter - FraiseQL's High-Performance Query Engine</title>
+    <meta name="description" content="Near-zero overhead GraphQL execution with TurboRouter. Pre-register queries for < 0.1ms response times.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+    </style>
+    <link rel="stylesheet" href="/prism.min.css"/>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- PyPI Badges -->
+    <div class="bg-gray-50 py-4">
+        <div class="container mx-auto px-6">
+            <div class="flex flex-wrap gap-2 justify-center">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=for-the-badge&logo=python&logoColor=white" alt="PyPI version">
+                <img src="https://img.shields.io/pypi/status/fraiseql?style=for-the-badge" alt="Status">
+                <img src="https://img.shields.io/github/stars/fraiseql/fraiseql?style=for-the-badge&logo=github" alt="GitHub stars">
+                <img src="https://img.shields.io/pypi/dm/fraiseql?style=for-the-badge" alt="Downloads">
+            </div>
+        </div>
+    </div>
+
+    <!-- What is TurboRouter -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                What is TurboRouter?
+            </h2>
+
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-6 mb-8 rounded-r-lg max-w-3xl mx-auto">
+                <h4 class="font-bold text-blue-800 mb-2">Architecture Context</h4>
+                <p class="text-blue-800 text-sm">
+                    TurboRouter is an <strong>optional optimization layer</strong> on top of the
+                    <a href="/features/rust-pipeline.html" class="underline">Rust pipeline</a> (which is always active).
+                    The Rust pipeline handles JSON streaming; TurboRouter adds query pre-registration to skip GraphQL parsing.
+                </p>
+            </div>
+
+            <p class="text-gray-700 text-lg mb-8 text-center max-w-3xl mx-auto">
+                TurboRouter pre-registers GraphQL queries with their SQL templates, bypassing GraphQL parsing and validation for known queries. Combined with the Rust pipeline's JSON passthrough, this eliminates virtually all overhead between database and client.
+            </p>
+
+            <!-- Performance Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Stage</th>
+                            <th class="px-6 py-3 text-left">Basic Python GraphQL</th>
+                            <th class="px-6 py-3 text-left">TurboRouter + Table Views</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Query Parsing</td>
+                            <td class="px-6 py-4">0.5ms</td>
+                            <td class="px-6 py-4 font-bold">✅ 0ms (pre-registered)</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Schema Validation</td>
+                            <td class="px-6 py-4">0.3ms</td>
+                            <td class="px-6 py-4 font-bold">✅ 0ms (pre-validated)</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Query Planning</td>
+                            <td class="px-6 py-4">0.2ms</td>
+                            <td class="px-6 py-4 font-bold">✅ 0ms (pre-planned)</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Hash Lookup (APQ)</td>
+                            <td class="px-6 py-4">-</td>
+                            <td class="px-6 py-4">0.05ms</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">PostgreSQL Query</td>
+                            <td class="px-6 py-4">15-30ms (JOINs)</td>
+                            <td class="px-6 py-4 font-bold">0.3-0.8ms (table view)</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Deserialize → Python Objects</td>
+                            <td class="px-6 py-4">2-8ms</td>
+                            <td class="px-6 py-4 font-bold">✅ 0ms (skipped)</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Serialize Python Objects → JSON</td>
+                            <td class="px-6 py-4">2-6ms</td>
+                            <td class="px-6 py-4 font-bold">✅ 0ms (skipped)</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Rust Field Selection + Response</td>
+                            <td class="px-6 py-4">-</td>
+                            <td class="px-6 py-4 font-bold">✅ ~0.1ms</td>
+                        </tr>
+                        <tr class="bg-gray-100 font-bold">
+                            <td class="px-6 py-4">Total</td>
+                            <td class="px-6 py-4">20-45ms</td>
+                            <td class="px-6 py-4 text-green-600">✅ Sub-millisecond</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p class="text-sm text-gray-600 text-center max-w-3xl mx-auto mt-6">
+                Performance depends on query complexity and data size. The key speedup comes from table views (pre-computed JSONB)
+                combined with TurboRouter's query pre-registration. Against optimized stacks with Redis caching, expect 2-3x improvement.
+            </p>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                How It Works
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <!-- Step 1 -->
+                <div class="w-full lg:w-1/2 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">1. Register Your Query</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python">from fraiseql.fastapi import TurboQuery, TurboRegistry
+
+registry = TurboRegistry()
+
+user_query = TurboQuery(
+    graphql_query="""
+        query GetUser($id: ID!) {
+            user(id: $id) {
+                id
+                name
+                email
+                posts {
+                    title
+                    publishedAt
+                }
+            }
+        }
+    """,
+    sql_template="""
+        SELECT jsonb_build_object(
+            'user', jsonb_build_object(
+                'id', u.id,
+                'name', u.data->>'name',
+                'email', u.data->>'email',
+                'posts', COALESCE(
+                    jsonb_agg(...)
+                )
+            )
+        ) as result
+        FROM tb_user u
+        LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+        WHERE u.id = %(id)s::uuid
+        GROUP BY u.id
+    """,
+    param_mapping={"id": "id"}
+)
+
+registry.register(user_query)</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="w-full lg:w-1/2 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">2. JSON Streams Directly to Client</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-json"># PostgreSQL returns JSONB:
+{
+  "user": {
+    "id": 123,
+    "name": "Alice",
+    "email": "alice@example.com",
+    "posts": [...]
+  }
+}
+
+# TurboRouter: Stream it directly!
+# ❌ No Python object creation
+# ❌ No serialization overhead
+# ✅ Zero-copy passthrough
+
+# Application overhead: ~0.1ms ⚡</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Benefits -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Benefits
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <div class="w-full md:w-1/2 lg:w-1/4 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">⚡</div>
+                        <h3 class="text-xl font-bold mb-2">4-10x Faster Responses</h3>
+                        <p class="text-gray-600">Eliminate Python object instantiation and JSON serialization overhead</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/4 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🎯</div>
+                        <h3 class="text-xl font-bold mb-2">Zero-Copy Architecture</h3>
+                        <p class="text-gray-600">PostgreSQL JSONB flows directly to client without intermediate transformations</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/4 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">💾</div>
+                        <h3 class="text-xl font-bold mb-2">Lower Memory Footprint</h3>
+                        <p class="text-gray-600">No temporary Python objects allocated—reduces GC pressure significantly</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/4 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🏎️</div>
+                        <h3 class="text-xl font-bold mb-2">Maximum Throughput</h3>
+                        <p class="text-gray-600">Handle 2-5x more requests per second with the same hardware</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Configuration -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Configuration
+            </h2>
+
+            <div class="code-block">
+                <pre class="p-6 overflow-x-auto"><code class="language-python"># Enable in production
+app = create_fraiseql_app(
+    database_url="postgresql://...",
+    types=[User, Post],
+    production=True,  # Enables TurboRouter
+)
+
+# Configure via environment
+FRAISEQL_ENABLE_TURBO_ROUTER=true
+FRAISEQL_TURBO_ROUTER_CACHE_SIZE=2000
+
+# Or via config object
+config = FraiseQLConfig(
+    enable_turbo_router=True,
+    turbo_router_cache_size=5000
+)</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Perfect For -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Perfect For
+            </h2>
+
+            <ul class="text-lg space-y-3 max-w-2xl mx-auto">
+                <li>✅ High-traffic APIs serving millions of requests per day</li>
+                <li>✅ Large JSON payloads (deeply nested data, arrays of objects)</li>
+                <li>✅ Mobile app backends where every millisecond counts</li>
+                <li>✅ Microservices needing maximum throughput per instance</li>
+                <li>✅ Cost optimization—serve more traffic with fewer servers</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-4xl font-bold text-gray-800 mb-4">Ready for Production Speed?</h2>
+            <p class="text-xl text-gray-700 mb-8">TurboRouter is a core feature of FraiseQL</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="https://fraiseql.readthedocs.io/en/latest/performance/" class="gradient text-white font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Read the Docs
+                </a>
+                <a href="https://github.com/fraiseql/fraiseql/tree/main/examples/turborouter" class="bg-white text-gray-800 border-2 border-gray-300 font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    See Examples
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-red-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+    <script src="/prism-python.min.js"></script>
+    <script src="/prism-graphql.min.js"></script>
+    <script src="/prism-sql.min.js"></script>
+    <script src="/prism-bash.min.js"></script>
+</body>
+</html>

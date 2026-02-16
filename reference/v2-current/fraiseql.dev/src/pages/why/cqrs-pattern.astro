@@ -1,0 +1,399 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="Why CQRS Pattern - FraiseQL Architecture"
+  description="Understand why FraiseQL separates reads (views) from writes (functions) using the CQRS pattern."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>Why CQRS Pattern?</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>Commands (writes) and Queries (reads) are fundamentally different. Optimize them separately.</strong>
+    </p>
+
+    <section style="margin: 3rem 0;">
+      <h2>The Problem: Treating Reads and Writes the Same</h2>
+      <p>
+        Most frameworks use a single code path for both:
+      </p>
+      <pre><code>{`// Same ORM for reads and writes
+const user = await orm.user.create({ name: "Alice" });
+
+const users = await orm.user.findMany({ where: { status: "active" } });
+
+// But reads and writes have different performance characteristics:
+// - Reads: Can use caching, indices, materialized views
+// - Writes: Must be transactional, consistent, auditable`}</code></pre>
+
+      <p style="margin-top: 1rem; padding: 1rem; background: #fef2f2; border-radius: 4px;">
+        <strong>Result:</strong> Compromise architectures that are neither good at reads nor writes.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Why Reads and Writes are Different</h2>
+
+      <h3 style="margin-top: 2rem;">Reads</h3>
+      <ul>
+        <li><strong>Performance goal:</strong> Ultra-low latency, high throughput</li>
+        <li><strong>Consistency:</strong> Eventual consistency is acceptable</li>
+        <li><strong>Data shape:</strong> Denormalized, pre-joined, aggregated</li>
+        <li><strong>Optimization:</strong> Indices, materialized views, caching</li>
+        <li><strong>Scale:</strong> 100:1 read-to-write ratio (typical)</li>
+      </ul>
+      <p style="margin-top: 1rem;">
+        <strong>Example:</strong> `SELECT users.*, posts.*, comments.* FROM ... WHERE ... ORDER BY ...`
+      </p>
+      <p style="color: #666; margin-top: 0.5rem;">
+        This is a VIEW. Pre-computed, pre-joined, ready to read.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Writes</h3>
+      <ul>
+        <li><strong>Performance goal:</strong> Consistency and correctness > speed</li>
+        <li><strong>Consistency:</strong> Strong consistency (ACID), must be transactional</li>
+        <li><strong>Data shape:</strong> Normalized, referential integrity</li>
+        <li><strong>Optimization:</strong> Constraints, triggers, transaction bounds</li>
+        <li><strong>Scale:</strong> 1% of traffic (typical)</li>
+      </ul>
+      <p style="margin-top: 1rem;">
+        <strong>Example:</strong> `fn_create_post(user_id, title, content) - Must verify user exists, create post, create notification, log audit trail`
+      </p>
+      <p style="color: #666; margin-top: 0.5rem;">
+        This is a FUNCTION. Explicit transaction boundaries, side effects, audit.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Optimization Techniques</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tr style="background: #f5f3ff;">
+          <th style="padding: 1rem; text-align: left; border: 1px solid #e5e7eb;">Optimization</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Reads (Views)</th>
+          <th style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">Writes (Functions)</th>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Indices</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">✅ Essential</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">⚠️ Slows writes</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Denormalization</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">✅ Speeds reads</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">❌ Breaks consistency</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Materialized Views</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">✅ Pre-computed joins</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">❌ Not applicable</td>
+        </tr>
+        <tr style="background: #fafafa;">
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Transactions</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">⚠️ May block</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">✅ Essential</td>
+        </tr>
+        <tr>
+          <td style="padding: 1rem; border: 1px solid #e5e7eb;"><strong>Locks</strong></td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">❌ Bad for latency</td>
+          <td style="padding: 1rem; text-align: center; border: 1px solid #e5e7eb;">✅ Prevents corruption</td>
+        </tr>
+      </table>
+
+      <p style="margin-top: 1rem; color: #666;">
+        <em>Optimizing for reads hurts writes. Optimizing for writes hurts reads. Don't try to do both with the same architecture.</em>
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>CQRS: Separate Models</h2>
+
+      <p>
+        CQRS = Command Query Responsibility Segregation. Two separate paths:
+      </p>
+
+      <h3 style="margin-top: 2rem;">Command Path (Write Model)</h3>
+      <pre><code>{`# Database stores normalized write model (tb_* tables)
+tb_users:
+  ├─ id (PRIMARY KEY)
+  ├─ email (UNIQUE)
+  ├─ password_hash
+  └─ created_at
+
+tb_posts:
+  ├─ id (PRIMARY KEY)
+  ├─ user_id (FOREIGN KEY → users)
+  ├─ title
+  └─ created_at
+
+# Mutations call functions (fn_* functions)
+fn_create_post(user_id, title, content)
+  → Validates user exists
+  → Creates post
+  → Creates notification
+  → Logs audit trail
+  → Returns post (read model)`}</code></pre>
+
+      <p style="margin-top: 1rem; color: #666;">
+        <strong>Write model characteristics:</strong> Normalized, constrained, transactional, auditable.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Query Path (Read Model)</h3>
+      <pre><code>{`# Database maintains optimized read model (v_* views, tv_* materialized views)
+v_user_posts:  # View
+  ├─ user_id
+  ├─ user_name
+  ├─ post_id
+  ├─ post_title
+  ├─ post_created_at
+  ├─ post_count
+  └─ avg_likes  # Pre-aggregated
+
+tv_trending_posts:  # Materialized view (refreshed via pg_tviews)
+  ├─ post_id
+  ├─ post_title
+  ├─ engagement_score
+  ├─ refresh_timestamp
+  └─ ...
+
+# Queries read from views
+query GetUserWithStats($id: ID!) {
+  user(id: $id) {
+    # Reads from v_user_posts (single efficient query)
+  }
+}`}</code></pre>
+
+      <p style="margin-top: 1rem; color: #666;">
+        <strong>Read model characteristics:</strong> Denormalized, pre-joined, pre-aggregated, indexed, materialized.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Event Log (Connection Between Models)</h3>
+      <pre><code>{`# Write operations generate events
+fn_create_post() → Events:
+  { "type": "post_created", "post_id": 123, "user_id": 1, "timestamp": "..." }
+  { "type": "notification_sent", "user_id": 1, "timestamp": "..." }
+
+# Read model subscribes to events
+event_handler("post_created") → REFRESH tv_trending_posts
+
+# Result: Write model is source of truth
+#         Read model is denormalized cache of write model
+#         Events are the connection between them`}</code></pre>
+
+      <p style="margin-top: 1rem;">
+        With FraiseQL's `pg_tviews` tool, this refresh happens automatically (2,083× faster than full rebuild).
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>FraiseQL's CQRS Implementation</h2>
+
+      <p>
+        FraiseQL makes CQRS natural and efficient:
+      </p>
+
+      <h3 style="margin-top: 2rem;">1. Naming Convention</h3>
+      <ul>
+        <li><strong>tb_*</strong> – Write tables (source of truth, normalized)</li>
+        <li><strong>v_*</strong> – Read views (logical, computed on access)</li>
+        <li><strong>tv_*</strong> – Read materialized views (pre-computed, incremental refresh)</li>
+        <li><strong>fn_*</strong> – Write functions (transactions, side effects)</li>
+      </ul>
+
+      <h3 style="margin-top: 2rem;">2. Schema Definition</h3>
+      <pre><code>{`# Python decorator-based schema (CQRS-aware)
+@fraiseql.type
+class User:
+    # Write model (tb_users)
+    id: int
+    email: str  # UNIQUE constraint
+
+    # Read model (v_user_posts)
+    posts: List[PostWithStats]  # From VIEW
+
+@fraiseql.mutation
+def create_post(user_id: int, title: str, content: str) -> Post:
+    # Calls fn_create_post() in database
+    # Returns result from read model
+    pass`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">3. Compilation</h3>
+      <pre><code>{`$ fraiseql-cli compile schema.json
+
+Compilation analysis:
+  ├─ Write paths (mutations)
+  │  └─ Check that all call fn_* functions
+  │  └─ Verify functions have transaction boundaries
+  │  └─ Validate audit logging
+  │
+  ├─ Read paths (queries)
+  │  └─ Check that all read from v_* or tv_* views
+  │  └─ Optimize join order
+  │  └─ Identify missing indices
+  │
+  └─ Consistency
+     └─ Verify write results match read model
+     └─ Check event propagation
+     └─ Recommend view refresh strategy`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Performance Impact</h2>
+
+      <p>
+        <strong>Scenario: E-commerce platform with trending products</strong>
+      </p>
+
+      <h3 style="margin-top: 2rem;">Without CQRS (Naive approach)</h3>
+      <pre><code>{`# Every read query recalculates trending (expensive)
+SELECT p.id, p.name, COUNT(o.id) as sales, AVG(r.rating) as rating
+FROM products p
+LEFT JOIN orders o ON p.id = o.product_id AND o.created_at > NOW() - INTERVAL 7 DAY
+LEFT JOIN reviews r ON p.id = r.product_id
+GROUP BY p.id
+ORDER BY sales DESC
+LIMIT 20;
+
+# Load time: 500-2000ms (query expensive, no indices)
+# Latency at 100 req/sec: P99 spikes to 10-20 seconds`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">With CQRS (FraiseQL approach)</h3>
+      <pre><code>{`# Write model (normalized, transactional)
+tb_products:
+  ├─ id
+  ├─ name
+  └─ created_at
+
+tb_orders:
+  ├─ id
+  ├─ product_id (FOREIGN KEY)
+  └─ created_at
+
+tb_reviews:
+  ├─ id
+  ├─ product_id (FOREIGN KEY)
+  ├─ rating
+  └─ created_at
+
+# Read model (pre-computed)
+tv_trending_products:  # Materialized view
+  ├─ product_id
+  ├─ product_name
+  ├─ sales_7day
+  ├─ avg_rating
+  └─ refresh_timestamp
+  CREATE INDEX idx_trending ON tv_trending_products(sales_7day DESC);
+
+# Read query (fast)
+SELECT * FROM tv_trending_products
+ORDER BY sales_7day DESC
+LIMIT 20;
+
+# Load time: 1-5ms (view already computed, indexed)
+# Latency at 100 req/sec: Constant 1-5ms`}</code></pre>
+
+      <p style="margin-top: 1rem; color: #059669;">
+        <strong>Performance improvement: 100-2000× faster.</strong> CQRS separates concerns and enables optimization.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>CQRS Challenges (and Solutions)</h2>
+
+      <h3 style="margin-top: 2rem;">Challenge 1: Consistency Between Models</h3>
+      <p>
+        <strong>Problem:</strong> Write model and read model can get out of sync.
+      </p>
+      <p>
+        <strong>Solution (FraiseQL):</strong> Event-driven refresh with `pg_tviews`:
+      </p>
+      <ul>
+        <li>Functions emit events when write model changes</li>
+        <li>Events trigger view refresh (incremental, 2,083× faster)</li>
+        <li>Refresh happens within same transaction (consistency guaranteed)</li>
+      </ul>
+
+      <h3 style="margin-top: 2rem;">Challenge 2: Duplicate Data</h3>
+      <p>
+        <strong>Problem:</strong> Views duplicate data that's in base tables. Wastes storage.
+      </p>
+      <p>
+        <strong>Solution:</strong> Trade space for speed. Typical cost: +20% storage for 100× faster queries. Worth it.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Challenge 3: Complex Transactions</h3>
+      <p>
+        <strong>Problem:</strong> Transaction logic scattered across multiple functions.
+      </p>
+      <p>
+        <strong>Solution:</strong> Functions are the transaction boundary. Put all related writes in one function.
+      </p>
+      <pre><code>{`# Single function = single transaction
+fn_transfer_funds(from_account_id, to_account_id, amount):
+  → Debit from_account
+  → Credit to_account
+  → Log transaction
+  → Create notification
+  → All in same transaction (all-or-nothing)`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>When NOT to Use CQRS</h2>
+
+      <p>
+        CQRS adds complexity. It's worth it when:
+      </p>
+      <ul>
+        <li>✅ High read-to-write ratio (100:1 or more)</li>
+        <li>✅ Complex queries with aggregations</li>
+        <li>✅ Compliance requirements (audit trail, strong consistency on writes)</li>
+        <li>✅ Performance-critical system</li>
+      </ul>
+      <p style="margin-top: 1rem;">
+        It's overkill for:
+      </p>
+      <ul>
+        <li>❌ Simple CRUD applications</li>
+        <li>❌ Admin panels</li>
+        <li>❌ Internal tools</li>
+      </ul>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>CQRS vs Eventual Consistency</h2>
+
+      <p>
+        <strong>Note:</strong> CQRS doesn't require eventual consistency (though some implementations use it).
+      </p>
+      <p>
+        <strong>FraiseQL's CQRS:</strong> Strong consistency. Write happens in transaction, view refresh happens in same transaction. Perfect consistency.
+      </p>
+      <p>
+        <strong>Event-sourced CQRS:</strong> Eventual consistency. Write happens, then async event handler updates read model. May have lag.
+      </p>
+      <p style="margin-top: 1rem; color: #666;">
+        FraiseQL uses <strong>strong consistency CQRS</strong> via transaction-scoped view refreshes (pg_tviews).
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Bottom Line</h2>
+      <p>
+        <strong>Reads and writes are fundamentally different. Architect them separately.</strong>
+      </p>
+      <ul>
+        <li>✅ Writes use normalized, transactional write model (tb_* tables)</li>
+        <li>✅ Reads use denormalized, pre-computed read model (v_* views)</li>
+        <li>✅ Functions (fn_*) are the connection between models</li>
+        <li>✅ Views (v_*, tv_*) are optimized for queries</li>
+        <li>✅ Consistency maintained through event-driven refresh</li>
+        <li>✅ Performance benefits: 100-2000× faster queries</li>
+      </ul>
+      <p style="margin-top: 2rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #059669; border-radius: 4px;">
+        <strong>FraiseQL philosophy:</strong> CQRS is not complex – it's how databases have always worked best. Make it explicit, and you unlock 100-2000× performance gains.
+      </p>
+    </section>
+
+    <p style="margin-top: 3rem;">
+      <a href="/why/ecosystem-approach">Next: Why Ecosystem Approach →</a> | <a href="/">Home</a>
+    </p>
+  </div>
+</BaseLayout>

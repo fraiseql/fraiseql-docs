@@ -1,0 +1,595 @@
+---
+title: MySQL Troubleshooting
+description: Troubleshoot FraiseQL with MySQL database issues
+---
+
+# MySQL Troubleshooting
+
+Solutions for MySQL-specific issues with FraiseQL.
+
+## Connection Issues
+
+### Connection Refused
+**Problem**: `Error: connect ECONNREFUSED 127.0.0.1:3306`
+
+**Solutions**:
+```bash
+# 1. Check MySQL is running
+sudo systemctl status mysql
+# Or for Docker
+docker-compose logs mysql
+
+# 2. Test connection
+mysql -h localhost -u fraiseql -p -e "SELECT 1"
+
+# 3. Check MySQL bind address
+sudo grep bind-address /etc/mysql/mysql.conf.d/mysqld.cnf
+# Should be 0.0.0.0 or specific IP, not 127.0.0.1 only
+
+# 4. Update if needed
+sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
+# bind-address = 0.0.0.0
+
+# 5. Restart MySQL
+sudo systemctl restart mysql
+```
+
+### Authentication Failed
+**Problem**: `Access denied for user 'fraiseql'@'localhost'`
+
+**Solutions**:
+```bash
+# 1. Check user exists
+mysql -u root -p -e "SELECT user, host FROM mysql.user;"
+
+# 2. Create user if missing
+mysql -u root -p -e "CREATE USER 'fraiseql'@'%' IDENTIFIED BY 'password';"
+
+# 3. Grant permissions
+mysql -u root -p -e "GRANT ALL PRIVILEGES ON fraiseql.* TO 'fraiseql'@'%';"
+mysql -u root -p -e "FLUSH PRIVILEGES;"
+
+# 4. Reset password
+mysql -u root -p -e "ALTER USER 'fraiseql'@'%' IDENTIFIED BY 'newpassword';"
+
+# 5. Test connection
+MYSQL_PWD=password mysql -h localhost -u fraiseql -e "SELECT 1"
+```
+
+### Too Many Connections
+**Problem**: `Error: Too many connections`
+
+**Solutions**:
+```bash
+# 1. Check current connections
+mysql -u root -p -e "SHOW PROCESSLIST;"
+
+# 2. Check max connections
+mysql -u root -p -e "SHOW VARIABLES LIKE 'max_connections';"
+
+# 3. Increase max connections
+mysql -u root -p -e "SET GLOBAL max_connections = 500;"
+
+# 4. Make permanent (edit my.cnf)
+sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
+# [mysqld]
+# max_connections = 500
+
+# 5. Restart MySQL
+sudo systemctl restart mysql
+
+# 6. Kill idle connections
+mysql -u root -p -e "SELECT id FROM information_schema.processlist WHERE time > 300;" | \
+while read id; do
+    mysql -u root -p -e "KILL $id;"
+done
+```
+
+### Table Locked
+**Problem**: `Error: Table 'posts' is marked as crashed and should be repaired`
+
+**Solutions**:
+```bash
+# 1. Check table status
+mysql -u fraiseql -p fraiseql -e "CHECK TABLE posts;"
+
+# 2. Repair table
+mysql -u fraiseql -p fraiseql -e "REPAIR TABLE posts;"
+
+# 3. Or use myisamchk (if MyISAM)
+sudo myisamchk -r /var/lib/mysql/fraiseql/posts.MYI
+
+# 4. Optimize table
+mysql -u fraiseql -p fraiseql -e "OPTIMIZE TABLE posts;"
+
+# 5. Check storage engine
+mysql -u fraiseql -p fraiseql -e "SHOW CREATE TABLE posts\G"
+# If MyISAM, consider converting to InnoDB
+ALTER TABLE posts ENGINE=InnoDB;
+```
+
+---
+
+## Query Performance
+
+### Slow Queries
+**Problem**: p95 latency > 500ms
+
+**Solutions**:
+```bash
+# 1. Enable slow query log
+mysql -u root -p -e "SET GLOBAL slow_query_log = 'ON';"
+mysql -u root -p -e "SET GLOBAL long_query_time = 0.5;"
+
+# 2. View slow queries
+sudo tail -f /var/log/mysql/slow.log
+
+# 3. Analyze with mysqldumpslow
+mysqldumpslow -s t /var/log/mysql/slow.log | head -20
+
+# 4. Find missing indexes
+EXPLAIN SELECT * FROM posts WHERE user_id = 123;
+# If "Full scan", add index:
+CREATE INDEX idx_posts_user_id ON posts(user_id);
+
+# 5. Update statistics
+ANALYZE TABLE posts;
+```
+
+### N+1 Queries
+**Problem**: 100 queries per request
+
+**Solutions** (See Common Issues section)
+
+### Full Table Scan
+**Problem**: "Full scan on posts" in EXPLAIN
+
+**Solutions**:
+```bash
+# 1. Add index on WHERE column
+CREATE INDEX idx_posts_user_id ON posts(user_id);
+
+# 2. Analyze table for optimizer
+ANALYZE TABLE posts;
+
+# 3. Check index is being used
+EXPLAIN SELECT * FROM posts WHERE user_id = 123\G
+
+# 4. For complex filters, use composite index
+CREATE INDEX idx_posts_user_published
+ON posts(user_id, published)
+WHERE published = 1;
+
+# 5. Rebuild index if corrupted
+OPTIMIZE TABLE posts;
+```
+
+---
+
+## Data Issues
+
+### CASCADE DELETE Not Working
+**Problem**: Deleting parent doesn't cascade to children
+
+
+                         ─
+                          ─
+                          ─
+
+**Solutions**:
+```bash
+# 1. Check foreign key definition
+SELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME
+FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+WHERE TABLE_NAME = 'comments' AND COLUMN_NAME = 'post_id';
+
+# 2. Check referential action
+SELECT CONSTRAINT_NAME, UPDATE_RULE, DELETE_RULE
+FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
+WHERE TABLE_NAME = 'comments';
+
+# 3. Drop and recreate with CASCADE
+ALTER TABLE comments DROP FOREIGN KEY comments_ibfk_1;
+ALTER TABLE comments
+ADD CONSTRAINT comments_post_id_fk
+FOREIGN KEY (post_id) REFERENCES posts(id)
+ON DELETE CASCADE ON UPDATE CASCADE;
+
+# 4. Test cascade
+START TRANSACTION;
+DELETE FROM posts WHERE id = 123;
+-- Check comments are deleted
+SELECT * FROM comments WHERE post_id = 123;
+ROLLBACK;
+```
+
+### Foreign Key Constraint Violation
+**Problem**: `Error: Cannot add or update a child row: a foreign key constraint fails`
+
+**Solutions**:
+```bash
+# 1. Check foreign key exists
+SELECT * FROM posts WHERE id = 123;
+
+# 2. Find orphaned records
+SELECT c.* FROM comments c
+LEFT JOIN posts p ON c.post_id = p.id
+WHERE p.id IS NULL;
+
+# 3. Delete orphaned records
+DELETE FROM comments
+WHERE post_id NOT IN (SELECT id FROM posts);
+
+# 4. Disable foreign key checks (careful!)
+SET foreign_key_checks = 0;
+-- Do import
+SET foreign_key_checks = 1;
+
+# 5. View all foreign keys
+SELECT * FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+WHERE TABLE_NAME = 'comments';
+```
+
+### Duplicate Key Error
+**Problem**: `Error: Duplicate entry 'email' for key 'idx_users_email'`
+
+**Solutions**:
+```bash
+# 1. Find duplicate values
+SELECT email, COUNT(*) as cnt
+FROM users
+GROUP BY email HAVING cnt > 1;
+
+# 2. Remove duplicates (keep one)
+DELETE FROM users WHERE id NOT IN (
+    SELECT MIN(id) FROM users GROUP BY email
+);
+
+# 3. Add unique constraint
+ALTER TABLE users ADD UNIQUE KEY uk_users_email (email);
+
+# 4. Case-insensitive uniqueness
+ALTER TABLE users ADD UNIQUE KEY uk_users_email (LOWER(email));
+```
+
+### NULL in NOT NULL Column
+**Problem**: `Error: Column 'title' cannot be null`
+
+**Solutions**:
+```bash
+# 1. Check column constraints
+SHOW CREATE TABLE posts;
+
+# 2. Find NULL values
+SELECT * FROM posts WHERE title IS NULL;
+
+# 3. Fix NULL values
+UPDATE posts SET title = 'Untitled' WHERE title IS NULL;
+
+# 4. Add NOT NULL constraint
+ALTER TABLE posts MODIFY title VARCHAR(255) NOT NULL;
+
+# 5. Add DEFAULT for future inserts
+ALTER TABLE posts MODIFY title VARCHAR(255) NOT NULL DEFAULT 'Untitled';
+```
+
+---
+
+## Transaction Issues
+
+### Deadlock Detected
+**Problem**: `Error: Deadlock found when trying to get lock`
+
+**Solutions**:
+```bash
+# 1. Check InnoDB status
+SHOW ENGINE INNODB STATUS\G
+
+# 2. Look for "LATEST DETECTED DEADLOCK" section
+# Shows which queries caused deadlock
+
+# 3. Kill long-running transactions
+SHOW PROCESSLIST;
+KILL <process_id>;
+
+# 4. Reduce transaction scope
+-- BAD: Long transaction
+START TRANSACTION;
+SELECT COUNT(*) FROM posts;
+PERFORM long_operation();
+UPDATE posts SET title = 'New';
+COMMIT;
+
+-- GOOD: Minimal transaction
+START TRANSACTION;
+UPDATE posts SET title = 'New';
+COMMIT;
+PERFORM long_operation();
+
+# 5. Use consistent lock ordering
+START TRANSACTION;
+SELECT * FROM users WHERE id = 1 FOR UPDATE;
+SELECT * FROM posts WHERE user_id = 1 FOR UPDATE;
+COMMIT;
+```
+
+### Transaction Rollback
+**Problem**: Changes unexpectedly rolled back
+
+**Solutions**:
+```bash
+# 1. Check transaction isolation level
+SELECT @@GLOBAL.transaction_isolation;
+-- Should be: REPEATABLE-READ or SERIALIZABLE
+
+# 2. Check constraints before commit
+START TRANSACTION;
+INSERT INTO comments (post_id, text) VALUES (999, 'comment');
+-- Check foreign key exists
+SELECT * FROM posts WHERE id = 999;
+-- If not found, INSERT will fail
+COMMIT;
+
+# 3. Use explicit rollback points
+START TRANSACTION;
+UPDATE posts SET title = 'New' WHERE id = 1;
+SAVEPOINT sp1;
+UPDATE posts SET title = 'Invalid' WHERE id = 2;
+ROLLBACK TO SAVEPOINT sp1;
+COMMIT;
+
+# 4. Monitor transaction logs
+SET GLOBAL slow_query_log = 'ON';
+SET GLOBAL general_log = 'ON';
+TAIL /var/log/mysql/general.log | grep ROLLBACK;
+```
+
+---
+
+## Replication Issues
+
+### Replication Lag
+**Problem**: Replica is behind primary
+
+**Solutions**:
+```bash
+# 1. Check replica status (on replica)
+SHOW SLAVE STATUS\G
+# Look for: Seconds_Behind_Master
+
+# 2. View replica threads
+SHOW PROCESSLIST;
+# Should see: Binlog Dump, Slave_IO, Slave_SQL
+
+# 3. Increase replication speed
+STOP SLAVE;
+SET GLOBAL slave_parallel_workers = 4;
+START SLAVE;
+
+# 4. Check binary log position (on primary)
+SHOW MASTER STATUS;
+
+# 5. Monitor lag
+SHOW SLAVE STATUS\G | grep Seconds_Behind_Master;
+```
+
+### Replication Stopped
+**Problem**: Replica stopped syncing
+
+**Solutions**:
+```bash
+# 1. Check status
+SHOW SLAVE STATUS\G
+
+# 2. Check for errors
+# Look for: Last_Error or Last_SQL_Error
+
+# 3. Skip problematic event
+STOP SLAVE;
+SET GLOBAL SQL_SLAVE_SKIP_COUNTER = 1;
+START SLAVE;
+
+# 4. Reset if severely broken
+STOP SLAVE;
+RESET SLAVE ALL;
+RESET MASTER;
+-- Configure replication again
+
+# 5. Resync from primary
+mysqldump -h primary_host -u root -p --all-databases --master-data | \
+    mysql -h replica_host -u root -p
+```
+
+---
+
+## Index Issues
+
+### Unused Indexes
+**Problem**: Taking space but not used
+
+**Solutions**:
+```bash
+# 1. Find unused indexes
+SELECT object_schema, object_name, count_read, count_write, count_delete, count_update
+FROM performance_schema.table_io_waits_summary_by_index_usage
+WHERE object_schema != 'mysql'
+AND count_read = 0
+ORDER BY count_write DESC, count_delete DESC, count_update DESC;
+
+# 2. Drop unused index
+ALTER TABLE posts DROP INDEX idx_old_index;
+
+# 3. Monitor index usage
+SELECT * FROM performance_schema.table_io_waits_summary_by_index_usage
+WHERE object_schema = 'fraiseql'
+ORDER BY count_read DESC;
+```
+
+### Index Corruption
+**Problem**: Query crashes or returns wrong results
+
+**Solutions**:
+```bash
+# 1. Check table
+CHECK TABLE posts;
+
+# 2. Repair table
+REPAIR TABLE posts;
+
+# 3. Drop and recreate index
+ALTER TABLE posts DROP INDEX idx_posts_user_id;
+CREATE INDEX idx_posts_user_id ON posts(user_id);
+
+# 4. Use CHECK and REPAIR for MyISAM (if applicable)
+myisamchk -r /var/lib/mysql/fraiseql/posts.MYI
+```
+
+---
+
+## Backup & Recovery
+
+### Backup Failed
+**Problem**: `mysqldump` fails or hangs
+
+**Solutions**:
+```bash
+# 1. Create backup
+mysqldump -h localhost -u fraiseql -p fraiseql \
+    --single-transaction \
+    --quick \
+    --lock-tables=false \
+    --verbose \
+    | gzip > backup.sql.gz
+
+# 2. Backup specific tables
+mysqldump -u fraiseql -p fraiseql posts comments > posts_backup.sql
+
+# 3. Incremental backup using binary logs
+mysqlbinlog mysql-bin.000001 mysql-bin.000002 | gzip > incremental.sql.gz
+
+# 4. Restore from backup
+gunzip -c backup.sql.gz | mysql -u fraiseql -p fraiseql
+
+# 5. Point-in-time recovery
+SHOW MASTER LOGS;
+SHOW BINARY LOG EVENTS IN 'mysql-bin.000001';
+```
+
+---
+
+## Maintenance
+
+### Optimize Tables
+**Problem**: Fragmentation, slow queries
+
+**Solutions**:
+```bash
+# 1. Optimize single table
+OPTIMIZE TABLE posts;
+
+# 2. Optimize all tables
+OPTIMIZE TABLE posts, comments, users;
+
+# 3. Schedule regular optimization
+-- In cron
+0 2 * * * mysqladmin -u root -p optimize --all-databases
+
+# 4. Analyze tables
+ANALYZE TABLE posts;
+
+# 5. Check fragmentation
+SELECT * FROM information_schema.innodb_tables WHERE name = 'fraiseql/posts';
+```
+
+### Database Size
+**Problem**: Database growing too large
+
+**Solutions**:
+```bash
+# 1. Check database size
+SELECT table_schema, ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS size_mb
+FROM information_schema.tables
+GROUP BY table_schema;
+
+# 2. Find largest tables
+SELECT table_schema, table_name, ROUND((data_length + index_length) / 1024 / 1024, 2) AS size_mb
+FROM information_schema.tables
+ORDER BY (data_length + index_length) DESC
+LIMIT 20;
+
+# 3. Archive old data
+DELETE FROM audit_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 1 YEAR);
+
+# 4. Optimize and reclaim space
+OPTIMIZE TABLE audit_logs;
+
+# 5. Monitor growth
+SELECT table_name, ROUND(data_length / 1024 / 1024, 2) AS data_mb, ROUND(index_length / 1024 / 1024, 2) AS index_mb
+FROM information_schema.tables
+WHERE table_schema = 'fraiseql'
+ORDER BY (data_length + index_length) DESC;
+```
+
+---
+
+## Performance Tuning
+
+### Buffer Pool Size
+**Problem**: Excessive disk I/O
+
+**Solutions**:
+```bash
+# 1. Check current buffer pool size
+SHOW VARIABLES LIKE 'innodb_buffer_pool_size';
+
+# 2. Increase buffer pool (should be 70-80% of RAM)
+# Edit /etc/mysql/mysql.conf.d/mysqld.cnf
+[mysqld]
+innodb_buffer_pool_size = 8G
+
+# 3. Restart MySQL
+sudo systemctl restart mysql
+
+# 4. Monitor buffer pool hit rate
+-- Should be > 99%
+SELECT (SELECT SUM(variable_value) FROM performance_schema.global_status WHERE variable_name LIKE 'Innodb_buffer_pool_read%') / (SELECT SUM(variable_value) FROM performance_schema.global_status WHERE variable_name LIKE 'Innodb_buffer_pool_read%' OR variable_name = 'Innodb_buffer_pool_reads') as hit_rate;
+```
+
+---
+
+## Diagnostic Queries
+
+```sql
+-- Active connections
+SHOW PROCESSLIST;
+
+-- Connection details
+SELECT * FROM information_schema.processlist;
+
+-- Table sizes
+SELECT table_schema, table_name, ROUND((data_length + index_length) / 1024 / 1024, 2) AS size_mb
+FROM information_schema.tables
+ORDER BY (data_length + index_length) DESC;
+
+-- Index sizes
+SELECT table_name, index_name, ROUND(stat_value * @@innodb_page_size / 1024 / 1024, 2) AS index_size_mb
+FROM mysql.innodb_index_stats
+WHERE table_name = 'posts'
+ORDER BY stat_value DESC;
+
+-- Cache hit ratio
+SHOW STATUS WHERE variable_name IN ('Innodb_buffer_pool_read_requests', 'Innodb_buffer_pool_reads');
+
+-- Slow queries (if slow_query_log enabled)
+SELECT * FROM mysql.slow_log ORDER BY start_time DESC LIMIT 20;
+```
+
+---
+
+## See Also
+
+- [Common Issues](/troubleshooting/common-issues)
+- [Performance Issues](/troubleshooting/performance-issues)
+- [MySQL Documentation](https://dev.mysql.com/doc/)
+`3
+`3

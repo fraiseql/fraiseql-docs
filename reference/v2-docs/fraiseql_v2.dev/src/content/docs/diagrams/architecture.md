@@ -1,0 +1,454 @@
+---
+title: Architecture
+description: Visual diagrams of FraiseQL system architecture
+---
+
+Visual representations of FraiseQL's architecture, data flow, and component interactions.
+
+## System Overview
+
+```d2
+direction: down
+
+clients: {
+  shape: frame
+  label: "🖥️ CLIENTS"
+
+  web: "Web App"
+  mobile: "Mobile App"
+  cli: "CLI Tool"
+  analytics: "Analytics"
+}
+
+server: {
+  shape: frame
+  label: "🚀 FRAISEQL SERVER"
+
+  handler: {
+    shape: frame
+    label: "Request Handler"
+    auth: "🔐 Auth"
+    cache: "💾 Cache"
+    ratelimit: "⏱️ Rate Limit"
+    metrics: "📊 Metrics"
+  }
+
+  executor: {
+    shape: frame
+    label: "Query Executor"
+    parser: "Parser"
+    planner: "Planner"
+    exec: "Executor"
+  }
+
+  data: {
+    shape: frame
+    label: "Data Layer"
+    pool: "Connection Pool"
+    viewrouter: "View Router"
+    funcaller: "Function Caller"
+  }
+}
+
+database: {
+  shape: frame
+  label: "🗄️ POSTGRESQL"
+
+  tables: "tb_ Tables (Write)"
+  views: "v_ Views (Read)"
+  functions: "fn_ Functions (Mutations)"
+  projections: "tv_ Tables (Projections)"
+  indexes: "Indexes"
+}
+
+clients.web -> server.handler.auth: "GraphQL"
+clients.mobile -> server.handler.auth: "GraphQL"
+clients.cli -> server.handler.auth: "GraphQL"
+clients.analytics -> server.handler.auth: "Arrow Flight"
+
+server.handler.auth -> server.handler.cache
+server.handler.cache -> server.handler.ratelimit
+server.handler.ratelimit -> server.handler.metrics
+server.handler.metrics -> server.executor.parser
+
+server.executor.parser -> server.executor.planner
+server.executor.planner -> server.executor.exec
+
+server.executor.exec -> server.data.pool
+server.executor.exec -> server.data.viewrouter
+server.executor.exec -> server.data.funcaller
+
+server.data.pool -> database.tables
+server.data.viewrouter -> database.views
+server.data.funcaller -> database.functions
+database.tables -> database.projections
+database.projections -> database.indexes
+```
+
+## CQRS Data Flow
+
+```d2
+direction: right
+
+write_side: {
+  shape: frame
+  label: "✏️ WRITE SIDE"
+
+  mutation: "Mutation"
+  fn_create: "fn_create()\n(SQL Function)"
+  tb_user: "tb_user\n(Base Table)"
+  sync: "sync_tv_user()"
+}
+
+read_side: {
+  shape: frame
+  label: "📖 READ SIDE"
+
+  query: "Query"
+  v_user: "v_user\n(SQL View)"
+  tv_user: "tv_user\n(Projection)"
+}
+
+output: {
+  response: "📤 Response\nJSON"
+}
+
+write_side.mutation -> write_side.fn_create
+write_side.fn_create -> write_side.tb_user
+write_side.tb_user -> write_side.sync
+
+read_side.query -> read_side.v_user
+read_side.v_user -> read_side.tv_user
+
+write_side.sync -> read_side.tv_user: "Syncs to"
+read_side.tv_user -> output.response
+```
+
+## View Composition
+
+```d2
+direction: down
+
+composed: {
+  shape: frame
+  label: "🔗 Composed Views"
+
+  v_comment: "v_comment\njsonb_build_object()"
+}
+
+middle: {
+  shape: frame
+  label: "📦 Intermediate Views"
+
+  v_post: "v_post\njsonb_build_object()"
+  v_user: "v_user\njsonb_build_object()"
+}
+
+tables: {
+  shape: frame
+  label: "🗄️ Base Tables"
+
+  tb_post: "tb_post\n(id, title, content, fk_user, ...)"
+  tb_user: "tb_user\n(id, name, email, bio, ...)"
+}
+
+composed.v_comment -> middle.v_post: "references"
+composed.v_comment -> middle.v_user: "references"
+middle.v_post -> tables.tb_post: "joins"
+middle.v_user -> tables.tb_user: "joins"
+```
+
+## Compilation Pipeline
+
+```d2
+direction: right
+
+input: {
+  shape: frame
+  label: "📝 INPUT"
+
+  schema: "schema.py\n(Python Code)"
+  config: "fraiseql.toml\n(Configuration)"
+}
+
+parse: {
+  shape: frame
+  label: "🔍 PARSING"
+
+  parser: "🐍 Python\nParser"
+  loader: "⚙️ Config\nLoader"
+}
+
+analyze: {
+  shape: frame
+  label: "📊 ANALYSIS"
+
+  analyzer: "Type\nAnalyzer"
+  types: "Types\n(User, Post, Comment)"
+  queries: "Queries\n(user(), posts())"
+  mutations: "Mutations\n(create, update, delete)"
+}
+
+generate: {
+  shape: frame
+  label: "🔨 GENERATION"
+
+  gen: "Code\nGenerator"
+  sql: "SQL Views\n(v_*.sql)"
+  rust: "Rust Binary\n(main.rs)"
+  graphql: "GraphQL Schema\n(schema.gql)"
+}
+
+output: {
+  shape: frame
+  label: "📦 OUTPUT"
+
+  migrations: "db/migrations/"
+  binary: "target/release/\nfraiseql-server"
+  schema_out: "schema/"
+}
+
+input.schema -> parse.parser
+input.config -> parse.loader
+
+parse.parser -> analyze.analyzer
+parse.loader -> analyze.analyzer
+
+analyze.analyzer -> analyze.types
+analyze.analyzer -> analyze.queries
+analyze.analyzer -> analyze.mutations
+
+analyze.types -> generate.gen
+analyze.queries -> generate.gen
+analyze.mutations -> generate.gen
+
+generate.gen -> generate.sql
+generate.gen -> generate.rust
+generate.gen -> generate.graphql
+
+generate.sql -> output.migrations
+generate.rust -> output.binary
+generate.graphql -> output.schema_out
+```
+
+## Observer Event Flow
+
+```d2
+direction: down
+
+write_operation: {
+  shape: frame
+  label: "✏️ WRITE OPERATION"
+
+  mutation: "🔄 Mutation"
+  fn: "fn_create_order()\n(SQL Function)"
+  insert: "INSERT INTO\ntb_order"
+}
+
+observer_system: {
+  shape: frame
+  label: "👁️ OBSERVER SYSTEM"
+
+  event_queue: {
+    shape: frame
+    label: "📤 Event Queue"
+
+    event1: {
+      label: "Event 1\norder_created"
+      shape: box
+    }
+    event2: {
+      label: "Event 2\norder_shipped"
+      shape: box
+    }
+    event3: {
+      label: "Event 3\npayment_failed"
+      shape: box
+    }
+    event_more: "..."
+  }
+
+  condition_eval: {
+    shape: frame
+    label: "🔍 Condition Evaluator"
+    condition: "condition: \"total > 1000\""
+    result: "✓ Match"
+  }
+
+  action_dispatch: {
+    shape: frame
+    label: "📢 Action Dispatcher"
+
+    webhook: {
+      label: "Webhook\nPOST to external"
+      shape: box
+    }
+    slack: {
+      label: "Slack\n#sales channel"
+      shape: box
+    }
+    email: {
+      label: "Email\nto: sales@..."
+      shape: box
+    }
+  }
+}
+
+write_operation.mutation -> write_operation.fn: "calls"
+write_operation.fn -> write_operation.insert: "executes"
+
+write_operation.insert -> observer_system: "🔔 TRIGGER"
+
+observer_system.event_queue.event1 -> observer_system.condition_eval: "processes"
+observer_system.event_queue.event2 -> observer_system.condition_eval: "processes"
+observer_system.event_queue.event3 -> observer_system.condition_eval: "processes"
+
+observer_system.condition_eval -> observer_system.action_dispatch: "if matches"
+
+observer_system.action_dispatch.webhook -> "🌐 External API"
+observer_system.action_dispatch.slack -> "💬 Slack API"
+observer_system.action_dispatch.email -> "📧 Email Service"
+```
+
+## Request Lifecycle
+
+```d2
+direction: down
+
+client_request: "👤 Client Request"
+
+http_server: {
+  shape: box
+  label: "🌐 HTTP Server"
+}
+
+auth: {
+  shape: box
+  label: "🔐 Auth Middleware"
+}
+
+auth_error: {
+  shape: box
+  label: "❌ 401 Unauthorized"
+  style: {
+    fill: "#ffcccc"
+  }
+}
+
+rate_limiter: {
+  shape: box
+  label: "⏱️ Rate Limiter"
+}
+
+rate_error: {
+  shape: box
+  label: "🚫 429 Too Many Requests"
+  style: {
+    fill: "#ffcccc"
+  }
+}
+
+cache_lookup: {
+  shape: box
+  label: "💾 Cache Lookup"
+}
+
+cache_hit: {
+  shape: box
+  label: "⚡ Cached Response"
+  style: {
+    fill: "#ccffcc"
+  }
+}
+
+parser: {
+  shape: box
+  label: "📝 GraphQL Parser"
+}
+
+validator: {
+  shape: box
+  label: "✓ Validator"
+}
+
+validation_error: {
+  shape: box
+  label: "⚠️ 400 Bad Request"
+  style: {
+    fill: "#ffcccc"
+  }
+}
+
+planner: {
+  shape: box
+  label: "📋 Query Planner"
+}
+
+executor: {
+  shape: box
+  label: "⚙️ SQL Executor"
+}
+
+connection_pool: {
+  shape: box
+  label: "🔗 Connection Pool"
+}
+
+database: {
+  shape: box
+  label: "🗄️ PostgreSQL"
+}
+
+response_builder: {
+  shape: box
+  label: "🏗️ Response Builder"
+}
+
+cache_store: {
+  shape: box
+  label: "💿 Cache Store"
+}
+
+json_response: {
+  shape: box
+  label: "📤 JSON Response"
+  style: {
+    fill: "#ccffcc"
+  }
+}
+
+client_request -> http_server
+http_server -> auth
+
+auth -> auth_error: "if invalid"
+auth -> rate_limiter: "if valid"
+
+rate_limiter -> rate_error: "if exceeded"
+rate_limiter -> cache_lookup: "if allowed"
+
+cache_lookup -> cache_hit: "if hit"
+cache_lookup -> parser: "if miss"
+
+parser -> validator
+validator -> validation_error: "if invalid"
+validator -> planner: "if valid"
+
+planner -> executor
+executor <- connection_pool: "gets connection"
+executor -> database: "sends query"
+
+database -> response_builder: "returns data"
+response_builder -> cache_store: "stores response"
+cache_store -> json_response: "delivers"
+
+cache_hit -> json_response: "fast path"
+auth_error -> json_response: "error path"
+rate_error -> json_response: "error path"
+validation_error -> json_response: "error path"
+```
+
+## Next Steps
+
+- [How It Works](/concepts/how-it-works) — Detailed explanation
+- [CQRS Pattern](/concepts/cqrs) — Data architecture
+- [View Composition](/concepts/view-composition) — View design

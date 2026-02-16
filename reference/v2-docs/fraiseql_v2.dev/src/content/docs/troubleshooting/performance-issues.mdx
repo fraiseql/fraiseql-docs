@@ -1,0 +1,887 @@
+---
+title: Performance Issues
+description: Troubleshoot FraiseQL performance problems - slow queries, high latency, database load
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Performance Issues
+
+Solutions for FraiseQL performance problems.
+
+## Slow Queries (p95 > 200ms, p99 > 500ms)
+
+### Symptoms
+- Requests taking > 200ms (p95)
+- Inconsistent latency
+- Occasionally slow responses mixed with fast ones
+- Load hasn't changed but latency increased
+
+### Diagnosis Steps
+
+1. Check logs for slow queries:
+```bash
+LOG_LEVEL=debug python -m fraiseql serve
+```
+
+2. Monitor during slow period:
+```bash
+docker stats fraiseql
+curl http://localhost:9000/metrics | grep fraiseql_request_duration
+```
+
+3. Check database for slow queries:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    SELECT mean_exec_time, calls, mean_exec_time * calls as total_time, query
+    FROM pg_stat_statements
+    ORDER BY mean_exec_time DESC LIMIT 5;
+
+    -- Show slowest queries by total impact
+    SELECT mean_exec_time, calls, query FROM pg_stat_statements
+    ORDER BY mean_exec_time * calls DESC LIMIT 5;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SHOW FULL PROCESSLIST;
+
+    -- Enable slow query log
+    SET GLOBAL slow_query_log = 'ON';
+    SET GLOBAL long_query_time = 1;
+
+    -- Check slow query log
+    SELECT * FROM mysql.slow_log ORDER BY query_time DESC LIMIT 5;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # SQLite doesn't have built-in query statistics
+    # Use EXPLAIN QUERY PLAN with profiling
+    sqlite3 database.db ".timer on"
+    sqlite3 database.db "EXPLAIN QUERY PLAN SELECT ..."
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SELECT TOP 5 total_elapsed_time / execution_count as avg_elapsed_time,
+           execution_count, query_hash, text
+    FROM sys.dm_exec_query_stats stats
+    CROSS APPLY sys.dm_exec_sql_text(stats.sql_handle) text
+    ORDER BY total_elapsed_time DESC;
+
+    -- Show total impact (avg time × calls)
+    SELECT TOP 5 total_elapsed_time / execution_count as avg_time,
+           (total_elapsed_time / execution_count) * execution_count as total_time,
+           execution_count, text
+    FROM sys.dm_exec_query_stats stats
+    CROSS APPLY sys.dm_exec_sql_text(stats.sql_handle) text
+    ORDER BY total_time DESC;
+    ```
+  </TabItem>
+</Tabs>
+
+4. Analyze slow query:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM posts WHERE user_id = 123;
+    -- Look for: "Seq Scan" → Add index, "Hash Aggregate" → Check if necessary
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    EXPLAIN FORMAT=JSON SELECT * FROM posts WHERE user_id = 123\G
+    -- Look for: type='ALL' → full scan, Extra='Using where' without index
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    EXPLAIN QUERY PLAN SELECT * FROM posts WHERE user_id = 123;
+    -- Look for: SCAN TABLE posts → full table scan
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SET STATISTICS IO ON;
+    SET STATISTICS TIME ON;
+    SELECT * FROM posts WHERE user_id = 123;
+    SET STATISTICS IO OFF;
+    SET STATISTICS TIME OFF;
+    -- Check I/O and time statistics in Messages tab
+    ```
+  </TabItem>
+</Tabs>
+
+### Solutions
+
+**Add Missing Index** (Most common):
+```bash
+# Check EXPLAIN output for "Seq Scan" or "Full Table Scan"
+EXPLAIN ANALYZE SELECT * FROM posts WHERE user_id = 123;
+
+# If full scan, add index
+CREATE INDEX idx_posts_user_id ON posts(user_id);
+```
+
+**Optimize N+1 Queries**:
+```
+FraiseQL should batch automatically
+If seeing 100 queries for 10 items, check logs
+```
+
+**Query Complexity**:
+```
+Deeply nested queries:
+users { posts { comments { author { posts { ... } } } } }
+
+Solution: Simplify query depth, use multiple queries
+```
+
+---
+
+## High Latency Spikes
+
+### Symptoms
+- Usually fast (50ms)
+- Occasionally very slow (2-5 seconds)
+- Happens randomly or under load
+- Correlates with database load
+
+### Common Causes
+
+1. **Database Lock Contention**
+   - Multiple writers competing
+   - Long transactions holding locks
+   - Deadlocks being retried
+
+2. **Connection Pool Saturation**
+   - All connections in use
+   - New requests waiting for free connection
+   - Leads to cascading delays
+
+3. **Memory Pressure**
+   - Swapping to disk
+   - Garbage collection pauses
+   - Buffer cache thrashing
+
+4. **Network Latency**
+   - To database
+   - Load balancer/DNS lookup
+   - Network packet loss
+
+### Solutions
+
+**Identify Root Cause**:
+```bash
+# 1. Check database connection pool
+curl http://localhost:9000/metrics | grep db_connections
+
+# If near max: INCREASE POOL SIZE
+PGBOUNCER_MAX_POOL_SIZE=50
+
+# 2. Check memory usage during spike
+docker stats fraiseql --no-stream
+
+# 3. Check for GC pauses (Python)
+LOG_LEVEL=debug
+
+# 4. Check database locks (PostgreSQL)
+SELECT * FROM pg_locks WHERE NOT granted;
+
+# 5. Check network latency
+ping database.example.com
+```
+
+**Fix Connection Pool**:
+```bash
+# Current: 3 instances × 5 pool size = 15 connections
+# If using 100% regularly, increase:
+
+# Option 1: Increase pool size
+PGBOUNCER_MAX_POOL_SIZE=30
+
+# Option 2: Add more instances
+# Scale from 3 to 5 instances
+
+# Option 3: Use read replicas
+# Route reads to replica instead of primary
+```
+
+**Fix Memory Pressure**:
+```bash
+# Increase container memory
+docker-compose.yml:
+  fraiseql:
+    deploy:
+      resources:
+        limits:
+          memory: 2G  # Increase from 1G
+
+# Or reduce batch size
+BATCH_SIZE=100  # Smaller batches use less memory
+```
+
+---
+
+## High Database Load (CPU > 80%)
+
+### Symptoms
+- Database CPU high even though application isn't busy
+- Database becoming bottleneck
+- Slow queries affecting all users
+- Auto-scaling of app doesn't help
+
+### Root Causes
+
+1. **Too Many Queries**
+   - N+1 problem
+   - No query caching
+   - Inefficient queries
+
+2. **Missing Indexes**
+   - Full table scans
+   - Unnecessary I/O
+
+3. **Suboptimal Queries**
+   - Complex joins
+   - Inefficient grouping
+   - Unnecessary subqueries
+
+4. **Hot Spots**
+   - One table/query causing load
+   - Contention on popular record
+
+### Solutions
+
+**Find Slow Query**:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    SELECT mean_exec_time, calls, query FROM pg_stat_statements
+    ORDER BY mean_exec_time * calls DESC LIMIT 5;
+    -- Shows: slowest × most-called = most impact
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SELECT SUM(sum_timer_wait)/SUM(count_star) as avg_time,
+           count_star as calls,
+           object_schema, object_name
+    FROM performance_schema.events_statements_summary_by_digest
+    ORDER BY avg_time DESC LIMIT 5;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # Use EXPLAIN QUERY PLAN for all slow queries
+    sqlite3 database.db "
+    EXPLAIN QUERY PLAN
+    SELECT * FROM posts WHERE user_id = 123;
+    "
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SELECT TOP 5
+      (total_elapsed_time / execution_count) as avg_time,
+      total_elapsed_time / 1000000 as total_time_sec,
+      execution_count,
+      text
+    FROM sys.dm_exec_query_stats stats
+    CROSS APPLY sys.dm_exec_sql_text(stats.sql_handle) text
+    ORDER BY (total_elapsed_time / execution_count) DESC;
+    ```
+  </TabItem>
+</Tabs>
+
+**Optimize with EXPLAIN**:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM posts WHERE user_id = 123;
+    -- Look for:
+    -- - "Seq Scan" → Add index
+    -- - "Hash Aggregate" → Check if necessary
+    -- - "Nested Loop" → Might need better index
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    EXPLAIN FORMAT=JSON SELECT * FROM posts WHERE user_id = 123\G
+    -- Look for:
+    -- - "type": "ALL" → Full table scan, add index
+    -- - "possible_keys": null → No usable index
+    -- - "key": null → Not using any index
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    EXPLAIN QUERY PLAN SELECT * FROM posts WHERE user_id = 123;
+    -- Look for:
+    -- - SCAN TABLE posts → Full table scan, add index
+    -- - SEARCH TABLE posts USING INDEX → Good, using index
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Get execution plan
+    SET STATISTICS IO ON;
+    SELECT * FROM posts WHERE user_id = 123;
+    SET STATISTICS IO OFF;
+    -- Look for:
+    -- - Table Scan → Add index
+    -- - Index Seek → Good, using index
+    -- - High logical reads → Inefficient plan
+    ```
+  </TabItem>
+</Tabs>
+
+**Add Strategic Indexes**:
+```sql
+-- On WHERE columns
+CREATE INDEX idx_posts_user_id ON posts(user_id);
+
+-- Composite index for common filters
+CREATE INDEX idx_posts_user_published ON posts(user_id, published);
+
+-- Partial index for specific values
+CREATE INDEX idx_posts_published ON posts(id) WHERE published = true;
+```
+
+**Cache Expensive Queries**:
+```python
+@cached(ttl=3600)
+@fraiseql.query
+def user_stats(user_id: ID) -> UserStats:
+    # Expensive aggregation computed once per hour
+    pass
+```
+
+---
+
+## High Memory Usage
+
+### Symptoms
+- Memory usage growing over time
+- Container killed with OOM
+- Memory usage > 90%
+- Slowdowns due to swap/GC
+
+### Root Causes
+
+1. **Memory Leak**
+   - Objects not being garbage collected
+   - Circular references
+   - Large caches growing unbounded
+
+2. **Large Query Results**
+   - Fetching massive datasets
+   - No pagination
+   - Loading entire table into memory
+
+3. **Caching Issues**
+   - Cache growing unbounded
+   - Old cache entries not evicted
+
+### Solutions
+
+**Identify Leak**:
+```bash
+# Monitor memory growth over 1 hour
+watch -n 60 'docker stats fraiseql'
+
+# If consistently growing, there's a leak
+
+# Check memory per query
+for i in {1..100}; do
+    curl http://localhost:8000/graphql ...
+done
+docker stats fraiseql  # Memory increased?
+```
+
+**Fix Large Query Results**:
+```python
+# BAD: Fetches entire table
+@fraiseql.query
+def all_posts() -> list[Post]:
+    pass
+
+# GOOD: Paginate
+@fraiseql.query
+def posts(first: int = 10, after: str | None = None) -> PostConnection:
+    pass
+
+# Usage
+query {
+  posts(first: 10) {  # Only 10 at a time
+    edges { node { id title } }
+    pageInfo { hasNextPage }
+  }
+}
+```
+
+**Fix Unbounded Cache**:
+```python
+# Set TTL to prevent indefinite growth
+@cached(ttl=3600)  # Expires after 1 hour
+def expensive_query():
+    pass
+
+# Or use LRU cache with max size
+from functools import lru_cache
+@lru_cache(maxsize=1000)
+def expensive_computation():
+    pass
+```
+
+**Increase Memory Limit**:
+```bash
+# Temporary: Increase container memory
+docker update --memory 2G fraiseql
+
+# Permanent: Update docker-compose.yml
+fraiseql:
+  deploy:
+    resources:
+      limits:
+        memory: 2G
+```
+
+---
+
+## Connection Pool Exhaustion
+
+### Symptoms
+- Requests timeout
+- "Cannot get database connection" errors
+- Gets worse under load
+- Fixed by restarting
+
+### Root Causes
+
+1. **Connections Not Released**
+   - Long transactions
+   - Unhandled errors
+   - Middleware not closing connections
+
+2. **Pool Too Small**
+   - More concurrent requests than pool size
+   - Each request holds connection
+
+3. **Connection Leak**
+   - Connections created but never returned
+   - Growing over time
+
+### Solutions
+
+**Check Current State**:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Get connection count
+    SELECT COUNT(*) as total_connections,
+           COUNT(CASE WHEN state != 'idle' THEN 1 END) as active
+    FROM pg_stat_activity;
+
+    -- Get current max
+    SHOW max_connections;
+
+    -- If near max (e.g., 100/100), pool is exhausted
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SHOW PROCESSLIST;
+
+    -- Get connection summary
+    SELECT COUNT(*) as total_connections,
+           COUNT(CASE WHEN COMMAND != 'Sleep' THEN 1 END) as active
+    FROM INFORMATION_SCHEMA.PROCESSLIST;
+
+    -- Get max allowed
+    SHOW VARIABLES LIKE 'max_connections';
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```bash
+    # SQLite single connection, check for lock waits
+    lsof | grep database.db
+    ls -lh database.db-wal  # Check WAL size
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Get connection count
+    SELECT COUNT(*) as total_connections,
+           COUNT(CASE WHEN status = 'running' THEN 1 END) as active
+    FROM master.dbo.sysprocesses
+    WHERE spid > 50;
+
+    -- Get max allowed
+    EXEC sp_configure 'max server memory';
+
+    -- If near limit, pool is exhausted
+    ```
+  </TabItem>
+</Tabs>
+
+**Immediate Relief**:
+```bash
+# Increase pool size
+PGBOUNCER_MAX_POOL_SIZE=50  # From 20
+
+# Restart application
+docker-compose restart fraiseql
+
+# Kill idle connections
+# PostgreSQL
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE state = 'idle' AND query_start < NOW() - INTERVAL '5 minutes';
+```
+
+**Long-term Fix**:
+
+1. **Find why connections aren't returning**:
+   ```bash
+   # Check logs for exceptions that don't close connections
+   LOG_LEVEL=debug python -m fraiseql serve
+   ```
+
+2. **Reduce transaction time**:
+   ```python
+   # BAD: Long transaction
+   async def mutation(input):
+       db.begin()
+       save_to_db(input)
+       send_email()  # 5 seconds
+       db.commit()
+
+   # GOOD: Short transaction
+   async def mutation(input):
+       db.begin()
+       save_to_db(input)
+       db.commit()
+       await send_email()  # Outside transaction
+   ```
+
+3. **Add connection retry**:
+   ```python
+   # Application auto-retries if no connection available
+   # FraiseQL handles this
+   ```
+
+4. **Scale with more instances**:
+   ```
+   If need 100 concurrent connections:
+   5 instances × 20 pool = 100 connections
+   ```
+
+---
+
+## Query Timeout
+
+### Symptoms
+- Requests return after timeout period
+- "Query execution timeout" errors
+- Random, not specific to one query
+- Gets worse under load
+
+### Root Causes
+
+1. **Query Too Slow**
+   - Needs index
+   - Query complexity
+
+2. **Database Overloaded**
+   - Can't start executing query in time
+   - Waiting for free resources
+
+3. **Timeout Too Low**
+   - 5 second timeout not enough
+   - Query naturally takes 6 seconds
+
+### Solutions
+
+**Check Query Speed**:
+```bash
+# Run slow query directly
+time psql -c "SELECT ..."
+
+# If takes 10 seconds, timeout must be > 10 seconds
+```
+
+**Increase Timeout**:
+```bash
+# Application level
+STATEMENT_TIMEOUT=30000  # 30 seconds
+
+# Connection level (PostgreSQL)
+DATABASE_URL=postgresql://...?statement_timeout=30000
+```
+
+**Optimize Slow Query**:
+```bash
+EXPLAIN ANALYZE SELECT ...;
+
+# Add missing indexes, simplify query
+```
+
+---
+
+## Rate Limiting Issues
+
+### Symptoms
+- Requests return 429 Too Many Requests
+- Valid traffic getting rate limited
+- Limits too strict for actual usage
+
+### Solutions
+
+**Check Current Limits**:
+```bash
+echo $RATE_LIMIT_REQUESTS
+echo $RATE_LIMIT_WINDOW_SECONDS
+```
+
+**Adjust Limits** (if too strict):
+```bash
+# From: 100 requests per minute
+# To: 1000 requests per minute
+
+RATE_LIMIT_REQUESTS=1000
+RATE_LIMIT_WINDOW_SECONDS=60
+
+# Per-user limit (requires auth)
+PER_USER_RATE_LIMIT=100
+PER_USER_RATE_LIMIT_WINDOW_SECONDS=60
+```
+
+**Monitor Rate Limit Usage**:
+```bash
+# Check Prometheus metrics
+curl http://localhost:9000/metrics | grep rate_limit
+
+# If consistently hitting limit, increase it
+```
+
+---
+
+## Caching Not Working
+
+### Symptoms
+- Same query executed multiple times
+- Cache hit rate < 50%
+- Memory not being used efficiently
+
+### Solutions
+
+**Check if Caching Enabled**:
+```bash
+redis-cli ping
+# Should return: PONG
+
+# If error, Redis not running
+docker-compose logs redis
+```
+
+**Increase TTL**:
+```python
+# From 1 hour to 24 hours
+@cached(ttl=86400)
+def stable_data():
+    pass
+```
+
+**Check Cache Hit Rate**:
+```bash
+# Prometheus metric
+curl http://localhost:9000/metrics | grep cache_hit_ratio
+
+# Should be > 80% for production
+```
+
+**Monitor Cache Size**:
+```bash
+# If too much data cached, memory pressure
+redis-cli INFO memory
+
+# If used_memory > available_memory
+# Either: increase memory or reduce cache size
+```
+
+---
+
+## Cascading Failures
+
+### Symptoms
+- One slow request blocks others
+- Timeouts cascade across system
+- Gets worse under load
+- System recovers when load drops
+
+### Root Causes
+
+1. **Shared Resource Contention**
+   - Database connection pool shared
+   - One slow request holds connections
+   - Other requests can't get connections
+
+2. **Synchronous Calls**
+   - Long operation blocks request
+   - Holds database connection
+   - Other requests timeout
+
+### Solutions
+
+**Make I/O Async**:
+```python
+# BAD: Blocks request
+@fraiseql.mutation
+def create_user(email: str) -> User:
+    user = db.create(email)
+    send_email(user.email)  # Blocks!
+    return user
+
+# GOOD: Async (don't wait for email)
+@fraiseql.mutation
+async def create_user(email: str) -> User:
+    user = await db.create(email)
+    # Send email in background
+    asyncio.create_task(send_email(user.email))
+    return user
+```
+
+**Use Circuit Breaker**:
+```python
+# Fail fast if service down
+from circuitbreaker import circuit
+
+@circuit(failure_threshold=5, recovery_timeout=60)
+def call_external_service():
+    # If 5 failures, stop trying for 60 seconds
+    # Return error immediately instead of waiting
+    pass
+```
+
+**Implement Bulkheads**:
+```python
+Separate connection pools:
+- User pool: 20 connections
+- Admin pool: 10 connections
+- Batch pool: 10 connections
+
+Prevents one type from exhausting all
+```
+
+---
+
+## Performance Monitoring
+
+### Key Metrics to Track
+
+```
+Response Latency (p50, p95, p99)
+├── p50: Should be < 100ms
+├── p95: Should be < 200ms
+└── p99: Should be < 500ms
+
+Database Queries
+├── Count: < 5 per request
+├── Latency: < 50ms average
+└── Connection pool: < 80% utilized
+
+Memory
+├── Usage: Should be stable
+├── Growth: < 1MB/minute growth
+└── GC: No long pause times
+
+Error Rate
+├── Target: < 0.1%
+└── Alerts: > 1% for 5 minutes
+
+Cache
+├── Hit rate: > 80%
+├── Size: < 80% of available memory
+└── Evictions: Normal (TTL expiry)
+```
+
+### Set Up Monitoring
+
+```bash
+# Prometheus scrape configuration
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'fraiseql'
+    static_configs:
+      - targets: ['localhost:9000']
+```
+
+### Alerts to Configure
+
+```
+# Alert when p95 > 500ms
+- alert: HighLatency
+  expr: fraiseql_request_duration_seconds{quantile="0.95"} > 0.5
+
+# Alert when error rate > 1%
+- alert: HighErrorRate
+  expr: rate(fraiseql_errors_total[5m]) > 0.01
+
+# Alert when connection pool > 90%
+- alert: ConnectionPoolNearFull
+  expr: fraiseql_db_connections_used / fraiseql_db_connections_max > 0.9
+
+# Alert when cache hit rate < 70%
+- alert: LowCacheHitRate
+  expr: fraiseql_cache_hit_ratio < 0.7
+```
+
+---
+
+## Benchmarking Your Changes
+
+```bash
+# Before optimization
+curl -s http://localhost:8000/graphql -d '{"query":"..."}' | jq '.timing'
+
+# After optimization
+# Should see improvement in latency and query count
+
+# Use load testing tool
+k6 run benchmark.js
+# Compare: p95 latency, error rate, throughput
+```
+
+---
+
+## See Also
+
+- [Performance Benchmarks](/guides/performance-benchmarks)
+- [Scaling & Performance](/deployment/scaling)
+- [Advanced Patterns](/guides/advanced-patterns)
+- [Common Issues](/troubleshooting/common-issues)

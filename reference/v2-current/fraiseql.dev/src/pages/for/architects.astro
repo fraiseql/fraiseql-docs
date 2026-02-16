@@ -1,0 +1,72 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="FraiseQL for Architects - Architecture & Design Decisions"
+  description="Architectural overview, design principles, consistency model, and integration patterns for CTOs and architects."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>FraiseQL for Architects</h1>
+    <p>
+      Database-first architecture principles, design decisions, and integration
+      patterns for technical leaders.
+    </p>
+
+    <section style="margin: 2rem 0;">
+      <h2>Architecture Overview</h2>
+      <p>Three-stage pipeline:</p>
+      <ul>
+        <li>
+          <strong>Authoring</strong>: Python/TypeScript schema definitions
+        </li>
+        <li><strong>Compilation</strong>: Rust compiler validates and optimizes</li>
+        <li><strong>Runtime</strong>: Pure Rust server with deterministic execution</li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Key Architectural Decisions</h2>
+      <ul>
+        <li>Why compile at build time, not runtime</li>
+        <li>Why database-first, not schema-first</li>
+        <li>Why CP (Consistency + Partition Tolerance), not AP</li>
+        <li>Why Rust, not JavaScript or Python</li>
+        <li>Why multi-database support</li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>System Qualities</h2>
+      <ul>
+        <li>Performance characteristics (O(1) lookup, deterministic paths)</li>
+        <li>Consistency model (strong, transactional)</li>
+        <li>Security model (compile-time RBAC, field-level encryption)</li>
+        <li>Failure modes (graceful degradation, circuit breakers)</li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Integration Patterns</h2>
+      <ul>
+        <li>Federation with other GraphQL services</li>
+        <li>Extension points (custom directives, middleware)</li>
+        <li>Multi-plane interaction (GraphQL plane + Data plane)</li>
+        <li>Event sourcing and CQRS patterns</li>
+      </ul>
+    </section>
+
+    <section style="margin: 2rem 0;">
+      <h2>Migration Paths</h2>
+      <ul>
+        <li>From Hasura (runtime introspection → compilation)</li>
+        <li>From Apollo (resolver chains → database-first)</li>
+        <li>From REST (HTTP endpoints → GraphQL)</li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

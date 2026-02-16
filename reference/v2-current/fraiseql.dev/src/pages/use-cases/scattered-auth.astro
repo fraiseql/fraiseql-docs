@@ -1,0 +1,326 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="Scattered Authorization Problem - FraiseQL Solution"
+  description="How centralized compile-time authorization prevents security bugs."
+>
+  <div style="padding: 2rem; max-width: 1280px; margin: 0 auto;">
+    <h1>🔒 Problem: Scattered Authorization</h1>
+    <p style="font-size: 1.2rem; color: #666;">
+      <strong>How compile-time RBAC prevents authorization bugs and data leaks</strong>
+    </p>
+
+    <section style="margin: 3rem 0;">
+      <h2>The Problem: Authorization in Resolvers</h2>
+
+      <p>
+        Traditional GraphQL spreads authorization logic across resolvers:
+      </p>
+
+      <pre><code>{`// Resolver 1: Check if user is admin
+const user = await getUserResolver(args);
+if (!context.user.role === 'admin') {
+  throw new Error('Not authorized');
+}
+
+// Resolver 2: Forgot authorization check!
+const posts = await getPostsResolver(args);
+// No auth check! Anyone can see all posts
+
+// Resolver 3: Wrong authorization check
+const comments = await getCommentsResolver(args);
+if (context.user.id === args.user_id) {
+  // Check: user can only see their own comments
+  // But forgot to check if they're the post author!
+}
+
+// Resolver 4: Missing org check
+const teamData = await getTeamResolver(args);
+if (context.user.role === 'team_admin') {
+  // Check: team admin can see data
+  // But didn't verify they're admin of THIS team!
+}
+
+// Security bugs from scattered auth:
+// 1. Authorization check in one resolver might be missing in another
+// 2. Different checks might be inconsistent
+// 3. Hard to audit: where should auth be checked?
+// 4. Easy to miss edge cases (org, team, tenant, etc.)`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Why Scattered?</h3>
+      <ul>
+        <li>
+          <strong>Resolver per field:</strong> Each resolver implements its own auth checks
+        </li>
+        <li>
+          <strong>No centralized view:</strong> Can't see all authorization rules in one place
+        </li>
+        <li>
+          <strong>Easy to forget:</strong> Developer adds new field, forgets auth check
+        </li>
+        <li>
+          <strong>Inconsistency:</strong> Different fields might have different auth logic
+        </li>
+      </ul>
+
+      <p style="margin-top: 1rem; color: #c41c3b;">
+        <strong>Result:</strong> Authorization bugs that leak data or allow unauthorized access.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Authorization Bugs</h2>
+
+      <h3 style="margin-top: 2rem;">Bug 1: Missing Authorization Check</h3>
+      <pre><code>{`# Resolver chain for getting team members
+resolver user.team.members():
+  - Check: context.user is team_admin
+  - Return members list
+
+But developer forgot to add auth check to:
+resolver user.team.budget():
+  - No check! Returns sensitive budget info
+  - Result: Anyone can see team budget ❌
+
+# This is a real bug that leaked a company's financials`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Bug 2: Inconsistent Tenant Check</h3>
+      <pre><code>{`# SaaS platform with multiple tenants
+
+resolver getDocuments():
+  - Check: user.tenant_id === context.user.tenant_id
+  - Return documents
+
+But forgot check in:
+resolver getDocumentStats():
+  - No tenant check!
+  - Returns stats for ALL tenants ❌
+
+# Result: Tenant A could see Tenant B's statistics`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Bug 3: Role-Based Access Logic Error</h3>
+      <pre><code>{`resolver updateUser(user_id):
+  # Check: context.user.role === 'admin'
+  # But should also check: user can only update themselves
+  # Exception: admin can update anyone
+
+  if (context.user.role === 'admin') {
+    // Allow update
+  } else if (context.user.id === user_id) {
+    // Allow self-update
+  } else {
+    throw 'Unauthorized'
+  }
+
+# Developer got logic backwards:
+  if (context.user.role === 'admin' || context.user.id === user_id) {
+    // WRONG! Non-admin users can now update admin accounts
+  }
+
+# Result: Users could escalate their own permissions ❌`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>FraiseQL Solution: Compile-Time RBAC</h2>
+
+      <p>
+        <strong>All authorization rules defined in one place, enforced at compile time:</strong>
+      </p>
+
+      <pre><code>{`# Schema-level RBAC (centralized, verified)
+@fraiseql.type
+class User:
+    id: int
+    name: str
+    email: str
+
+    # Only visible to: admin or self
+    @rbac(roles=["admin"], self_access=true)
+    password_hash: str
+
+    # Only visible to: admin or same tenant
+    @rbac(roles=["admin"], tenant_match=true)
+    ssn: str
+
+    # Visible to: anyone with access to this user
+    profile: UserProfile
+
+@fraiseql.type
+class TeamData:
+    id: int
+    name: str
+
+    # Only admin of THIS team can access
+    @rbac(roles=["team_admin"], team_id_match=true)
+    budget: Decimal
+
+    # Team members can see summary, not details
+    @rbac(roles=["team_admin", "team_member"], summary_only=true)
+    spending_detail: SpendingDetail
+
+# Mutations have RBAC too
+@rbac(roles=["admin"])
+@fraiseql.mutation
+def update_user(user_id: int, name: str) -> User:
+    pass
+
+@rbac(roles=["team_admin"], team_id_match=true)
+@fraiseql.mutation
+def update_team_budget(team_id: int, budget: Decimal) -> TeamData:
+    pass`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Compile-Time Verification</h3>
+      <p>
+        The compiler verifies:
+      </p>
+      <ul>
+        <li>
+          <strong>Schema-level RBAC:</strong> All authorization rules defined in one place, not scattered across resolvers
+        </li>
+        <li>
+          <strong>Consistency checking:</strong> Same field maintains consistent authorization rules
+        </li>
+        <li>
+          <strong>Multi-tenant support:</strong> Compiler helps identify where tenant isolation should apply
+        </li>
+        <li>
+          <strong>Access patterns:</strong> Centralized policy makes access patterns auditable
+        </li>
+      </ul>
+
+      <p style="margin-top: 1rem; color: #059669;">
+        <strong>Result:</strong> Authorization rules are centralized and verifiable, making common mistakes easier to catch during development.
+      </p>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Real-World Example: Healthcare Compliance</h2>
+
+      <h3 style="margin-top: 2rem;">Scenario</h3>
+      <p>
+        <strong>Company:</strong> HealthData, healthcare data management platform
+      </p>
+      <p>
+        <strong>Challenge:</strong> HIPAA requires field-level access control. Can't have authorization bugs.
+      </p>
+
+      <h3 style="margin-top: 2rem;">Before (Scattered Auth): Authorization Audit Nightmare</h3>
+      <pre><code>{`# 200+ resolvers, each with its own auth logic
+# Compliance auditor asks: "Who can see patient SSN?"
+
+# Search through resolvers...
+# Found in 5 different places:
+1. resolver getPatient() - checks: role === 'doctor'
+2. resolver patientSearch() - checks: role === 'admin' (DIFFERENT!)
+3. resolver exportPatientData() - NO CHECK! ❌
+4. resolver updatePatientRecord() - checks: role === 'doctor' and org_id match
+5. resolver patientStats() - checks: role === 'admin' OR role === 'analyst'
+
+# Inconsistent! Auditor questions:
+# - Why is exportPatientData not checked?
+# - Why is patientStats different from getPatient?
+# - Does analyst role need access?
+
+# Result: HIPAA audit fails, compliance remediation costs $500K`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">After (Compile-Time RBAC): Simple Audit</h3>
+      <pre><code>{`# All auth rules in one place in schema
+@fraiseql.type
+class PatientRecord:
+    id: int
+    medical_record_number: int
+
+    @rbac(roles=["doctor", "nurse"], org_id_match=true)
+    ssn: str              # Only doctors/nurses in same org
+
+    @rbac(roles=["doctor"], org_id_match=true)
+    diagnosis: str        # Only doctors
+
+    @rbac(roles=["doctor", "pharmacist"], org_id_match=true)
+    medications: str      # Doctors and pharmacists
+
+# Compliance auditor asks: "Who can see patient SSN?"
+# Answer: Open schema.json, search for "ssn"
+# Answer: Roles ["doctor", "nurse"] with org_id_match
+
+# Verification: Run compliance check
+$ fraiseql compliance-audit
+  ✓ All HIPAA fields protected
+  ✓ No unprotected PII fields
+  ✓ Organization isolation verified
+  ✓ Role-based rules consistent
+
+# Result: HIPAA audit passes easily`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Authorization Patterns</h2>
+
+      <h3 style="margin-top: 2rem;">Pattern 1: Role-Based</h3>
+      <pre><code>{`@rbac(roles=["admin"])
+@rbac(roles=["admin", "moderator"])
+@rbac(roles=["team_admin", "team_member"])`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Pattern 2: Self-Access + Admin Exception</h3>
+      <pre><code>{`@rbac(roles=["admin"], self_access=true)
+# Means: admin can access anyone, others can access themselves`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Pattern 3: Tenant/Organization Isolation</h3>
+      <pre><code>{`@rbac(roles=["admin"], tenant_id_match=true)
+@rbac(roles=["team_admin"], team_id_match=true)
+# Means: Access only allowed if IDs match`}</code></pre>
+
+      <h3 style="margin-top: 2rem;">Pattern 4: Field Redaction</h3>
+      <pre><code>{`@rbac(roles=["admin", "analyst"], summary_only=true)
+# Means: Role can see limited version of field`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Audit Trail Integration</h2>
+
+      <p>
+        RBAC rules automatically generate audit logs:
+      </p>
+
+      <pre><code>{`# Any access to protected field is logged
+mutation UpdatePatient($id: ID!, $diagnosis: String!) {
+  update_patient(id: $id, diagnosis: $diagnosis) {
+    id
+  }
+}
+
+# Audit log created:
+{
+  "timestamp": "2024-02-06T12:34:56Z",
+  "user_id": "user_123",
+  "user_role": "doctor",
+  "action": "mutation",
+  "mutation": "update_patient",
+  "accessed_fields": ["diagnosis"],
+  "rbac_check": {
+    "field": "diagnosis",
+    "required_roles": ["doctor"],
+    "user_role": "doctor",
+    "result": "allowed"
+  }
+}
+
+# Compliance value: Prove who accessed what, when, and why`}</code></pre>
+    </section>
+
+    <section style="margin: 3rem 0;">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="/for/compliance">For Compliance Officers</a> – RBAC and audit trail setup</li>
+        <li><a href="/use-cases/regulated-industries">Use Case: Regulated Industries</a> – Authorization patterns</li>
+        <li><a href="/use-cases">← Back to Use Cases</a></li>
+      </ul>
+    </section>
+
+    <p style="margin-top: 2rem;">
+      <a href="/">← Back to Home</a>
+    </p>
+  </div>
+</BaseLayout>

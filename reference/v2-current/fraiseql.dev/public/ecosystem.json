@@ -1,0 +1,315 @@
+{
+  "name": "FraiseQL Ecosystem",
+  "version": "2.0.0-alpha.1",
+  "description": "Database-first GraphQL ecosystem with 11 integrated tools",
+  "philosophy": "database-first",
+  "database_as_source_of_truth": true,
+  "compiled_not_interpreted": true,
+  "n_plus_one_prevention": "compile-time",
+  "deterministic_execution": true,
+  "website": "https://fraiseql.dev",
+  "repository": "https://github.com/fraiseql/fraiseql",
+  "documentation": "https://github.com/fraiseql/fraiseql/tree/main/docs",
+  "tools": [
+    {
+      "id": "fraiseql-core",
+      "name": "fraiseql",
+      "type": "core-engine",
+      "orbit": "inner",
+      "description": "Compiled GraphQL execution engine (Rust + Python/TypeScript authoring)",
+      "repository": "https://github.com/fraiseql/fraiseql",
+      "performance_multiplier": "7-10x",
+      "performance_metric": "1-2ms deterministic latency",
+      "tech_stack": ["Rust", "Python", "TypeScript"],
+      "key_features": [
+        "Compile-time schema optimization",
+        "N+1 prevention via compiler",
+        "Multi-database support (PostgreSQL, MySQL, SQLite, SQL Server)",
+        "100% audit trail",
+        "Field-level encryption",
+        "RBAC at compile time"
+      ]
+    },
+    {
+      "id": "fraiseql-wire",
+      "name": "fraiseql-wire",
+      "type": "transport-layer",
+      "orbit": "inner",
+      "description": "Streaming JSON wire protocol with bounded memory usage",
+      "repository": "https://github.com/fraiseql/fraiseql-wire",
+      "performance_multiplier": "200000x",
+      "performance_metric": "1MB constant vs 200MB buffered",
+      "tech_stack": ["Rust", "Hybrid SQL+Rust filtering"],
+      "key_features": [
+        "Constant memory streaming",
+        "Hybrid SQL-in-Rust execution",
+        "Zero-copy serialization",
+        "200,000× better memory efficiency"
+      ]
+    },
+    {
+      "id": "confiture",
+      "name": "confiture",
+      "type": "migration-tool",
+      "orbit": "inner",
+      "description": "PostgreSQL migrations (600× faster than traditional)",
+      "repository": "https://github.com/fraiseql/confiture",
+      "performance_multiplier": "600x",
+      "performance_metric": "Fast incremental + multi-agent builds",
+      "tech_stack": ["Rust", "SQL"],
+      "key_features": [
+        "4 migration strategies (DDL build, incremental, production sync, multi-agent)",
+        "Zero-downtime blue/green migrations",
+        "600× faster than traditional tools",
+        "Automatic schema version management"
+      ]
+    },
+    {
+      "id": "pg-tviews",
+      "name": "pg_tviews",
+      "type": "query-acceleration",
+      "orbit": "mid",
+      "description": "Incremental materialized views (2,083× faster refreshes)",
+      "repository": "https://github.com/fraiseql/pg_tviews",
+      "performance_multiplier": "2083x",
+      "performance_metric": "Incremental refresh vs full rebuild",
+      "tech_stack": ["PostgreSQL", "Rust"],
+      "key_features": [
+        "Incremental refresh (not full rebuild)",
+        "2PC transaction support",
+        "Automatic dependency tracking",
+        "Perfect for CQRS read models"
+      ]
+    },
+    {
+      "id": "jsonb-delta",
+      "name": "jsonb_delta",
+      "type": "data-efficiency",
+      "orbit": "mid",
+      "description": "Efficient JSONB operations (2-7× faster updates)",
+      "repository": "https://github.com/fraiseql/jsonb_delta",
+      "performance_multiplier": "7x",
+      "performance_metric": "Delta updates vs full replacement",
+      "tech_stack": ["PostgreSQL", "Rust"],
+      "key_features": [
+        "Delta-based JSONB updates",
+        "7× faster for partial updates",
+        "Reduced network transfer",
+        "Automatic diff calculation"
+      ]
+    },
+    {
+      "id": "fraiseql-seed",
+      "name": "fraiseql-seed",
+      "type": "test-data",
+      "orbit": "mid",
+      "description": "Auto-resolving test data generation (300× faster)",
+      "repository": "https://github.com/fraiseql/fraiseql-seed",
+      "performance_multiplier": "300x",
+      "performance_metric": "Auto-resolution vs manual seed scripts",
+      "tech_stack": ["Rust", "PostgreSQL"],
+      "key_features": [
+        "Automatic relationship resolution",
+        "300× faster test data generation",
+        "Constraint-aware generation",
+        "Reproducible seed data"
+      ]
+    },
+    {
+      "id": "fraisier",
+      "name": "fraisier",
+      "type": "deployment",
+      "orbit": "mid",
+      "description": "Deployment orchestrator with zero-downtime deploys",
+      "repository": "https://github.com/fraiseql/fraisier",
+      "performance_multiplier": "instant",
+      "performance_metric": "Blue-green deployment",
+      "tech_stack": ["Rust", "Docker", "Kubernetes"],
+      "key_features": [
+        "Blue-green deployment orchestration",
+        "Zero-downtime schema migrations",
+        "Health check verification",
+        "Automatic rollback on failure"
+      ]
+    },
+    {
+      "id": "fraiseql-semis",
+      "name": "fraiseql-semis",
+      "type": "test-data-alternative",
+      "orbit": "outer",
+      "description": "Semantic UUID test data generation",
+      "repository": "https://github.com/fraiseql/fraiseql-semis",
+      "performance_multiplier": "alternative",
+      "performance_metric": "Alternative to fraiseql-seed",
+      "tech_stack": ["Rust"],
+      "key_features": [
+        "Semantic UUID generation",
+        "Predictable test data",
+        "Alternative seeding strategy"
+      ]
+    },
+    {
+      "id": "fraiseql-naming-police",
+      "name": "fraiseql-naming-police",
+      "type": "linting",
+      "orbit": "outer",
+      "description": "Naming convention enforcement for schemas",
+      "repository": "https://github.com/fraiseql/fraiseql-naming-police",
+      "performance_multiplier": "n/a",
+      "performance_metric": "Code quality improvement",
+      "tech_stack": ["Rust"],
+      "key_features": [
+        "Enforce naming conventions",
+        "Prevent inconsistencies",
+        "Team-wide standards",
+        "CI/CD integration"
+      ]
+    },
+    {
+      "id": "velocitybench",
+      "name": "velocitybench",
+      "type": "benchmarking",
+      "orbit": "outer",
+      "description": "GraphQL framework benchmarking suite (28 frameworks)",
+      "repository": "https://github.com/fraiseql/velocitybench",
+      "performance_multiplier": "benchmark-tool",
+      "performance_metric": "Comparative analysis",
+      "tech_stack": ["Rust", "GraphQL"],
+      "key_features": [
+        "28-framework comparative benchmarks",
+        "Reproducible test scenarios",
+        "Performance metrics collection",
+        "Real-world workload simulation"
+      ]
+    },
+    {
+      "id": "fraiseql-ecosystem",
+      "name": "fraiseql-ecosystem",
+      "type": "meta-analysis",
+      "orbit": "outer",
+      "description": "Ecosystem analysis and strategic planning documentation",
+      "repository": "https://github.com/fraiseql/fraiseql-ecosystem",
+      "performance_multiplier": "1.2M-63M",
+      "performance_metric": "Combined ecosystem benefit",
+      "tech_stack": ["Documentation"],
+      "key_features": [
+        "Tool integration analysis",
+        "Performance multiplication modeling",
+        "Cohesion scoring (8.5/10)",
+        "Strategic planning documentation"
+      ]
+    }
+  ],
+  "integration_matrix": {
+    "fraiseql-core": [
+      "fraiseql-wire",
+      "confiture",
+      "fraisier",
+      "fraiseql-seed",
+      "fraiseql-naming-police"
+    ],
+    "fraiseql-wire": ["fraiseql-core"],
+    "confiture": [
+      "fraiseql-core",
+      "fraisier",
+      "pg_tviews"
+    ],
+    "pg_tviews": [
+      "confiture",
+      "fraiseql-core",
+      "fraiseql-wire"
+    ],
+    "jsonb_delta": ["fraiseql-core"],
+    "fraiseql-seed": ["fraiseql-core"],
+    "fraisier": [
+      "fraiseql-core",
+      "confiture"
+    ],
+    "fraiseql-semis": ["fraiseql-core"],
+    "fraiseql-naming-police": ["fraiseql-core"],
+    "velocitybench": ["fraiseql-core"],
+    "fraiseql-ecosystem": []
+  },
+  "combined_performance": {
+    "description": "When all tools work together, cumulative benefits",
+    "impact": "Significant improvements in development speed, query performance, and operational efficiency",
+    "components": [
+      {
+        "tool": "fraiseql-core",
+        "benefit": "7-10x faster queries vs runtime interpretation"
+      },
+      {
+        "tool": "fraiseql-wire",
+        "benefit": "Constant memory usage for large result sets"
+      },
+      {
+        "tool": "confiture",
+        "benefit": "Faster database schema operations"
+      },
+      {
+        "tool": "pg_tviews",
+        "benefit": "Faster incremental view refreshes"
+      },
+      {
+        "tool": "jsonb_delta",
+        "benefit": "Reduced bandwidth for JSONB updates"
+      },
+      {
+        "tool": "fraiseql-seed",
+        "benefit": "Faster test data generation"
+      }
+    ]
+  },
+  "cohesion_score": 8.5,
+  "cohesion_explanation": "Tools are specialized and focused, designed to work together but maintain clear boundaries. Not a monolith.",
+  "supported_databases": [
+    {
+      "name": "PostgreSQL",
+      "support_level": "primary",
+      "features": "150+ operators, full-text search, advanced JSON support"
+    },
+    {
+      "name": "MySQL",
+      "support_level": "secondary",
+      "features": "80+ operators, JSON functions"
+    },
+    {
+      "name": "SQLite",
+      "support_level": "development",
+      "features": "40+ operators, local development and testing"
+    },
+    {
+      "name": "SQL Server",
+      "support_level": "enterprise",
+      "features": "90+ operators, full-text search"
+    }
+  ],
+  "compliance_certifications": [
+    "HIPAA-ready",
+    "PCI-DSS-ready",
+    "SOC 2 aligned",
+    "GDPR-compliant"
+  ],
+  "key_guarantees": [
+    {
+      "name": "Deterministic Execution",
+      "description": "All query interpretation at compile time, runtime is fixed"
+    },
+    {
+      "name": "N+1 Prevention",
+      "description": "Compiler prevents N+1 patterns, impossible to create accidentally"
+    },
+    {
+      "name": "100% Audit Trail",
+      "description": "All mutations logged with cryptographic signatures"
+    },
+    {
+      "name": "No Scattered Authorization",
+      "description": "RBAC rules centralized in schema, compiler-verified"
+    },
+    {
+      "name": "Memory Safe",
+      "description": "Rust implementation with zero unsafe code allowed"
+    }
+  ]
+}

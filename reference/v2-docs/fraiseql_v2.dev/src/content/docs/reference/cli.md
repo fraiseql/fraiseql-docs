@@ -1,0 +1,380 @@
+---
+title: CLI Reference
+description: FraiseQL command-line interface reference
+---
+
+Complete reference for the FraiseQL v2 command-line tools.
+
+## Overview
+
+FraiseQL v2 has two CLI tools:
+
+| Tool | Purpose |
+|------|---------|
+| `fraiseql-cli` | Schema compilation, analysis, and development |
+| `fraiseql-server` | Production GraphQL server |
+
+## Installation
+
+### From Cargo (Rust)
+
+```bash
+cargo install fraiseql-cli fraiseql-server
+```
+
+### From Binary Release
+
+```bash
+# Download from releases
+curl -L https://github.com/fraiseql/fraiseql/releases/latest/download/fraiseql-cli-linux-amd64 -o fraiseql-cli
+chmod +x fraiseql-cli
+```
+
+---
+
+## fraiseql-cli
+
+### `compile`
+
+Compile GraphQL schema to optimized execution plan.
+
+```bash
+fraiseql-cli compile [OPTIONS] [INPUT]
+```
+
+**Arguments:**
+- `INPUT` — Schema file or directory (default: `fraiseql.toml`)
+
+**Options:**
+- `-o, --output <FILE>` — Output file (default: `schema.compiled.json`)
+- `--check` — Validate only, don't write output
+- `--database <URL>` — Validate against database schema
+- `-v, --verbose` — Verbose output
+
+**Examples:**
+
+```bash
+# Compile from fraiseql.toml
+fraiseql-cli compile
+
+# Compile specific schema file
+fraiseql-cli compile schema.json -o compiled.json
+
+# Validate without writing
+fraiseql-cli compile --check
+```
+
+### `explain`
+
+Show SQL execution plan for a GraphQL query.
+
+```bash
+fraiseql-cli explain [OPTIONS] <QUERY>
+```
+
+**Arguments:**
+- `QUERY` — GraphQL query string or file
+
+**Options:**
+- `--schema <FILE>` — Compiled schema (default: `schema.compiled.json`)
+- `--variables <JSON>` — Query variables as JSON
+- `--format <FORMAT>` — Output format: `sql`, `plan`, `json`
+
+**Examples:**
+
+```bash
+# Explain a query
+fraiseql-cli explain "{ users { id name } }"
+
+# With variables
+fraiseql-cli explain "query($id: ID!) { user(id: $id) { name } }" \
+    --variables '{"id": "123"}'
+
+# From file
+fraiseql-cli explain query.graphql --format plan
+```
+
+### `cost`
+
+Calculate query complexity score.
+
+```bash
+fraiseql-cli cost [OPTIONS] <QUERY>
+```
+
+**Options:**
+- `--schema <FILE>` — Compiled schema
+- `--max-cost <N>` — Fail if cost exceeds N
+- `--json` — JSON output
+
+**Examples:**
+
+```bash
+# Check query cost
+fraiseql-cli cost "{ users { posts { comments { id } } } }"
+
+# Enforce cost limit
+fraiseql-cli cost query.graphql --max-cost 100
+```
+
+### `analyze`
+
+Analyze schema for optimization opportunities.
+
+```bash
+fraiseql-cli analyze [OPTIONS] [SCHEMA]
+```
+
+**Options:**
+- `--category <CAT>` — Filter by category: `performance`, `security`, `federation`, `complexity`, `caching`, `indexing`
+- `--json` — JSON output
+- `--verbose` — Detailed recommendations
+
+**Examples:**
+
+```bash
+# Full analysis
+fraiseql-cli analyze schema.compiled.json
+
+# Security-focused analysis
+fraiseql-cli analyze --category security
+```
+
+**Output categories:**
+- **Performance** — Missing indexes, N+1 patterns, batching opportunities
+- **Security** — Missing auth, exposed fields, RLS recommendations
+- **Federation** — Cross-service references, entity boundaries
+- **Complexity** — Deep nesting, high field counts
+- **Caching** — Cacheable queries, invalidation strategies
+- **Indexing** — Missing database indexes
+
+### `dependency-graph`
+
+Visualize type dependencies.
+
+```bash
+fraiseql-cli dependency-graph [OPTIONS] [SCHEMA]
+```
+
+**Options:**
+- `--format <FMT>` — Output format: `json`, `dot`, `mermaid`, `d2`, `console`
+- `--output <FILE>` — Output file
+- `--show-cycles` — Highlight circular dependencies
+- `--unused` — Show unused types
+
+**Examples:**
+
+```bash
+# Console output
+fraiseql-cli dependency-graph
+
+# Graphviz DOT
+fraiseql-cli dependency-graph --format dot -o deps.dot
+dot -Tpng deps.dot -o deps.png
+
+# Mermaid (for Markdown)
+fraiseql-cli dependency-graph --format mermaid >> README.md
+```
+
+### `lint`
+
+Check schema for design issues.
+
+```bash
+fraiseql-cli lint [OPTIONS] [SCHEMA]
+```
+
+**Options:**
+- `--audit <AUDIT>` — Audit category: `federation`, `cost`, `cache`, `auth`, `compilation`
+- `--fail-on <LEVEL>` — Fail on: `critical`, `warning`, `all`
+- `--fix` — Auto-fix where possible
+- `--json` — JSON output
+
+**Examples:**
+
+```bash
+# Full lint
+fraiseql-cli lint
+
+# Auth audit only, fail on warnings
+fraiseql-cli lint --audit auth --fail-on warning
+```
+
+### `validate`
+
+Validate schema structure.
+
+```bash
+fraiseql-cli validate [OPTIONS] [SCHEMA]
+```
+
+**Options:**
+- `--strict` — Treat warnings as errors
+- `--database <URL>` — Validate against database
+- `--json` — JSON output
+
+**Examples:**
+
+```bash
+# Basic validation
+fraiseql-cli validate schema.json
+
+# Strict with database check
+fraiseql-cli validate --strict --database "$DATABASE_URL"
+```
+
+### `generate-views`
+
+Generate SQL DDL for Arrow views.
+
+```bash
+fraiseql-cli generate-views [OPTIONS] [SCHEMA]
+```
+
+**Options:**
+- `-o, --output <FILE>` — Output SQL file
+- `--refresh <STRATEGY>` — Refresh strategy: `trigger`, `scheduled`
+- `--include <PATTERNS>` — Include patterns (e.g., `va_*`, `tv_*`)
+
+**Examples:**
+
+```bash
+# Generate all views
+fraiseql-cli generate-views -o views.sql
+
+# Only Arrow views with trigger refresh
+fraiseql-cli generate-views --include "va_*" --refresh trigger
+```
+
+### `introspect`
+
+Introspect database for fact tables.
+
+```bash
+fraiseql-cli introspect [OPTIONS]
+```
+
+**Options:**
+- `--database <URL>` — Database connection string
+- `--output <FORMAT>` — Output format: `python`, `json`
+- `--tables <PATTERN>` — Table pattern (default: `tf_*`)
+
+**Examples:**
+
+```bash
+# Discover fact tables
+fraiseql-cli introspect --database "$DATABASE_URL"
+
+# Generate Python schema
+fraiseql-cli introspect --output python > facts.py
+```
+
+---
+
+## fraiseql-server
+
+Production GraphQL server.
+
+### Basic Usage
+
+```bash
+fraiseql-server [OPTIONS]
+```
+
+**Options:**
+- `--config <FILE>` — Config file (default: `fraiseql.toml`)
+- `--schema <FILE>` — Compiled schema (default: `schema.compiled.json`)
+- `--bind <ADDR>` — Bind address (default: `0.0.0.0:8080`)
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `FRAISEQL_CONFIG` | Path to config file |
+| `FRAISEQL_SCHEMA_PATH` | Path to compiled schema |
+| `FRAISEQL_BIND_ADDR` | Server bind address |
+| `FRAISEQL_METRICS_ENABLED` | Enable Prometheus metrics |
+| `FRAISEQL_METRICS_TOKEN` | Metrics endpoint auth token |
+| `FRAISEQL_ADMIN_API_ENABLED` | Enable admin API |
+| `FRAISEQL_ADMIN_TOKEN` | Admin API auth token |
+| `FRAISEQL_INTROSPECTION_ENABLED` | Enable GraphQL introspection |
+| `FRAISEQL_RATE_LIMITING_ENABLED` | Enable rate limiting |
+
+### Example
+
+```bash
+# Start server
+DATABASE_URL="postgresql://localhost/mydb" \
+FRAISEQL_METRICS_ENABLED=true \
+fraiseql-server --schema schema.compiled.json
+
+# With config file
+fraiseql-server --config production.toml
+```
+
+### Docker
+
+```dockerfile
+FROM fraiseql/fraiseql-server:latest
+
+COPY schema.compiled.json /app/
+COPY fraiseql.toml /app/
+
+ENV DATABASE_URL="postgresql://db:5432/app"
+ENV FRAISEQL_SCHEMA_PATH="/app/schema.compiled.json"
+
+EXPOSE 8080
+CMD ["fraiseql-server"]
+```
+
+---
+
+## Global Options
+
+All commands support:
+
+| Option | Description |
+|--------|-------------|
+| `-v, --verbose` | Verbose logging |
+| `--debug` | Debug logging |
+| `--json` | Machine-readable JSON output |
+| `-q, --quiet` | Suppress non-error output |
+| `-h, --help` | Show help |
+| `-V, --version` | Show version |
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Validation/compilation error |
+| 2 | Configuration error |
+| 3 | Database connection error |
+
+## Configuration File
+
+Commands read from `fraiseql.toml`:
+
+```toml
+[project]
+name = "my-api"
+version = "1.0.0"
+
+[database]
+url = "${DATABASE_URL}"
+
+[compilation]
+output = "schema.compiled.json"
+strict = true
+
+[server]
+bind = "0.0.0.0:8080"
+graphql_path = "/graphql"
+health_path = "/health"
+```
+
+## Next Steps
+
+- [TOML Configuration](/reference/toml-config) - Full configuration reference
+- [Deployment](/guides/deployment) - Production deployment guide

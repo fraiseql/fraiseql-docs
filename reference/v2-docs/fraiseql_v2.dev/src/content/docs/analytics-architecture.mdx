@@ -1,0 +1,752 @@
+---
+title: FraiseQL Analytics Architecture
+description: Canonical analytics patterns for FraiseQL with calendar dimensions, fact tables, measures vs dimensions, and Arrow/Parquet export
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Overview
+
+FraiseQL analytics uses a **canonical Star Schema pattern** optimized for fast aggregations, temporal analysis, and Arrow/Parquet data warehouse exports. This architecture separates:
+
+- **Measures** (aggregated metrics): Stored as direct columns for fast SUM/AVG/COUNT
+- **Dimensions** (attributes): Stored as JSONB for flexibility + denormalized columns for filtering
+- **Temporal Dimensions**: Pre-computed in a calendar dimension table for 10-16x faster time-series queries
+- **Export Format**: Flattened columnar structure compatible with Arrow Flight and Parquet
+
+## Core Components
+
+### 1. Calendar Dimension Table (tb_calendar)
+
+The **master calendar table** provides pre-computed temporal dimensions for all fact tables. This is the single source of truth for all time-based grouping, eliminating expensive `DATE_TRUNC()` calculations.
+
+```sql
+CREATE TABLE tb_calendar (
+    id UUID DEFAULT gen_random_uuid() UNIQUE,
+    reference_date DATE PRIMARY KEY,
+
+    -- Time period numbers
+    week INT,
+    week_n_days INT,                    -- Always 7
+    half_month INT,                     -- 1 or 2
+    half_month_n_days INT,              -- Days in this half
+    month INT,
+    month_n_days INT,                   -- 28-31
+    quarter INT,                        -- 1-4
+    quarter_n_days INT,                 -- 90-92
+    semester INT,                       -- 1 or 2
+    semester_n_days INT,                -- 181-184
+    year INT,
+    year_n_days INT,                    -- 365 or 366
+
+    -- Pre-computed JSONB for each granularity
+    date_info JSONB,                    -- All buckets at day level
+    week_info JSONB,
+    half_month_info JSONB,
+    month_info JSONB,
+    quarter_info JSONB,
+    semester_info JSONB,
+    year_info JSONB,
+
+    -- Reference dates (first day of each period)
+    week_reference_date DATE,           -- Monday of week
+    half_month_reference_date DATE,     -- 1st or 16th
+    month_reference_date DATE,          -- 1st of month
+    quarter_reference_date DATE,        -- 1st of quarter
+    semester_reference_date DATE,       -- Jan 1 or Jul 1
+    year_reference_date DATE,           -- Jan 1
+
+    -- Boolean flags for reference dates (enable efficient "first day" filtering)
+    is_week_reference_date BOOLEAN,     -- Is Monday?
+    is_half_month_reference_date BOOLEAN, -- Is 1st or 16th?
+    is_month_reference_date BOOLEAN,    -- Is 1st of month?
+    is_quarter_reference_date BOOLEAN,  -- Is 1st of quarter?
+    is_semester_reference_date BOOLEAN, -- Is Jan 1 or Jul 1?
+    is_year_reference_date BOOLEAN,     -- Is Jan 1?
+
+    -- Array of all interval reference dates
+    array_interval_dates DATE[]
+);
+```
+
+**date_info JSONB Structure Example:**
+
+```json
+{
+    "date": "2024-03-15",
+    "week": 11,
+    "half_month": 1,
+    "month": 3,
+    "quarter": 1,
+    "semester": 1,
+    "year": 2024
+}
+```
+
+**month_info JSONB Structure Example:**
+
+```json
+{
+    "month": 3,
+    "year": 2024,
+    "quarter": 1,
+    "semester": 1,
+    "reference_date": "2024-03-01"
+}
+```
+
+**Seed Strategy:**
+
+Calendar is seeded once at deployment covering years **2015-2035** (or configurable range). This eliminates runtime computation overhead:
+
+**Date Range Rationale:**
+- **2015-2020** (5 years): Historical data for year-over-year comparisons
+- **2020-2024** (4 years): Current production data
+- **2024-2035** (11 years): Future capacity for 10+ years of operations
+- **Total:** ~7,600 daily rows covering 21 years (negligible storage)
+
+This range allows retrospective analysis (last 5-10 years) while supporting forward-looking business intelligence and capacity planning without schema changes.
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    INSERT INTO tb_calendar (reference_date, week, month, quarter, semester, year, date_info, ...)
+    SELECT
+        d::DATE AS reference_date,
+        EXTRACT(WEEK FROM d)::INT AS week,
+        EXTRACT(MONTH FROM d)::INT AS month,
+        EXTRACT(QUARTER FROM d)::INT AS quarter,
+        CASE WHEN EXTRACT(MONTH FROM d) <= 6 THEN 1 ELSE 2 END AS semester,
+        EXTRACT(YEAR FROM d)::INT AS year,
+        jsonb_build_object(
+            'date', d::text,
+            'week', EXTRACT(WEEK FROM d),
+            'half_month', CASE WHEN EXTRACT(DAY FROM d) <= 15 THEN 1 ELSE 2 END,
+            'month', EXTRACT(MONTH FROM d),
+            'quarter', EXTRACT(QUARTER FROM d),
+            'semester', CASE WHEN EXTRACT(MONTH FROM d) <= 6 THEN 1 ELSE 2 END,
+            'year', EXTRACT(YEAR FROM d)
+        ) AS date_info,
+        DATE_TRUNC('month', d)::DATE AS month_reference_date,
+        (EXTRACT(DAY FROM d) = 1) AS is_month_reference_date
+        -- ... other columns
+    FROM generate_series('2015-01-01'::date, '2035-12-31'::date, '1 day') AS d;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    INSERT INTO tb_calendar (reference_date, week, month, quarter, semester, year, date_info, ...)
+    SELECT
+        calendar_date AS reference_date,
+        WEEK(calendar_date) AS week,
+        MONTH(calendar_date) AS month,
+        QUARTER(calendar_date) AS quarter,
+        IF(MONTH(calendar_date) <= 6, 1, 2) AS semester,
+        YEAR(calendar_date) AS year,
+        JSON_OBJECT(
+            'date', DATE_FORMAT(calendar_date, '%Y-%m-%d'),
+            'week', WEEK(calendar_date),
+            'half_month', IF(DAY(calendar_date) <= 15, 1, 2),
+            'month', MONTH(calendar_date),
+            'quarter', QUARTER(calendar_date),
+            'semester', IF(MONTH(calendar_date) <= 6, 1, 2),
+            'year', YEAR(calendar_date)
+        ) AS date_info,
+        DATE_FORMAT(DATE_SUB(calendar_date, INTERVAL DAY(calendar_date) - 1 DAY), '%Y-%m-%d') AS month_reference_date,
+        (DAY(calendar_date) = 1) AS is_month_reference_date
+        -- ... other columns
+    FROM (
+        WITH RECURSIVE dates AS (
+            SELECT '2015-01-01' AS calendar_date
+            UNION ALL
+            SELECT DATE_ADD(calendar_date, INTERVAL 1 DAY)
+            FROM dates
+            WHERE calendar_date < '2035-12-31'
+        )
+        SELECT calendar_date FROM dates
+    ) calendar
+    ORDER BY calendar_date;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    INSERT INTO tb_calendar (reference_date, week, month, quarter, semester, year, date_info, ...)
+    WITH RECURSIVE date_range AS (
+        SELECT DATE('2015-01-01') AS d
+        UNION ALL
+        SELECT DATE(d, '+1 day')
+        FROM date_range
+        WHERE d < '2035-12-31'
+    )
+    SELECT
+        d AS reference_date,
+        CAST(strftime('%W', d) AS INTEGER) AS week,
+        CAST(strftime('%m', d) AS INTEGER) AS month,
+        CAST((CAST(strftime('%m', d) AS INTEGER) - 1) / 3 + 1 AS INTEGER) AS quarter,
+        CASE WHEN CAST(strftime('%m', d) AS INTEGER) <= 6 THEN 1 ELSE 2 END AS semester,
+        CAST(strftime('%Y', d) AS INTEGER) AS year,
+        json_object(
+            'date', d,
+            'week', CAST(strftime('%W', d) AS INTEGER),
+            'half_month', CASE WHEN CAST(strftime('%d', d) AS INTEGER) <= 15 THEN 1 ELSE 2 END,
+            'month', CAST(strftime('%m', d) AS INTEGER),
+            'quarter', CAST((CAST(strftime('%m', d) AS INTEGER) - 1) / 3 + 1 AS INTEGER),
+            'semester', CASE WHEN CAST(strftime('%m', d) AS INTEGER) <= 6 THEN 1 ELSE 2 END,
+            'year', CAST(strftime('%Y', d) AS INTEGER)
+        ) AS date_info,
+        DATE(d, 'start of month') AS month_reference_date,
+        (CAST(strftime('%d', d) AS INTEGER) = 1) AS is_month_reference_date
+        -- ... other columns
+    FROM date_range;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    INSERT INTO dbo.tb_calendar (reference_date, week, month, quarter, semester, year, date_info, ...)
+    WITH cte_dates AS (
+        SELECT CAST('2015-01-01' AS DATE) AS d
+        UNION ALL
+        SELECT DATEADD(DAY, 1, d)
+        FROM cte_dates
+        WHERE d < '2035-12-31'
+    )
+    SELECT
+        d AS reference_date,
+        DATEPART(WEEK, d) AS week,
+        MONTH(d) AS month,
+        DATEPART(QUARTER, d) AS quarter,
+        CASE WHEN MONTH(d) <= 6 THEN 1 ELSE 2 END AS semester,
+        YEAR(d) AS year,
+        (
+            SELECT d AS date, DATEPART(WEEK, d) AS week,
+                CASE WHEN DAY(d) <= 15 THEN 1 ELSE 2 END AS half_month,
+                MONTH(d) AS month, DATEPART(QUARTER, d) AS quarter,
+                CASE WHEN MONTH(d) <= 6 THEN 1 ELSE 2 END AS semester,
+                YEAR(d) AS year
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS date_info,
+        CAST(DATEADD(DAY, 1 - DAY(d), d) AS DATE) AS month_reference_date,
+        CAST(DAY(d) AS BIT) AS is_month_reference_date
+        -- ... other columns
+    FROM cte_dates
+    OPTION (MAXRECURSION 0);
+    ```
+  </TabItem>
+</Tabs>
+
+**Benefits:**
+
+- **Single source of truth**: All temporal dimensions come from one table
+- **10-16x faster**: Pre-computed buckets vs runtime `DATE_TRUNC()`
+- **Reference dates**: Enable efficient "first day of period" aggregations
+- **No trigger overhead**: Calendar doesn't affect fact table insert performance
+- **Flexible granularity**: Support any time bucketing (day, week, month, quarter, semester, year)
+
+### 2. Fact Tables (tf_*)
+
+Fact tables implement the **Star Schema pattern** with measures as direct columns and dimensions as JSONB or denormalized columns:
+
+```sql
+CREATE TABLE tf_sales (
+    pk_sales BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+
+    -- MEASURES: Direct columns for fast aggregation
+    quantity INT NOT NULL,
+    revenue DECIMAL(12,2) NOT NULL,
+    cost DECIMAL(12,2) NOT NULL,
+    discount DECIMAL(12,2) DEFAULT 0,
+    units_shipped INT,
+    returns INT,
+
+    -- DIMENSIONS: Flexible JSON for denormalized attributes
+    data JSONB NOT NULL,
+
+    -- TEMPORAL: Foreign key to calendar dimension
+    occurred_at DATE NOT NULL,
+
+    -- DENORMALIZED KEYS: Indexed filtering dimensions
+    customer_id UUID NOT NULL,           -- FK for JOINs
+    product_id UUID NOT NULL,            -- FK for JOINs
+    product_category TEXT,               -- Denormalized for faster filtering
+    customer_region TEXT,                -- Denormalized for faster filtering
+    sales_channel TEXT,
+
+    -- METADATA
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_tf_sales_occurred ON tf_sales(occurred_at);
+CREATE INDEX idx_tf_sales_customer ON tf_sales(customer_id);
+CREATE INDEX idx_tf_sales_product ON tf_sales(product_id);
+CREATE INDEX idx_tf_sales_category ON tf_sales(product_category);
+CREATE INDEX idx_tf_sales_region ON tf_sales(customer_region);
+CREATE INDEX idx_tf_sales_data ON tf_sales USING GIN(data);
+```
+
+**Measure vs Dimension Strategy:**
+
+| Storage Location | When to Use | Example |
+|------------------|------------|---------|
+| **Direct Column** | Aggregated frequently (SUM, AVG, COUNT) | quantity, revenue, cost |
+| **JSONB** | Flexible, not always aggregated | customer details, product metadata, order notes |
+| **Denormalized Column** | Filtered frequently (WHERE, GROUP BY), needs index | customer_region, product_category, sales_channel |
+
+**Example Dimension Data (data JSONB):**
+
+```json
+{
+    "customer": {
+        "id": "cust-001",
+        "name": "Acme Corp",
+        "type": "Enterprise",
+        "industry": "Manufacturing"
+    },
+    "product": {
+        "id": "prod-456",
+        "name": "Widget Pro",
+        "category": "Electronics",
+        "supplier": "TechCorp Inc"
+    },
+    "order": {
+        "id": "ord-789",
+        "source": "online",
+        "notes": "Rush delivery requested"
+    }
+}
+```
+
+### 3. Analytics Views (va_*) with Calendar JOIN
+
+Analytics views explicitly compose **dimensions + measures + temporal context** into structured JSONB output:
+
+```sql
+-- PostgreSQL example
+CREATE VIEW v_sales AS
+SELECT
+    s.pk_sales,
+    s.customer_id,
+    s.product_id,
+    jsonb_build_object(
+        'dimensions', s.data || jsonb_build_object(
+            'date_info', cal.date_info,
+            'customer_region', s.customer_region,
+            'product_category', s.product_category,
+            'sales_channel', s.sales_channel
+        ),
+        'measures', jsonb_build_object(
+            'quantity', s.quantity,
+            'revenue', s.revenue,
+            'cost', s.cost,
+            'discount', s.discount,
+            'profit', s.revenue - s.cost
+        ),
+        'temporal', jsonb_build_object(
+            'occurred_at', s.occurred_at,
+            'week', cal.week,
+            'month', cal.month,
+            'quarter', cal.quarter,
+            'year', cal.year
+        )
+    ) AS data
+FROM tf_sales s
+LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at;
+```
+
+**Key Pattern Elements:**
+
+1. **dimensions object**: Attributes used for grouping/filtering (includes date_info from calendar)
+2. **measures object**: Aggregatable metrics (quantity, revenue, profit)
+3. **temporal object**: Time metadata for easy access (week, month, quarter, year)
+4. **Calendar JOIN**: Brings pre-computed temporal dimensions into view
+
+### 4. Aggregate Queries: Time-Series Analysis
+
+Using pre-computed calendar eliminates runtime expense:
+
+```sql
+-- Daily sales by region
+SELECT
+    (cal.date_info ->> 'date')::DATE AS day,
+    s.customer_region,
+    COUNT(*) AS order_count,
+    SUM((s.data -> 'measures' ->> 'quantity')::INT) AS total_quantity,
+    SUM((s.data -> 'measures' ->> 'revenue')::DECIMAL) AS total_revenue
+FROM tf_sales s
+LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at
+WHERE s.occurred_at >= CURRENT_DATE - INTERVAL '90 days'
+GROUP BY cal.date_info, s.customer_region
+ORDER BY day DESC, total_revenue DESC;
+
+-- Monthly aggregation (by reference date, not computation)
+SELECT
+    cal.month_reference_date AS month,
+    COUNT(*) AS order_count,
+    SUM(s.revenue) AS total_revenue,
+    AVG(s.revenue) AS avg_order_value
+FROM tf_sales s
+LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at
+WHERE cal.is_month_reference_date = TRUE
+GROUP BY cal.month_reference_date
+ORDER BY month DESC;
+
+-- Year-over-year comparison (using calendar year dimension)
+SELECT
+    cal.month,
+    cal.year,
+    SUM(s.revenue) AS revenue,
+    LAG(SUM(s.revenue)) OVER (PARTITION BY cal.month ORDER BY cal.year) AS prior_year_revenue
+FROM tf_sales s
+LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at
+GROUP BY cal.year, cal.month
+ORDER BY cal.year DESC, cal.month;
+```
+
+### 5. Analytics Tables (ta_*) for Arrow/Parquet Export
+
+For data warehouse export, denormalize facts into pre-aggregated analytics tables with **flattened structure** (all columns, no nested JSON):
+
+```sql
+-- Denormalized daily metrics table
+CREATE TABLE ta_sales_daily (
+    -- Keys
+    day DATE NOT NULL,
+    customer_region TEXT NOT NULL,
+    product_category TEXT NOT NULL,
+    sales_channel TEXT NOT NULL,
+
+    -- Measures (aggregated)
+    order_count BIGINT NOT NULL,
+    total_quantity BIGINT NOT NULL,
+    total_revenue DECIMAL(15,2) NOT NULL,
+    total_cost DECIMAL(15,2) NOT NULL,
+    total_discount DECIMAL(15,2) NOT NULL,
+    total_profit DECIMAL(15,2) NOT NULL,
+    avg_order_value DECIMAL(12,2) NOT NULL,
+
+    -- Temporal dimensions (denormalized from calendar)
+    year INT NOT NULL,
+    month INT NOT NULL,
+    week INT NOT NULL,
+    quarter INT NOT NULL,
+
+    -- Refresh metadata
+    computed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    sync_count BIGINT DEFAULT 1,
+    is_stale BOOLEAN DEFAULT FALSE,
+
+    PRIMARY KEY (day, customer_region, product_category, sales_channel),
+    INDEX idx_ta_sales_daily_year_month ON ta_sales_daily(year, month),
+    INDEX idx_ta_sales_daily_region ON ta_sales_daily(customer_region)
+);
+
+-- Population procedure (runs hourly/daily)
+CREATE OR REPLACE PROCEDURE sp_sync_ta_sales_daily()
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    MERGE INTO ta_sales_daily t
+    USING (
+        SELECT
+            s.occurred_at AS day,
+            s.customer_region,
+            s.product_category,
+            s.sales_channel,
+            COUNT(*) AS order_count,
+            SUM(s.quantity) AS total_quantity,
+            SUM(s.revenue) AS total_revenue,
+            SUM(s.cost) AS total_cost,
+            SUM(s.discount) AS total_discount,
+            SUM(s.revenue - s.cost) AS total_profit,
+            AVG(s.revenue) AS avg_order_value,
+            cal.year,
+            cal.month,
+            cal.week,
+            cal.quarter
+        FROM tf_sales s
+        LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at
+        WHERE s.occurred_at >= CURRENT_DATE - INTERVAL '7 days'
+        GROUP BY s.occurred_at, s.customer_region, s.product_category, s.sales_channel,
+                 cal.year, cal.month, cal.week, cal.quarter
+    ) s
+    ON t.day = s.day
+        AND t.customer_region = s.customer_region
+        AND t.product_category = s.product_category
+        AND t.sales_channel = s.sales_channel
+    WHEN MATCHED THEN
+        UPDATE SET
+            order_count = s.order_count,
+            total_quantity = s.total_quantity,
+            total_revenue = s.total_revenue,
+            total_cost = s.total_cost,
+            total_discount = s.total_discount,
+            total_profit = s.total_profit,
+            avg_order_value = s.avg_order_value,
+            computed_at = CURRENT_TIMESTAMP,
+            sync_count = sync_count + 1,
+            is_stale = FALSE
+    WHEN NOT MATCHED THEN
+        INSERT (day, customer_region, product_category, sales_channel,
+                order_count, total_quantity, total_revenue, total_cost, total_discount,
+                total_profit, avg_order_value, year, month, week, quarter,
+                computed_at, sync_count, is_stale)
+        VALUES (s.day, s.customer_region, s.product_category, s.sales_channel,
+                s.order_count, s.total_quantity, s.total_revenue, s.total_cost,
+                s.total_discount, s.total_profit, s.avg_order_value,
+                s.year, s.month, s.week, s.quarter,
+                CURRENT_TIMESTAMP, 1, FALSE);
+
+    -- Clean old data (older than 2 years)
+    DELETE FROM ta_sales_daily
+    WHERE day < CURRENT_DATE - INTERVAL '2 years';
+END;
+$$;
+```
+
+**Read View for Arrow Flight:**
+
+```sql
+-- Arrow Flight exports from this view
+CREATE VIEW va_sales_daily AS
+SELECT
+    day,
+    customer_region,
+    product_category,
+    sales_channel,
+    order_count,
+    total_quantity,
+    total_revenue,
+    total_cost,
+    total_discount,
+    total_profit,
+    avg_order_value,
+    year,
+    month,
+    week,
+    quarter,
+    computed_at
+FROM ta_sales_daily
+WHERE is_stale = FALSE
+ORDER BY day DESC;
+```
+
+**Why Flattened Structure:**
+
+- **Arrow/Parquet compatibility**: All columns are scalar types, no nested JSON
+- **SQL engine parallelism**: Columnar format enables vectorized aggregations
+- **Efficient compression**: Homogeneous data types compress better
+- **Time dimension export**: year/month/week/quarter as separate columns for BI tools
+
+## Patterns and Conventions
+
+### Naming
+
+| Object | Pattern | Example |
+|--------|---------|---------|
+| Calendar | `tb_calendar` | Single table for all time dimensions |
+| Fact table | `tf_{entity}` | `tf_sales`, `tf_events` |
+| Temporal info JSON | `{period}_info` | `date_info`, `month_info`, `quarter_info` |
+| Analytics view | `va_{entity}` | `va_sales_daily`, `va_user_metrics` |
+| Analytics table | `ta_{entity}_{granularity}` | `ta_sales_daily`, `ta_user_monthly` |
+| Refresh procedure | `sp_sync_{table}` | `sp_sync_ta_sales_daily` |
+
+**Note on Materialized Views vs Indexed Views:**
+
+Different databases implement read-optimized pre-computation differently, but the concept is equivalent:
+
+| Database | Term | Implementation |
+|----------|------|-----------------|
+| **PostgreSQL** | Materialized View (tv_*) | Table-backed view with `REFRESH MATERIALIZED VIEW` |
+| **MySQL** | Materialized View (tv_*) | Table-backed view, refreshed via stored procedure |
+| **SQLite** | Materialized View (tv_*) | Table cache, refreshed via trigger or application |
+| **SQL Server** | Indexed View | View with `CREATE UNIQUE CLUSTERED INDEX` (auto-maintained) |
+
+All achieve the same goal: **pre-compute and persist results for fast queries**. The naming and maintenance mechanism differ, but the pattern is identical.
+
+### Measures vs Dimensions Decision Matrix
+
+**Use Direct Columns (measures) when:**
+- ✅ Aggregated frequently (SUM, AVG, COUNT, MIN, MAX)
+- ✅ Needed in fact table for query performance
+- ✅ Numeric or simple types
+- ✅ Updated rarely or in batch
+
+**Use JSONB (dimensions) when:**
+- ✅ Complex nested structures (customer, product details)
+- ✅ Varying schemas across time
+- ✅ Not frequently aggregated
+- ✅ Need flexibility (can add fields without schema changes)
+
+**Use Denormalized Columns when:**
+- ✅ Filtered frequently (WHERE, JOIN conditions)
+- ✅ Need index for query performance
+- ✅ Simple types (TEXT, UUID, INT)
+- ✅ Stable values (not changing in updates)
+
+### Performance Characteristics
+
+| Query Type | Latency | Optimization |
+|-----------|---------|--------------|
+| Single metric by date | &lt;1ms | Index on (occurred_at) |
+| Daily aggregates (1 year) | 10-50ms | Calendar JOIN instead of DATE_TRUNC |
+| Monthly aggregates (10 years) | 5-20ms | Pre-computed in ta_*_monthly |
+| Full scan with JSON extraction | 100-500ms | Consider denormalizing to column |
+| Arrow Flight export (10M rows) | 500-2000ms | Use flattened ta_* table |
+
+## Implementation by Database
+
+### PostgreSQL
+
+- **Calendar:** Seeded once, queried via `LEFT JOIN tb_calendar`
+- **Fact Tables:** Native JSONB with GIN indexes
+- **Aggregate Views:** `jsonb_build_object()` for composition
+- **Sync:** Stored procedures with MERGE
+
+See [PostgreSQL Guide](/databases/postgresql/) for syntax examples.
+
+### MySQL
+
+- **Calendar:** Seeded once, queried via `LEFT JOIN tb_calendar`
+- **Fact Tables:** JSON with indexed computed columns for filtering
+- **Aggregate Views:** `JSON_OBJECT()` for composition
+- **Sync:** Stored procedures with INSERT...ON DUPLICATE KEY UPDATE
+
+See [MySQL Guide](/databases/mysql/) for syntax examples.
+
+### SQL Server
+
+- **Calendar:** Seeded once, queried via `LEFT JOIN tb_calendar`
+- **Fact Tables:** Flat schema with indexed denormalized columns
+- **Aggregate Views:** `JSON_OBJECT()` with explicit dimensions/measures
+- **Sync:** Stored procedures with MERGE
+- **Refresh Jobs:** SQL Agent jobs for scheduled sync
+
+See [SQL Server Guide](/databases/sqlserver/) for syntax examples.
+
+### SQLite
+
+- **Calendar:** Seeded in-memory or from file for each session
+- **Fact Tables:** `json_object()` for flexible dimensions
+- **Aggregate Views:** Simple GROUP BY queries (JSON extraction optional)
+- **Sync:** Triggers or application-level sync
+
+See [SQLite Guide](/databases/sqlite/) for syntax examples.
+
+## Common Patterns
+
+### Pattern: Year-over-Year Comparison
+
+```sql
+-- Works across all databases with calendar table
+SELECT
+    cal.month,
+    cal.year,
+    SUM(measures.revenue) AS revenue
+FROM tf_sales f
+LEFT JOIN tb_calendar cal ON cal.reference_date = f.occurred_at
+GROUP BY cal.year, cal.month
+ORDER BY cal.year DESC, cal.month;
+```
+
+### Pattern: Cohort Analysis
+
+```sql
+-- Identify customers by signup cohort
+WITH customer_cohorts AS (
+    SELECT
+        u.customer_id,
+        DATE_TRUNC('month', u.created_at)::DATE AS cohort_month
+    FROM tb_customer u
+),
+sales_with_cohort AS (
+    SELECT
+        f.customer_id,
+        c.cohort_month,
+        f.occurred_at,
+        f.revenue
+    FROM tf_sales f
+    LEFT JOIN customer_cohorts c ON c.customer_id = f.customer_id
+)
+SELECT
+    cohort_month,
+    (DATE_TRUNC('month', occurred_at)::DATE - DATE_TRUNC('month', cohort_month)::DATE) / INTERVAL '1 month' AS months_since_signup,
+    COUNT(DISTINCT customer_id) AS customers,
+    SUM(revenue) AS revenue
+FROM sales_with_cohort
+GROUP BY cohort_month, months_since_signup
+ORDER BY cohort_month DESC, months_since_signup;
+```
+
+### Pattern: Slowly Changing Dimensions (SCD)
+
+For dimensions that change over time, track versions in the fact table:
+
+```sql
+-- Include dimension version in fact table
+CREATE TABLE tf_sales_with_scd (
+    pk_sales BIGINT PRIMARY KEY,
+
+    -- Measures
+    revenue DECIMAL(12,2),
+
+    -- Dimensional keys with versions
+    customer_id UUID,
+    customer_version INT,  -- SCD Type 2
+    product_id UUID,
+    product_version INT,
+
+    -- Temporal
+    occurred_at DATE,
+
+    FOREIGN KEY (customer_id, customer_version) REFERENCES dim_customer(customer_id, version)
+);
+```
+
+## Arrow Flight and Data Warehouse Export
+
+Analytics tables (`ta_*`) are optimized for Arrow Flight server export:
+
+1. **Columnar layout**: All columns are scalar types, organized by column
+2. **Timestamp metadata**: `computed_at` for cache invalidation
+3. **Staleness flag**: `is_stale` for incremental exports
+4. **Partitioning**: By date, region, or category for parallel reads
+
+Example Arrow Flight query:
+
+```python
+# Python client connecting to FraiseQL Arrow Flight endpoint
+import pyarrow.flight as flight
+
+client = flight.connect("grpc://fraiseql-api:50051")
+
+# Query returns columnar data from ta_sales_daily
+query = "SELECT * FROM va_sales_daily WHERE year = 2024"
+reader = client.do_get(flight.Ticket(query.encode()))
+table = reader.read_all()
+
+# Efficient Parquet export
+table.to_pandas().to_parquet('sales_2024.parquet')
+```
+
+## Best Practices
+
+1. **Seed calendar once at deployment**: Avoid runtime temporal calculations
+2. **Index denormalized columns**: customer_region, product_category for fast WHERE
+3. **Use GIN indexes on JSONB**: For complex dimension queries
+4. **Refresh analytics tables during off-peak**: Hourly or daily, not continuous
+5. **Monitor is_stale flag**: Export only non-stale rows for BI systems
+6. **Partition by date**: Large ta_* tables should partition by occurred_at/day
+7. **Measure aggregations in direct columns**: Don't aggregate from JSON
+8. **Join to calendar table**: Never calculate DATE_TRUNC at query time in hot queries
+
+## See Also
+
+- [Database-Specific Implementation: PostgreSQL](/databases/postgresql/)
+- [Database-Specific Implementation: MySQL](/databases/mysql/)
+- [Database-Specific Implementation: SQL Server](/databases/sqlserver/)
+- [Database-Specific Implementation: SQLite](/databases/sqlite/)
+- [Arrow Flight and Data Export](/features/arrow-dataplane/)
+- [Naming Conventions Reference](/reference/naming-conventions/)

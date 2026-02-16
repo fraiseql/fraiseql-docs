@@ -1,0 +1,342 @@
+---
+title: TOML Configuration
+description: Configure FraiseQL with a simple, readable TOML file
+---
+
+FraiseQL uses a single `fraiseql.toml` file for all configuration. TOML is human-readable, git-friendly, and has no YAML gotchas.
+
+## Minimal Configuration
+
+```toml title="fraiseql.toml"
+[project]
+name = "my-api"
+
+[database]
+url = "${DATABASE_URL}"
+```
+
+That's it. Everything else has sensible defaults.
+
+## Full Configuration Reference
+
+```toml title="fraiseql.toml"
+# ============================================
+# Project Metadata
+# ============================================
+[project]
+name = "my-api"
+version = "1.0.0"
+description = "My GraphQL API"
+
+# ============================================
+# Database Configuration
+# ============================================
+[database]
+# Connection (use environment variable for secrets)
+type = "postgresql"  # postgresql, mysql, sqlite, sqlserver
+url = "${DATABASE_URL}"
+
+# Connection pool
+pool_min = 2
+pool_max = 10
+pool_timeout = 30  # seconds
+
+# SSL (for production)
+ssl_mode = "require"  # disable, allow, prefer, require, verify-ca, verify-full
+ssl_cert = "/path/to/client-cert.pem"
+ssl_key = "/path/to/client-key.pem"
+ssl_root_cert = "/path/to/ca-cert.pem"
+
+# ============================================
+# Server Configuration
+# ============================================
+[server]
+host = "127.0.0.1"
+port = 8080
+
+# CORS
+cors_origins = ["http://localhost:3000", "https://myapp.com"]
+cors_methods = ["GET", "POST", "OPTIONS"]
+cors_headers = ["Content-Type", "Authorization"]
+
+# Request limits
+max_request_size = "1mb"
+request_timeout = 30  # seconds
+
+# ============================================
+# GraphQL Configuration
+# ============================================
+[graphql]
+# Development features
+playground = true
+introspection = true
+
+# Query limits
+max_depth = 10
+max_complexity = 1000
+max_aliases = 10
+
+# Batching
+batch_enabled = true
+batch_max_size = 10
+
+# ============================================
+# Authentication
+# ============================================
+[auth]
+type = "jwt"  # jwt, api_key, oauth2, none
+
+# JWT settings
+jwt_secret = "${JWT_SECRET}"
+jwt_issuer = "my-app"
+jwt_audience = "my-api"
+jwt_expiry = 3600  # seconds
+
+# API key settings (alternative)
+# type = "api_key"
+# header = "X-API-Key"
+
+# ============================================
+# Compilation
+# ============================================
+[compilation]
+# Build mode
+optimize = true
+target = "release"  # debug, release
+
+# Output
+output_dir = "./dist"
+migrations_dir = "./migrations"
+
+# Schema sources
+schema_files = ["schema.py"]
+# Or directory
+# schema_dir = "./schemas"
+
+# ============================================
+# SDK Generation
+# ============================================
+[sdk]
+# Languages to generate
+languages = ["typescript", "python"]
+
+# Output directory
+output_dir = "./sdk"
+
+# TypeScript options
+[sdk.typescript]
+package_name = "@myapp/api-client"
+use_fetch = true
+
+# Python options
+[sdk.python]
+package_name = "myapp_client"
+async_client = true
+
+# ============================================
+# Logging
+# ============================================
+[logging]
+level = "info"  # debug, info, warn, error
+format = "json"  # json, pretty
+output = "stdout"  # stdout, stderr, file
+
+# File logging
+# output = "/var/log/fraiseql.log"
+# max_size = "100mb"
+# max_files = 5
+
+# ============================================
+# Observability
+# ============================================
+[telemetry]
+# Metrics
+metrics_enabled = true
+metrics_port = 9090
+
+# Tracing
+tracing_enabled = true
+tracing_endpoint = "http://jaeger:14268/api/traces"
+tracing_sample_rate = 0.1  # 10% sampling
+
+# ============================================
+# Caching
+# ============================================
+[cache]
+enabled = true
+type = "memory"  # memory, redis
+
+# Redis settings
+# type = "redis"
+# url = "${REDIS_URL}"
+# prefix = "fraiseql:"
+# ttl = 300  # seconds
+
+# ============================================
+# Rate Limiting
+# ============================================
+[rate_limit]
+enabled = true
+requests_per_minute = 100
+burst = 20
+
+# Per-user limits (requires auth)
+per_user = true
+user_requests_per_minute = 60
+```bash
+
+## Environment Variables
+
+Use `${VAR_NAME}` syntax to reference environment variables:
+
+```toml
+[database]
+url = "${DATABASE_URL}"
+
+[auth]
+jwt_secret = "${JWT_SECRET}"
+```
+
+### Required Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | Database connection string |
+| `JWT_SECRET` | Secret key for JWT signing (if using JWT auth) |
+
+### Optional Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FRAISEQL_ENV` | `development` | Environment name |
+| `FRAISEQL_LOG` | `info` | Log level |
+| `PORT` | `8080` | Server port |
+
+## Configuration by Environment
+
+Create environment-specific overrides:
+
+```toml title="fraiseql.toml"
+[project]
+name = "my-api"
+
+[database]
+url = "${DATABASE_URL}"
+
+# Development overrides
+[environments.development]
+[environments.development.server]
+host = "127.0.0.1"
+
+[environments.development.graphql]
+playground = true
+introspection = true
+
+# Production overrides
+[environments.production]
+[environments.production.server]
+host = "0.0.0.0"
+
+[environments.production.graphql]
+playground = false
+introspection = false
+
+[environments.production.logging]
+level = "warn"
+format = "json"
+```
+
+Set environment with:
+
+```bash
+FRAISEQL_ENV=production fraiseql serve
+```
+
+## Validation
+
+Check your configuration:
+
+```bash
+fraiseql config check
+```
+
+View resolved configuration:
+
+```bash
+fraiseql config show
+```
+
+## Common Patterns
+
+### Local Development
+
+```toml
+[project]
+name = "my-api"
+
+[database]
+type = "postgresql"
+url = "postgresql://localhost:5432/myapp_dev"
+
+[server]
+port = 8080
+
+[graphql]
+playground = true
+introspection = true
+```
+
+### Production
+
+```toml
+[project]
+name = "my-api"
+
+[database]
+type = "postgresql"
+url = "${DATABASE_URL}"
+pool_min = 5
+pool_max = 20
+ssl_mode = "require"
+
+[server]
+host = "0.0.0.0"
+port = "${PORT}"
+
+[graphql]
+playground = false
+introspection = false
+max_depth = 5
+max_complexity = 500
+
+[logging]
+level = "info"
+format = "json"
+```
+
+### Multi-Tenant
+
+```toml
+[project]
+name = "multi-tenant-api"
+
+[database]
+url = "${DATABASE_URL}"
+
+[auth]
+type = "jwt"
+jwt_secret = "${JWT_SECRET}"
+
+[multitenancy]
+enabled = true
+strategy = "schema"  # schema, database, row
+tenant_header = "X-Tenant-ID"
+```
+
+## Next Steps
+
+- [How It Works](/concepts/how-it-works) — Understand compilation
+- [Schema Definition](/concepts/schema) — Define your types
+- [CLI Reference](/reference/cli) — All CLI commands
+`3
+`3

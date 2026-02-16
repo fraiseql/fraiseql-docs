@@ -1,0 +1,705 @@
+---
+title: AWS Deployment
+description: Deploy FraiseQL to AWS using ECS, Fargate, RDS, and CloudFormation
+---
+
+# AWS Deployment
+
+Deploy FraiseQL on AWS with managed services for production reliability.
+
+## Architecture Overview
+
+```
+
+   │
+
+   │
+
+   │
+
+   │
+
+   │
+```
+
+## Prerequisites
+
+- AWS Account
+- AWS CLI configured (`aws configure`)
+- Docker image pushed to ECR
+- Terraform or CloudFormation (optional, for IaC)
+
+## Quick Start (15 minutes)
+
+### 1. Create ECR Repository
+
+```bash
+# Create repository
+aws ecr create-repository \
+  --repository-name fraiseql \
+  --region us-east-1
+
+# Get login token and push image
+aws ecr get-login-password --region us-east-1 | docker login \
+  --username AWS --password-stdin YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+
+# Tag and push
+docker tag fraiseql:latest \
+  YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/fraiseql:latest
+docker push YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/fraiseql:latest
+```
+
+### 2. Create RDS PostgreSQL Database
+
+```bash
+# Create database instance
+aws rds create-db-instance \
+  --db-instance-identifier fraiseql-prod \
+  --db-instance-class db.t3.medium \
+  --engine postgres \
+  --engine-version 16.1 \
+  --master-username fraiseql \
+  --master-user-password "$(openssl rand -base64 32)" \
+  --allocated-storage 100 \
+  --storage-type gp3 \
+  --multi-az \
+  --backup-retention-period 30 \
+  --preferred-backup-window "02:00-03:00" \
+  --preferred-maintenance-window "sun:03:00-sun:04:00" \
+  --region us-east-1
+
+# Wait for database to be available (5-10 minutes)
+aws rds describe-db-instances \
+  --db-instance-identifier fraiseql-prod \
+  --region us-east-1 \
+  --query 'DBInstances[0].DBInstanceStatus'
+
+# Get endpoint
+aws rds describe-db-instances \
+  --db-instance-identifier fraiseql-prod \
+  --region us-east-1 \
+  --query 'DBInstances[0].Endpoint.Address'
+```
+
+### 3. Create Security Groups
+
+```bash
+# Create VPC security group for RDS
+aws ec2 create-security-group \
+  --group-name fraiseql-rds-sg \
+  --description "Security group for FraiseQL RDS" \
+  --vpc-id vpc-xxxxx \
+  --region us-east-1
+
+# Allow inbound on port 5432 from ECS
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-xxxxx \
+  --protocol tcp \
+  --port 5432 \
+  --source-group sg-yyyyy \
+  --region us-east-1
+```
+
+### 4. Create ECS Cluster
+
+```bash
+# Create cluster
+aws ecs create-cluster \
+  --cluster-name fraiseql-prod \
+  --region us-east-1
+
+# Create CloudWatch log group
+aws logs create-log-group \
+  --log-group-name /ecs/fraiseql \
+  --region us-east-1
+```
+
+### 5. Create ECS Task Definition
+
+```bash
+# Save as fraiseql-task-definition.json
+cat > fraiseql-task-definition.json << 'EOF'
+{
+  "family": "fraiseql",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "containerDefinitions": [
+    {
+      "name": "fraiseql",
+      "image": "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/fraiseql:latest",
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "ENVIRONMENT",
+          "value": "production"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "value": "info"
+        },
+        {
+          "name": "LOG_FORMAT",
+          "value": "json"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:fraiseql/db-url"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:fraiseql/jwt-secret"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/fraiseql",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8000/health/live || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 10
+      }
+    }
+  ],
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole"
+}
+EOF
+
+# Register task definition
+aws ecs register-task-definition \
+  --cli-input-json file://fraiseql-task-definition.json \
+  --region us-east-1
+```
+
+### 6. Store Secrets in Secrets Manager
+
+```bash
+# Database URL
+aws secretsmanager create-secret \
+  --name fraiseql/db-url \
+  --secret-string "postgresql://fraiseql:password@endpoint:5432/fraiseql" \
+  --region us-east-1
+
+# JWT secret
+aws secretsmanager create-secret \
+  --name fraiseql/jwt-secret \
+  --secret-string "$(openssl rand -base64 32)" \
+  --region us-east-1
+```
+
+### 7. Create ECS Service with Load Balancer
+
+```bash
+# Create Application Load Balancer
+aws elbv2 create-load-balancer \
+  --name fraiseql-alb \
+  --subnets subnet-xxxxx subnet-yyyyy \
+  --security-groups sg-xxxxx \
+  --scheme internet-facing \
+  --type application \
+  --ip-address-type ipv4 \
+  --region us-east-1
+
+# Create target group
+aws elbv2 create-target-group \
+  --name fraiseql-tg \
+  --protocol HTTP \
+  --port 8000 \
+  --vpc-id vpc-xxxxx \
+  --health-check-enabled \
+  --health-check-protocol HTTP \
+  --health-check-path /health/ready \
+  --health-check-interval-seconds 30 \
+  --health-check-timeout-seconds 5 \
+  --healthy-threshold-count 2 \
+  --unhealthy-threshold-count 3 \
+  --region us-east-1
+
+# Get ALB ARN and TG ARN from responses above
+
+# Create listener
+aws elbv2 create-listener \
+  --load-balancer-arn arn:aws:elasticloadbalancing:... \
+  --protocol HTTP \
+  --port 80 \
+  --default-actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:... \
+  --region us-east-1
+
+# Create ECS Service
+aws ecs create-service \
+  --cluster fraiseql-prod \
+  --service-name fraiseql \
+  --task-definition fraiseql:1 \
+  --desired-count 3 \
+  --launch-type FARGATE \
+  --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:...,containerName=fraiseql,containerPort=8000" \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-xxxxx,subnet-yyyyy],securityGroups=[sg-xxxxx],assignPublicIp=DISABLED}" \
+  --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100" \
+  --region us-east-1
+```
+
+### 8. Configure Auto Scaling
+
+```bash
+# Register service with Auto Scaling
+aws application-autoscaling register-scalable-target \
+  --service-namespace ecs \
+  --resource-id service/fraiseql-prod/fraiseql \
+  --scalable-dimension ecs:service:DesiredCount \
+  --min-capacity 3 \
+  --max-capacity 10 \
+  --region us-east-1
+
+# Create scaling policy (scale up on high CPU)
+aws application-autoscaling put-scaling-policy \
+  --policy-name fraiseql-scale-up \
+  --service-namespace ecs \
+  --resource-id service/fraiseql-prod/fraiseql \
+  --scalable-dimension ecs:service:DesiredCount \
+  --policy-type TargetTrackingScaling \
+  --target-tracking-scaling-policy-configuration '{
+    "TargetValue": 70.0,
+    "PredefinedMetricSpecification": {
+      "PredefinedMetricType": "ECSServiceAverageCPUUtilization"
+    },
+    "ScaleOutCooldown": 60,
+    "ScaleInCooldown": 300
+  }' \
+  --region us-east-1
+
+# Create scaling policy (scale up on memory)
+aws application-autoscaling put-scaling-policy \
+  --policy-name fraiseql-scale-memory \
+  --service-namespace ecs \
+  --resource-id service/fraiseql-prod/fraiseql \
+  --scalable-dimension ecs:service:DesiredCount \
+  --policy-type TargetTrackingScaling \
+  --target-tracking-scaling-policy-configuration '{
+    "TargetValue": 80.0,
+    "PredefinedMetricSpecification": {
+      "PredefinedMetricType": "ECSServiceAverageMemoryUtilization"
+    },
+    "ScaleOutCooldown": 60,
+    "ScaleInCooldown": 300
+  }' \
+  --region us-east-1
+```
+
+### 9. Configure Route 53 DNS
+
+```bash
+# Create DNS record (A record pointing to ALB)
+aws route53 change-resource-record-sets \
+  --hosted-zone-id Z1234567890ABC \
+  --change-batch '{
+    "Changes": [{
+      "Action": "CREATE",
+      "ResourceRecordSet": {
+        "Name": "api.example.com",
+        "Type": "A",
+        "AliasTarget": {
+          "HostedZoneId": "Z35SXDOTRQ7X7K",
+          "DNSName": "fraiseql-alb-123456789.us-east-1.elb.amazonaws.com",
+          "EvaluateTargetHealth": true
+        }
+      }
+    }]
+  }' \
+  --region us-east-1
+```
+
+## CloudFormation (Infrastructure as Code)
+
+For repeatable deployments, use CloudFormation:
+
+```
+# fraiseql-stack.yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'FraiseQL deployment stack'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [development, staging, production]
+  ECRImage:
+    Type: String
+    Description: ECR image URI (e.g., 123456789.dkr.ecr.us-east-1.amazonaws.com/fraiseql:latest)
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+    Description: RDS master password
+
+Resources:
+  # RDS Database
+  FraiseQLDatabase:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: fraiseql-prod
+      DBInstanceClass: db.t3.medium
+      Engine: postgres
+      EngineVersion: '16.1'
+      MasterUsername: fraiseql
+      MasterUserPassword: !Ref DBMasterPassword
+      AllocatedStorage: 100
+      StorageType: gp3
+      MultiAZ: true
+      BackupRetentionPeriod: 30
+      PreferredBackupWindow: 02:00-03:00
+      PreferredMaintenanceWindow: sun:03:00-sun:04:00
+
+  # ECS Cluster
+  FraiseQLCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: fraiseql-prod
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  # CloudWatch Log Group
+  FraiseQLLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/fraiseql
+      RetentionInDays: 30
+
+  # Task Definition
+  FraiseQLTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: fraiseql
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: fraiseql
+          Image: !Ref ECRImage
+          PortMappings:
+            - ContainerPort: 8000
+          Environment:
+            - Name: ENVIRONMENT
+              Value: !Ref Environment
+            - Name: LOG_LEVEL
+              Value: info
+          Secrets:
+            - Name: DATABASE_URL
+              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:fraiseql/db-url'
+            - Name: JWT_SECRET
+              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:fraiseql/jwt-secret'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref FraiseQLLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - 'curl -f http://localhost:8000/health/live || exit 1'
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 10
+
+  # Application Load Balancer
+  FraiseQLLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: fraiseql-alb
+      Type: application
+      Scheme: internet-facing
+      Subnets:
+        - !Ref SubnetA
+        - !Ref SubnetB
+
+  # Target Group
+  FraiseQLTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: fraiseql-tg
+      Port: 8000
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /health/ready
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  # Listener
+  FraiseQLListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !GetAtt FraiseQLLoadBalancer.LoadBalancerArn
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !GetAtt FraiseQLTargetGroup.TargetGroupArn
+
+  # ECS Service
+  FraiseQLService:
+    Type: AWS::ECS::Service
+    DependsOn: FraiseQLListener
+    Properties:
+      ServiceName: fraiseql
+      Cluster: !GetAtt FraiseQLCluster.Arn
+      TaskDefinition: !Ref FraiseQLTaskDefinition
+      DesiredCount: 3
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: fraiseql
+          ContainerPort: 8000
+          TargetGroupArn: !GetAtt FraiseQLTargetGroup.TargetGroupArn
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref SubnetA
+            - !Ref SubnetB
+          SecurityGroups:
+            - !GetAtt ECSSecurityGroup.GroupId
+          AssignPublicIp: DISABLED
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+
+  # IAM Roles
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: SecretsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - kms:Decrypt
+                Resource:
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:fraiseql/*'
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+Outputs:
+  LoadBalancerDNS:
+    Description: ALB DNS name
+    Value: !GetAtt FraiseQLLoadBalancer.DNSName
+  ECSServiceArn:
+    Description: ECS Service ARN
+    Value: !GetAtt FraiseQLService.ServiceArn
+```
+
+Deploy CloudFormation stack:
+
+```bash
+aws cloudformation create-stack \
+  --stack-name fraiseql-prod \
+  --template-body file://fraiseql-stack.yaml \
+  --parameters \
+    ParameterKey=Environment,ParameterValue=production \
+    ParameterKey=ECRImage,ParameterValue=YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/fraiseql:latest \
+    ParameterKey=DBMasterPassword,ParameterValue="$(openssl rand -base64 32)" \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region us-east-1
+```
+
+## Monitoring & Logging
+
+### CloudWatch Dashboards
+
+```bash
+# Create custom dashboard
+aws cloudwatch put-dashboard \
+  --dashboard-name fraiseql-prod \
+  --dashboard-body file://dashboard-config.json
+```
+
+### CloudWatch Alarms
+
+```bash
+# Alert on high error rate
+aws cloudwatch put-metric-alarm \
+  --alarm-name fraiseql-high-error-rate \
+  --alarm-description "Alert when error rate exceeds 5%" \
+  --metric-name Errors \
+  --namespace AWS/ECS \
+  --statistic Sum \
+  --period 300 \
+  --threshold 50 \
+  --comparison-operator GreaterThanThreshold \
+  --evaluation-periods 2 \
+  --alarm-actions arn:aws:sns:us-east-1:ACCOUNT_ID:alerts
+```
+
+## Backup & Disaster Recovery
+
+### Automated RDS Backups
+
+Enabled by default in CloudFormation (BackupRetentionPeriod: 30)
+
+### Manual Snapshot
+
+```bash
+# Create snapshot
+aws rds create-db-snapshot \
+  --db-instance-identifier fraiseql-prod \
+  --db-snapshot-identifier fraiseql-backup-$(date +%Y%m%d-%H%M%S) \
+  --region us-east-1
+
+# List snapshots
+aws rds describe-db-snapshots \
+  --region us-east-1
+```
+
+## Scaling & Performance
+
+### ECS Service Auto Scaling (already configured in quick start)
+
+Monitor via CloudWatch:
+
+```bash
+# View scaling activities
+aws application-autoscaling describe-scaling-activities \
+  --service-namespace ecs \
+  --resource-id service/fraiseql-prod/fraiseql \
+  --region us-east-1
+```
+
+### RDS Performance Insights
+
+```bash
+# Enable Performance Insights (if not enabled)
+aws rds modify-db-instance \
+  --db-instance-identifier fraiseql-prod \
+  --enable-performance-insights-on-master \
+  --performance-insights-retention-period 7 \
+  --region us-east-1
+```
+
+## Cost Optimization
+
+### Reserved Instances
+
+```bash
+# View on-demand cost
+# Purchase Reserved Instances for 1-3 year commitment
+# Typical savings: 30-60%
+
+# Spot Instances for non-critical workloads
+aws ecs create-service \
+  --capacity-provider-strategy capacityProvider=SPOT,weight=100 \
+  --region us-east-1
+```
+
+### RDS Cost Optimization
+
+- Use db.t3 instances (burstable, cost-effective)
+- Enable storage autoscaling
+- Use read replicas for read-heavy workloads
+- Consider Aurora for better performance/cost ratio
+
+## Troubleshooting
+
+### View ECS Service Events
+
+```bash
+aws ecs describe-services \
+  --cluster fraiseql-prod \
+  --services fraiseql \
+  --region us-east-1 \
+  --query 'services[0].events'
+```
+
+### Check Task Logs
+
+```bash
+aws logs tail /ecs/fraiseql --follow --region us-east-1
+```
+
+### SSH into Task (for debugging)
+
+```bash
+# Start a debug task
+aws ecs run-task \
+  --cluster fraiseql-prod \
+  --task-definition fraiseql \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-xxxxx],securityGroups=[sg-xxxxx]}" \
+  --region us-east-1
+
+# Connect with ECS Exec (requires agent update)
+aws ecs execute-command \
+  --cluster fraiseql-prod \
+  --task <task-id> \
+  --container fraiseql \
+  --interactive \
+  --command /bin/bash \
+  --region us-east-1
+```
+
+## Production Checklist
+
+- [ ] RDS backup enabled and tested
+- [ ] CloudWatch alarms configured
+- [ ] SSL/TLS certificate issued (ACM)
+- [ ] Auto-scaling policies tested
+- [ ] Load balancer health checks passing
+- [ ] Secrets stored in Secrets Manager
+- [ ] CloudTrail logging enabled
+- [ ] VPC security groups properly configured
+- [ ] Database snapshots automated
+- [ ] Read replicas configured (if needed)
+- [ ] CloudFront distribution (optional, for CDN)
+
+## Next Steps
+
+- **CI/CD**: GitHub Actions or CodePipeline to automate deployments
+- **Monitoring**: CloudWatch + X-Ray for distributed tracing
+- **Disaster Recovery**: Multi-region RDS replicas
+- **Cost Optimization**: Reserved Instances, Spot Instances
+`3
+`3

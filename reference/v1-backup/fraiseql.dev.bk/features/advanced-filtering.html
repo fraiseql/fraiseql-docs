@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Advanced Filtering - 38+ PostgreSQL Operators</title>
+    <meta name="description" content="38+ PostgreSQL operators for advanced filtering. Full-text search with ranking. JSONB queries. Array operations. Regex matching. GIN indexes for performance.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+    </style>
+    <link rel="stylesheet" href="/prism.min.css"/>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white lg:bg-transparent text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-black lg:text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-black lg:text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-black lg:text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline bg-red-600 text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+        <hr class="border-b border-gray-100 opacity-25 my-0 py-0" />
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24">
+        <div class="container px-3 mx-auto flex flex-wrap flex-col md:flex-row items-center">
+            <!-- Left Col -->
+            <div class="flex flex-col w-full md:w-2/5 justify-center items-start text-center md:text-left">
+                <p class="uppercase tracking-loose w-full">🔍 Advanced Filtering</p>
+                <h1 class="my-4 text-5xl font-bold leading-tight">
+                    38+ PostgreSQL Operators
+                </h1>
+                <p class="leading-normal text-xl mb-8">
+                    Full-text search with ranking. JSONB queries. Array operations.
+                    Regex matching. Nested array filtering with AND/OR/NOT logic.
+                </p>
+                <a href="/getting-started.html" class="bg-red-600 text-white font-bold rounded-full py-4 px-8 shadow-lg hover:bg-red-700 transition">
+                    Filter Like a Pro →
+                </a>
+            </div>
+
+            <!-- Right Col - Operator Count -->
+            <div class="w-full md:w-3/5 py-6 text-center">
+                <div class="bg-white rounded-lg shadow-2xl p-8">
+                    <h3 class="text-2xl font-bold mb-6 text-gray-800">Complete Operator Coverage</h3>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-red-600">12</div>
+                            <div class="text-sm text-gray-600">Full-Text Search</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-red-600">8</div>
+                            <div class="text-sm text-gray-600">Array Operators</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-red-600">10</div>
+                            <div class="text-sm text-gray-600">JSONB Operators</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-red-600">8+</div>
+                            <div class="text-sm text-gray-600">Regex & Pattern</div>
+                        </div>
+                    </div>
+                    <div class="mt-6 text-center">
+                        <div class="inline-block bg-red-100 text-red-800 px-4 py-2 rounded-full text-sm font-semibold">
+                            38+ Total Operators Available
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Array Operators -->
+    <section class="bg-gray-50 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Array Operators
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Basic Array Operations</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm">overlaps</code>
+                            <span class="text-gray-600 ml-2">Check if arrays overlap</span>
+                        </div>
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm">contains</code>
+                            <span class="text-gray-600 ml-2">Array contains all elements</span>
+                        </div>
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm">contained_by</code>
+                            <span class="text-gray-600 ml-2">Array is contained by another</span>
+                        </div>
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm">any_eq</code>
+                            <span class="text-gray-600 ml-2">Any element equals value</span>
+                        </div>
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm">all_eq</code>
+                            <span class="text-gray-600 ml-2">All elements equal value</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Advanced Array Filtering</h3>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-graphql"># Find products with specific tags
+{
+  products(
+    where: {
+      tags: { overlaps: ["electronics", "sale"] }
+    }
+  ) {
+    name
+    tags
+  }
+}
+
+# Products containing ALL specified tags
+{
+  products(
+    where: {
+      tags: { contains: ["electronics", "wireless"] }
+    }
+  ) {
+    name
+  }
+}</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Full-Text Search -->
+    <section class="bg-white py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Full-Text Search with Ranking
+            </h2>
+
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-6 mb-6">
+                <h3 class="text-xl font-bold text-blue-900 mb-4">12 Full-Text Search Operators</h3>
+                <p class="text-blue-800 mb-4">
+                    PostgreSQL's powerful full-text search with ranking, highlighting, and advanced query syntax.
+                    Supports multiple languages, stemming, and relevance scoring.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">Basic Search</h4>
+                    <div class="space-y-2 text-sm">
+                        <div><code>@@</code> - Full-text match</div>
+                        <div><code>@@*</code> - Ranked match</div>
+                        <div><code>@@@</code> - Query match</div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">Ranking & Scoring</h4>
+                    <div class="space-y-2 text-sm">
+                        <div><code>ts_rank</code> - Relevance ranking</div>
+                        <div><code>ts_rank_cd</code> - Cover density ranking</div>
+                        <div><code>ts_headline</code> - Highlight results</div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">Advanced Queries</h4>
+                    <div class="space-y-2 text-sm">
+                        <div><code>&</code> - AND operator</div>
+                        <div><code>|</code> - OR operator</div>
+                        <div><code>!</code> - NOT operator</div>
+                        <div><code>()</code> - Grouping</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-8">
+                <div class="code-block">
+                    <div class="code-header">Full-Text Search Examples</div>
+                    <pre class="p-6 overflow-x-auto"><code class="language-graphql"># Search articles with ranking
+{
+  articles(
+    where: {
+      content: { fulltext: "machine learning", rank_gt: 0.1 }
+    }
+    order_by: { rank: desc }
+  ) {
+    title
+    content
+    rank
+    headline  # Highlighted search terms
+  }
+}
+
+# Multi-field search
+{
+  products(
+    where: {
+      _or: [
+        { name: { fulltext: "wireless" } },
+        { description: { fulltext: "wireless" } }
+      ]
+    }
+  ) {
+    name
+    description
+  }
+}</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- JSONB Operators -->
+    <section class="bg-gray-50 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                JSONB Operators
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Path & Existence Operators</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm">has_key</code>
+                            <span class="text-gray-600 ml-2">Object has specific key</span>
+                        </div>
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm">path_exists</code>
+                            <span class="text-gray-600 ml-2">JSON path exists</span>
+                        </div>
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm">path_match</code>
+                            <span class="text-gray-600 ml-2">JSON path matches pattern</span>
+                        </div>
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm">@></code>
+                            <span class="text-gray-600 ml-2">Contains (top-level)</span>
+                        </div>
+                        <div>
+                            <code class="bg-gray-100 px-2 py-1 rounded text-sm"><@</code>
+                            <span class="text-gray-600 ml-2">Contained by</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">JSONB Query Examples</h3>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-graphql"># Find users with specific metadata
+{
+  users(
+    where: {
+      metadata: {
+        has_key: "subscription_level"
+      }
+    }
+  ) {
+    name
+    metadata
+  }
+}
+
+# Complex nested queries
+{
+  products(
+    where: {
+      specs: {
+        path_exists: "$.dimensions.weight"
+      }
+    }
+  ) {
+    name
+    specs
+  }
+}</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Regex & Pattern Matching -->
+    <section class="bg-white py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Regex & Pattern Matching
+            </h2>
+
+            <div class="bg-green-50 border-l-4 border-green-500 p-6 mb-6">
+                <h3 class="text-xl font-bold text-green-900 mb-4">POSIX Regular Expressions</h3>
+                <p class="text-green-800 mb-4">
+                    Full POSIX regex support with case-insensitive matching, multiline mode,
+                    and advanced pattern matching capabilities.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">Regex Operators</h4>
+                    <div class="space-y-2 text-sm">
+                        <div><code>~</code> - Regex match (case sensitive)</div>
+                        <div><code>~* </code> - Regex match (case insensitive)</div>
+                        <div><code>!~</code> - Regex not match (case sensitive)</div>
+                        <div><code>!~* </code> - Regex not match (case insensitive)</div>
+                        <div><code>~~</code> - LIKE pattern</div>
+                        <div><code>~~*</code> - ILIKE pattern</div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">Pattern Examples</h4>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-graphql"># Email validation
+{
+  users(
+    where: {
+      email: { regex: "^[\\w.-]+@[\\w.-]+\\.\\w+$" }
+    }
+  ) {
+    email
+  }
+}
+
+# Phone number patterns
+{
+  contacts(
+    where: {
+      phone: { regex: "^\\+?1?[-.\\s]?\\(?[0-9]{3}\\)?[-.\\s]?[0-9]{3}[-.\\s]?[0-9]{4}$" }
+    }
+  ) {
+    name
+    phone
+  }
+}</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Performance & Indexes -->
+    <section class="bg-gray-50 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Performance & GIN Indexes
+            </h2>
+
+            <div class="bg-yellow-50 border-l-4 border-yellow-500 p-6 mb-6">
+                <h3 class="text-xl font-bold text-yellow-900 mb-4">GIN Indexes for Blazing Performance</h3>
+                <p class="text-yellow-800 mb-4">
+                    Generalized Inverted Indexes (GIN) provide lightning-fast searches on arrays,
+                    full-text, and JSONB data. Essential for production filtering performance.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">Index Types</h4>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-sql">-- Array indexing
+CREATE INDEX idx_tb_product_tags
+ON tb_product USING GIN (tags);
+
+-- Full-text search
+CREATE INDEX idx_tb_article_content
+ON tb_article USING GIN (to_tsvector('english', content));
+
+-- JSONB path indexing
+CREATE INDEX idx_tb_user_metadata
+ON tb_user USING GIN (metadata);
+
+-- JSONB expression indexing
+CREATE INDEX idx_tb_product_specs_weight
+ON tb_product USING GIN ((specs->'dimensions'->'weight'));</code></pre>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="font-bold text-gray-800 mb-3">Performance Tips</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><strong>Array operations:</strong> GIN indexes reduce array queries from O(n) to O(1)</li>
+                        <li><strong>Full-text search:</strong> ts_vector indexes provide sub-second ranked results</li>
+                        <li><strong>JSONB queries:</strong> Path indexes accelerate nested property access</li>
+                        <li><strong>Composite indexes:</strong> Combine filters for multi-column performance</li>
+                        <li><strong>Partial indexes:</strong> Index only relevant subsets of data</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Real-World Examples -->
+    <section class="bg-white py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Real-World Use Cases
+            </h2>
+
+            <div class="space-y-8">
+                <div class="bg-gray-50 rounded-lg p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">🛒 E-commerce Product Search</h3>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-graphql"># Advanced product filtering
+{
+  products(
+    where: {
+      _and: [
+        { category: { eq: "electronics" } },
+        { tags: { overlaps: ["wireless", "bluetooth"] } },
+        { price: { gte: 50, lte: 500 } },
+        { name: { fulltext: "noise cancelling" } },
+        { specs: { path_exists: "$.battery.life" } },
+        { in_stock: { eq: true } }
+      ]
+    }
+    order_by: { rating: desc, price: asc }
+  ) {
+    name
+    price
+    tags
+    specs
+  }
+}</code></pre>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-lg p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">📝 Content Management System</h3>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-graphql"># CMS article filtering
+{
+  articles(
+    where: {
+      _or: [
+        { title: { fulltext: "machine learning" } },
+        { content: { fulltext: "machine learning" } },
+        { tags: { contains: ["AI", "ML"] } }
+      ],
+      status: { eq: "published" },
+      published_at: { gte: "2024-01-01" },
+      author: { metadata: { has_key: "expertise" } }
+    }
+    order_by: { published_at: desc }
+  ) {
+    title
+    content
+    tags
+    author
+  }
+}</code></pre>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-lg p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">📊 Log Analysis & Monitoring</h3>
+                    <div class="code-block">
+                        <pre class="p-4 text-sm"><code class="language-graphql"># Log filtering with complex conditions
+{
+  logs(
+    where: {
+      timestamp: { gte: "2024-01-01T00:00:00Z" },
+      level: { in: ["ERROR", "WARN"] },
+      message: { regex: "(timeout|connection|failed)" },
+      metadata: {
+        path_match: "$.user_id",
+        path_exists: "$.request_id"
+      },
+      tags: { overlaps: ["api", "production"] }
+    }
+    order_by: { timestamp: desc }
+  ) {
+    timestamp
+    level
+    message
+    metadata
+    tags
+  }
+}</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-4xl font-bold text-gray-800 mb-4">Ready for Advanced Filtering?</h2>
+            <p class="text-xl text-gray-700 mb-8">38+ PostgreSQL operators with full-text search, JSONB queries, and array operations.</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="/getting-started.html" class="gradient text-white font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Start Filtering
+                </a>
+                <a href="https://fraiseql.readthedocs.io/en/latest/guides/filtering/" class="bg-white text-gray-800 border-2 border-gray-300 font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Complete Filter Guide
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8">
+            <div class="w-full flex flex-col md:flex-row py-6">
+                <div class="flex-1 mb-6 text-white">
+                    <a class="text-white no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                        🍓 FraiseQL
+                    </a>
+                </div>
+                <div class="flex-1">
+                    <p class="uppercase text-gray-400 md:mb-6">Links</p>
+                    <ul class="list-none mb-6">
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://fraiseql.readthedocs.io" class="no-underline hover:underline text-gray-400 hover:text-pink-500">Documentation</a>
+                        </li>
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://github.com/fraiseql/fraiseql" class="no-underline hover:underline text-gray-400 hover:text-pink-500">GitHub</a>
+                        </li>
+                        <li class="mt-2 inline-block mr-2 md:block md:mr-0">
+                            <a href="https://pypi.org/project/fraiseql/" class="no-underline hover:underline text-gray-400 hover:text-pink-500">PyPI</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="w-full pt-6 pb-6 text-sm text-center text-gray-400 border-t border-gray-700">
+                <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-pink-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-pink-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        var scrollpos = window.scrollY;
+        var header = document.getElementById("header");
+        var navcontent = document.getElementById("nav-content");
+        var navaction = document.getElementById("navAction");
+        var brandname = document.getElementById("brandname");
+        var toToggle = document.querySelectorAll(".toggleColour");
+
+        document.addEventListener("scroll", function () {
+            scrollpos = window.scrollY;
+
+            if (scrollpos > 10) {
+                header.classList.add("bg-white");
+                navaction.classList.remove("bg-white");
+                navaction.classList.add("gradient");
+                navaction.classList.remove("text-gray-800");
+                navaction.classList.add("text-white");
+                for (var i = 0; i < toToggle.length; i++) {
+                    toToggle[i].classList.add("text-gray-800");
+                    toToggle[i].classList.remove("text-white");
+                }
+                header.classList.add("shadow");
+                navcontent.classList.remove("bg-gray-100");
+                navcontent.classList.add("bg-white");
+            } else {
+                header.classList.remove("bg-white");
+                navaction.classList.remove("gradient");
+                navaction.classList.add("bg-white");
+                navaction.classList.remove("text-white");
+                navaction.classList.add("text-gray-800");
+                for (var i = 0; i < toToggle.length; i++) {
+                    toToggle[i].classList.add("text-white");
+                    toToggle[i].classList.remove("text-gray-800");
+                }
+                header.classList.remove("shadow");
+                navcontent.classList.remove("bg-white");
+                navcontent.classList.add("bg-gray-100");
+            }
+        });
+
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+    <script src="/prism-python.min.js"></script>
+    <script src="/prism-bash.min.js"></script>
+    <script src="/prism-graphql.min.js"></script>
+    <script src="/prism-sql.min.js"></script>
+</body>
+</html>

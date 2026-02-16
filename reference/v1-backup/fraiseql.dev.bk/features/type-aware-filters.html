@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Type-Aware Filter Generation - FraiseQL</title>
+    <meta name="description" content="Automatic WHERE clause operators based on field types. Network operators, hierarchical queries, date ranges. No manual filter definitions.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+    </style>
+    <link rel="stylesheet" href="/prism.min.css"/>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-5xl font-bold leading-tight">
+                🎨 Type-Aware Filter Generation
+            </h1>
+            <p class="leading-normal text-2xl mb-8">
+                Define your types. Get 35+ intelligent WHERE clause operators automatically. No manual filter definitions.
+            </p>
+        </div>
+    </div>
+
+    <!-- What is Section -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                What is Type-Aware Filter Generation?
+            </h2>
+            <p class="text-gray-700 text-lg mb-8 text-center max-w-3xl mx-auto">
+                FraiseQL automatically generates GraphQL filter operators based on your field types. String fields get text operators, numbers get comparison operators, network types get subnet operators, and hierarchical types get ancestor/descendant queries—all without writing a single line of filter definition code.
+            </p>
+
+            <!-- Auto-Generated Operators Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Field Type</th>
+                            <th class="px-6 py-3 text-left">Auto-Generated Operators</th>
+                            <th class="px-6 py-3 text-left">Example Use Case</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">String</td>
+                            <td class="px-6 py-4">eq, ne, in, contains, startsWith, endsWith, regex</td>
+                            <td class="px-6 py-4 font-bold">Text search, pattern matching</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Int, Float</td>
+                            <td class="px-6 py-4">eq, ne, lt, lte, gt, gte, in, between</td>
+                            <td class="px-6 py-4 font-bold">Range queries, comparisons</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Boolean</td>
+                            <td class="px-6 py-4">eq, ne, isTrue, isFalse, isNull</td>
+                            <td class="px-6 py-4 font-bold">Flag filtering</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">Date/DateTime</td>
+                            <td class="px-6 py-4">eq, ne, before, after, between, overlaps</td>
+                            <td class="px-6 py-4 font-bold">Time-based queries</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">IPv4/IPv6</td>
+                            <td class="px-6 py-4">inSubnet, isPrivate, isLoopback, eq, ne</td>
+                            <td class="px-6 py-4 font-bold">Network management</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">LTree</td>
+                            <td class="px-6 py-4">ancestor_of, descendant_of, matches, eq</td>
+                            <td class="px-6 py-4 font-bold">Hierarchical data</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">DateRange</td>
+                            <td class="px-6 py-4">overlaps, contains, adjacent, eq</td>
+                            <td class="px-6 py-4 font-bold">Scheduling, availability</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">JSONB</td>
+                            <td class="px-6 py-4">contains, has_key, path_exists, eq</td>
+                            <td class="px-6 py-4 font-bold">Flexible schema queries</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                How It Works
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <!-- Step 1 -->
+                <div class="w-full lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">1. Define Your Types (Python)</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python">from fraiseql import fraiseql
+from fraiseql.types.scalars import IPv4Address, LTree
+
+@fraiseql.type
+class Server:
+    id: int
+    hostname: str
+    ip_address: IPv4Address
+    location_path: LTree
+    created_at: datetime
+    is_active: bool
+    metadata: dict  # JSONB
+
+# That's it! No filter definitions needed.</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="w-full lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">2. Filters Auto-Generated (GraphQL)</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-graphql"># FraiseQL automatically generates:
+
+input ServerWhereInput {
+  # String operators
+  hostname: StringFilter
+
+  # IPv4 operators
+  ip_address: IPv4Filter
+
+  # LTree operators
+  location_path: LTreeFilter
+
+  # DateTime operators
+  created_at: DateTimeFilter
+
+  # Boolean operators
+  is_active: BooleanFilter
+
+  # JSONB operators
+  metadata: JSONBFilter
+
+  # Logical operators
+  AND: [ServerWhereInput!]
+  OR: [ServerWhereInput!]
+  NOT: ServerWhereInput
+}
+
+# 35+ total operators across all types!</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="w-full lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow-lg p-6 h-full">
+                        <h3 class="text-2xl font-bold mb-4 text-gray-800">3. Use Intelligent Filters</h3>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-graphql"># String operators
+{
+  servers(where: {
+    hostname: { contains: "prod" }
+  }) { ... }
+}
+
+# Network operators (type-aware!)
+{
+  servers(where: {
+    ip_address: { inSubnet: "10.0.0.0/8" }
+  }) { ... }
+}
+
+# Hierarchical operators
+{
+  servers(where: {
+    location_path: { ancestor_of: "usa.california" }
+  }) { ... }
+}
+
+# Date range queries
+{
+  servers(where: {
+    created_at: { after: "2024-01-01" }
+  }) { ... }
+}
+
+# Complex logical queries
+{
+  servers(where: {
+    AND: [
+      { hostname: { startsWith: "web" } }
+      { is_active: { isTrue: true } }
+      { ip_address: { isPrivate: true } }
+    ]
+  }) { ... }
+}</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Benefits -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Key Benefits
+            </h2>
+
+            <div class="flex flex-wrap -mx-4">
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">⚡</div>
+                        <h3 class="text-xl font-bold mb-2">Zero Boilerplate</h3>
+                        <p class="text-gray-600">No manual filter input type definitions. Define field type once, get all relevant operators automatically.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🎯</div>
+                        <h3 class="text-xl font-bold mb-2">Type-Safe</h3>
+                        <p class="text-gray-600">Operators match field types. Can't use `inSubnet` on strings or `contains` on numbers. Type system enforces correctness.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🧠</div>
+                        <h3 class="text-xl font-bold mb-2">Intelligent Operators</h3>
+                        <p class="text-gray-600">Network types get subnet operations. Hierarchical types get ancestor/descendant queries. Date types get before/after.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🔧</div>
+                        <h3 class="text-xl font-bold mb-2">PostgreSQL-Aware</h3>
+                        <p class="text-gray-600">Generates SQL that leverages PostgreSQL-specific features: JSONB operators, ltree queries, inet functions.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">📚</div>
+                        <h3 class="text-xl font-bold mb-2">Auto-Documented</h3>
+                        <p class="text-gray-600">All 35+ operators documented in GraphQL schema. Developers see available filters in Apollo Studio.</p>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
+                    <div class="bg-white rounded-lg shadow p-6 text-center">
+                        <div class="text-4xl mb-4">🔄</div>
+                        <h3 class="text-xl font-bold mb-2">Always Consistent</h3>
+                        <p class="text-gray-600">Change field type, operators update automatically. No manual filter maintenance needed.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Complete Operator Reference -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Complete Operator Reference
+            </h2>
+
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">String Operators</h3>
+            <div class="code-block mb-8">
+                <pre class="p-6 overflow-x-auto"><code class="language-python">hostname: {
+  eq: "web-01"              # Exact match
+  ne: "web-02"              # Not equal
+  in: ["web-01", "web-02"]  # In list
+  contains: "prod"          # Contains substring
+  startsWith: "web"         # Starts with prefix
+  endsWith: "01"            # Ends with suffix
+  regex: "^web-[0-9]+$"     # Regex pattern match
+  isNull: false             # Null check
+}</code></pre>
+            </div>
+
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Numeric Operators (Int, Float, Decimal)</h3>
+            <div class="code-block mb-8">
+                <pre class="p-6 overflow-x-auto"><code class="language-python">port: {
+  eq: 8080                  # Exact match
+  ne: 80                    # Not equal
+  lt: 9000                  # Less than
+  lte: 8080                 # Less than or equal
+  gt: 1024                  # Greater than
+  gte: 1024                 # Greater than or equal
+  in: [80, 443, 8080]       # In list
+  between: [1024, 65535]    # Range (inclusive)
+  isNull: false             # Null check
+}</code></pre>
+            </div>
+
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Boolean Operators</h3>
+            <div class="code-block mb-8">
+                <pre class="p-6 overflow-x-auto"><code class="language-python">is_active: {
+  eq: true                  # Exact match
+  ne: false                 # Not equal
+  isTrue: true              # Explicitly true
+  isFalse: true             # Explicitly false
+  isNull: false             # Null check
+}</code></pre>
+            </div>
+
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Date/DateTime Operators</h3>
+            <div class="code-block mb-8">
+                <pre class="p-6 overflow-x-auto"><code class="language-python">created_at: {
+  eq: "2024-01-01"          # Exact match
+  ne: "2023-12-31"          # Not equal
+  before: "2024-01-01"      # Before date
+  after: "2023-12-31"       # After date
+  between: ["2023-01-01", "2023-12-31"]  # Date range
+  isNull: false             # Null check
+}</code></pre>
+            </div>
+
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Network Operators (IPv4/IPv6)</h3>
+            <div class="code-block mb-8">
+                <pre class="p-6 overflow-x-auto"><code class="language-python">ip_address: {
+  eq: "192.168.1.1"         # Exact match
+  inSubnet: "10.0.0.0/8"    # IP in subnet
+  isPrivate: true           # RFC 1918 private
+  isLoopback: true          # 127.0.0.1
+  isNull: false             # Null check
+}</code></pre>
+            </div>
+
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Hierarchical Operators (LTree)</h3>
+            <div class="code-block mb-8">
+                <pre class="p-6 overflow-x-auto"><code class="language-python">location_path: {
+  eq: "usa.california.sf"              # Exact match
+  ancestor_of: "usa.california"        # Parent of
+  descendant_of: "usa"                 # Child of
+  matches: "usa.*.san_*"               # Pattern match
+  isNull: false                        # Null check
+}</code></pre>
+            </div>
+
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Logical Operators (All Types)</h3>
+            <div class="code-block">
+                <pre class="p-6 overflow-x-auto"><code class="language-graphql">{
+  AND: [
+    { hostname: { startsWith: "web" } }
+    { is_active: { isTrue: true } }
+  ]
+  OR: [
+    { port: { eq: 80 } }
+    { port: { eq: 443 } }
+  ]
+  NOT: {
+    ip_address: { isPrivate: true }
+  }
+}</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Perfect For -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Perfect For
+            </h2>
+
+            <ul class="text-lg space-y-3 max-w-2xl mx-auto">
+                <li>✅ Search and filtering UIs - all operators available automatically</li>
+                <li>✅ Admin dashboards - complex queries without custom resolvers</li>
+                <li>✅ Reporting systems - flexible filtering for data exports</li>
+                <li>✅ Multi-tenant applications - combine filters with tenant isolation</li>
+                <li>✅ IoT/Infrastructure - network and hierarchical data filtering</li>
+                <li>✅ Rapid prototyping - no time wasted on filter boilerplate</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- Comparison -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Why This is Unique
+            </h2>
+
+            <div class="overflow-x-auto mb-8">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Framework</th>
+                            <th class="px-6 py-3 text-left">Filter Generation</th>
+                            <th class="px-6 py-3 text-left">Type-Aware</th>
+                            <th class="px-6 py-3 text-left">PostgreSQL Operators</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Hasura</td>
+                            <td class="px-6 py-4 font-bold">✅ Automatic</td>
+                            <td class="px-6 py-4">⚠️ Basic types only</td>
+                            <td class="px-6 py-4">❌ Limited</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">PostGraphile</td>
+                            <td class="px-6 py-4 font-bold">✅ Automatic</td>
+                            <td class="px-6 py-4">⚠️ Some types</td>
+                            <td class="px-6 py-4">⚠️ Plugin required</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">Strawberry/Graphene</td>
+                            <td class="px-6 py-4">❌ Manual definitions</td>
+                            <td class="px-6 py-4">❌ Manual per type</td>
+                            <td class="px-6 py-4">❌ Custom resolvers</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">FraiseQL</td>
+                            <td class="px-6 py-4 font-bold">✅ Automatic</td>
+                            <td class="px-6 py-4 font-bold">✅ All types + PostgreSQL</td>
+                            <td class="px-6 py-4 font-bold">✅ Native support</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p class="text-center text-lg text-gray-700"><strong>FraiseQL is the only Python GraphQL framework with comprehensive type-aware filter generation</strong> including PostgreSQL-specific types like ltree, inet, and daterange.</p>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="bg-white py-12">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-4xl font-bold text-gray-800 mb-4">Ready for Zero-Boilerplate Filtering?</h2>
+            <p class="text-xl text-gray-700 mb-8">Type-aware filter generation is a core feature of FraiseQL</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="https://fraiseql.readthedocs.io/en/latest/guides/filtering/" class="gradient text-white font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Read the Docs
+                </a>
+                <a href="https://github.com/fraiseql/fraiseql/tree/main/examples/filtering" class="bg-white text-gray-800 border-2 border-gray-300 font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    See Examples
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://www.linkedin.com/in/lionel-hamayon/" class="text-red-500 no-underline hover:underline">Lionel Hamayon</a>.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+    <script src="/prism-python.min.js"></script>
+    <script src="/prism-graphql.min.js"></script>
+    <script src="/prism-sql.min.js"></script>
+    <script src="/prism-bash.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,973 @@
+---
+title: Advanced Patterns
+description: Learn advanced FraiseQL patterns for soft deletes, audit trails, versioning, and more
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Advanced Patterns
+
+Master advanced FraiseQL patterns for production applications.
+
+## Soft Delete Pattern
+
+Implement undo/restore functionality without losing data.
+
+### Basic Soft Delete
+
+```python
+from datetime import datetime
+from fraiseql import FraiseQL
+
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    content: str
+    created_at: datetime
+    deleted_at: datetime | None  # NULL = not deleted
+
+@fraiseql.query
+def posts() -> list[Post]:
+    """Get all non-deleted posts."""
+    # FraiseQL automatically filters WHERE deleted_at IS NULL
+    pass
+
+@fraiseql.query
+def posts_including_deleted() -> list[Post]:
+    """Get all posts including deleted ones (admin only)."""
+    pass
+
+@fraiseql.mutation
+def delete_post(id: ID) -> Post:
+    """Soft delete: set deleted_at timestamp."""
+    # UPDATE posts SET deleted_at = NOW() WHERE id = ?
+    pass
+
+@fraiseql.mutation
+def restore_post(id: ID) -> Post:
+    """Restore deleted post."""
+    # UPDATE posts SET deleted_at = NULL WHERE id = ?
+    pass
+```
+
+### Database Implementation
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE TABLE posts (
+        id BIGSERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        deleted_at TIMESTAMP  -- NULL = not deleted
+    );
+
+    -- Create index for faster queries
+    CREATE INDEX idx_posts_deleted_at ON posts(deleted_at)
+    WHERE deleted_at IS NULL;
+
+    -- View for non-deleted posts
+    CREATE VIEW v_posts_active AS
+    SELECT * FROM posts WHERE deleted_at IS NULL;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE TABLE posts (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        content LONGTEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP NULL
+    );
+
+    -- Index for active posts
+    CREATE INDEX idx_posts_deleted_at ON posts(deleted_at);
+
+    -- View for non-deleted posts
+    CREATE VIEW v_posts_active AS
+    SELECT * FROM posts WHERE deleted_at IS NULL;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE TABLE posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        deleted_at DATETIME
+    );
+
+    -- Index for active posts
+    CREATE INDEX idx_posts_deleted_at ON posts(deleted_at);
+
+    -- View for non-deleted posts
+    CREATE VIEW v_posts_active AS
+    SELECT * FROM posts WHERE deleted_at IS NULL;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE TABLE dbo.posts (
+        id BIGINT IDENTITY(1,1) PRIMARY KEY,
+        title NVARCHAR(MAX) NOT NULL,
+        content NVARCHAR(MAX) NOT NULL,
+        created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+        deleted_at DATETIMEOFFSET NULL
+    );
+
+    -- Index for active posts
+    CREATE INDEX idx_posts_deleted_at ON dbo.posts(deleted_at)
+    WHERE deleted_at IS NULL;
+
+    -- View for non-deleted posts
+    CREATE VIEW dbo.v_posts_active AS
+    SELECT * FROM dbo.posts WHERE deleted_at IS NULL;
+    ```
+  </TabItem>
+</Tabs>
+
+### Cascading Soft Deletes
+
+Delete parent and children (soft):
+
+```python
+@fraiseql.mutation
+def delete_post_with_comments(post_id: ID) -> Post:
+    """Delete post and all its comments."""
+    # In database with triggers:
+    # 1. UPDATE posts SET deleted_at = NOW() WHERE id = ?
+    # 2. UPDATE comments SET deleted_at = NOW() WHERE post_id = ?
+    pass
+```
+
+Database trigger (PostgreSQL):
+
+```sql
+CREATE TRIGGER cascade_post_delete
+AFTER UPDATE ON posts
+FOR EACH ROW
+WHEN (NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL)
+BEGIN
+    UPDATE comments SET deleted_at = NOW()
+    WHERE post_id = NEW.id AND deleted_at IS NULL;
+END;
+```
+
+## Audit Trail Pattern
+
+Track all changes for compliance and debugging.
+
+### Simple Audit Log
+
+```python
+from datetime import datetime
+from enum import Enum
+
+class AuditAction(str, Enum):
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+    RESTORE = "RESTORE"
+
+@fraiseql.type
+class AuditLog:
+    id: ID
+    entity_type: str      # "Post", "User", etc.
+    entity_id: ID
+    action: AuditAction
+    old_values: dict      # JSON of previous values
+    new_values: dict      # JSON of current values
+    user_id: ID
+    timestamp: datetime
+
+@fraiseql.query
+def audit_logs(entity_type: str, entity_id: ID) -> list[AuditLog]:
+    """Get audit trail for entity."""
+    pass
+
+@fraiseql.mutation
+def update_post(id: ID, title: str, content: str) -> Post:
+    """Update post with audit logging."""
+    # 1. Get old values
+    # 2. Update post
+    # 3. Log change: { entity_type: "Post", entity_id: id, action: "UPDATE", old_values: {...}, new_values: {...} }
+    pass
+```
+
+### Database Implementation
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE TABLE audit_logs (
+        id BIGSERIAL PRIMARY KEY,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id BIGINT NOT NULL,
+        action VARCHAR(20) NOT NULL,
+        old_values JSONB,
+        new_values JSONB,
+        user_id BIGINT NOT NULL,
+        timestamp TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+    CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
+    CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
+
+    -- View for audit timeline
+    CREATE VIEW v_audit_timeline AS
+    SELECT
+        id, entity_type, entity_id, action,
+        old_values, new_values, user_id, timestamp
+    FROM audit_logs
+    ORDER BY timestamp DESC;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE TABLE audit_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id BIGINT NOT NULL,
+        action VARCHAR(20) NOT NULL,
+        old_values JSON,
+        new_values JSON,
+        user_id BIGINT NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+    CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
+    CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
+
+    -- View for audit timeline
+    CREATE VIEW v_audit_timeline AS
+    SELECT
+        id, entity_type, entity_id, action,
+        old_values, new_values, user_id, timestamp
+    FROM audit_logs
+    ORDER BY timestamp DESC;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE TABLE audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id INTEGER NOT NULL,
+        action VARCHAR(20) NOT NULL,
+        old_values TEXT,
+        new_values TEXT,
+        user_id INTEGER NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+    CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
+    CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
+
+    -- View for audit timeline
+    CREATE VIEW v_audit_timeline AS
+    SELECT
+        id, entity_type, entity_id, action,
+        old_values, new_values, user_id, timestamp
+    FROM audit_logs
+    ORDER BY timestamp DESC;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE TABLE dbo.audit_logs (
+        id BIGINT IDENTITY(1,1) PRIMARY KEY,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id BIGINT NOT NULL,
+        action VARCHAR(20) NOT NULL,
+        old_values NVARCHAR(MAX),
+        new_values NVARCHAR(MAX),
+        user_id BIGINT NOT NULL,
+        timestamp DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    );
+
+    CREATE INDEX idx_audit_logs_entity ON dbo.audit_logs(entity_type, entity_id);
+    CREATE INDEX idx_audit_logs_user ON dbo.audit_logs(user_id);
+    CREATE INDEX idx_audit_logs_timestamp ON dbo.audit_logs(timestamp DESC);
+
+    -- View for audit timeline
+    CREATE VIEW dbo.v_audit_timeline AS
+    SELECT
+        id, entity_type, entity_id, action,
+        old_values, new_values, user_id, timestamp
+    FROM dbo.audit_logs
+    ORDER BY timestamp DESC;
+    ```
+  </TabItem>
+</Tabs>
+
+### Auto-Trigger Audit Logging
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Function to log post changes
+    CREATE OR REPLACE FUNCTION log_post_changes()
+    RETURNS TRIGGER AS '
+    BEGIN
+        INSERT INTO audit_logs (entity_type, entity_id, action, old_values, new_values, user_id, timestamp)
+        VALUES (
+            ''Post'',
+            NEW.id,
+            CASE
+                WHEN TG_OP = ''INSERT'' THEN ''CREATE''
+                WHEN TG_OP = ''UPDATE'' THEN ''UPDATE''
+                WHEN TG_OP = ''DELETE'' THEN ''DELETE''
+            END,
+            CASE
+                WHEN TG_OP = ''INSERT'' THEN NULL
+                ELSE row_to_json(OLD)
+            END,
+            CASE
+                WHEN TG_OP = ''DELETE'' THEN NULL
+                ELSE row_to_json(NEW)
+            END,
+            COALESCE(current_setting(''app.user_id'')::BIGINT, NULL),
+            NOW()
+        );
+        RETURN NEW;
+    END;
+    ' LANGUAGE plpgsql;
+
+    -- Trigger on posts table
+    CREATE TRIGGER posts_audit_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON posts
+    FOR EACH ROW
+    EXECUTE FUNCTION log_post_changes();
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- Trigger for INSERT
+    CREATE TRIGGER posts_audit_insert
+    AFTER INSERT ON posts
+    FOR EACH ROW
+    BEGIN
+        INSERT INTO audit_logs (entity_type, entity_id, action, old_values, new_values, user_id, timestamp)
+        VALUES ('Post', NEW.id, 'CREATE', NULL, JSON_OBJECT(
+            'id', NEW.id, 'title', NEW.title, 'content', NEW.content,
+            'created_at', NEW.created_at, 'deleted_at', NEW.deleted_at
+        ), @user_id, NOW());
+    END;
+
+    -- Trigger for UPDATE
+    CREATE TRIGGER posts_audit_update
+    AFTER UPDATE ON posts
+    FOR EACH ROW
+    BEGIN
+        INSERT INTO audit_logs (entity_type, entity_id, action, old_values, new_values, user_id, timestamp)
+        VALUES ('Post', NEW.id, 'UPDATE', JSON_OBJECT(
+            'id', OLD.id, 'title', OLD.title, 'content', OLD.content,
+            'created_at', OLD.created_at, 'deleted_at', OLD.deleted_at
+        ), JSON_OBJECT(
+            'id', NEW.id, 'title', NEW.title, 'content', NEW.content,
+            'created_at', NEW.created_at, 'deleted_at', NEW.deleted_at
+        ), @user_id, NOW());
+    END;
+
+    -- Trigger for DELETE
+    CREATE TRIGGER posts_audit_delete
+    AFTER DELETE ON posts
+    FOR EACH ROW
+    BEGIN
+        INSERT INTO audit_logs (entity_type, entity_id, action, old_values, new_values, user_id, timestamp)
+        VALUES ('Post', OLD.id, 'DELETE', JSON_OBJECT(
+            'id', OLD.id, 'title', OLD.title, 'content', OLD.content,
+            'created_at', OLD.created_at, 'deleted_at', OLD.deleted_at
+        ), NULL, @user_id, NOW());
+    END;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- Trigger for INSERT
+    CREATE TRIGGER posts_audit_insert
+    AFTER INSERT ON posts
+    BEGIN
+        INSERT INTO audit_logs (entity_type, entity_id, action, old_values, new_values, user_id, timestamp)
+        VALUES ('Post', NEW.id, 'CREATE', NULL, json_object(
+            'id', NEW.id, 'title', NEW.title, 'content', NEW.content,
+            'created_at', NEW.created_at, 'deleted_at', NEW.deleted_at
+        ), (SELECT user_id FROM user_context LIMIT 1), datetime('now'));
+    END;
+
+    -- Trigger for UPDATE
+    CREATE TRIGGER posts_audit_update
+    AFTER UPDATE ON posts
+    BEGIN
+        INSERT INTO audit_logs (entity_type, entity_id, action, old_values, new_values, user_id, timestamp)
+        VALUES ('Post', NEW.id, 'UPDATE', json_object(
+            'id', OLD.id, 'title', OLD.title, 'content', OLD.content,
+            'created_at', OLD.created_at, 'deleted_at', OLD.deleted_at
+        ), json_object(
+            'id', NEW.id, 'title', NEW.title, 'content', NEW.content,
+            'created_at', NEW.created_at, 'deleted_at', NEW.deleted_at
+        ), (SELECT user_id FROM user_context LIMIT 1), datetime('now'));
+    END;
+
+    -- Trigger for DELETE
+    CREATE TRIGGER posts_audit_delete
+    AFTER DELETE ON posts
+    BEGIN
+        INSERT INTO audit_logs (entity_type, entity_id, action, old_values, new_values, user_id, timestamp)
+        VALUES ('Post', OLD.id, 'DELETE', json_object(
+            'id', OLD.id, 'title', OLD.title, 'content', OLD.content,
+            'created_at', OLD.created_at, 'deleted_at', OLD.deleted_at
+        ), NULL, (SELECT user_id FROM user_context LIMIT 1), datetime('now'));
+    END;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Trigger for all operations
+    CREATE TRIGGER posts_audit_trigger
+    ON dbo.posts
+    AFTER INSERT, UPDATE, DELETE
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+
+        INSERT INTO dbo.audit_logs (entity_type, entity_id, action, old_values, new_values, user_id, timestamp)
+        SELECT
+            'Post',
+            COALESCE(INSERTED.id, DELETED.id),
+            CASE
+                WHEN INSERTED.id IS NOT NULL AND DELETED.id IS NULL THEN 'CREATE'
+                WHEN INSERTED.id IS NOT NULL AND DELETED.id IS NOT NULL THEN 'UPDATE'
+                ELSE 'DELETE'
+            END,
+            CASE
+                WHEN INSERTED.id IS NOT NULL AND DELETED.id IS NULL THEN NULL
+                ELSE (SELECT * FROM DELETED AS d FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+            END,
+            CASE
+                WHEN DELETED.id IS NOT NULL AND INSERTED.id IS NULL THEN NULL
+                ELSE (SELECT * FROM INSERTED AS i FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+            END,
+            CAST(SESSION_CONTEXT(N'user_id') AS BIGINT),
+            SYSDATETIMEOFFSET()
+        FROM INSERTED
+        FULL JOIN DELETED ON INSERTED.id = DELETED.id;
+    END;
+    ```
+  </TabItem>
+</Tabs>
+
+Set user context before mutations:
+
+```python
+@fraiseql.middleware
+async def set_user_context(request, call_next):
+    """Set user_id in PostgreSQL session for audit logging."""
+    user_id = request.user.id if request.user else None
+    await db.execute(f"SET app.user_id = {user_id}")
+    response = await call_next(request)
+    return response
+```
+
+## Versioning Pattern
+
+Track content versions and allow rollback.
+
+### Versioned Content
+
+```python
+@fraiseql.type
+class PostVersion:
+    id: ID
+    post_id: ID
+    version_number: int
+    title: str
+    content: str
+    created_by: ID
+    created_at: datetime
+
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    content: str
+    current_version: int
+    versions: list[PostVersion]
+    created_at: datetime
+    updated_at: datetime
+
+@fraiseql.query
+def post_versions(post_id: ID) -> list[PostVersion]:
+    """Get all versions of a post."""
+    pass
+
+@fraiseql.mutation
+def update_post(id: ID, title: str, content: str) -> Post:
+    """Update post (creates new version)."""
+    # 1. Get current version_number
+    # 2. Create new version record
+    # 3. Update post with new content
+    pass
+
+@fraiseql.mutation
+def revert_to_version(post_id: ID, version_number: int) -> Post:
+    """Revert to specific version."""
+    # 1. Get version content
+    # 2. Create new version with old content
+    # 3. Update post
+    pass
+```
+
+### Database Schema (PostgreSQL)
+
+```sql
+CREATE TABLE posts (
+    id BIGSERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    current_version INT DEFAULT 1,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE post_versions (
+    id BIGSERIAL PRIMARY KEY,
+    post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    version_number INT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_by BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(post_id, version_number)
+);
+
+CREATE INDEX idx_post_versions_post_id ON post_versions(post_id);
+CREATE INDEX idx_post_versions_created_at ON post_versions(created_at DESC);
+```
+
+## Pagination at Scale
+
+Efficient pagination for large datasets.
+
+### Cursor-Based Pagination (Recommended)
+
+```python
+@fraiseql.type
+class PageInfo:
+    has_next_page: bool
+    has_prev_page: bool
+    start_cursor: str | None
+    end_cursor: str | None
+
+@fraiseql.type
+class PostEdge:
+    cursor: str
+    node: Post
+
+@fraiseql.type
+class PostConnection:
+    edges: list[PostEdge]
+    pageInfo: PageInfo
+    total_count: int
+
+@fraiseql.query
+def posts(
+    first: int = 10,
+    after: str | None = None
+) -> PostConnection:
+    """Cursor-based pagination."""
+    # Cursor = base64(id=123)
+    # Query: SELECT * FROM posts WHERE id > 123 LIMIT 11
+    # Check if 11 rows returned to know if has_next_page
+    pass
+```
+
+### Efficient Database Queries
+
+```sql
+-- GOOD: Use keyset pagination (efficient)
+SELECT * FROM posts
+WHERE id > ? AND created_at > ?
+ORDER BY created_at DESC
+LIMIT 10;
+
+-- BAD: Avoid OFFSET (scans all rows)
+SELECT * FROM posts
+ORDER BY created_at DESC
+LIMIT 10 OFFSET 1000000;  -- Scans 1,000,010 rows!
+```
+
+### Handling Cursor Encoding
+
+```python
+import base64
+
+def encode_cursor(post_id: int, created_at: datetime) -> str:
+    """Encode cursor for pagination."""
+    data = f"{post_id}:{created_at.isoformat()}"
+    return base64.b64encode(data.encode()).decode()
+
+def decode_cursor(cursor: str) -> tuple[int, datetime]:
+    """Decode cursor."""
+    data = base64.b64decode(cursor.encode()).decode()
+    post_id, created_at = data.split(":")
+    return int(post_id), datetime.fromisoformat(created_at)
+```
+
+## RBAC (Role-Based Access Control)
+
+Fine-grained permission management.
+
+### Permission Model
+
+```python
+from enum import Enum
+
+class Role(str, Enum):
+    ADMIN = "admin"
+    EDITOR = "editor"
+    VIEWER = "viewer"
+
+class Permission(str, Enum):
+    READ_POST = "read:post"
+    CREATE_POST = "create:post"
+    UPDATE_POST = "update:post"
+    DELETE_POST = "delete:post"
+    MANAGE_USERS = "manage:users"
+
+       ─
+```
+
+### Database-Backed RBAC
+
+```sql
+CREATE TABLE roles (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE,
+    description TEXT
+);
+
+CREATE TABLE permissions (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT
+);
+
+CREATE TABLE role_permissions (
+    role_id BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id BIGINT NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    PRIMARY KEY (role_id, permission_id)
+);
+
+CREATE TABLE user_roles (
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, role_id)
+);
+
+-- View: User permissions
+CREATE VIEW v_user_permissions AS
+SELECT DISTINCT
+    u.id AS user_id,
+    p.name AS permission
+FROM users u
+JOIN user_roles ur ON u.id = ur.user_id
+JOIN role_permissions rp ON ur.role_id = rp.role_id
+JOIN permissions p ON rp.permission_id = p.id;
+```
+
+### Authorization in FraiseQL
+
+```python
+@fraiseql.query(requires_scope="read:post")
+def posts() -> list[Post]:
+    """User must have read:post permission."""
+    pass
+
+@fraiseql.mutation(requires_scope="create:post")
+def create_post(title: str, content: str) -> Post:
+    """User must have create:post permission."""
+    pass
+
+@fraiseql.middleware
+async def check_permissions(request, call_next):
+    """Verify user has required permissions."""
+    required_scope = request.path_params.get("required_scope")
+    if required_scope:
+        user_scopes = await get_user_scopes(request.user.id)
+        if required_scope not in user_scopes:
+            raise PermissionError(f"Missing scope: {required_scope}")
+    return await call_next(request)
+```
+
+## Multi-Tenancy Patterns
+
+Isolate data between customers.
+
+### Row-Level Security (RLS) Approach
+
+```python
+@fraiseql.type
+class Post:
+    id: ID
+    tenant_id: ID
+    title: str
+    content: str
+    # FraiseQL enforces: tenant_id = current_user.tenant_id
+
+@fraiseql.query
+def posts() -> list[Post]:
+    """Get posts for current tenant only."""
+    # Automatically filters WHERE tenant_id = current_tenant_id
+    pass
+```
+
+PostgreSQL RLS:
+
+```sql
+CREATE POLICY posts_tenant_isolation ON posts
+USING (tenant_id = current_setting('app.tenant_id')::BIGINT)
+WITH CHECK (tenant_id = current_setting('app.tenant_id')::BIGINT);
+
+ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
+```
+
+### Separate Database Approach
+
+```python
+# Database routing based on tenant
+DATABASE_URLS = {
+    "tenant-1": "postgresql://...",
+    "tenant-2": "postgresql://...",
+    "tenant-3": "postgresql://...",
+}
+
+@fraiseql.middleware
+async def route_to_tenant_database(request, call_next):
+    """Route queries to tenant-specific database."""
+    tenant_id = request.user.tenant_id
+    database_url = DATABASE_URLS.get(tenant_id)
+    if not database_url:
+        raise ValueError(f"Unknown tenant: {tenant_id}")
+    db.url = database_url
+    return await call_next(request)
+```
+
+## Nested Document Pattern
+
+Denormalize hierarchical data for performance.
+
+```python
+@fraiseql.type
+class Comment:
+    id: ID
+    text: str
+    author: str
+    created_at: datetime
+
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    content: str
+    comments: list[Comment]  # Denormalized
+
+@fraiseql.query
+def post(id: ID) -> Post:
+    """Get post with nested comments."""
+    # Single query with JOINs or array aggregation
+    # SELECT p.*, array_agg(c.*) as comments FROM posts p ...
+    pass
+```
+
+**When to use**:
+- Comments on a post
+- Replies to a comment
+- Attachments on a document
+- Small nested collections (< 100 items)
+
+**When NOT to use**:
+- Large collections (> 10k items)
+- Frequently updated sub-items
+- Need independent sorting/filtering
+
+## Performance Optimization
+
+### Query Complexity Limits
+
+Prevent expensive queries:
+
+```python
+@fraiseql.query
+def users() -> list[User]:
+    """Limit nested queries."""
+    # Complexity: 1 (user list) + 10 (posts per user) + 10 (comments per post)
+    # = 1 + 10*10 + 10*10*10 = 1111
+    # Too high! Set limit.
+    pass
+```
+
+### Batch Resolving
+
+```python
+@fraiseql.type
+class User:
+    id: ID
+    name: str
+    posts: list[Post]  # Automatically batched
+
+
+                       ─
+            ─
+```
+
+### Caching Expensive Computations
+
+```python
+@fraiseql.query
+@cached(ttl=3600)
+def user_stats(user_id: ID) -> UserStats:
+    """Cache expensive aggregation."""
+    # SELECT COUNT(*) as posts, SUM(...) as likes, etc.
+    # Executed once per hour max
+    pass
+```
+
+## Error Handling Patterns
+
+### Custom Error Types
+
+```python
+class ValidationError(Exception):
+    def __init__(self, field: str, message: str):
+        self.field = field
+        self.message = message
+        super().__init__(f"{field}: {message}")
+
+@fraiseql.mutation
+def create_post(title: str, content: str) -> Post:
+    """Validate input."""
+    if not title or len(title) < 3:
+        raise ValidationError("title", "Title must be at least 3 chars")
+    if not content or len(content) < 10:
+        raise ValidationError("content", "Content must be at least 10 chars")
+    return create_db_post(title, content)
+```
+
+### Consistent Error Responses
+
+```python
+@fraiseql.error_handler
+def handle_validation_error(error: ValidationError) -> dict:
+    return {
+        "code": "VALIDATION_ERROR",
+        "message": error.message,
+        "field": error.field,
+    }
+```
+
+## Testing Advanced Patterns
+
+```python
+import pytest
+
+@pytest.fixture
+def user():
+    return create_user(name="Test User")
+
+@pytest.fixture
+def post(user):
+    return create_post(user_id=user.id, title="Test")
+
+def test_soft_delete(post):
+    """Test soft delete."""
+    delete_post(post.id)
+    assert get_post(post.id) is None  # Filtered out
+    assert get_post(post.id, include_deleted=True) is not None
+
+def test_audit_logging(post):
+    """Test audit trail."""
+    update_post(post.id, title="Updated")
+    logs = get_audit_logs("Post", post.id)
+    assert len(logs) == 2  # CREATE + UPDATE
+    assert logs[1].action == "UPDATE"
+    assert logs[1].old_values["title"] == "Test"
+    assert logs[1].new_values["title"] == "Updated"
+
+def test_versioning(post):
+    """Test post versioning."""
+    update_post(post.id, title="V2")
+    update_post(post.id, title="V3")
+    versions = get_post_versions(post.id)
+    assert len(versions) == 3
+    assert versions[2].version_number == 3
+```
+
+## Summary Table
+
+| Pattern | Use Case | Complexity | Performance |
+|---------|----------|-----------|-------------|
+| Soft Delete | Undo/restore | Low | High |
+| Audit Trail | Compliance | Medium | Medium |
+| Versioning | Content history | Medium | Medium |
+| Cursor Pagination | Large datasets | Low | High |
+| RBAC | Fine-grained permissions | Medium | Medium |
+| Multi-tenancy | Data isolation | High | High |
+| Nested Documents | Small nested data | Low | High |
+| Caching | Expensive queries | Low | High |
+
+Choose patterns based on your requirements, not "because everyone does it."
+
+---
+
+## See Also
+
+### Related Guides
+- [Authentication & Authorization](/guides/authentication) — User identity and permissions
+- [Error Handling](/guides/error-handling) — Robust error management
+- [Multi-Tenancy Guide](/guides/multi-tenancy) — Complete multi-tenant implementation
+- [Performance Optimization](/guides/performance-benchmarks) — Query and system tuning
+
+### Real-World Examples
+- [SaaS Blog Platform](/examples/saas-blog) — Multi-tenancy with soft deletes
+- [Real-Time Collaboration](/examples/realtime-collaboration) — Versioning and edit history
+- [Mobile Analytics Backend](/examples/mobile-analytics-backend) — High-volume event ingestion
+- [Federation E-Commerce](/examples/federation-ecommerce) — Cross-database patterns
+
+### Reference Documentation
+- [Security Best Practices](/features/security) — Secure implementations
+- [Caching Strategy](/features/caching) — Cache patterns
+- [Audit Logging](/features/audit-logging) — Compliance and tracking
+- [Troubleshooting](/troubleshooting) — Common issues and solutions
+
+### Learning Resources
+- [RBAC Implementation](/guides/advanced-patterns#rbac-patterns) — Permission models
+- [Multi-Tenancy Deep Dive](/guides/multi-tenancy) — Data isolation strategies
+- [Database-Specific Guides](/databases) — SQL implementation details
+
+---
+
+## Next Steps
+
+1. **Choose relevant patterns** for your use case from the summary table
+2. **Implement one pattern at a time** - don't mix too many patterns initially
+3. **Test thoroughly** - advanced patterns need comprehensive test coverage
+4. **Monitor performance** - ensure patterns don't create unexpected overhead
+5. **Document your patterns** - help other developers understand your choices
+6. **Share and iterate** - get feedback from team, refine as needed

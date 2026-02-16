@@ -1,0 +1,369 @@
+---
+title: How It Works
+description: Understanding FraiseQL's database-first architecture
+---
+
+import D2Diagram from '../../../components/D2Diagram.astro';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL is a **database-first GraphQL framework**. You write SQL views that compose nested JSONB responses. FraiseQL maps your GraphQL types to those views. At runtime, every query resolves to a single SQL statement — no resolvers, no N+1, no DataLoader.
+
+## The Three Layers
+
+<D2Diagram name="three-stages" alt="FraiseQL three layers: Developer-owned SQL views, compiled GraphQL mapping, runtime query executor" />
+
+### 1. Write SQL Views
+
+You write SQL views following a simple pattern: each view has an `id` column and a `data` JSONB column containing the complete response for that entity.
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+
+    Views compose other views. A post view embeds its author by referencing `v_user.data`:
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        jsonb_build_object(
+            'id', p.id::text,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+
+    Views compose other views. A post view embeds its author by referencing `v_user.data`:
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        JSON_OBJECT(
+            'id', p.id,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW v_user AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+
+    Views compose other views. A post view embeds its author by referencing `v_user.data`:
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        json_object(
+            'id', p.id,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/02_read/v_user.sql"
+    CREATE VIEW dbo.v_user
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT u.id, u.name, u.email
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+    ```
+
+    Views compose other views. A post view embeds its author by referencing `v_user.data`:
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW dbo.v_post
+    WITH SCHEMABINDING AS
+    SELECT
+        p.id,
+        (
+            SELECT p.id, p.title, p.content, vu.data AS author
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p
+    JOIN dbo.tb_user u ON u.pk_user = p.fk_user
+    JOIN dbo.v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+**Key insight:** Each view owns its fields. Add a field to `v_user` once, and every view that embeds `v_user.data` gets it automatically. No duplication.
+
+**This is SQL you write, review, and own.** You can use CTEs, window functions, stored procedures, custom aggregations — the full power of your database. FraiseQL works with PostgreSQL, SQL Server, MySQL, and SQLite (extensible to any database with a Rust driver). Or you can ask an LLM to generate the views. The pattern is consistent enough that local models produce accurate results.
+
+### 2. Define GraphQL Types
+
+Define your GraphQL schema in your preferred programming language:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    import fraiseql
+
+    @fraiseql.type
+    class User:
+        id: str
+        name: str
+        email: str
+        posts: list['Post']
+
+    @fraiseql.type
+    class Post:
+        id: str
+        title: str
+        content: str
+        author: User
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    import fraiseql from '@fraiseql/core';
+
+    @fraiseql.type
+    class User {
+      id: string;
+      name: string;
+      email: string;
+      posts: Post[];
+    }
+
+    @fraiseql.type
+    class Post {
+      id: string;
+      title: string;
+      content: string;
+      author: User;
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="schema.go"
+    package main
+
+    import "github.com/fraiseql/fraiseql"
+
+    type User struct {
+      ID    string
+      Name  string
+      Email string
+      Posts []Post
+    }
+
+    type Post struct {
+      ID      string
+      Title   string
+      Content string
+      Author  User
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+This is real code in your language, with full IDE support, type checking, and refactoring tools — not a GraphQL SDL file.
+
+### 3. Compile the Mapping
+
+When you run `fraiseql compile`, the compiler:
+
+
+                                                                    ─                  ─
+
+```bash
+$ fraiseql compile
+✓ Compiled 2 types → mapped to SQL views
+✓ Built query executor
+```
+
+**What compilation does NOT do:** It does not generate SQL views. Your views already exist in the database, created by you (or by [🍯 Confiture](/confiture)). Compilation maps GraphQL types to those views.
+
+### 4. Serve
+
+The compiled executor serves GraphQL queries:
+
+- **No resolver execution** — queries map directly to SQL views
+- **No N+1 queries** — relationships are pre-joined in the views
+- **No runtime overhead** — query paths are pre-compiled
+
+```bash
+$ fraiseql serve
+→ GraphQL API running at http://localhost:8080/graphql
+```
+
+## Why Database-First Matters
+
+### Traditional GraphQL (Runtime Resolvers)
+
+```text
+Query → Parse → Validate → Execute Resolvers → Assemble Response
+                              ↓
+                    Multiple DB Queries (N+1)
+                              ↓
+                    DataLoader Batching
+                              ↓
+                    Memory Overhead
+```
+
+**Problems:**
+- Resolver functions execute for every field
+- N+1 queries require DataLoader workarounds
+- Performance depends on how resolvers are written
+- You debug generated SQL you didn't write
+
+### FraiseQL (Database-First)
+
+```text
+Query → Match Compiled Path → Single SQL Query → Stream Response
+```
+
+**Benefits:**
+- No resolver functions to execute
+- Single SQL query per request — the view you wrote
+- Predictable, consistent performance — you see the query plan
+- Full database power — nothing is abstracted away (PostgreSQL, SQL Server, MySQL, SQLite)
+
+## The Database Lifecycle
+
+Writing SQL views is one half. Managing the database is the other. [🍯 Confiture](/confiture) provides four strategies for every scenario:
+
+| Strategy | What It Does | When to Use |
+|----------|-------------|-------------|
+| **Build** | Creates a fresh database from DDL files in under 1s | Development, CI/CD, testing |
+| **Migrate** | Applies incremental ALTER statements | Production schema changes |
+| **Sync** | Copies production data with anonymization | Realistic local development |
+| **Schema-to-Schema** | Zero-downtime migration via FDW | Major production refactoring |
+
+```bash
+# Fresh database from your DDL files
+confiture build --env local
+
+# Apply pending migrations
+confiture migrate up --env production
+```
+
+## The Compilation Pipeline
+
+The compiler transforms your schema through three phases:
+
+### Phase 1: Parsing
+
+Schema files in any supported language are validated and parsed into a type graph:
+
+<D2Diagram name="compilation-01-parsing" alt="Parsing phase: schema files through lexer and parser to type graph" />
+
+### Phase 2: Analysis & SQL Generation
+
+The type graph is analyzed to generate SQL views and optimize query paths:
+
+<D2Diagram name="compilation-02-analysis" alt="Analysis phase: type graph to SQL generation to query optimization" />
+
+### Phase 3: Code Generation & Output
+
+The final phase produces a compiled Rust binary, migration files, and all deployment artifacts:
+
+<D2Diagram name="compilation-03-codegen" alt="Codegen phase: Rust code generation to migrations and compiled binary" />
+
+### Input: Schema in Any Language
+
+FraiseQL supports schema definition in Python, TypeScript, Go, Java, Rust, and more. All compile to the same optimized output.
+
+### Output: Compiled Artifacts
+
+1. **View Mapping** — Maps each GraphQL type to its SQL view
+2. **Query Executor** — High-performance compiled query paths
+3. **SDK Types** — Schema authoring libraries in 15 languages
+
+## Configuration
+
+All configuration lives in a single TOML file:
+
+```toml title="fraiseql.toml"
+[project]
+name = "my-api"
+version = "1.0.0"
+
+[database]
+type = "postgresql"
+url = "${DATABASE_URL}"
+
+[server]
+port = 8080
+host = "0.0.0.0"
+
+[compilation]
+optimize = true
+target = "release"
+```
+
+No YAML. No JSON. Just readable TOML.
+
+## Comparison
+
+| Aspect | Traditional | FraiseQL |
+|--------|-------------|----------|
+| Query execution | Resolver functions | Compiled SQL view mapping |
+| SQL authorship | Generated/hidden | Developer-owned |
+| N+1 handling | DataLoader (manual) | Eliminated by design |
+| Performance | Variable | Predictable (you see the query) |
+| Database management | ORM migrations | 🍯 Confiture (4 strategies) |
+| Schema definition | SDL only | Any language |
+
+## Next Steps
+
+- [Developer-Owned SQL](/concepts/developer-owned-sql) — Why SQL ownership is a strength
+- [🍯 Confiture](/confiture) — Database lifecycle management
+- [CQRS Pattern](/concepts/cqrs) — Understanding the architecture
+- [Schema Definition](/concepts/schema) — How to define types

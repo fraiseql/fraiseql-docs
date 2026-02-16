@@ -1,0 +1,510 @@
+---
+title: Mutations
+description: Write operations, database functions, and change data capture
+---
+
+import D2Diagram from '../../../components/D2Diagram.astro';
+
+Mutations are **write operations** in FraiseQL. They modify data through SQL functions and return updated entities through the CQRS read layer.
+
+## Mutation Flow
+
+<D2Diagram name="mutation-flow" alt="Mutation flow: GraphQL mutation to SQL function to sync projections to return view data" />
+
+## Defining Mutations
+
+Use the `@mutation` decorator to define write operations:
+
+```python
+import fraiseql
+
+@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+def create_user(name: str, email: str) -> User:
+    """Create a new user."""
+    pass
+
+@fraiseql.mutation(sql_source="fn_update_user", operation="UPDATE")
+def update_user(id: str, name: str | None = None, email: str | None = None) -> User:
+    """Update an existing user."""
+    pass
+
+@fraiseql.mutation(sql_source="fn_delete_user", operation="DELETE")
+def delete_user(id: str) -> bool:
+    """Delete a user."""
+    pass
+```sql
+
+### Decorator Options
+
+| Option | Description | Values |
+|--------|-------------|--------|
+| `sql_source` | SQL function to call | `"fn_create_user"` |
+| `operation` | Type of mutation | `"CREATE"`, `"UPDATE"`, `"DELETE"` |
+
+## SQL Functions
+
+Mutations map to database functions that handle writes and explicit projection syncing. Validation is typically handled at the application/repository layer.
+
+**Note on Views:** Regular views (not materialized) are fine for most use cases — materialization is only needed for deeply nested, compute-intensive aggregations. When materialized projections are used, explicit `sync_*()` calls keep them fresh without relying on implicit triggers.
+
+### CREATE Function
+
+Validation happens at the application layer. The function focuses on the write operation and syncing the view.
+
+```sql
+CREATE OR REPLACE FUNCTION fn_create_user(
+    user_email TEXT,
+    user_name TEXT,
+    user_bio TEXT DEFAULT NULL
+) RETURNS UUID AS $$
+DECLARE
+    new_user_id UUID;
+BEGIN
+    INSERT INTO tb_user (email, name, bio, identifier)
+    VALUES (user_email, user_name, user_bio, user_email)
+    RETURNING id INTO new_user_id;
+
+    -- Explicit sync: keep materialized view in sync
+    PERFORM sync_tv_user();
+
+    RETURN new_user_id;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### UPDATE Function
+
+```sql
+CREATE OR REPLACE FUNCTION fn_update_user(
+    user_id UUID,
+    new_name TEXT DEFAULT NULL,
+    new_bio TEXT DEFAULT NULL
+) RETURNS BOOLEAN AS $$
+BEGIN
+    UPDATE tb_user
+    SET
+        name = COALESCE(new_name, name),
+        bio = COALESCE(new_bio, bio),
+        updated_at = NOW()
+    WHERE id = user_id;
+
+    PERFORM sync_tv_user();
+    RETURN FOUND;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### DELETE Function
+
+```sql
+CREATE OR REPLACE FUNCTION fn_delete_user(user_id UUID) RETURNS BOOLEAN AS $$
+BEGIN
+    DELETE FROM tb_user WHERE id = user_id;
+    PERFORM sync_tv_user();
+    RETURN FOUND;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+## Return Types
+
+Mutations can return different types:
+
+### Return Entity
+
+Return the created/updated entity:
+
+```python
+@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+def create_user(name: str, email: str) -> User:
+    pass
+```python
+
+The SQL function returns the `id`, and FraiseQL fetches from `v_user`:
+
+```sql
+-- Function returns UUID
+RETURNING id INTO new_user_id;
+RETURN new_user_id;
+
+-- FraiseQL then queries
+SELECT data FROM v_user WHERE id = $1;
+```
+
+### Return Boolean
+
+Return success/failure:
+
+```python
+@fraiseql.mutation(sql_source="fn_delete_user", operation="DELETE")
+def delete_user(id: str) -> bool:
+    pass
+```
+
+```sql
+RETURN FOUND;  -- true if row was affected
+```
+
+### Return Custom Type
+
+Return a custom result object:
+
+```python
+@fraiseql.type
+class CreateUserResult:
+    user: User
+    welcome_email_sent: bool
+
+@fraiseql.mutation(sql_source="fn_create_user_with_email", operation="CREATE")
+def create_user(name: str, email: str) -> CreateUserResult:
+    pass
+```
+
+## Complex Mutations
+
+### Related Entities
+
+Create entities with relationships:
+
+```sql
+CREATE OR REPLACE FUNCTION fn_create_post(
+    author_id UUID,
+    post_title TEXT,
+    post_content TEXT,
+    post_slug TEXT DEFAULT NULL,
+    post_tags TEXT[] DEFAULT NULL
+) RETURNS UUID AS $$
+DECLARE
+    new_post_id UUID;
+    author_pk INTEGER;
+    generated_slug TEXT;
+BEGIN
+    -- Validate author exists
+    SELECT pk_user INTO author_pk FROM tb_user WHERE id = author_id;
+    IF author_pk IS NULL THEN
+        RAISE EXCEPTION 'Author not found';
+    END IF;
+
+    -- Generate slug from title if not provided
+    IF post_slug IS NULL THEN
+        generated_slug := lower(regexp_replace(post_title, '[^a-zA-Z0-9]+', '-', 'g'));
+        generated_slug := trim(both '-' from generated_slug);
+    ELSE
+        generated_slug := post_slug;
+    END IF;
+
+    -- Check slug uniqueness
+    IF EXISTS (SELECT 1 FROM tb_post WHERE slug = generated_slug) THEN
+        RAISE EXCEPTION 'Post with slug % already exists', generated_slug;
+    END IF;
+
+    -- Create post
+    INSERT INTO tb_post (fk_user, title, content, slug, tags, identifier)
+    VALUES (author_pk, post_title, post_content, generated_slug, post_tags, generated_slug)
+    RETURNING id INTO new_post_id;
+
+    -- Sync projections
+    PERFORM sync_tv_user();  -- User's post count may change
+    PERFORM sync_tv_post();
+
+    RETURN new_post_id;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Batch Operations
+
+Handle multiple records:
+
+```sql
+CREATE OR REPLACE FUNCTION fn_publish_posts(
+    post_ids UUID[]
+) RETURNS INTEGER AS $$
+DECLARE
+    updated_count INTEGER;
+BEGIN
+    UPDATE tb_post
+    SET
+        is_published = true,
+        published_at = NOW(),
+        updated_at = NOW()
+    WHERE id = ANY(post_ids)
+    AND is_published = false;
+
+    GET DIAGNOSTICS updated_count = ROW_COUNT;
+
+    PERFORM sync_tv_post();
+
+    RETURN updated_count;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+```python
+@fraiseql.mutation(sql_source="fn_publish_posts", operation="UPDATE")
+def publish_posts(post_ids: list[str]) -> int:
+    """Publish multiple posts at once. Returns count of newly published posts."""
+    pass
+```
+
+### Transactional Operations
+
+Multiple writes in a single transaction:
+
+```sql
+CREATE OR REPLACE FUNCTION fn_create_order(
+    customer_id UUID,
+    items JSONB  -- [{"product_id": "...", "quantity": 2}, ...]
+) RETURNS UUID AS $$
+DECLARE
+    new_order_id UUID;
+    order_pk INTEGER;
+    customer_pk INTEGER;
+    item JSONB;
+    product_pk INTEGER;
+    item_total DECIMAL(12,2);
+    order_total DECIMAL(12,2) := 0;
+BEGIN
+    -- Validate customer
+    SELECT pk_user INTO customer_pk FROM tb_user WHERE id = customer_id;
+    IF customer_pk IS NULL THEN
+        RAISE EXCEPTION 'Customer not found';
+    END IF;
+
+    -- Create order
+    INSERT INTO tb_order (fk_user, status, total)
+    VALUES (customer_pk, 'pending', 0)
+    RETURNING id, pk_order INTO new_order_id, order_pk;
+
+    -- Process each item
+    FOR item IN SELECT * FROM jsonb_array_elements(items)
+    LOOP
+        -- Get product
+        SELECT pk_product, price INTO product_pk, item_total
+        FROM tb_product
+        WHERE id = (item->>'product_id')::UUID;
+
+        IF product_pk IS NULL THEN
+            RAISE EXCEPTION 'Product not found: %', item->>'product_id';
+        END IF;
+
+        -- Calculate line total
+        item_total := item_total * (item->>'quantity')::INTEGER;
+        order_total := order_total + item_total;
+
+        -- Create order item
+        INSERT INTO tb_order_item (fk_order, fk_product, quantity, unit_price, total)
+        VALUES (order_pk, product_pk, (item->>'quantity')::INTEGER,
+                (SELECT price FROM tb_product WHERE pk_product = product_pk),
+                item_total);
+    END LOOP;
+
+    -- Update order total
+    UPDATE tb_order SET total = order_total WHERE pk_order = order_pk;
+
+    -- Sync projections
+    PERFORM sync_tv_order();
+
+    RETURN new_order_id;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+## Sync Functions
+
+Every mutation should sync affected projection tables:
+
+```sql
+-- Full sync (for small tables or bulk operations)
+CREATE OR REPLACE FUNCTION sync_tv_user() RETURNS VOID AS $$
+BEGIN
+    DELETE FROM tv_user;
+    INSERT INTO tv_user (id, data)
+    SELECT id, data FROM v_user;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Single record sync (for large tables)
+CREATE OR REPLACE FUNCTION sync_tv_user_single(user_id UUID) RETURNS VOID AS $$
+BEGIN
+    DELETE FROM tv_user WHERE id = user_id;
+    INSERT INTO tv_user (id, data)
+    SELECT id, data FROM v_user WHERE id = user_id;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**When to use each:**
+- **Full sync**: Small tables (less than 10k rows), bulk operations
+- **Single sync**: Large tables, individual record changes
+
+## Input Types
+
+Use input types for complex mutation arguments:
+
+```python
+@fraiseql.input
+class CreatePostInput:
+    title: str
+    content: str
+    slug: str | None = None
+    tags: list[str] | None = None
+
+@fraiseql.mutation(sql_source="fn_create_post", operation="CREATE")
+def create_post(author_id: str, input: CreatePostInput) -> Post:
+    pass
+```
+
+## Validation Patterns
+
+### Required Fields
+
+```sql
+IF user_email IS NULL OR user_name IS NULL THEN
+    RAISE EXCEPTION 'Email and name are required';
+END IF;
+```
+
+### Format Validation
+
+```sql
+-- Email format
+IF email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' THEN
+    RAISE EXCEPTION 'Invalid email format';
+END IF;
+
+-- URL format
+IF url !~ '^https?://' THEN
+    RAISE EXCEPTION 'URL must start with http:// or https://';
+END IF;
+```
+
+### Business Rules
+
+```sql
+-- Check inventory
+IF (SELECT quantity FROM tb_product WHERE pk_product = product_pk) < requested_quantity THEN
+    RAISE EXCEPTION 'Insufficient inventory';
+END IF;
+
+-- Check permissions (via context)
+IF NOT (SELECT is_admin FROM tb_user WHERE id = current_user_id()) THEN
+    RAISE EXCEPTION 'Admin access required';
+END IF;
+```
+
+### Referential Integrity
+
+```sql
+-- Check parent exists
+IF NOT EXISTS (SELECT 1 FROM tb_user WHERE id = author_id) THEN
+    RAISE EXCEPTION 'Author not found';
+END IF;
+
+-- Check no orphans
+IF EXISTS (SELECT 1 FROM tb_post WHERE fk_user = user_pk) THEN
+    RAISE EXCEPTION 'Cannot delete user with posts';
+END IF;
+```
+
+## Error Handling
+
+SQL exceptions become GraphQL errors:
+
+```sql
+RAISE EXCEPTION 'User not found';
+```
+
+GraphQL response:
+
+```json
+{
+    "errors": [{
+        "message": "User not found",
+        "path": ["updateUser"]
+    }]
+}
+```
+
+For structured errors:
+
+```sql
+RAISE EXCEPTION 'VALIDATION_ERROR: %', jsonb_build_object(
+    'field', 'email',
+    'message', 'Email already exists'
+)::text;
+```
+
+## Change Data Capture
+
+FraiseQL integrates with PostgreSQL's logical replication for CDC:
+
+```sql
+-- Enable logical replication
+ALTER SYSTEM SET wal_level = logical;
+
+-- Create publication for mutations
+CREATE PUBLICATION fraiseql_changes FOR TABLE tb_user, tb_post, tb_order;
+```
+
+This powers:
+- **Observers**: React to changes with webhooks/notifications
+- **Subscriptions**: Real-time GraphQL subscriptions
+- **Audit logs**: Track all data changes
+
+## Best Practices
+
+### Keep Functions Focused
+
+One function = one operation. Avoid multi-purpose functions:
+
+```python
+# Good
+def create_user(name: str, email: str) -> User: pass
+def update_user(id: str, name: str) -> User: pass
+
+# Avoid
+def save_user(id: str | None, name: str, email: str) -> User: pass  # Creates OR updates
+```
+
+### Use Transactions Wisely
+
+PostgreSQL functions are transactional by default. Complex operations either fully succeed or fully rollback:
+
+```sql
+-- All or nothing: order + items + inventory update
+BEGIN
+    INSERT INTO tb_order...
+    INSERT INTO tb_order_item...
+    UPDATE tb_product SET quantity = quantity - ...
+END;
+```
+
+### Sync Related Projections
+
+When a mutation affects multiple views, sync all of them:
+
+```sql
+-- Creating a post affects user's post count
+PERFORM sync_tv_post();
+PERFORM sync_tv_user();  -- Don't forget this!
+```
+
+### Return Useful Data
+
+Return what clients need to update their cache:
+
+```python
+# Good: returns created entity
+def create_user(name: str, email: str) -> User: pass
+
+# Less useful: returns just ID
+def create_user(name: str, email: str) -> str: pass
+```
+
+## Next Steps
+
+- [CQRS Pattern](/concepts/cqrs) — Understanding the write vs read separation
+- [Observers](/concepts/observers) — React to mutations with actions
+- [Function Shapes](/features/function-shapes) — Designing function return types
+`3

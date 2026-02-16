@@ -1,0 +1,39 @@
+# The Problem: Single Table Serves Everything
+
+direction: down
+
+reads: "Read Queries" {
+  shape: oval
+  style.fill: "#0369a1"
+  style.stroke: "#0c4a6e"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+}
+
+writes: "Write Queries" {
+  shape: oval
+  style.fill: "#c2410c"
+  style.stroke: "#7c2d12"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+}
+
+tb_user: {
+  shape: sql_table
+  style.fill: "#c2410c"
+  style.stroke: "#78350f"
+  style.font-color: "#ffffff"
+  style.font-size: 18
+
+  pk_user: int {constraint: primary_key}
+  id: uuid {constraint: unique}
+  identifier: text {constraint: unique}
+  email: "varchar(255)" {constraint: unique}
+  name: "varchar(255)"
+  bio: text
+  created_at: timestamptz
+  updated_at: timestamptz
+}
+
+reads -> tb_user
+writes -> tb_user

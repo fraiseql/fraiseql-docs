@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Energy Efficiency & Sustainability - FraiseQL</title>
+    <meta name="description" content="FraiseQL's projection table architecture reduces CPU cycles per request. Fewer services, smaller servers, lower energy consumption. Designed for vertical scaling.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .gradient-green {
+            background: linear-gradient(90deg, #059669 0%, #10b981 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+    </style>
+    <link rel="stylesheet" href="/prism.min.css"/>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+        <hr class="border-b border-gray-100 opacity-25 my-0 py-0" />
+    </nav>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient-green text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-5xl font-bold leading-tight">
+                Efficient by Architecture
+            </h1>
+            <p class="leading-normal text-2xl mb-4">
+                Projection tables shift work from runtime to precomputation.
+                Web requests consume minimal CPU. One server does the work of several.
+            </p>
+            <p class="text-lg opacity-90">
+                Lower hosting footprint, reduced infrastructure, vertical-scaling-first design.
+            </p>
+        </div>
+    </div>
+
+    <!-- The Technical Case -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                The Technical Case
+            </h2>
+
+            <div class="grid md:grid-cols-3 gap-8 mb-12">
+                <div class="text-center">
+                    <div class="text-5xl mb-4">⚡</div>
+                    <h3 class="text-xl font-bold mb-2">Precomputation Over Runtime</h3>
+                    <p class="text-gray-600">Projection tables store pre-composed JSONB. Reads are a single SELECT—no JOINs, no complex query planning at request time.</p>
+                </div>
+                <div class="text-center">
+                    <div class="text-5xl mb-4">🧠</div>
+                    <h3 class="text-xl font-bold mb-2">Lower RAM Footprint</h3>
+                    <p class="text-gray-600">No ORM object hydration. No DataLoader caching layers. Data flows directly from PostgreSQL to HTTP response.</p>
+                </div>
+                <div class="text-center">
+                    <div class="text-5xl mb-4">🦀</div>
+                    <h3 class="text-xl font-bold mb-2">Lightweight Rust Adapter</h3>
+                    <p class="text-gray-600">Rust performs field selection and camelCasing. No Python in the read hot path. Predictable, memory-efficient I/O.</p>
+                </div>
+            </div>
+
+            <div class="bg-gray-50 rounded-lg p-8">
+                <h3 class="text-2xl font-bold text-gray-800 mb-4">Why This Matters for Efficiency</h3>
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div>
+                        <h4 class="font-bold text-gray-800 mb-2">Traditional ORM Stack</h4>
+                        <ul class="text-gray-600 space-y-2 text-sm">
+                            <li>1. SQL query with JOINs (CPU: significant)</li>
+                            <li>2. ORM hydrates objects (RAM: significant)</li>
+                            <li>3. Serializer transforms to JSON (CPU: moderate)</li>
+                            <li>4. DataLoader batches N+1 queries (CPU: varies)</li>
+                            <li>5. Python GC cleans up objects (CPU: moderate)</li>
+                        </ul>
+                        <p class="mt-4 text-red-600 font-semibold">Multiple steps, memory churn</p>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-gray-800 mb-2">FraiseQL Stack</h4>
+                        <ul class="text-gray-600 space-y-2 text-sm">
+                            <li>1. Single SELECT from projection table (CPU: minimal)</li>
+                            <li>2. Rust extracts requested fields (CPU: minimal)</li>
+                            <li>3. Stream to HTTP response (RAM: minimal)</li>
+                            <li class="text-gray-400">4. No DataLoader needed</li>
+                            <li class="text-gray-400">5. No object cleanup needed</li>
+                        </ul>
+                        <p class="mt-4 text-green-600 font-semibold">Fewer steps, minimal memory allocation</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- The Business Case -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                The Business Case
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8 mb-8">
+                <div class="bg-white rounded-lg shadow p-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-4">Run on Smaller Hardware</h3>
+                    <p class="text-gray-700 mb-4">
+                        Architecture-based estimates suggest FraiseQL can handle ~4× more logical ops per vCPU compared to typical ORM-based GraphQL stacks.
+                    </p>
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="px-4 py-2 text-left">Metric</th>
+                                <th class="px-4 py-2 text-left">Traditional</th>
+                                <th class="px-4 py-2 text-left">FraiseQL</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-600">
+                            <tr class="border-b">
+                                <td class="px-4 py-2">Read QPS / vCPU</td>
+                                <td class="px-4 py-2">~140</td>
+                                <td class="px-4 py-2 text-green-600 font-semibold">~571</td>
+                            </tr>
+                            <tr class="border-b">
+                                <td class="px-4 py-2">Write QPS / vCPU</td>
+                                <td class="px-4 py-2">~40</td>
+                                <td class="px-4 py-2 text-green-600 font-semibold">~160</td>
+                            </tr>
+                            <tr class="border-b">
+                                <td class="px-4 py-2">16-vCPU mixed ops/s</td>
+                                <td class="px-4 py-2">~1,300</td>
+                                <td class="px-4 py-2 text-green-600 font-semibold">~6,000</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p class="text-xs text-gray-500 mt-2">Architecture-based projections. Validate with your benchmarks.</p>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-8">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-4">Lower Infrastructure Costs</h3>
+                    <p class="text-gray-700 mb-4">
+                        Smaller servers, fewer services, and reduced operational complexity translate to lower cloud spend.
+                    </p>
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-600">Compute efficiency</span>
+                            <span class="text-green-600 font-bold">~4× more ops/vCPU</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-600">Redis/cache services</span>
+                            <span class="text-green-600 font-bold">Often eliminated</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-600">Operational complexity</span>
+                            <span class="text-green-600 font-bold">Reduced</span>
+                        </div>
+                        <div class="flex justify-between items-center border-t pt-4">
+                            <span class="text-gray-800 font-bold">Expected savings</span>
+                            <span class="text-green-600 font-bold text-xl">Varies by workload</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-blue-50 border-l-4 border-blue-400 p-6 rounded-r-lg">
+                <p class="text-blue-800">
+                    <strong>The trade-off:</strong> FraiseQL uses 2-4× more storage for projection tables
+                    (typical SaaS schemas). At ~$0.10/GB/month, 4× growth on 100GB adds $30/month—
+                    offset by running smaller servers. Projection tables don't need separate backups as they can be rebuilt.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Economics Deep Dive -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Economics Deep Dive
+            </h2>
+
+            <!-- Cost Comparison Table -->
+            <div class="bg-white rounded-lg shadow-lg overflow-hidden mb-12">
+                <div class="bg-gray-800 text-white px-6 py-4">
+                    <h3 class="text-xl font-bold">Monthly Cost Comparison: 1M Requests/Day</h3>
+                    <p class="text-gray-300 text-sm">100GB base data, typical SaaS API workload</p>
+                </div>
+                <table class="w-full">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="px-6 py-4 text-left font-bold text-gray-700">Cost Component</th>
+                            <th class="px-6 py-4 text-center font-bold text-gray-700">Traditional Stack</th>
+                            <th class="px-6 py-4 text-center font-bold text-gray-700">FraiseQL</th>
+                            <th class="px-6 py-4 text-center font-bold text-gray-700">Difference</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-600">
+                        <tr class="border-b">
+                            <td class="px-6 py-4">
+                                <strong>Compute</strong><br>
+                                <span class="text-sm text-gray-500">API servers</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                4× m5.large<br>
+                                <span class="font-bold text-gray-800">$280/mo</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                1× m5.large<br>
+                                <span class="font-bold text-green-600">$70/mo</span>
+                            </td>
+                            <td class="px-6 py-4 text-center text-green-600 font-bold">-$210</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">
+                                <strong>Database</strong><br>
+                                <span class="text-sm text-gray-500">PostgreSQL RDS</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                db.r5.large<br>
+                                <span class="font-bold text-gray-800">$175/mo</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                db.r5.large<br>
+                                <span class="font-bold text-gray-800">$175/mo</span>
+                            </td>
+                            <td class="px-6 py-4 text-center text-gray-500">$0</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4">
+                                <strong>Storage</strong><br>
+                                <span class="text-sm text-gray-500">gp3 SSD @ $0.10/GB</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                100GB<br>
+                                <span class="font-bold text-gray-800">$10/mo</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                500GB (5×)<br>
+                                <span class="font-bold text-red-600">$50/mo</span>
+                            </td>
+                            <td class="px-6 py-4 text-center text-red-600 font-bold">+$40</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4">
+                                <strong>Cache Layer</strong><br>
+                                <span class="text-sm text-gray-500">Redis/ElastiCache</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                cache.r5.large<br>
+                                <span class="font-bold text-gray-800">$110/mo</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                Not needed<br>
+                                <span class="font-bold text-green-600">$0/mo</span>
+                            </td>
+                            <td class="px-6 py-4 text-center text-green-600 font-bold">-$110</td>
+                        </tr>
+                        <tr class="bg-gray-800 text-white">
+                            <td class="px-6 py-4 font-bold">TOTAL</td>
+                            <td class="px-6 py-4 text-center font-bold text-xl">$575/mo</td>
+                            <td class="px-6 py-4 text-center font-bold text-xl text-green-400">$295/mo</td>
+                            <td class="px-6 py-4 text-center font-bold text-xl text-green-400">-$280/mo<br><span class="text-sm font-normal">(-49%)</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Cost vs Scale Graph -->
+            <div class="grid md:grid-cols-2 gap-8 mb-12">
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4 text-center">Monthly Cost vs Request Volume</h3>
+                    <svg viewBox="0 0 400 280" class="w-full h-auto">
+                        <!-- Grid lines -->
+                        <defs>
+                            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e5e7eb" stroke-width="0.5"/>
+                            </pattern>
+                        </defs>
+                        <rect x="60" y="20" width="320" height="200" fill="url(#grid)"/>
+
+                        <!-- Axes -->
+                        <line x1="60" y1="220" x2="380" y2="220" stroke="#374151" stroke-width="2"/>
+                        <line x1="60" y1="20" x2="60" y2="220" stroke="#374151" stroke-width="2"/>
+
+                        <!-- Y-axis labels -->
+                        <text x="55" y="220" text-anchor="end" font-size="11" fill="#6b7280">$0</text>
+                        <text x="55" y="170" text-anchor="end" font-size="11" fill="#6b7280">$500</text>
+                        <text x="55" y="120" text-anchor="end" font-size="11" fill="#6b7280">$1K</text>
+                        <text x="55" y="70" text-anchor="end" font-size="11" fill="#6b7280">$1.5K</text>
+                        <text x="55" y="25" text-anchor="end" font-size="11" fill="#6b7280">$2K</text>
+
+                        <!-- X-axis labels -->
+                        <text x="60" y="240" text-anchor="middle" font-size="11" fill="#6b7280">100K</text>
+                        <text x="140" y="240" text-anchor="middle" font-size="11" fill="#6b7280">500K</text>
+                        <text x="220" y="240" text-anchor="middle" font-size="11" fill="#6b7280">1M</text>
+                        <text x="300" y="240" text-anchor="middle" font-size="11" fill="#6b7280">5M</text>
+                        <text x="380" y="240" text-anchor="middle" font-size="11" fill="#6b7280">10M</text>
+
+                        <!-- Axis titles -->
+                        <text x="220" y="265" text-anchor="middle" font-size="12" fill="#374151" font-weight="bold">Requests/Day</text>
+                        <text x="15" y="120" text-anchor="middle" font-size="12" fill="#374151" font-weight="bold" transform="rotate(-90, 15, 120)">Monthly Cost</text>
+
+                        <!-- Traditional line (steeper slope) -->
+                        <polyline
+                            points="60,200 140,175 220,140 300,70 380,20"
+                            fill="none"
+                            stroke="#dc2626"
+                            stroke-width="3"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"/>
+
+                        <!-- FraiseQL line (gentler slope) -->
+                        <polyline
+                            points="60,190 140,180 220,165 300,130 380,100"
+                            fill="none"
+                            stroke="#059669"
+                            stroke-width="3"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"/>
+
+                        <!-- Savings area (shaded) -->
+                        <polygon
+                            points="60,200 140,175 220,140 300,70 380,20 380,100 300,130 220,165 140,180 60,190"
+                            fill="#059669"
+                            fill-opacity="0.15"/>
+
+                        <!-- Legend -->
+                        <rect x="240" y="35" width="130" height="50" fill="white" stroke="#e5e7eb" rx="4"/>
+                        <line x1="250" y1="50" x2="280" y2="50" stroke="#dc2626" stroke-width="3"/>
+                        <text x="290" y="54" font-size="11" fill="#374151">Traditional</text>
+                        <line x1="250" y1="70" x2="280" y2="70" stroke="#059669" stroke-width="3"/>
+                        <text x="290" y="74" font-size="11" fill="#374151">FraiseQL</text>
+                    </svg>
+                    <p class="text-center text-sm text-gray-500 mt-2">The gap widens as scale increases—FraiseQL's efficiency compounds.</p>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4 text-center">Storage vs Compute Trade-off</h3>
+                    <svg viewBox="0 0 400 280" class="w-full h-auto">
+                        <!-- Background -->
+                        <rect x="40" y="20" width="340" height="200" fill="#f9fafb" rx="4"/>
+
+                        <!-- Stacked bars - Traditional -->
+                        <text x="120" y="240" text-anchor="middle" font-size="12" fill="#374151" font-weight="bold">Traditional</text>
+                        <!-- Compute (largest) -->
+                        <rect x="70" y="60" width="100" height="100" fill="#dc2626" rx="2"/>
+                        <text x="120" y="115" text-anchor="middle" font-size="11" fill="white" font-weight="bold">Compute</text>
+                        <text x="120" y="130" text-anchor="middle" font-size="11" fill="white">$280</text>
+                        <!-- Cache -->
+                        <rect x="70" y="160" width="100" height="35" fill="#f59e0b" rx="2"/>
+                        <text x="120" y="182" text-anchor="middle" font-size="10" fill="white">Cache $110</text>
+                        <!-- Storage (tiny) -->
+                        <rect x="70" y="195" width="100" height="10" fill="#3b82f6" rx="2"/>
+
+                        <!-- Stacked bars - FraiseQL -->
+                        <text x="280" y="240" text-anchor="middle" font-size="12" fill="#374151" font-weight="bold">FraiseQL</text>
+                        <!-- Compute (smaller) -->
+                        <rect x="230" y="160" width="100" height="25" fill="#059669" rx="2"/>
+                        <text x="280" y="177" text-anchor="middle" font-size="10" fill="white">Compute $70</text>
+                        <!-- Storage (larger) -->
+                        <rect x="230" y="185" width="100" height="20" fill="#3b82f6" rx="2"/>
+                        <text x="280" y="199" text-anchor="middle" font-size="10" fill="white">Storage $50</text>
+
+                        <!-- Total labels -->
+                        <text x="120" y="50" text-anchor="middle" font-size="14" fill="#dc2626" font-weight="bold">$575/mo</text>
+                        <text x="280" y="150" text-anchor="middle" font-size="14" fill="#059669" font-weight="bold">$295/mo</text>
+
+                        <!-- Legend -->
+                        <rect x="40" y="250" width="12" height="12" fill="#dc2626" rx="2"/>
+                        <text x="58" y="260" font-size="10" fill="#374151">Compute</text>
+                        <rect x="120" y="250" width="12" height="12" fill="#f59e0b" rx="2"/>
+                        <text x="138" y="260" font-size="10" fill="#374151">Cache</text>
+                        <rect x="190" y="250" width="12" height="12" fill="#3b82f6" rx="2"/>
+                        <text x="208" y="260" font-size="10" fill="#374151">Storage</text>
+                    </svg>
+                    <p class="text-center text-sm text-gray-500 mt-2">Higher storage cost is dwarfed by compute and cache savings.</p>
+                </div>
+            </div>
+
+            <!-- Break-even Analysis -->
+            <div class="bg-gray-50 rounded-lg p-8">
+                <h3 class="text-2xl font-bold text-gray-800 mb-6 text-center">When Does FraiseQL Make Sense?</h3>
+
+                <div class="grid md:grid-cols-3 gap-6">
+                    <div class="bg-green-50 border-2 border-green-500 rounded-lg p-6 text-center">
+                        <div class="text-4xl mb-3">✅</div>
+                        <h4 class="font-bold text-green-800 mb-2">Strong Fit</h4>
+                        <p class="text-sm text-gray-700 mb-3">Read/write ratio &gt;10:1</p>
+                        <ul class="text-left text-sm text-gray-600 space-y-1">
+                            <li>• Public APIs</li>
+                            <li>• Content platforms</li>
+                            <li>• E-commerce catalogs</li>
+                            <li>• Dashboard backends</li>
+                        </ul>
+                        <p class="mt-4 text-green-700 font-bold text-sm">Savings: 40-60%</p>
+                    </div>
+
+                    <div class="bg-yellow-50 border-2 border-yellow-500 rounded-lg p-6 text-center">
+                        <div class="text-4xl mb-3">⚖️</div>
+                        <h4 class="font-bold text-yellow-800 mb-2">Evaluate</h4>
+                        <p class="text-sm text-gray-700 mb-3">Read/write ratio 3:1 to 10:1</p>
+                        <ul class="text-left text-sm text-gray-600 space-y-1">
+                            <li>• Internal tools</li>
+                            <li>• B2B applications</li>
+                            <li>• Moderate-traffic APIs</li>
+                            <li>• Mixed workloads</li>
+                        </ul>
+                        <p class="mt-4 text-yellow-700 font-bold text-sm">Savings: 10-40%</p>
+                    </div>
+
+                    <div class="bg-red-50 border-2 border-red-500 rounded-lg p-6 text-center">
+                        <div class="text-4xl mb-3">❌</div>
+                        <h4 class="font-bold text-red-800 mb-2">Not Recommended</h4>
+                        <p class="text-sm text-gray-700 mb-3">Read/write ratio &lt;3:1</p>
+                        <ul class="text-left text-sm text-gray-600 space-y-1">
+                            <li>• IoT ingestion</li>
+                            <li>• Logging systems</li>
+                            <li>• Write-heavy analytics</li>
+                            <li>• Event streaming</li>
+                        </ul>
+                        <p class="mt-4 text-red-700 font-bold text-sm">May cost more</p>
+                    </div>
+                </div>
+
+                <div class="mt-8 bg-white rounded-lg p-6 border">
+                    <h4 class="font-bold text-gray-800 mb-4">Quick Calculator</h4>
+                    <div class="grid md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                            <span class="text-gray-600">Your reads/day:</span>
+                            <span class="font-mono font-bold text-gray-800">R</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Your writes/day:</span>
+                            <span class="font-mono font-bold text-gray-800">W</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Ratio (R/W):</span>
+                            <span class="font-mono font-bold text-gray-800">&gt;10 = strong fit</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Rule of thumb:</span>
+                            <span class="font-mono font-bold text-green-600">10× more reads = 50% savings</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Annual Projection -->
+            <div class="mt-12 bg-gradient-to-r from-green-600 to-green-500 rounded-lg p-8 text-white">
+                <h3 class="text-2xl font-bold mb-6 text-center">Annual Impact at Scale</h3>
+                <div class="grid md:grid-cols-4 gap-6 text-center">
+                    <div>
+                        <p class="text-green-200 text-sm mb-1">Small Startup</p>
+                        <p class="text-xs text-green-300 mb-2">100K req/day</p>
+                        <p class="text-3xl font-bold">$1,200</p>
+                        <p class="text-green-200 text-sm">saved/year</p>
+                    </div>
+                    <div>
+                        <p class="text-green-200 text-sm mb-1">Growing SaaS</p>
+                        <p class="text-xs text-green-300 mb-2">1M req/day</p>
+                        <p class="text-3xl font-bold">$3,400</p>
+                        <p class="text-green-200 text-sm">saved/year</p>
+                    </div>
+                    <div>
+                        <p class="text-green-200 text-sm mb-1">Mid-Market</p>
+                        <p class="text-xs text-green-300 mb-2">10M req/day</p>
+                        <p class="text-3xl font-bold">$24,000</p>
+                        <p class="text-green-200 text-sm">saved/year</p>
+                    </div>
+                    <div>
+                        <p class="text-green-200 text-sm mb-1">Enterprise</p>
+                        <p class="text-xs text-green-300 mb-2">100M req/day</p>
+                        <p class="text-3xl font-bold">$180,000+</p>
+                        <p class="text-green-200 text-sm">saved/year</p>
+                    </div>
+                </div>
+                <p class="text-center text-green-200 text-sm mt-6">
+                    Estimates based on AWS pricing, read-heavy workloads (90% reads), 5× storage multiplier.
+                    Your results will vary based on workload characteristics.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- The Environmental Case -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                The Environmental Case
+            </h2>
+
+            <div class="max-w-3xl mx-auto">
+                <div class="bg-green-50 rounded-lg p-8 mb-8">
+                    <h3 class="text-2xl font-bold text-green-800 mb-4 text-center">Efficiency Reduces Energy Consumption</h3>
+                    <p class="text-gray-700 mb-4 text-center">
+                        Data centers consume ~1% of global electricity. Fewer CPU cycles per request, fewer services running,
+                        and smaller servers all contribute to reduced energy consumption.
+                    </p>
+                    <div class="grid md:grid-cols-3 gap-6 mt-8">
+                        <div class="text-center">
+                            <div class="text-4xl mb-2">🌱</div>
+                            <p class="text-green-800 font-bold">~4×</p>
+                            <p class="text-sm text-gray-600">more ops per vCPU (expected)</p>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-4xl mb-2">🔌</div>
+                            <p class="text-green-800 font-bold">Fewer</p>
+                            <p class="text-sm text-gray-600">services to operate</p>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-4xl mb-2">🌍</div>
+                            <p class="text-green-800 font-bold">Proportional</p>
+                            <p class="text-sm text-gray-600">energy reduction</p>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 class="text-2xl font-bold text-gray-800 mb-4">How FraiseQL Reduces Energy Consumption</h3>
+                <div class="space-y-6">
+                    <div class="flex items-start">
+                        <div class="text-green-600 text-2xl mr-4">1</div>
+                        <div>
+                            <h4 class="font-bold text-gray-800">Pre-computation over runtime computation</h4>
+                            <p class="text-gray-600">Projection tables shift work from runtime CPU to occasional precomputation. Web requests consume minimal energy, especially at scale.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <div class="text-green-600 text-2xl mr-4">2</div>
+                        <div>
+                            <h4 class="font-bold text-gray-800">Lightweight Rust adapter</h4>
+                            <p class="text-gray-600">The read hot path runs in Rust—field selection, camelCasing, streaming. No Python, no ORM, no object hydration. More efficient execution.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <div class="text-green-600 text-2xl mr-4">3</div>
+                        <div>
+                            <h4 class="font-bold text-gray-800">No garbage collection pressure</h4>
+                            <p class="text-gray-600">No ORM objects to create and destroy. No DataLoader caches to manage. Less memory churn means less CPU spent on GC.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <div class="text-green-600 text-2xl mr-4">4</div>
+                        <div>
+                            <h4 class="font-bold text-gray-800">Reduced infrastructure</h4>
+                            <p class="text-gray-600">One PostgreSQL instance often replaces Redis and external caches. Fewer services = less energy, simpler operations.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Run Anywhere -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="w-full my-2 text-4xl font-bold leading-tight text-center text-gray-800 mb-8">
+                Run on Modest Hardware
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-white rounded-lg shadow p-8">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Production-Ready on</h3>
+                    <ul class="space-y-3 text-gray-700">
+                        <li class="flex items-center">
+                            <span class="text-green-600 mr-3">✓</span>
+                            <span>2-core VPS ($10-20/month)</span>
+                        </li>
+                        <li class="flex items-center">
+                            <span class="text-green-600 mr-3">✓</span>
+                            <span>Raspberry Pi 4 (4GB RAM)</span>
+                        </li>
+                        <li class="flex items-center">
+                            <span class="text-green-600 mr-3">✓</span>
+                            <span>ARM instances (Graviton, M1)</span>
+                        </li>
+                        <li class="flex items-center">
+                            <span class="text-green-600 mr-3">✓</span>
+                            <span>Shared hosting with PostgreSQL</span>
+                        </li>
+                    </ul>
+                </div>
+                <div class="bg-white rounded-lg shadow p-8">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Why This Matters</h3>
+                    <ul class="space-y-3 text-gray-700">
+                        <li class="flex items-start">
+                            <span class="text-green-600 mr-3">🌍</span>
+                            <span>Democratizes high-performance APIs for small teams and budgets</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-green-600 mr-3">💚</span>
+                            <span>Lower barrier to entry for sustainable software</span>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-green-600 mr-3">🔋</span>
+                            <span>Run in low-power environments (edge, IoT)</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="gradient-green py-16">
+        <div class="container mx-auto text-center">
+            <h2 class="text-3xl font-bold text-white mb-4">Build Efficient APIs</h2>
+            <p class="text-xl text-white mb-8">Performance and sustainability are not trade-offs. FraiseQL delivers both.</p>
+            <a href="/getting-started.html" class="bg-white text-gray-800 font-bold py-4 px-8 rounded-full hover:bg-gray-100 transition duration-300">
+                Get Started
+            </a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 py-8">
+        <div class="container mx-auto px-6">
+            <div class="flex flex-wrap justify-between items-center">
+                <div class="w-full md:w-1/3 text-center md:text-left">
+                    <p class="text-gray-400 text-sm">
+                        <a href="https://github.com/fraiseql/fraiseql" class="text-gray-400 hover:text-white no-underline">GitHub</a> |
+                        <a href="https://pypi.org/project/fraiseql/" class="text-gray-400 hover:text-white no-underline">PyPI</a> |
+                        <a href="/status.html" class="text-gray-400 hover:text-white no-underline">Status</a>
+                    </p>
+                </div>
+                <div class="w-full md:w-1/3 text-center">
+                    <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+                </div>
+                <div class="w-full md:w-1/3 text-center md:text-right">
+                    <p class="text-gray-400 text-sm">FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-400 no-underline hover:underline">MIT licensed</a>.</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+</body>
+</html>

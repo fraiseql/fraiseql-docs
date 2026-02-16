@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>LLM-Optimized Development - FraiseQL</title>
+    <meta name="description" content="FraiseQL is designed for AI-assisted development. Clear patterns, strong typing, and database-first architecture reduce hallucinations and accelerate LLM-powered coding.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/tailwind.min.css"/>
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" rel="stylesheet">
+    <style>
+        .gradient {
+            background: linear-gradient(90deg, #e63946 0%, #f25c66 100%);
+        }
+        .code-block {
+            background: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid #3F3F3F;
+            overflow: hidden;
+        }
+        .code-header {
+            background: #2D2D2D;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            border-bottom: 1px solid #3F3F3F;
+        }
+        .code-block pre {
+            padding: 1rem 1.5rem;
+            margin: 0;
+            overflow-x: auto;
+        }
+        pre code {
+            color: #E5E7EB;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+        .comparison-table {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+        @media (max-width: 768px) {
+            .comparison-table {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="/prism.min.css"/>
+</head>
+<body class="leading-normal tracking-normal text-gray-800" style="font-family: 'Source Sans Pro', sans-serif;">
+
+    <!-- Nav -->
+    <nav id="header" class="fixed w-full z-30 top-0 bg-white shadow" role="navigation" aria-label="Main navigation">
+        <div class="w-full container mx-auto flex flex-wrap items-center justify-between mt-0 py-2">
+            <div class="pl-4 flex items-center">
+                <a class="text-gray-800 no-underline hover:no-underline font-bold text-2xl lg:text-4xl" href="/">
+                    🍓 FraiseQL
+                </a>
+            </div>
+            <div class="block lg:hidden pr-4">
+                <button id="nav-toggle" class="flex items-center p-1 text-red-600 hover:text-gray-900 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out" aria-expanded="false" aria-controls="nav-content" aria-label="Toggle navigation menu">
+                    <svg class="fill-current h-6 w-6" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="w-full flex-grow lg:flex lg:items-center lg:w-auto hidden mt-2 lg:mt-0 bg-white text-black p-4 lg:p-0 z-20 shadow-lg lg:shadow-none rounded-lg lg:rounded-none" id="nav-content">
+                <ul class="list-none lg:flex justify-end flex-1 items-center">
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/features/">Features</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/benefits/">Benefits</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://fraiseql.readthedocs.io">Docs</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="/status.html">Status</a>
+                    </li>
+                    <li class="mr-3">
+                        <a class="inline-block text-gray-800 no-underline hover:text-red-600 py-2 px-4" href="https://github.com/fraiseql/fraiseql">GitHub</a>
+                    </li>
+                </ul>
+                <a href="/getting-started.html"
+                    class="mx-auto lg:mx-0 hover:underline gradient text-white font-bold rounded-full mt-4 lg:mt-0 py-4 px-8 shadow opacity-75 focus:outline-none focus:shadow-outline transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- PyPI Badges -->
+    <div class="bg-gray-50 py-4">
+        <div class="container mx-auto px-6">
+            <div class="flex flex-wrap gap-2 justify-center">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=for-the-badge&logo=python&logoColor=white" alt="PyPI version">
+                <img src="https://img.shields.io/pypi/status/fraiseql?style=for-the-badge" alt="Status">
+                <img src="https://img.shields.io/github/stars/fraiseql/fraiseql?style=for-the-badge&logo=github" alt="GitHub stars">
+                <img src="https://img.shields.io/pypi/dm/fraiseql?style=for-the-badge" alt="Downloads">
+            </div>
+        </div>
+    </div>
+
+    <!-- Hero -->
+    <div class="pt-24 pb-12 gradient text-white">
+        <div class="container px-3 mx-auto text-center">
+            <h1 class="my-4 text-5xl font-bold leading-tight">
+                🤖 LLM-Optimized Development
+            </h1>
+            <p class="leading-normal text-2xl mb-8">
+                Built for the AI-assisted development era. Clear patterns, strong typing, database-first architecture.
+            </p>
+        </div>
+    </div>
+
+    <!-- Introduction -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <div class="text-center mb-12">
+                <h2 class="text-4xl font-bold text-gray-800 mb-4">Why LLM-Optimized Matters</h2>
+                <p class="text-xl text-gray-700 max-w-3xl mx-auto">
+                    Claude, Copilot, and other AI coding assistants work best with <strong>explicit patterns, clear types, and minimal magic</strong>.
+                    FraiseQL is designed from the ground up to be <strong>readable and predictable</strong> for both humans and LLMs.
+                </p>
+            </div>
+
+            <div class="bg-gray-100 rounded-lg p-8 mb-8">
+                <h3 class="text-2xl font-bold mb-4 text-gray-800">The LLM Development Challenge</h3>
+                <p class="text-gray-700 mb-4">
+                    Traditional GraphQL frameworks require LLMs to understand:
+                </p>
+                <ul class="space-y-2 text-gray-700 mb-6">
+                    <li>❌ Complex resolver chains with implicit data flow</li>
+                    <li>❌ Runtime validation scattered across decorators and classes</li>
+                    <li>❌ N+1 query patterns hidden in ORM relationships</li>
+                    <li>❌ Type definitions disconnected from database schema</li>
+                    <li>❌ Error handling logic mixed with business logic</li>
+                </ul>
+                <p class="text-gray-700 font-bold">
+                    Result: <span class="text-red-600">Higher hallucination rates, more manual corrections, slower iteration.</span>
+                </p>
+            </div>
+
+            <div class="bg-green-50 border-2 border-green-500 rounded-lg p-8">
+                <h3 class="text-2xl font-bold mb-4 text-gray-800">FraiseQL's LLM-First Design</h3>
+                <p class="text-gray-700 mb-4">
+                    With FraiseQL, LLMs see:
+                </p>
+                <ul class="space-y-2 text-gray-700">
+                    <li>✅ Explicit type hints on every parameter</li>
+                    <li>✅ Declarative patterns: <code class="bg-white px-2 py-1 rounded">@fraiseql.mutation</code>, <code class="bg-white px-2 py-1 rounded">@fraiseql.input</code></li>
+                    <li>✅ Validation in PostgreSQL functions, not app code</li>
+                    <li>✅ Single source of truth: database schema drives types</li>
+                    <li>✅ Error configs are explicit and predictable</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- Real-World Example: Router Creation -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-6xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-4">
+                Real-World Example: Creating a Router
+            </h2>
+            <p class="text-center text-xl text-gray-700 mb-12 max-w-3xl mx-auto">
+                From a production codebase: printoptim_backend. Notice how an LLM can easily understand intent, types, and data flow.
+            </p>
+
+            <div class="comparison-table">
+                <!-- Traditional Approach -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-2xl font-bold mb-4 text-gray-800 text-center">❌ Traditional GraphQL</h3>
+                    <div class="code-block mb-4">
+                        <div class="code-header">Scattered across multiple files</div>
+                        <pre class="p-4 overflow-x-auto"><code class="language-python"># schema.graphql
+type Router {
+  id: ID!
+  hostname: String!
+  ipAddress: String
+  macAddress: String
+}
+
+input CreateRouterInput {
+  hostname: String!
+  ipAddress: String
+  macAddress: String
+}
+
+# resolvers/router.py (50+ lines)
+async def create_router(parent, info, input):
+    # Validate hostname format
+    if not is_valid_hostname(input.hostname):
+        raise GraphQLError("Invalid hostname")
+
+    # Validate IP address if provided
+    if input.ip_address:
+        if not is_valid_ip(input.ip_address):
+            raise GraphQLError("Invalid IP")
+
+    # Validate MAC address if provided
+    if input.mac_address:
+        if not is_valid_mac(input.mac_address):
+            raise GraphQLError("Invalid MAC")
+
+    # Check for duplicates
+    existing = await db.query(
+        "SELECT * FROM routers WHERE ..."
+    )
+    if existing:
+        raise GraphQLError("Router exists")
+
+    # Insert into database
+    router = await db.query(
+        "INSERT INTO routers ..."
+    )
+
+    # Log change
+    await db.query(
+        "INSERT INTO change_log ..."
+    )
+
+    return router</code></pre>
+                    </div>
+                    <div class="bg-red-50 border-l-4 border-red-500 p-4 text-sm">
+                        <p class="font-bold text-red-800 mb-2">LLM Challenges:</p>
+                        <ul class="text-red-700 space-y-1">
+                            <li>• 3 separate files to understand</li>
+                            <li>• 15+ lines of validation logic</li>
+                            <li>• Implicit error handling patterns</li>
+                            <li>• Manual SQL construction</li>
+                            <li>• Easy to forget audit logging</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- FraiseQL Approach -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-2xl font-bold mb-4 text-gray-800 text-center">✅ FraiseQL</h3>
+                    <div class="code-block mb-4">
+                        <div class="code-header">printoptim_backend/mutations/router/create.py (15 lines total)</div>
+                        <pre class="p-4 overflow-x-auto"><code class="language-python">import fraiseql
+from fraiseql.types import Hostname, IpAddress, MacAddress
+
+@fraiseql.input
+class CreateRouterInput:
+    hostname: Hostname
+    ip_address: IpAddress | None = None
+    mac_address: MacAddress | None = None
+    note: str | None = None
+
+@fraiseql.success
+class CreateRouterSuccess:
+    message: str = "Router created successfully"
+    router: Router
+
+@fraiseql.failure
+class CreateRouterError:
+    message: str
+    conflict_router: Router | None = None
+
+@fraiseql.mutation(
+    function="create_router",
+    context_params={
+        "tenant_id": "input_pk_organization",
+        "user_id": "input_created_by",
+    },
+    error_config=fraiseql.DEFAULT_ERROR_CONFIG,
+)
+class CreateRouter:
+    input: CreateRouterInput
+    success: CreateRouterSuccess
+    failure: CreateRouterError</code></pre>
+                    </div>
+                    <div class="bg-green-50 border-l-4 border-green-500 p-4 text-sm">
+                        <p class="font-bold text-green-800 mb-2">LLM Benefits:</p>
+                        <ul class="text-green-700 space-y-1">
+                            <li>✅ Single file, complete picture</li>
+                            <li>✅ Types enforce validation automatically</li>
+                            <li>✅ Explicit error handling contract</li>
+                            <li>✅ Database function called automatically</li>
+                            <li>✅ Audit logging built into DB function</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Key LLM-Friendly Patterns -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-12">
+                Key LLM-Friendly Patterns
+            </h2>
+
+            <!-- Pattern 1: Specialized Types -->
+            <div class="mb-12">
+                <div class="flex items-start mb-4">
+                    <div class="text-4xl mr-4">1️⃣</div>
+                    <div>
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Specialized Types Replace Validation Code</h3>
+                        <p class="text-gray-700 mb-4">
+                            Instead of writing validation logic, use FraiseQL's built-in types. LLMs can easily understand <code class="language-python">Hostname</code> vs <code class="language-python">str</code>.
+                        </p>
+                    </div>
+                </div>
+                <div class="code-block">
+                    <pre class="p-4 overflow-x-auto"><code class="language-python"># ❌ Traditional: LLM must understand validation logic
+hostname: str  # Needs: pattern validation, length checks, character validation
+
+# ✅ FraiseQL: Intent is clear from the type
+from fraiseql.types import Hostname, IpAddress, MacAddress, EmailAddress
+
+hostname: Hostname           # Self-documenting, auto-validated
+ip_address: IpAddress        # IPv4/IPv6 validation built-in
+mac_address: MacAddress      # MAC format validation automatic
+email: EmailAddress          # RFC-compliant email validation</code></pre>
+                </div>
+                <p class="text-gray-700 mt-4 italic">
+                    💡 <strong>LLM Impact:</strong> Type hints become single source of truth. No need to parse validation logic scattered across files.
+                </p>
+            </div>
+
+            <!-- Pattern 2: Validation in Database -->
+            <div class="mb-12">
+                <div class="flex items-start mb-4">
+                    <div class="text-4xl mr-4">2️⃣</div>
+                    <div>
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Validation Lives in PostgreSQL Functions</h3>
+                        <p class="text-gray-700 mb-4">
+                            Business rules are enforced in the database, not in Python code. This means <strong>no validation code in the app layer</strong> for LLMs to reason about.
+                        </p>
+                    </div>
+                </div>
+                <div class="code-block">
+                    <pre class="p-4 overflow-x-auto"><code class="language-sql">-- PostgreSQL function (fn_create_router)
+CREATE OR REPLACE FUNCTION fn_create_router(
+    p_hostname TEXT,
+    p_ip_address INET,
+    p_tenant_id UUID,
+    p_user_id UUID
+) RETURNS jsonb AS $$
+DECLARE
+    v_router_id UUID;
+    v_conflict RECORD;
+BEGIN
+    -- Check for duplicate hostname (database enforces uniqueness)
+    SELECT * INTO v_conflict
+    FROM tb_router
+    WHERE hostname = p_hostname AND fk_tenant = p_tenant_id;
+
+    IF FOUND THEN
+        RETURN jsonb_build_object(
+            'status', 'conflict:already_exists',
+            'message', 'Router with this hostname already exists',
+            'conflict_router', row_to_json(v_conflict)
+        );
+    END IF;
+
+    -- Insert router (constraints enforce data integrity)
+    INSERT INTO tb_router (hostname, ip_address, fk_tenant, created_by)
+    VALUES (p_hostname, p_ip_address, p_tenant_id, p_user_id)
+    RETURNING id INTO v_router_id;
+
+    -- Audit logging happens automatically via trigger
+    -- (tb_entity_change_log table)
+
+    RETURN jsonb_build_object(
+        'status', 'ok',
+        'message', 'Router created successfully',
+        'router', (SELECT row_to_json(r) FROM tb_router r WHERE id = v_router_id)
+    );
+END;
+$$ LANGUAGE plpgsql;</code></pre>
+                </div>
+                <p class="text-gray-700 mt-4 italic">
+                    💡 <strong>LLM Impact:</strong> Python code is purely declarative. LLMs don't need to understand business rules—just the interface contract.
+                </p>
+            </div>
+
+            <!-- Pattern 3: Explicit Error Handling -->
+            <div class="mb-12">
+                <div class="flex items-start mb-4">
+                    <div class="text-4xl mr-4">3️⃣</div>
+                    <div>
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Explicit Error Configuration</h3>
+                        <p class="text-gray-700 mb-4">
+                            Error handling is <strong>configured, not coded</strong>. LLMs can predict behavior from the error config.
+                        </p>
+                    </div>
+                </div>
+                <div class="code-block">
+                    <pre class="p-4 overflow-x-auto"><code class="language-graphql"># Example from printoptim_backend mutation templates
+
+# For entities where duplicates are errors:
+error_config = fraiseql.STRICT_UNIQUE_CONFIG
+# - "conflict:already_exists" → GraphQL error
+# - "noop:existing" → GraphQL error
+
+# For idempotent operations:
+error_config = fraiseql.DEFAULT_ERROR_CONFIG
+# - "noop:not_found" → Success (null entity)
+# - "noop:no_changes" → Success (current entity)
+
+# For delete operations:
+error_config = fraiseql.DELETE_CONFIG
+# - "noop:not_found" → Success (idempotent delete)</code></pre>
+                </div>
+                <p class="text-gray-700 mt-4 italic">
+                    💡 <strong>LLM Impact:</strong> Predictable error semantics. LLMs can generate correct error handling without guessing.
+                </p>
+            </div>
+
+            <!-- Pattern 4: Context Injection -->
+            <div class="mb-12">
+                <div class="flex items-start mb-4">
+                    <div class="text-4xl mr-4">4️⃣</div>
+                    <div>
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Automatic Context Injection</h3>
+                        <p class="text-gray-700 mb-4">
+                            Multi-tenant context and user tracking are <strong>declaratively configured</strong>, not manually threaded through code.
+                        </p>
+                    </div>
+                </div>
+                <div class="code-block">
+                    <pre class="p-4 overflow-x-auto"><code class="language-python">@fraiseql.mutation(
+    function="create_location",
+    context_params={
+        "tenant_id": "input_pk_organization",  # From GraphQL context
+        "user_id": "input_created_by",         # From GraphQL context
+    },
+)
+class CreateLocation:
+    # FraiseQL automatically injects:
+    # - tenant_id from request context
+    # - user_id from authenticated user
+    # - Both passed to PostgreSQL function
+    # - No manual parameter passing needed</code></pre>
+                </div>
+                <p class="text-gray-700 mt-4 italic">
+                    💡 <strong>LLM Impact:</strong> Security and multi-tenancy are visible in configuration, not hidden in middleware logic.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Real Production Example: Nested Creation -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-4">
+                Complex Example: Nested Address Creation
+            </h2>
+            <p class="text-center text-xl text-gray-700 mb-8 max-w-3xl mx-auto">
+                Real code from printoptim_backend showing how FraiseQL handles complex nested mutations with clear, LLM-readable patterns.
+            </p>
+
+            <div class="code-block mb-6">
+                <div class="code-header">printoptim_backend/mutations/location/create.py</div>
+                <pre class="p-4 overflow-x-auto"><code class="language-python">import fraiseql
+from fraiseql.types.definitions import UNSET
+
+@fraiseql.input
+class CreateNestedPublicAddressInput:
+    """Input for creating a nested public address."""
+
+    # Required fields (matching frontend expectations)
+    city: str
+    city_code: str
+    latitude: float
+    longitude: float
+    postal_code: str
+    street_name: str
+
+    # Optional fields - UNSET allows backend to distinguish
+    # between "not provided" vs "explicitly null"
+    street_number: str | None = UNSET
+    country: str | None = UNSET
+    street_suffix: str | None = UNSET
+    external_address_id: str | None = UNSET  # For deduplication
+
+@fraiseql.input
+class CreateLocationInput:
+    """Input for creating a new location."""
+
+    # Required fields
+    name: str
+    location_level_id: uuid.UUID
+
+    # Hierarchy relationships
+    parent_id: uuid.UUID | None = UNSET
+    location_type_id: uuid.UUID | None = UNSET
+
+    # Address handling - flexible: create nested or link existing
+    address: CreateNestedPublicAddressInput | None = UNSET
+    public_address_id: uuid.UUID | None = UNSET
+
+    # Physical properties
+    has_elevator: bool | None = UNSET
+    has_stairs: bool | None = UNSET
+    n_stair_steps: int | None = UNSET
+    available_width_mm: int | None = UNSET
+    available_depth_mm: int | None = UNSET
+    available_height_mm: int | None = UNSET
+
+@fraiseql.success
+class CreateLocationSuccess:
+    message: str = "Location created successfully"
+    location: Location  # Full location object with nested address
+
+@fraiseql.failure
+class CreateLocationError:
+    message: str
+    conflict_location: Location | None = None
+    original_payload: dict | None = None  # For debugging
+
+@fraiseql.mutation(
+    function="create_location",
+    context_params={
+        "tenant_id": "input_pk_organization",
+        "user_id": "input_created_by",
+    },
+    error_config=fraiseql.DEFAULT_ERROR_CONFIG,
+)
+class CreateLocation:
+    """Create a new location with optional nested address creation."""
+
+    input: CreateLocationInput
+    success: CreateLocationSuccess
+    failure: CreateLocationError</code></pre>
+            </div>
+
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-6">
+                <h4 class="font-bold text-blue-900 text-lg mb-3">What LLMs Can Instantly Understand:</h4>
+                <ul class="space-y-2 text-blue-800">
+                    <li><strong>✅ Flexible Input:</strong> Can either create nested address OR link existing via <code class="language-python">public_address_id</code></li>
+                    <li><strong>✅ UNSET Semantics:</strong> <code class="language-python">UNSET</code> means "not provided", <code class="language-python">None</code> means "explicitly null"</li>
+                    <li><strong>✅ Nested Objects:</strong> Type system clearly shows <code class="language-python">CreateNestedPublicAddressInput</code> shape</li>
+                    <li><strong>✅ Success/Failure Contract:</strong> Explicit response types with conflict handling</li>
+                    <li><strong>✅ Context Injection:</strong> tenant_id and user_id injected automatically</li>
+                    <li><strong>✅ No Business Logic:</strong> All validation and creation logic in PostgreSQL function</li>
+                </ul>
+            </div>
+
+            <div class="mt-8 bg-white rounded-lg shadow-lg p-6">
+                <h4 class="font-bold text-gray-800 text-xl mb-4">Where Does the Code Live?</h4>
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div class="text-center">
+                        <p class="text-3xl font-bold text-red-600 mb-2">Traditional GraphQL</p>
+                        <p class="text-gray-700">250+ lines in Python</p>
+                        <p class="text-sm text-gray-600 mt-2">(resolver + validation + error handling + logging)</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-3xl font-bold text-green-600 mb-2">FraiseQL</p>
+                        <p class="text-gray-700">50 lines Python + 80 lines PL/pgSQL</p>
+                        <p class="text-sm text-gray-600 mt-2">(declarative contract + database function)</p>
+                    </div>
+                </div>
+                <div class="bg-purple-50 border-l-4 border-purple-500 p-4 mt-6">
+                    <p class="text-purple-800">
+                        <strong>Inference economics:</strong> PL/pgSQL is 30-50% shorter than equivalent Python. Fewer tokens, cheaper inference. Decades of stable syntax means LLMs rarely hallucinate.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- LLM Development Workflow -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-12">
+                LLM Development Workflow
+            </h2>
+
+            <div class="space-y-8">
+                <!-- Step 1 -->
+                <div class="flex items-start">
+                    <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-500 text-white flex items-center justify-center font-bold text-xl mr-6">
+                        1
+                    </div>
+                    <div class="flex-grow">
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Prompt: "Create a mutation to add a DNS server"</h3>
+                        <p class="text-gray-700 mb-4">LLM reads existing mutation patterns (e.g., CreateRouter) and generates:</p>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python">import fraiseql
+from fraiseql.types import Hostname, IpAddress
+
+@fraiseql.input
+class CreateDnsServerInput:
+    hostname: Hostname
+    ip_address: IpAddress
+    note: str | None = None
+
+@fraiseql.mutation(
+    function="create_dns_server",
+    context_params={
+        "tenant_id": "input_pk_organization",
+        "user_id": "input_created_by",
+    },
+)
+class CreateDnsServer:
+    input: CreateDnsServerInput
+    success: CreateDnsServerSuccess
+    failure: CreateDnsServerError</code></pre>
+                        </div>
+                        <p class="text-green-700 font-bold mt-2">✅ Correct on first try. Pattern matching is trivial for LLMs.</p>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="flex items-start">
+                    <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-500 text-white flex items-center justify-center font-bold text-xl mr-6">
+                        2
+                    </div>
+                    <div class="flex-grow">
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Prompt: "Add duplicate detection for DNS servers"</h3>
+                        <p class="text-gray-700 mb-4">LLM sees error_config pattern and updates:</p>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python">@fraiseql.mutation(
+    function="create_dns_server",
+    context_params={
+        "tenant_id": "input_pk_organization",
+        "user_id": "input_created_by",
+    },
+    error_config=fraiseql.STRICT_UNIQUE_CONFIG,  # Added
+)
+class CreateDnsServer:
+    # ... rest stays the same</code></pre>
+                        </div>
+                        <p class="text-green-700 font-bold mt-2">✅ Correct. LLM understands error config semantics from examples.</p>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="flex items-start">
+                    <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-500 text-white flex items-center justify-center font-bold text-xl mr-6">
+                        3
+                    </div>
+                    <div class="flex-grow">
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Prompt: "Add update and delete mutations"</h3>
+                        <p class="text-gray-700 mb-4">LLM generates full CRUD suite by pattern matching:</p>
+                        <div class="code-block">
+                            <pre class="p-4 overflow-x-auto"><code class="language-python">@fraiseql.mutation(
+    function="update_dns_server",
+    context_params={"tenant_id": "input_pk_organization", "user_id": "input_updated_by"},
+)
+class UpdateDnsServer:
+    input: UpdateDnsServerInput
+    success: UpdateDnsServerSuccess
+    failure: UpdateDnsServerError
+
+@fraiseql.mutation(
+    function="delete_dns_server",
+    context_params={"tenant_id": "input_pk_organization", "user_id": "input_deleted_by"},
+    error_config=fraiseql.DELETE_CONFIG,
+)
+class DeleteDnsServer:
+    input: DeletionInput  # Standard deletion input
+    success: DeleteDnsServerSuccess
+    failure: DeleteDnsServerError</code></pre>
+                        </div>
+                        <p class="text-green-700 font-bold mt-2">✅ Correct. Conventions are clear and consistent.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Why This Matters for Production -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Why This Matters for Production
+            </h2>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <!-- Faster Development -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <div class="text-5xl mb-4">⚡</div>
+                    <h3 class="text-2xl font-bold mb-3 text-gray-800">10x Faster Development</h3>
+                    <p class="text-gray-700 mb-4">
+                        printoptim_backend has <strong>50+ mutations</strong> generated with Claude in hours, not weeks.
+                    </p>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✅ LLM generates full CRUD operations from examples</li>
+                        <li>✅ Patterns are consistent across entire codebase</li>
+                        <li>✅ Minimal manual corrections needed</li>
+                        <li>✅ Junior devs + Claude = Senior-level output</li>
+                    </ul>
+                </div>
+
+                <!-- Lower Hallucination Rate -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <div class="text-5xl mb-4">🎯</div>
+                    <h3 class="text-2xl font-bold mb-3 text-gray-800">Lower Hallucination Rate</h3>
+                    <p class="text-gray-700 mb-4">
+                        Explicit patterns reduce guesswork. LLMs generate correct code on first try.
+                    </p>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✅ Type hints prevent invalid field references</li>
+                        <li>✅ Decorator patterns are unambiguous</li>
+                        <li>✅ Error configs have predictable semantics</li>
+                        <li>✅ Context injection removes parameter confusion</li>
+                    </ul>
+                </div>
+
+                <!-- Maintainable by Humans -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <div class="text-5xl mb-4">👥</div>
+                    <h3 class="text-2xl font-bold mb-3 text-gray-800">Maintainable by Humans</h3>
+                    <p class="text-gray-700 mb-4">
+                        LLM-generated code is also <strong>human-readable</strong>. No magic, no surprises.
+                    </p>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✅ Code review is straightforward</li>
+                        <li>✅ New team members understand patterns quickly</li>
+                        <li>✅ Debugging is easier (less code to read)</li>
+                        <li>✅ Refactoring is low-risk</li>
+                    </ul>
+                </div>
+
+                <!-- Production-Ready Defaults -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <div class="text-5xl mb-4">🛡️</div>
+                    <h3 class="text-2xl font-bold mb-3 text-gray-800">Production-Ready Defaults</h3>
+                    <p class="text-gray-700 mb-4">
+                        LLMs can't "forget" audit logging or multi-tenant isolation—it's built into the framework.
+                    </p>
+                    <ul class="space-y-2 text-gray-700">
+                        <li>✅ tb_entity_change_log automatic audit trail</li>
+                        <li>✅ Tenant isolation via context_params</li>
+                        <li>✅ SQL injection protection by default</li>
+                        <li>✅ Error tracking via request IDs</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Metrics Comparison -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Real Production Metrics
+            </h2>
+            <p class="text-center text-xl text-gray-700 mb-12 max-w-3xl mx-auto">
+                From printoptim_backend (50+ entities, 150+ mutations, production SaaS)
+            </p>
+
+            <div class="overflow-x-auto">
+                <table class="w-full max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+                    <thead class="bg-gray-800 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left">Metric</th>
+                            <th class="px-6 py-3 text-left">Traditional GraphQL</th>
+                            <th class="px-6 py-3 text-left">FraiseQL</th>
+                            <th class="px-6 py-3 text-left">Impact</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr class="border-b">
+                            <td class="px-6 py-4 font-bold">Python lines per mutation</td>
+                            <td class="px-6 py-4">80-150 lines</td>
+                            <td class="px-6 py-4 text-green-600 font-bold">15-30 lines</td>
+                            <td class="px-6 py-4">Logic moves to PostgreSQL</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4 font-bold">PostgreSQL function</td>
+                            <td class="px-6 py-4">0 lines (logic in Python)</td>
+                            <td class="px-6 py-4">40-80 lines</td>
+                            <td class="px-6 py-4">Business logic in DB</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4 font-bold">Python files per mutation</td>
+                            <td class="px-6 py-4">3-5 files</td>
+                            <td class="px-6 py-4 text-green-600 font-bold">1 file</td>
+                            <td class="px-6 py-4">Simpler Python layer</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4 font-bold">Where validation lives</td>
+                            <td class="px-6 py-4">Python code</td>
+                            <td class="px-6 py-4">PostgreSQL fn_* function</td>
+                            <td class="px-6 py-4">ACID guarantees</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="px-6 py-4 font-bold">Error handling pattern</td>
+                            <td class="px-6 py-4">15-30 lines/mutation</td>
+                            <td class="px-6 py-4 text-green-600 font-bold">1 line (error_config)</td>
+                            <td class="px-6 py-4">Declarative config</td>
+                        </tr>
+                        <tr class="border-b bg-gray-50">
+                            <td class="px-6 py-4 font-bold">Audit logging</td>
+                            <td class="px-6 py-4">Manual per mutation</td>
+                            <td class="px-6 py-4 text-green-600 font-bold">Built into fn_* functions</td>
+                            <td class="px-6 py-4">Automatic via triggers</td>
+                        </tr>
+                        <tr class="bg-gray-100 font-bold">
+                            <td class="px-6 py-4">Time to generate (LLM)</td>
+                            <td class="px-6 py-4">5-10 minutes</td>
+                            <td class="px-6 py-4 text-green-600">30-60 seconds</td>
+                            <td class="px-6 py-4">Predictable patterns</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="text-sm text-gray-600 mt-4 text-center">
+                    * Total code volume is similar—but PostgreSQL patterns are universally understood by LLMs, reducing hallucinations.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FastAPI Integration -->
+    <section class="bg-gray-100 py-12">
+        <div class="container max-w-5xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-4">
+                FastAPI: The LLM-Friendly Web Framework
+            </h2>
+            <p class="text-center text-xl text-gray-700 mb-8 max-w-3xl mx-auto">
+                FraiseQL's opinionated FastAPI integration amplifies LLM-friendliness with async-first, type-safe, dependency injection patterns.
+            </p>
+
+            <div class="bg-white rounded-lg shadow-lg p-8 mb-8">
+                <h3 class="text-2xl font-bold mb-4 text-gray-800">Why FastAPI + FraiseQL = Perfect for LLMs</h3>
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div>
+                        <h4 class="font-bold text-lg mb-2 text-gray-800">FastAPI Brings:</h4>
+                        <ul class="space-y-2 text-gray-700">
+                            <li>✅ Explicit type hints everywhere</li>
+                            <li>✅ Dependency injection (testable, clear)</li>
+                            <li>✅ Async/await (no callback hell)</li>
+                            <li>✅ Auto-generated OpenAPI docs</li>
+                            <li>✅ CQRS-friendly endpoint separation</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-lg mb-2 text-gray-800">FraiseQL Adds:</h4>
+                        <ul class="space-y-2 text-gray-700">
+                            <li>✅ Declarative mutation patterns</li>
+                            <li>✅ Database-first validation</li>
+                            <li>✅ Zero-boilerplate CRUD</li>
+                            <li>✅ Automatic error handling</li>
+                            <li>✅ Multi-tenant context injection</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="code-block">
+                <div class="code-header">Full FastAPI + FraiseQL Integration</div>
+                <pre class="p-4 overflow-x-auto"><code class="language-python">from fastapi import FastAPI, Depends
+from fraiseql.fastapi import create_fraiseql_app
+
+# LLMs can easily understand this stack:
+# - FastAPI for HTTP layer
+# - FraiseQL for GraphQL → PostgreSQL
+# - Type hints for everything
+# - Dependency injection for context
+
+app = FastAPI()
+
+# Create FraiseQL GraphQL endpoint
+graphql_app = create_fraiseql_app(
+    database_url="postgresql://...",
+    types=[Router, Location, DnsServer],  # Type registry
+    mutations=[CreateRouter, UpdateRouter, DeleteRouter],
+    production=True,  # Enables APQ, TurboRouter
+)
+
+# Mount GraphQL endpoint
+app.mount("/graphql", graphql_app)
+
+# CQRS separation: Queries via GET, Mutations via POST
+# LLMs understand this pattern instantly</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Getting Started -->
+    <section class="bg-white border-b py-12">
+        <div class="container max-w-4xl mx-auto px-6">
+            <h2 class="text-4xl font-bold text-center text-gray-800 mb-8">
+                Start Building with LLMs
+            </h2>
+
+            <div class="bg-gray-100 rounded-lg p-8">
+                <h3 class="text-2xl font-bold mb-4 text-gray-800">Prompt Template for Claude/Copilot</h3>
+                <div class="code-block mb-4">
+                    <pre class="p-4 overflow-x-auto"><code class="language-python">I'm using FraiseQL, a Python GraphQL framework with database-first architecture.
+
+Key patterns:
+- Mutations are declarative classes with @fraiseql.mutation decorator
+- Input types use @fraiseql.input with type hints (Hostname, IpAddress, etc.)
+- Validation happens in PostgreSQL functions, not Python code
+- Error handling via error_config (STRICT_UNIQUE_CONFIG, DELETE_CONFIG, etc.)
+- Context injection via context_params (tenant_id, user_id)
+
+Task: Create CRUD mutations for [entity name] with these fields: [field list]
+
+Reference existing mutations in [directory path] for patterns.</code></pre>
+                </div>
+                <p class="text-gray-700">
+                    <strong>Result:</strong> Claude/Copilot generates production-ready mutations in seconds, following exact project patterns.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="bg-gray-100 py-12">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-4xl font-bold text-gray-800 mb-4">Ready to Accelerate Development with AI?</h2>
+            <p class="text-xl text-gray-700 mb-8">FraiseQL's LLM-optimized patterns are production-ready today.</p>
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a href="/getting-started.html" class="gradient text-white font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    Get Started
+                </a>
+                <a href="https://github.com/fraiseql/fraiseql/tree/main/examples" class="bg-white text-gray-800 border-2 border-gray-300 font-bold rounded-full py-4 px-8 shadow-lg hover:shadow-xl transform transition hover:scale-105 duration-300 ease-in-out">
+                    See Examples
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-8 py-6 text-center text-gray-400">
+            <div class="mb-4">
+                <img src="https://img.shields.io/pypi/v/fraiseql?style=flat-square&logo=python&logoColor=white&color=blue" alt="PyPI version">
+            </div>
+            <p>FraiseQL is <a href="https://github.com/fraiseql/fraiseql/blob/main/LICENSE" class="text-red-500 no-underline hover:underline">MIT licensed</a>. Made with 🍓 by <a href="https://github.com/fraiseql/fraiseql" class="text-red-500 no-underline hover:underline">the FraiseQL team</a>.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function() {
+            var navContent = document.getElementById("nav-content");
+            var navToggle = document.getElementById("nav-toggle");
+
+            // Mobile menu toggle
+            navToggle.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var isHidden = navContent.classList.toggle("hidden");
+                navToggle.setAttribute("aria-expanded", !isHidden);
+            });
+
+            // Close menu on click outside
+            document.addEventListener("click", function(e) {
+                if (!navContent.contains(e.target) && !navToggle.contains(e.target)) {
+                    navContent.classList.add("hidden");
+                    navToggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    <script src="/prism.min.js"></script>
+    <script src="/prism-python.min.js"></script>
+    <script src="/prism-graphql.min.js"></script>
+    <script src="/prism-sql.min.js"></script>
+    <script src="/prism-bash.min.js"></script>
+</body>
+</html>

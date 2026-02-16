@@ -1,0 +1,116 @@
+# CQRS Pattern: Separate Write and Read Concerns
+
+direction: down
+
+write_side: {
+  label: "WRITE SIDE — Normalized Tables"
+  style.font-size: 22
+  style.bold: true
+  style.font-color: "#c2410c"
+
+  direction: right
+
+  tb_user: {
+    shape: sql_table
+    style.fill: "#c2410c"
+    style.stroke: "#78350f"
+    style.font-color: "#ffffff"
+    style.font-size: 16
+
+    pk_user: int {constraint: primary_key}
+    id: uuid {constraint: unique}
+    identifier: text {constraint: unique}
+    email: "varchar(255)"
+    name: "varchar(255)"
+  }
+
+  tb_post: {
+    shape: sql_table
+    style.fill: "#c2410c"
+    style.stroke: "#78350f"
+    style.font-color: "#ffffff"
+    style.font-size: 16
+
+    pk_post: int {constraint: primary_key}
+    id: uuid {constraint: unique}
+    fk_user: int {constraint: foreign_key}
+    title: text
+    content: text
+  }
+
+  tb_comment: {
+    shape: sql_table
+    style.fill: "#c2410c"
+    style.stroke: "#78350f"
+    style.font-color: "#ffffff"
+    style.font-size: 16
+
+    pk_comment: int {constraint: primary_key}
+    id: uuid {constraint: unique}
+    fk_post: int {constraint: foreign_key}
+    body: text
+  }
+
+  tb_post.fk_user -> tb_user.pk_user
+  tb_comment.fk_post -> tb_post.pk_post
+}
+
+sync: "Auto-Sync" {
+  style.fill: "#16a34a"
+  style.stroke: "#15803d"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+  style.bold: true
+}
+
+read_side: {
+  label: "READ SIDE — Denormalized JSONB Views"
+  style.font-size: 22
+  style.bold: true
+  style.font-color: "#0369a1"
+
+  direction: right
+
+  v_user: {
+    shape: sql_table
+    style.fill: "#0369a1"
+    style.stroke: "#0c4a6e"
+    style.font-color: "#ffffff"
+    style.font-size: 16
+
+    id: uuid {constraint: primary_key}
+    data: jsonb
+  }
+
+  v_post: {
+    shape: sql_table
+    style.fill: "#0369a1"
+    style.stroke: "#0c4a6e"
+    style.font-color: "#ffffff"
+    style.font-size: 16
+
+    id: uuid {constraint: primary_key}
+    data: jsonb
+  }
+
+  v_post_detail: {
+    shape: sql_table
+    style.fill: "#0369a1"
+    style.stroke: "#0c4a6e"
+    style.font-color: "#ffffff"
+    style.font-size: 16
+
+    id: uuid {constraint: primary_key}
+    data: jsonb
+  }
+}
+
+write_side -> sync {
+  style.stroke-width: 3
+  style.stroke: "#16a34a"
+}
+
+sync -> read_side {
+  style.stroke-width: 3
+  style.stroke: "#16a34a"
+}

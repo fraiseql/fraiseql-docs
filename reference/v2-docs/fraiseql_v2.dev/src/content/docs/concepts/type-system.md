@@ -1,0 +1,504 @@
+---
+title: Type System
+description: Understanding FraiseQL's type system and type inference
+---
+
+FraiseQL's type system bridges Python types, GraphQL schema, and PostgreSQL. This guide explains how types flow through the system.
+
+## Type Flow
+
+```
+             ─                ─           ─
+```
+
+Each layer has its own type representation:
+
+| Python | GraphQL | PostgreSQL | JSON |
+|--------|---------|------------|------|
+| `str` | `String!` | `TEXT` | `"string"` |
+| `int` | `Int!` | `INTEGER` | `123` |
+| `float` | `Float!` | `DOUBLE PRECISION` | `1.23` |
+| `bool` | `Boolean!` | `BOOLEAN` | `true` |
+| `str \| None` | `String` | `TEXT` | `"string"` or `null` |
+| `list[str]` | `[String!]!` | `TEXT[]` | `["a", "b"]` |
+
+## Defining Types
+
+### Basic Types
+
+```python
+import fraiseql
+from fraiseql.scalars import ID, DateTime, Decimal
+
+@fraiseql.type
+class User:
+    """A user in the system."""
+    id: ID                    # UUID → ID! → UUID → "uuid-string"
+    email: str                # str → String! → TEXT → "string"
+    name: str                 # str → String! → TEXT → "string"
+    age: int                  # int → Int! → INTEGER → 123
+    balance: Decimal          # Decimal → Decimal! → NUMERIC → "123.45"
+    is_active: bool           # bool → Boolean! → BOOLEAN → true
+    created_at: DateTime      # DateTime → DateTime! → TIMESTAMPTZ → "2024-01-15T..."
+```
+
+### Optional Fields
+
+Use union with `None` for nullable fields:
+
+```python
+@fraiseql.type
+class User:
+    bio: str | None           # String (nullable)
+    avatar_url: str | None    # String (nullable)
+    deleted_at: DateTime | None  # DateTime (nullable)
+```
+
+### Collections
+
+```python
+@fraiseql.type
+class User:
+    roles: list[str]           # [String!]! - non-null list, non-null items
+    tags: list[str] | None     # [String!] - nullable list, non-null items
+    scores: list[int]          # [Int!]!
+```
+
+## Relationships
+
+### Object References
+
+```python
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    author: User              # Nested User object
+```
+
+GraphQL:
+```graphql
+type Post {
+    id: ID!
+    title: String!
+    author: User!
+}
+```
+
+### Forward References
+
+Use string literals for forward references:
+
+```python
+@fraiseql.type
+class User:
+    id: ID
+    name: str
+    posts: list['Post']       # Forward reference to Post
+
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    author: 'User'            # Forward reference to User
+```
+
+### Self-References
+
+```python
+@fraiseql.type
+class Comment:
+    id: ID
+    content: str
+    parent: 'Comment | None'  # Self-reference
+    replies: list['Comment']  # Self-reference list
+```
+
+### Optional Relationships
+
+```python
+@fraiseql.type
+class Post:
+    id: ID
+    featured_image: 'Image | None'  # Optional relationship
+```
+
+## Scalar Types
+
+### Built-in Scalars
+
+```python
+from fraiseql.scalars import (
+    ID,        # UUID
+    DateTime,  # Timestamp with timezone
+    Date,      # Date only
+    Time,      # Time only
+    Decimal,   # Arbitrary precision
+    Json,      # JSONB
+    Vector,    # pgvector
+)
+```
+
+### Custom Scalars
+
+```python
+@fraiseql.scalar
+class Email:
+    """Email address with validation."""
+
+    @staticmethod
+    def serialize(value: str) -> str:
+        return value.lower()
+
+    @staticmethod
+    def parse(value: str) -> str:
+        import re
+        if not re.match(r'^[^@]+@[^@]+\.[^@]+$', value):
+            raise ValueError("Invalid email")
+        return value.lower()
+```
+
+Usage:
+
+```python
+@fraiseql.type
+class User:
+    email: Email  # Custom scalar
+```
+
+## Enums
+
+```python
+from enum import Enum
+
+@fraiseql.enum
+class OrderStatus(Enum):
+    """Order status values."""
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
+
+@fraiseql.type
+class Order:
+    id: ID
+    status: OrderStatus  # Enum type
+```
+
+GraphQL:
+```graphql
+enum OrderStatus {
+    PENDING
+    CONFIRMED
+    SHIPPED
+    DELIVERED
+    CANCELLED
+}
+
+type Order {
+    id: ID!
+    status: OrderStatus!
+}
+```
+
+## Interfaces
+
+Define shared fields across types:
+
+```python
+@fraiseql.interface
+class Node:
+    """An object with a globally unique ID."""
+    id: ID
+
+@fraiseql.interface
+class Timestamped:
+    """An object with timestamps."""
+    created_at: DateTime
+    updated_at: DateTime
+
+@fraiseql.type(implements=["Node", "Timestamped"])
+class User:
+    id: ID
+    name: str
+    created_at: DateTime
+    updated_at: DateTime
+```
+
+GraphQL:
+```graphql
+interface Node {
+    id: ID!
+}
+
+interface Timestamped {
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+
+type User implements Node & Timestamped {
+    id: ID!
+    name: String!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+```
+
+## Unions
+
+Represent multiple possible types:
+
+```python
+@fraiseql.type
+class User:
+    id: ID
+    name: str
+
+@fraiseql.type
+class Organization:
+    id: ID
+    name: str
+
+@fraiseql.union(members=[User, Organization])
+class Actor:
+    """An entity that can perform actions."""
+    pass
+```
+
+GraphQL:
+```graphql
+union Actor = User | Organization
+```
+
+Query with type resolution:
+
+```graphql
+query {
+    actor(id: "...") {
+        ... on User {
+            name
+            email
+        }
+        ... on Organization {
+            name
+            memberCount
+        }
+    }
+}
+```
+
+## Input Types
+
+Input types for mutations:
+
+```python
+@fraiseql.input
+class CreateUserInput:
+    """Input for creating a user."""
+    email: str
+    name: str
+    bio: str | None = None
+
+@fraiseql.input
+class UpdateUserInput:
+    """Input for updating a user."""
+    name: str | None = None
+    bio: str | None = None
+```
+
+GraphQL:
+```graphql
+input CreateUserInput {
+    email: String!
+    name: String!
+    bio: String
+}
+
+input UpdateUserInput {
+    name: String
+    bio: String
+}
+```
+
+## Type Inference
+
+FraiseQL infers types from Python annotations:
+
+### From Views
+
+```sql
+CREATE VIEW v_user AS
+SELECT
+    u.id,                    -- UUID
+    jsonb_build_object(
+        'id', u.id::text,    -- String in JSONB
+        'name', u.name,      -- String
+        'age', u.age,        -- Integer
+        'balance', u.balance::text  -- Decimal as string
+    ) AS data
+FROM tb_user u;
+```
+
+
+         ─
+           ─             ─
+          ─                ─
+              ─                    ─
+
+### From Functions
+
+```sql
+CREATE FUNCTION fn_create_user(
+    user_email TEXT,
+    user_name TEXT
+) RETURNS UUID AS $$
+```
+
+FraiseQL infers:
+- Parameters: `email: str`, `name: str`
+- Return: `ID` (UUID)
+
+## Nullability Rules
+
+           ─
+
+| Python | GraphQL | Notes |
+|--------|---------|-------|
+| `str` | `String!` | Non-null |
+| `str \| None` | `String` | Nullable |
+| `list[str]` | `[String!]!` | Non-null list and items |
+| `list[str] \| None` | `[String!]` | Nullable list, non-null items |
+| `list[str \| None]` | `[String]!` | Non-null list, nullable items |
+
+             ─
+
+| PostgreSQL | Python |
+|------------|--------|
+| `NOT NULL` | Required field |
+| Nullable | `... \| None` |
+| `DEFAULT` | Default value |
+
+## Validation
+
+### Type Validation
+
+```python
+@fraiseql.input
+class CreateUserInput:
+    email: Annotated[str, fraiseql.validate(
+        pattern=r'^[^@]+@[^@]+\.[^@]+$'
+    )]
+    age: Annotated[int, fraiseql.validate(
+        minimum=0,
+        maximum=150
+    )]
+```
+
+### Runtime Coercion
+
+FraiseQL coerces types at boundaries:
+
+```python
+# Query variable: "123"
+# Python receives: 123 (int)
+
+# Query variable: "2024-01-15"
+# Python receives: datetime object
+```
+
+## Computed Fields
+
+Fields not stored in database:
+
+```python
+@fraiseql.type
+class User:
+    first_name: str
+    last_name: str
+
+    # Computed from other fields
+    full_name: Annotated[str, fraiseql.field(computed=True)]
+```
+
+SQL implementation:
+
+```sql
+CREATE VIEW v_user AS
+SELECT
+    jsonb_build_object(
+        'first_name', u.first_name,
+        'last_name', u.last_name,
+        'full_name', u.first_name || ' ' || u.last_name  -- Computed
+    ) AS data
+FROM tb_user u;
+```
+
+## Type Visibility
+
+Control field exposure:
+
+```python
+@fraiseql.type
+class User:
+    id: ID
+    email: str
+    password_hash: Annotated[str, fraiseql.field(
+        exclude=True  # Never expose in GraphQL
+    )]
+    salary: Annotated[Decimal, fraiseql.field(
+        requires_scope="hr:read"  # Require scope
+    )]
+```
+
+## Best Practices
+
+### Use Specific Types
+
+```python
+# Good: Specific types
+id: ID
+email: str
+price: Decimal
+created_at: DateTime
+
+# Avoid: Generic types
+id: str  # Could be anything
+price: float  # Precision issues
+created_at: str  # Format unclear
+```
+
+### Match Database Types
+
+```python
+# PostgreSQL: DECIMAL(12,2)
+# Python: Decimal (not float)
+price: Decimal
+
+# PostgreSQL: TIMESTAMPTZ
+# Python: DateTime (not str)
+created_at: DateTime
+```
+
+### Document Types
+
+```python
+@fraiseql.type
+class Order:
+    """
+    Represents a customer order.
+
+    Contains order details, line items, and fulfillment status.
+    """
+    id: ID
+    """Unique order identifier."""
+
+    total: Decimal
+    """Order total in USD."""
+```
+
+## Next Steps
+
+- [Scalars](/reference/scalars) — Scalar type reference
+- [Decorators](/reference/decorators) — All decorators
+- [Schema Design](/guides/schema-design) — Design patterns

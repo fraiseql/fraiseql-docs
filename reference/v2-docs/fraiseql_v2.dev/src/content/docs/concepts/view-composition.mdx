@@ -1,0 +1,932 @@
+---
+title: View Composition
+description: How FraiseQL views compose to build nested GraphQL responses
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL's power comes from **composable SQL views that you write**. Each view owns its fields and embeds child views through the `.data` column pattern. You design these views, and FraiseQL maps them to GraphQL types.
+
+## The .data Pattern
+
+Every view in FraiseQL has a `data` JSONB column containing the complete response for that entity:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE OR REPLACE VIEW v_user AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+
+    Querying returns structured JSON:
+
+    ```sql
+    SELECT data FROM v_user WHERE id = '...';
+    -- {"id": "...", "name": "John", "email": "john@example.com"}
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE OR REPLACE VIEW v_user AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+
+    Querying returns structured JSON:
+
+    ```sql
+    SELECT data FROM v_user WHERE id = '...';
+    -- {"id": "...", "name": "John", "email": "john@example.com"}
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE OR REPLACE VIEW v_user AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+    ```
+
+    Querying returns structured JSON:
+
+    ```sql
+    SELECT data FROM v_user WHERE id = '...';
+    -- {"id": "...", "name": "John", "email": "john@example.com"}
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE VIEW dbo.v_user
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT u.id, u.name, u.email
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+    ```
+
+    Querying returns structured JSON:
+
+    ```sql
+    SELECT data FROM v_user WHERE id = '...';
+    -- {"id": "...", "name": "John", "email": "john@example.com"}
+    ```
+  </TabItem>
+</Tabs>
+
+## Composing Views
+
+Parent views embed child views by referencing `.data`:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Child view: v_user owns user fields
+    CREATE OR REPLACE VIEW v_user AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+
+    -- Parent view: v_post embeds v_user.data
+    CREATE OR REPLACE VIEW v_post AS
+    SELECT
+        p.id,
+        jsonb_build_object(
+            'id', p.id::text,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- Child view: v_user owns user fields
+    CREATE OR REPLACE VIEW v_user AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+
+    -- Parent view: v_post embeds v_user.data
+    CREATE OR REPLACE VIEW v_post AS
+    SELECT
+        p.id,
+        JSON_OBJECT(
+            'id', p.id,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- Child view: v_user owns user fields
+    CREATE OR REPLACE VIEW v_user AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+        ) AS data
+    FROM tb_user u;
+
+    -- Parent view: v_post embeds v_user.data
+    CREATE OR REPLACE VIEW v_post AS
+    SELECT
+        p.id,
+        json_object(
+            'id', p.id,
+            'title', p.title,
+            'content', p.content,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Child view: v_user owns user fields
+    CREATE VIEW dbo.v_user
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT u.id, u.name, u.email
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+
+    -- Parent view: v_post embeds v_user.data
+    CREATE VIEW dbo.v_post
+    WITH SCHEMABINDING AS
+    SELECT
+        p.id,
+        (
+            SELECT p.id, p.title, p.content, vu.data AS author
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p
+    JOIN dbo.tb_user u ON u.pk_user = p.fk_user
+    JOIN dbo.v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+Querying `v_post` returns nested JSON:
+
+```json
+{
+    "id": "...",
+    "title": "My First Post",
+    "content": "Hello world",
+    "author": {
+        "id": "...",
+        "name": "John",
+        "email": "john@example.com"
+    }
+}
+```
+
+## Why This Pattern?
+
+### No Field Duplication
+
+Each view owns its fields. To add a field to `User`, edit `v_user` once:
+
+```sql
+-- Before: v_user
+jsonb_build_object('id', u.id, 'name', u.name, 'email', u.email)
+
+-- After: add avatar_url
+jsonb_build_object('id', u.id, 'name', u.name, 'email', u.email, 'avatar_url', u.avatar_url)
+```
+
+Every view that embeds `v_user.data` automatically gets the new field.
+
+### Single Source of Truth
+
+The view definition is the source of truth for the GraphQL type:
+
+| View | GraphQL Type |
+|------|--------------|
+| `v_user` | `User` |
+| `v_post` | `Post` |
+| `v_comment` | `Comment` |
+
+### Pre-computed JOINs
+
+Relationships are pre-joined at the view level. No N+1 queries, no DataLoader needed.
+
+## Composition Patterns
+
+### One-to-One
+
+Direct embedding for single relationships:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE OR REPLACE VIEW v_profile AS
+    SELECT
+        p.id,
+        jsonb_build_object(
+            'id', p.id::text,
+            'bio', p.bio,
+            'website', p.website,
+            'user', vu.data
+        ) AS data
+    FROM tb_profile p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE OR REPLACE VIEW v_profile AS
+    SELECT
+        p.id,
+        JSON_OBJECT(
+            'id', p.id,
+            'bio', p.bio,
+            'website', p.website,
+            'user', JSON_PARSE(vu.data)
+        ) AS data
+    FROM tb_profile p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE VIEW v_profile AS
+    SELECT
+        p.id,
+        json_object(
+            'id', p.id,
+            'bio', p.bio,
+            'website', p.website,
+            'user', json(vu.data)
+        ) AS data
+    FROM tb_profile p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE VIEW dbo.v_profile
+    WITH SCHEMABINDING AS
+    SELECT
+        p.id,
+        (
+            SELECT
+                p.id,
+                p.bio,
+                p.website,
+                (SELECT vu.data) AS user
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_profile p
+    JOIN dbo.tb_user u ON u.pk_user = p.fk_user
+    JOIN dbo.v_user vu ON vu.id = u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+### One-to-Many
+
+Use database-specific array aggregation to collect child records:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE OR REPLACE VIEW v_user_with_posts AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'name', u.name,
+            'email', u.email,
+            'posts', COALESCE(
+                jsonb_agg(vp.data ORDER BY vp.data->>'created_at' DESC)
+                FILTER (WHERE vp.id IS NOT NULL),
+                '[]'::jsonb
+            )
+        ) AS data
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+    LEFT JOIN v_post vp ON vp.id = p.id
+    GROUP BY u.id, u.name, u.email;
+    ```
+
+    **Key points:**
+    - Use `COALESCE(..., '[]'::jsonb)` for empty arrays
+    - Use `FILTER (WHERE ... IS NOT NULL)` to exclude NULL from LEFT JOINs
+    - Use `ORDER BY` inside `jsonb_agg` for consistent ordering
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE OR REPLACE VIEW v_user_with_posts AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email,
+            'posts', COALESCE(
+                JSON_ARRAYAGG(vp.data),
+                JSON_ARRAY()
+            )
+        ) AS data
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+    LEFT JOIN v_post vp ON vp.id = p.id
+    GROUP BY u.id, u.name, u.email;
+    ```
+
+    **Key points:**
+    - Use `COALESCE(..., JSON_ARRAY())` for empty arrays
+    - `JSON_ARRAYAGG` automatically excludes NULL values
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE OR REPLACE VIEW v_user_with_posts AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email,
+            'posts', COALESCE(
+                json_group_array(vp.data),
+                json_array()
+            )
+        ) AS data
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+    LEFT JOIN v_post vp ON vp.id = p.id
+    GROUP BY u.id, u.name, u.email;
+    ```
+
+    **Key points:**
+    - Use `COALESCE(..., json_array())` for empty arrays
+    - `json_group_array` aggregates values into a JSON array
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE VIEW dbo.v_user_with_posts
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT u.id, u.name, u.email,
+                (
+                    SELECT json_group_array(vp.data)
+                    FROM dbo.v_post vp
+                    WHERE vp.fk_user = u.pk_user
+                ) AS posts
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+    ```
+
+    **Key points:**
+    - Use nested subqueries with `FOR JSON PATH` for array aggregation
+    - Subqueries naturally handle NULL values
+  </TabItem>
+</Tabs>
+
+### Many-to-Many
+
+Join through the association table:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Association table
+    CREATE TABLE tb_post_tag (
+        pk_post_tag INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post),
+        fk_tag INTEGER NOT NULL REFERENCES tb_tag(pk_tag),
+        UNIQUE(fk_post, fk_tag)
+    );
+
+    -- View with many-to-many
+    CREATE OR REPLACE VIEW v_post_with_tags AS
+    SELECT
+        p.id,
+        jsonb_build_object(
+            'id', p.id::text,
+            'title', p.title,
+            'tags', COALESCE(
+                jsonb_agg(vt.data ORDER BY vt.data->>'name')
+                FILTER (WHERE vt.id IS NOT NULL),
+                '[]'::jsonb
+            )
+        ) AS data
+    FROM tb_post p
+    LEFT JOIN tb_post_tag pt ON pt.fk_post = p.pk_post
+    LEFT JOIN tb_tag t ON t.pk_tag = pt.fk_tag
+    LEFT JOIN v_tag vt ON vt.id = t.id
+    GROUP BY p.id, p.title;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- Association table
+    CREATE TABLE tb_post_tag (
+        pk_post_tag BIGINT PRIMARY KEY AUTO_INCREMENT,
+        fk_post BIGINT NOT NULL REFERENCES tb_post(pk_post),
+        fk_tag BIGINT NOT NULL REFERENCES tb_tag(pk_tag),
+        UNIQUE(fk_post, fk_tag)
+    );
+
+    -- View with many-to-many
+    CREATE OR REPLACE VIEW v_post_with_tags AS
+    SELECT
+        p.id,
+        JSON_OBJECT(
+            'id', p.id,
+            'title', p.title,
+            'tags', COALESCE(
+                JSON_ARRAYAGG(vt.data),
+                JSON_ARRAY()
+            )
+        ) AS data
+    FROM tb_post p
+    LEFT JOIN tb_post_tag pt ON pt.fk_post = p.pk_post
+    LEFT JOIN tb_tag t ON t.pk_tag = pt.fk_tag
+    LEFT JOIN v_tag vt ON vt.id = t.id
+    GROUP BY p.id, p.title;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- Association table
+    CREATE TABLE tb_post_tag (
+        pk_post_tag INTEGER PRIMARY KEY AUTOINCREMENT,
+        fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post),
+        fk_tag INTEGER NOT NULL REFERENCES tb_tag(pk_tag),
+        UNIQUE(fk_post, fk_tag)
+    );
+
+    -- View with many-to-many
+    CREATE OR REPLACE VIEW v_post_with_tags AS
+    SELECT
+        p.id,
+        json_object(
+            'id', p.id,
+            'title', p.title,
+            'tags', COALESCE(
+                json_group_array(vt.data),
+                json_array()
+            )
+        ) AS data
+    FROM tb_post p
+    LEFT JOIN tb_post_tag pt ON pt.fk_post = p.pk_post
+    LEFT JOIN tb_tag t ON t.pk_tag = pt.fk_tag
+    LEFT JOIN v_tag vt ON vt.id = t.id
+    GROUP BY p.id, p.title;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Association table
+    CREATE TABLE dbo.tb_post_tag (
+        pk_post_tag BIGINT PRIMARY KEY IDENTITY(1,1),
+        fk_post BIGINT NOT NULL REFERENCES dbo.tb_post(pk_post),
+        fk_tag BIGINT NOT NULL REFERENCES dbo.tb_tag(pk_tag),
+        UNIQUE(fk_post, fk_tag)
+    );
+
+    -- View with many-to-many
+    CREATE VIEW dbo.v_post_with_tags
+    WITH SCHEMABINDING AS
+    SELECT
+        p.id,
+        (
+            SELECT p.id, p.title,
+                (
+                    SELECT json_group_array(vt.data)
+                    FROM dbo.tb_post_tag pt
+                    JOIN dbo.tb_tag t ON t.pk_tag = pt.fk_tag
+                    JOIN dbo.v_tag vt ON vt.id = t.id
+                    WHERE pt.fk_post = p.pk_post
+                ) AS tags
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p;
+    ```
+  </TabItem>
+</Tabs>
+
+### Recursive (Self-Referencing)
+
+Use CTEs for hierarchical data like threaded comments:
+
+```sql
+CREATE OR REPLACE VIEW v_comment AS
+WITH RECURSIVE comment_tree AS (
+    -- Base case: root comments (no parent)
+    SELECT
+        c.pk_comment,
+        c.id,
+        c.content,
+        c.fk_post,
+        c.fk_user,
+        c.fk_parent_comment,
+        0 AS depth,
+        ARRAY[c.pk_comment] AS path
+    FROM tb_comment c
+    WHERE c.fk_parent_comment IS NULL
+
+    UNION ALL
+
+    -- Recursive case: replies
+    SELECT
+        c.pk_comment,
+        c.id,
+        c.content,
+        c.fk_post,
+        c.fk_user,
+        c.fk_parent_comment,
+        ct.depth + 1,
+        ct.path || c.pk_comment
+    FROM tb_comment c
+    JOIN comment_tree ct ON ct.pk_comment = c.fk_parent_comment
+    WHERE NOT c.pk_comment = ANY(ct.path)  -- Prevent cycles
+)
+SELECT
+    c.id,
+    jsonb_build_object(
+        'id', c.id::text,
+        'content', c.content,
+        'depth', c.depth,
+        'post', vp.data,
+        'author', vu.data,
+        'parent_comment', CASE
+            WHEN pc.id IS NOT NULL THEN jsonb_build_object(
+                'id', pc.id::text,
+                'author', vu_pc.data
+            )
+            ELSE NULL
+        END
+    ) AS data
+FROM comment_tree c
+JOIN tb_post p ON p.pk_post = c.fk_post
+JOIN v_post vp ON vp.id = p.id
+JOIN tb_user u ON u.pk_user = c.fk_user
+JOIN v_user vu ON vu.id = u.id
+LEFT JOIN tb_comment pc_tb ON pc_tb.pk_comment = c.fk_parent_comment
+LEFT JOIN v_user vu_pc ON vu_pc.id = (
+    SELECT u2.id FROM tb_user u2 WHERE u2.pk_user = pc_tb.fk_user
+);
+```
+
+## Aggregations in Views
+
+Views can include computed aggregations:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE OR REPLACE VIEW v_user_stats AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'name', u.name,
+            'post_count', COUNT(p.pk_post),
+            'total_views', COALESCE(SUM(p.view_count), 0),
+            'latest_post_at', MAX(p.published_at)
+        ) AS data
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user AND p.is_published = true
+    GROUP BY u.id, u.name;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE OR REPLACE VIEW v_user_stats AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'name', u.name,
+            'post_count', COUNT(p.pk_post),
+            'total_views', COALESCE(SUM(p.view_count), 0),
+            'latest_post_at', MAX(p.published_at)
+        ) AS data
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user AND p.is_published = true
+    GROUP BY u.id, u.name;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE VIEW v_user_stats AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'name', u.name,
+            'post_count', COUNT(p.pk_post),
+            'total_views', COALESCE(SUM(p.view_count), 0),
+            'latest_post_at', MAX(p.published_at)
+        ) AS data
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user AND p.is_published = 1
+    GROUP BY u.id, u.name;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE VIEW dbo.v_user_stats
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT
+                u.id,
+                u.name,
+                COUNT(p.pk_post) AS post_count,
+                COALESCE(SUM(p.view_count), 0) AS total_views,
+                MAX(p.published_at) AS latest_post_at
+            FROM dbo.tb_user u
+            LEFT JOIN dbo.tb_post p ON p.fk_user = u.pk_user AND p.is_published = 1
+            GROUP BY u.id, u.name
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+    ```
+  </TabItem>
+</Tabs>
+
+## Conditional Fields
+
+Include fields conditionally:
+
+```sql
+CREATE OR REPLACE VIEW v_user AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id', u.id::text,
+        'name', u.name,
+        'email', u.email,
+        -- Only include if not null
+        'bio', u.bio,
+        'avatar_url', u.avatar_url,
+        -- Computed field
+        'display_name', COALESCE(u.display_name, u.name),
+        -- Conditional object
+        'settings', CASE
+            WHEN us.pk_user_settings IS NOT NULL
+            THEN jsonb_build_object(
+                'theme', us.theme,
+                'notifications', us.notifications_enabled
+            )
+            ELSE NULL
+        END
+    ) AS data
+FROM tb_user u
+LEFT JOIN tb_user_settings us ON us.fk_user = u.pk_user;
+```
+
+**Note:** In JSONB, keys with `null` values are preserved. To strip nulls:
+
+```sql
+jsonb_strip_nulls(jsonb_build_object(...)) AS data
+```
+
+## Performance Considerations
+
+### Use tv_ for Hot Paths
+
+For frequently-read views, materialize to a table:
+
+```sql
+-- Materialized projection
+CREATE TABLE tv_user (
+    id UUID PRIMARY KEY,
+    data JSONB
+);
+
+-- Sync after writes
+CREATE OR REPLACE FUNCTION sync_tv_user() RETURNS VOID AS $$
+BEGIN
+    DELETE FROM tv_user;
+    INSERT INTO tv_user (id, data)
+    SELECT id, data FROM v_user;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Index JSONB Fields
+
+For filtered queries, create GIN indexes:
+
+```sql
+-- Full JSONB index
+CREATE INDEX idx_tv_user_data ON tv_user USING GIN (data);
+
+-- Specific field index
+CREATE INDEX idx_tv_user_email ON tv_user ((data->>'email'));
+
+-- Expression index for filtering
+CREATE INDEX idx_tv_user_active ON tv_user ((data->>'is_active'))
+WHERE data->>'is_active' = 'true';
+```
+
+### Limit Nesting Depth
+
+Deep nesting increases query complexity. For deeply nested data:
+
+1. Create separate views for different access patterns
+2. Use pagination for large collections
+3. Consider denormalizing only the required depth
+
+## Avoiding Cyclic Dependencies
+
+SQL views cannot have circular references. If `v_post` embeds `v_user.data` for the author, then `v_user` **cannot** embed `v_post.data` for posts—this would create an infinite loop.
+
+**The solution:** In one direction, embed the full `.data`. In the other direction, only include the `id` reference.
+
+### Example: User ↔ Post
+
+```sql
+-- v_user: base user view (no posts embedded)
+CREATE OR REPLACE VIEW v_user AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id', u.id::text,
+        'name', u.name,
+        'email', u.email
+    ) AS data
+FROM tb_user u;
+
+-- v_post: embeds full author data
+CREATE OR REPLACE VIEW v_post AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id', p.id::text,
+        'title', p.title,
+        'content', p.content,
+        'author', vu.data  -- Full user object
+    ) AS data
+FROM tb_post p
+JOIN tb_user u ON u.pk_user = p.fk_user
+JOIN v_user vu ON vu.id = u.id;
+
+-- v_user_with_posts: only includes post IDs (not full post data)
+CREATE OR REPLACE VIEW v_user_with_posts AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id', u.id::text,
+        'name', u.name,
+        'email', u.email,
+        'post_ids', COALESCE(
+            jsonb_agg(p.id ORDER BY p.created_at DESC)
+            FILTER (WHERE p.id IS NOT NULL),
+            '[]'::jsonb
+        )
+    ) AS data
+FROM tb_user u
+LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+GROUP BY u.id, u.name, u.email;
+```
+
+### Pattern Summary
+
+
+
+       ─
+       ─
+
+The client can then fetch the full post data in a separate query if needed:
+
+```graphql
+# First query: get user with post IDs
+query {
+  user(id: "...") {
+    name
+    postIds
+  }
+}
+
+# Second query: get full posts by IDs
+query {
+  posts(ids: ["...", "..."]) {
+    title
+    content
+  }
+}
+```
+
+This keeps views acyclic while still exposing the relationship in both directions.
+
+## View Dependencies
+
+Views can depend on other views. Order matters during creation:
+
+```
+1. v_user (base)
+2. v_post (depends on v_user)
+3. v_comment (depends on v_post, v_user)
+4. v_user_with_posts (depends on v_user) — but NOT v_post to avoid cycles
+```
+
+[🍯 Confiture](/confiture) handles this ordering when building your database — files in `db/schema/` are processed in directory order.
+
+## Python Type Mapping
+
+Views map directly to Python types:
+
+```python
+import fraiseql
+
+@fraiseql.type
+class User:
+    id: str
+    name: str
+    email: str
+
+@fraiseql.type
+class Post:
+    id: str
+    title: str
+    content: str
+    author: User  # Nested type maps to v_user.data embedding
+
+@fraiseql.query(sql_source="v_post")
+def posts(limit: int = 10) -> list[Post]:
+    pass
+```
+
+## Next Steps
+
+- [Developer-Owned SQL](/concepts/developer-owned-sql) — Why you write the SQL
+- [CQRS Pattern](/concepts/cqrs) — Understanding write vs read separation
+- [Mutations](/concepts/mutations) — Write operations and syncing
+- [Schema Design](/guides/schema-design) — Best practices for view design

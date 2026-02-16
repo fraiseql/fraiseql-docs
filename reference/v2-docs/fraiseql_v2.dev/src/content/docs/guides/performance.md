@@ -1,0 +1,433 @@
+---
+title: Performance
+description: Optimize FraiseQL for high-throughput production workloads
+---
+
+This guide covers performance optimization for FraiseQL, from database tuning to caching strategies.
+
+## Database Optimization
+
+### Connection Pooling
+
+Configure connection pools based on workload:
+
+```toml
+[database]
+pool_min = 10    # Minimum connections
+pool_max = 100   # Maximum connections
+```
+
+**Sizing formula:**
+
+```
+max_connections = (core_count * 2) + effective_spindle_count
+```
+
+For most deployments:
+- **Low traffic**: `pool_max = 20`
+- **Medium traffic**: `pool_max = 50`
+- **High traffic**: `pool_max = 100+` (with PgBouncer)
+
+### Read Replicas
+
+Offload read queries to replicas:
+
+```toml
+[database]
+url = "${DATABASE_PRIMARY_URL}"
+
+[database.replica]
+url = "${DATABASE_REPLICA_URL}"
+pool_max = 200  # More connections for reads
+```
+
+
+              ─
+                ─
+
+### PostgreSQL Tuning
+
+Key PostgreSQL settings for FraiseQL:
+
+```sql
+-- Memory
+shared_buffers = '4GB'              -- 25% of RAM
+effective_cache_size = '12GB'       -- 75% of RAM
+work_mem = '256MB'                  -- Per-operation memory
+maintenance_work_mem = '1GB'        -- For VACUUM, INDEX
+
+-- Connections
+max_connections = 200
+superuser_reserved_connections = 3
+
+-- Write performance
+wal_buffers = '64MB'
+checkpoint_completion_target = 0.9
+max_wal_size = '4GB'
+
+-- Query planner
+random_page_cost = 1.1              -- For SSD
+effective_io_concurrency = 200      -- For SSD
+default_statistics_target = 200
+```
+
+## Indexing Strategy
+
+### Primary Indexes
+
+Every table should have indexes on:
+
+```sql
+-- Trinity identifiers
+CREATE UNIQUE INDEX idx_user_id ON tb_user(id);
+CREATE UNIQUE INDEX idx_user_identifier ON tb_user(identifier);
+
+-- Foreign keys (for JOINs)
+CREATE INDEX idx_post_fk_user ON tb_post(fk_user);
+CREATE INDEX idx_comment_fk_post ON tb_comment(fk_post);
+```
+
+### Projection Table Indexes
+
+Index JSONB fields used in filtering:
+
+```sql
+-- Full GIN index (supports all JSONB operations)
+CREATE INDEX idx_tv_user_data ON tv_user USING GIN (data);
+
+-- Specific field indexes (faster for specific lookups)
+CREATE INDEX idx_tv_user_email ON tv_user ((data->>'email'));
+CREATE INDEX idx_tv_user_active ON tv_user ((data->>'is_active'));
+
+-- Composite expressions
+CREATE INDEX idx_tv_post_published ON tv_post
+    ((data->>'is_published'), (data->>'published_at') DESC);
+```
+
+### Covering Indexes
+
+Include data in index to avoid table lookups:
+
+```sql
+CREATE INDEX idx_tv_user_email_covering ON tv_user ((data->>'email'))
+    INCLUDE (data);
+```
+
+### Partial Indexes
+
+Index only relevant rows:
+
+```sql
+-- Only published posts
+CREATE INDEX idx_tv_post_published_only ON tv_post ((data->>'published_at') DESC)
+    WHERE data->>'is_published' = 'true';
+
+-- Only active users
+CREATE INDEX idx_tv_user_active_only ON tv_user ((data->>'email'))
+    WHERE data->>'is_active' = 'true';
+```
+
+## JSONB Performance
+
+### Avoid Large JSONB
+
+Keep JSONB payloads reasonably sized:
+
+| Size | Impact |
+|------|--------|
+| < 1 KB | Optimal |
+| 1-10 KB | Good |
+| 10-100 KB | Acceptable |
+| > 100 KB | Consider restructuring |
+
+### Denormalization Strategy
+
+Balance between:
+- **Full denormalization**: Fast reads, expensive writes
+- **Minimal denormalization**: Balanced reads/writes
+
+```sql
+-- Good: Include frequently-accessed related data
+'author', jsonb_build_object('id', u.id, 'name', u.name)
+
+-- Avoid: Including entire large objects
+'author', vu.data  -- If v_user.data is very large
+```
+
+### JSONB Functions
+
+Use efficient JSONB operations:
+
+```sql
+-- Good: Direct access
+data->>'field'
+
+-- Good: Path extraction
+data #> '{nested,field}'
+
+-- Avoid in WHERE: Complex transformations
+jsonb_array_length(data->'items')  -- Not indexable
+```
+
+## Caching
+
+### Response Caching
+
+Enable built-in caching:
+
+```toml
+[cache]
+enabled = true
+provider = "redis"
+ttl = 300  # 5 minutes
+
+[cache.redis]
+url = "${REDIS_URL}"
+```
+
+### Cache Invalidation
+
+FraiseQL automatically invalidates cache on mutations:
+
+```
+
+  ─
+```
+
+Configure cascade invalidation:
+
+```toml
+[cache.invalidation]
+cascade = true
+entities = ["Post", "User"]  # Invalidate related
+```
+
+### APQ (Automatic Persisted Queries)
+
+Reduce query parsing overhead:
+
+```toml
+[graphql.apq]
+enabled = true
+cache_size = 10000
+ttl = 86400  # 24 hours
+```
+
+Clients send query hash instead of full query:
+
+```json
+{
+    "extensions": {
+        "persistedQuery": {
+            "sha256Hash": "abc123..."
+        }
+    },
+    "variables": {"id": "..."}
+}
+```
+
+## Query Optimization
+
+### Limit Query Depth
+
+Prevent deeply nested queries:
+
+```toml
+[graphql]
+max_depth = 8
+```
+
+```graphql
+# Allowed (depth 3)
+query {
+    posts {           # 1
+        author {      # 2
+            name      # 3
+        }
+    }
+}
+
+# Blocked (depth > 8)
+query {
+    posts {
+        comments {
+            author {
+                posts {
+                    comments { ... }
+                }
+            }
+        }
+    }
+}
+```
+
+### Limit Complexity
+
+Set complexity limits:
+
+```toml
+[graphql]
+max_complexity = 1000
+```
+
+Complexity is calculated as:
+- Each field: +1
+- Each list: +10 × limit
+- Each nested object: +5
+
+### Pagination
+
+Always paginate list queries:
+
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    auto_params={"limit": True, "offset": True}
+)
+def posts(limit: int = 20, offset: int = 0) -> list[Post]:
+    pass
+```
+
+```toml
+[graphql.pagination]
+default_limit = 20
+max_limit = 100
+```
+
+## Projection Table Syncing
+
+### Batch Sync
+
+For bulk operations, sync once after all changes:
+
+```sql
+-- Bad: Sync after each insert
+INSERT INTO tb_user...
+PERFORM sync_tv_user();  -- Slow!
+
+-- Good: Batch and sync once
+INSERT INTO tb_user...
+INSERT INTO tb_user...
+INSERT INTO tb_user...
+PERFORM sync_tv_user();  -- Once
+```
+
+### Incremental Sync
+
+For large tables, sync single records:
+
+```sql
+CREATE OR REPLACE FUNCTION sync_tv_user_single(user_id UUID) RETURNS VOID AS $$
+BEGIN
+    DELETE FROM tv_user WHERE id = user_id;
+    INSERT INTO tv_user (id, data)
+    SELECT id, data FROM v_user WHERE id = user_id;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Async Sync
+
+For non-critical updates, sync asynchronously:
+
+```sql
+-- Queue sync instead of immediate
+INSERT INTO sync_queue (table_name, record_id)
+VALUES ('tv_user', user_id);
+
+-- Background worker processes queue
+```
+
+## Monitoring Performance
+
+### Slow Query Log
+
+Enable PostgreSQL slow query logging:
+
+```sql
+ALTER SYSTEM SET log_min_duration_statement = 100;  -- Log queries > 100ms
+```
+
+### Query Analysis
+
+Use EXPLAIN ANALYZE:
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+SELECT data FROM tv_post
+WHERE data->>'is_published' = 'true'
+ORDER BY data->>'published_at' DESC
+LIMIT 20;
+```
+
+### Key Metrics
+
+Monitor these metrics:
+
+| Metric | Target | Action if Exceeded |
+|--------|--------|-------------------|
+| p99 latency | < 100ms | Add indexes, cache |
+| DB connections | < 80% max | Increase pool or use PgBouncer |
+| Cache hit rate | > 90% | Increase TTL, cache size |
+| Query rate | Depends | Scale horizontally |
+
+## Benchmarking
+
+### Load Testing
+
+```bash
+# Using wrk
+wrk -t12 -c400 -d30s \
+    -s post.lua \
+    http://localhost:8080/graphql
+
+# post.lua
+wrk.method = "POST"
+wrk.headers["Content-Type"] = "application/json"
+wrk.body = '{"query": "{ users(limit: 20) { id name } }"}'
+```
+
+### Expected Performance
+
+FraiseQL benchmarks (single instance, 4 cores, 16GB RAM):
+
+| Query Type | RPS | p50 | p99 |
+|------------|-----|-----|-----|
+| Simple read | 50,000+ | 1ms | 5ms |
+| Nested read (depth 3) | 20,000+ | 3ms | 15ms |
+| List + filter | 15,000+ | 5ms | 25ms |
+| Mutation | 5,000+ | 10ms | 50ms |
+
+## Optimization Checklist
+
+### Database
+- [ ] Connection pool sized correctly
+- [ ] Read replica configured
+- [ ] PostgreSQL tuned for workload
+- [ ] Indexes on all filtered columns
+- [ ] JSONB GIN indexes on projection tables
+- [ ] Partial indexes for common filters
+
+### Caching
+- [ ] Response caching enabled
+- [ ] APQ enabled
+- [ ] Cache invalidation configured
+- [ ] Redis/memory sized appropriately
+
+### Queries
+- [ ] Max depth configured
+- [ ] Max complexity configured
+- [ ] Pagination enforced
+- [ ] No N+1 queries (FraiseQL handles this)
+
+### Infrastructure
+- [ ] Horizontal scaling configured
+- [ ] Health checks active
+- [ ] Metrics collection enabled
+- [ ] Slow query logging enabled
+
+## Next Steps
+
+- [Deployment](/guides/deployment) — Production deployment
+- [Troubleshooting](/guides/troubleshooting) — Debug performance issues
+- [Caching](/features/caching) — Advanced caching strategies

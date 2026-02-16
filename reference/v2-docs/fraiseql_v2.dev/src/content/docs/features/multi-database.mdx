@@ -1,0 +1,392 @@
+---
+title: Multi-Database Support
+description: Use PostgreSQL, MySQL, SQLite, or SQL Server with FraiseQL
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL supports multiple database backends, allowing you to use your preferred database while maintaining the same GraphQL API.
+
+## Supported Databases
+
+| Database | Status | Best For |
+|----------|--------|----------|
+| PostgreSQL | Primary | Production, full feature set |
+| MySQL/MariaDB | Supported | MySQL-based infrastructure |
+| SQLite | Supported | Development, embedded, testing |
+| SQL Server | Supported | Enterprise Windows environments |
+
+## Configuration
+
+### PostgreSQL (Default)
+
+```toml
+[database]
+type = "postgresql"
+url = "postgresql://user:password@localhost:5432/mydb"
+
+[database.pool]
+min_connections = 5
+max_connections = 20
+idle_timeout_seconds = 300
+```
+
+### MySQL / MariaDB
+
+```toml
+[database]
+type = "mysql"
+url = "mysql://user:password@localhost:3306/mydb"
+
+[database.pool]
+min_connections = 5
+max_connections = 20
+
+[database.mysql]
+# Character set
+charset = "utf8mb4"
+# Timezone handling
+timezone = "UTC"
+```
+
+### SQLite
+
+```toml
+[database]
+type = "sqlite"
+url = "sqlite:///path/to/database.db"
+
+# Or in-memory for testing
+# url = "sqlite::memory:"
+
+[database.sqlite]
+# Journal mode
+journal_mode = "wal"
+# Busy timeout
+busy_timeout_ms = 5000
+# Foreign keys
+foreign_keys = true
+```
+
+### SQL Server
+
+```toml
+[database]
+type = "sqlserver"
+url = "mssql://user:password@localhost:1433/mydb"
+
+[database.sqlserver]
+# Trust server certificate (dev only)
+trust_server_certificate = false
+# Application name
+application_name = "fraiseql"
+# Encrypt connection
+encrypt = true
+```
+
+## Feature Matrix
+
+| Feature | PostgreSQL | MySQL | SQLite | SQL Server |
+|---------|------------|-------|--------|------------|
+| JSONB columns | Native | JSON type | JSON1 ext | NVARCHAR |
+| UUID type | Native | CHAR(36) | TEXT | UNIQUEIDENTIFIER |
+| Arrays | Native | JSON | JSON | JSON |
+| Full-text search | Native | FULLTEXT | FTS5 | Full-text |
+| Window functions | Full | Full | Limited | Full |
+| CTEs | Recursive | Recursive | Recursive | Recursive |
+| Subscriptions | LISTEN/NOTIFY | Polling | Polling | Polling |
+| Connection pooling | Deadpool | Deadpool | Single | Deadpool |
+
+## Database-Specific Considerations
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    Full feature support, recommended for production:
+
+    ```sql
+    -- Native JSONB with indexing
+    CREATE TABLE tb_user (
+        pk_user BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id UUID DEFAULT gen_random_uuid() UNIQUE,
+        data JSONB NOT NULL
+    );
+
+    -- GIN index for JSONB
+    CREATE INDEX idx_user_data ON tb_user USING GIN (data);
+
+    -- Native array support
+    CREATE TABLE tb_post (
+        tags TEXT[] NOT NULL
+    );
+    ```
+
+    **Advantages:**
+    - Native JSONB type with full indexing support
+    - GIN indexes for efficient JSON queries
+    - Native array types
+    - LISTEN/NOTIFY for subscriptions
+  </TabItem>
+
+  <TabItem label="MySQL">
+    JSON stored as JSON type:
+
+    ```sql
+    -- JSON type (MySQL 5.7+)
+    CREATE TABLE tb_user (
+        pk_user BIGINT AUTO_INCREMENT PRIMARY KEY,
+        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
+        data JSON NOT NULL
+    );
+
+    -- Generated column for indexing
+    ALTER TABLE tb_user
+    ADD COLUMN email VARCHAR(255) AS (JSON_UNQUOTE(data->>'$.email')) STORED,
+    ADD INDEX idx_user_email (email);
+    ```
+
+    **Notes:**
+    - Use `JSON_UNQUOTE()` for string extraction
+    - Generated columns for indexed access to JSON fields
+    - UUID stored as CHAR(36)
+    - JSON functions: `JSON_OBJECT()`, `JSON_ARRAYAGG()`
+  </TabItem>
+
+  <TabItem label="SQLite">
+    Lightweight, ideal for development:
+
+    ```sql
+    -- JSON as TEXT with JSON1 extension
+    CREATE TABLE tb_user (
+        pk_user INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE DEFAULT (lower(hex(randomblob(16)))),
+        data TEXT NOT NULL CHECK (json_valid(data))
+    );
+
+    -- Expression index for JSON
+    CREATE INDEX idx_user_email ON tb_user (json_extract(data, '$.email'));
+    ```
+
+    **Notes:**
+    - Enable JSON1 extension
+    - UUID generated as hex string
+    - Single writer, multiple readers (WAL mode)
+    - JSON functions: `json_object()`, `json_group_array()`
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    Enterprise Windows support:
+
+    ```sql
+    -- NVARCHAR for JSON storage
+    CREATE TABLE dbo.tb_user (
+        pk_user BIGINT IDENTITY(1,1) PRIMARY KEY,
+        id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWID(),
+        data NVARCHAR(MAX) NOT NULL
+    );
+
+    -- Computed column for indexing
+    ALTER TABLE dbo.tb_user
+    ADD email AS JSON_VALUE(data, '$.email');
+    CREATE INDEX idx_user_email ON dbo.tb_user (email);
+    ```
+
+    **Notes:**
+    - JSON stored in NVARCHAR(MAX)
+    - Use `JSON_VALUE()` and `JSON_QUERY()`
+    - UNIQUEIDENTIFIER for UUIDs
+    - Use `FOR JSON PATH` for building JSON
+  </TabItem>
+</Tabs>
+
+## Schema Adaptation
+
+FraiseQL automatically adapts SQL generation per database:
+
+### WHERE Clause Generation
+
+```graphql
+query {
+    users(where: { email: { _eq: "user@example.com" } }) {
+        id
+        name
+    }
+}
+```
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    SELECT * FROM v_user WHERE data->>'email' = 'user@example.com'
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SELECT * FROM v_user WHERE JSON_UNQUOTE(data->'$.email') = 'user@example.com'
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    SELECT * FROM v_user WHERE json_extract(data, '$.email') = 'user@example.com'
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SELECT * FROM v_user WHERE JSON_VALUE(data, '$.email') = 'user@example.com'
+    ```
+  </TabItem>
+</Tabs>
+
+## Migration Between Databases
+
+### Export Schema
+
+```bash
+# Export for PostgreSQL
+fraiseql-cli generate-views --database postgresql -o postgres.sql
+
+# Export for MySQL
+fraiseql-cli generate-views --database mysql -o mysql.sql
+```
+
+### Data Migration
+
+```bash
+# Export data as JSON
+fraiseql-cli export --format jsonl > data.jsonl
+
+# Import to new database
+fraiseql-cli import --format jsonl < data.jsonl
+```
+
+## Development Workflow
+
+### Local Development (SQLite)
+
+```toml
+# dev.toml
+[database]
+type = "sqlite"
+url = "sqlite:///dev.db"
+```
+
+```bash
+# Quick iteration
+fraiseql-server --config dev.toml
+```
+
+### Testing (SQLite In-Memory)
+
+```toml
+# test.toml
+[database]
+type = "sqlite"
+url = "sqlite::memory:"
+```
+
+### Production (PostgreSQL)
+
+```toml
+# prod.toml
+[database]
+type = "postgresql"
+url = "${DATABASE_URL}"
+
+[database.pool]
+min_connections = 10
+max_connections = 50
+```
+
+## Connection Pooling
+
+### PostgreSQL/MySQL/SQL Server
+
+Uses Deadpool for async connection pooling:
+
+```toml
+[database.pool]
+min_connections = 5
+max_connections = 20
+connection_timeout_seconds = 30
+idle_timeout_seconds = 600
+max_lifetime_seconds = 1800
+```
+
+### SQLite
+
+Single connection with WAL mode:
+
+```toml
+[database.sqlite]
+journal_mode = "wal"
+busy_timeout_ms = 5000
+cache_size = -64000  # 64MB
+```
+
+## Performance Tuning
+
+### PostgreSQL
+
+```toml
+[database.postgresql]
+# Statement timeout
+statement_timeout_ms = 30000
+
+# Prepared statements
+prepare_threshold = 5
+
+# Extra connection params
+options = "-c work_mem=256MB"
+```
+
+### MySQL
+
+```toml
+[database.mysql]
+# Connection params
+charset = "utf8mb4"
+collation = "utf8mb4_unicode_ci"
+
+# Performance
+max_allowed_packet = "64M"
+```
+
+### SQLite
+
+```toml
+[database.sqlite]
+journal_mode = "wal"
+synchronous = "normal"
+cache_size = -64000
+mmap_size = 268435456  # 256MB
+```
+
+## Troubleshooting
+
+### Connection Issues
+
+```bash
+# Test connection
+fraiseql-cli test-connection --database "${DATABASE_URL}"
+```
+
+### Performance Problems
+
+1. Check connection pool settings
+2. Verify indexes on JSON fields
+3. Review query plans with `fraiseql-cli explain`
+
+### Feature Compatibility
+
+```bash
+# Check database capabilities
+fraiseql-cli check-features --database "${DATABASE_URL}"
+```
+
+## Next Steps
+
+- [Schema Design](/guides/schema-design) - Database-agnostic patterns
+- [Performance](/guides/performance) - Database optimization
+- [Deployment](/guides/deployment) - Production database setup

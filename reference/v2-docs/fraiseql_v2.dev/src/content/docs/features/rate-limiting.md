@@ -1,0 +1,298 @@
+---
+title: Rate Limiting
+description: Protect your API with configurable rate limiting
+---
+
+FraiseQL includes built-in rate limiting to protect your API from abuse and ensure fair resource usage.
+
+## Overview
+
+Rate limiting uses a **token bucket algorithm** with configurable limits per:
+- IP address
+- Authenticated user
+- API key
+- Custom identifiers
+
+## Configuration
+
+### Basic Setup
+
+```toml
+[rate_limiting]
+enabled = true
+
+[rate_limiting.default]
+requests_per_second = 100
+burst_size = 500
+```
+
+### Per-IP Limits
+
+```toml
+[rate_limiting.per_ip]
+enabled = true
+requests_per_second = 100
+burst_size = 200
+cleanup_interval_secs = 300
+```
+
+### Per-User Limits
+
+```toml
+[rate_limiting.per_user]
+enabled = true
+requests_per_second = 1000
+burst_size = 2000
+```python
+
+### Authentication Rate Limits
+
+Protect login endpoints from brute force:
+
+```toml
+[rate_limiting.auth]
+enabled = true
+
+# Failed login attempts
+[rate_limiting.auth.failed_login]
+max_attempts = 5
+window_secs = 3600  # 1 hour lockout after 5 failures
+```
+
+## Strategies
+
+### Standard
+
+Default rate limiting for general API access:
+
+```toml
+[rate_limiting.strategies.standard]
+requests_per_second = 100
+burst_size = 500
+```
+
+### Strict
+
+Tighter limits for sensitive operations:
+
+```toml
+[rate_limiting.strategies.strict]
+requests_per_second = 50
+burst_size = 100
+```
+
+### Custom Per-Operation
+
+Apply different limits to specific operations:
+
+```toml
+[rate_limiting.operations]
+# Expensive analytics queries
+"salesAggregate" = { requests_per_second = 10, burst_size = 20 }
+
+# Bulk mutations
+"importProducts" = { requests_per_second = 5, burst_size = 10 }
+```
+
+## Redis Backend
+
+For distributed deployments, use Redis for shared rate limit state:
+
+```toml
+[rate_limiting]
+enabled = true
+backend = "redis"
+
+[rate_limiting.redis]
+url = "${REDIS_URL}"
+key_prefix = "fraiseql:ratelimit:"
+```
+
+This ensures consistent limits across multiple server instances.
+
+## Response Headers
+
+FraiseQL includes rate limit headers in responses:
+
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1704067260
+```
+
+When rate limited:
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 5
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1704067260
+```
+
+## GraphQL Error Response
+
+```json
+{
+    "errors": [{
+        "message": "Rate limit exceeded",
+        "extensions": {
+            "code": "RATE_LIMITED",
+            "retryAfter": 5
+        }
+    }]
+}
+```
+
+## Client Handling
+
+### JavaScript
+
+```javascript
+async function executeWithRetry(query, variables, maxRetries = 3) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const response = await fetch('/graphql', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, variables })
+        });
+
+        if (response.status === 429) {
+            const retryAfter = response.headers.get('Retry-After') || 5;
+            await new Promise(r => setTimeout(r, retryAfter * 1000));
+            continue;
+        }
+
+        return response.json();
+    }
+    throw new Error('Rate limit exceeded after retries');
+}
+```
+
+### Python
+
+```python
+import time
+import httpx
+
+def execute_with_retry(query: str, variables: dict, max_retries: int = 3):
+    for attempt in range(max_retries):
+        response = httpx.post(
+            "http://localhost:8080/graphql",
+            json={"query": query, "variables": variables}
+        )
+
+        if response.status_code == 429:
+            retry_after = int(response.headers.get("Retry-After", 5))
+            time.sleep(retry_after)
+            continue
+
+        return response.json()
+
+    raise Exception("Rate limit exceeded after retries")
+```
+
+## Bypass for Internal Services
+
+Allow internal services to bypass rate limits:
+
+```toml
+[rate_limiting.bypass]
+# Trusted IP ranges
+ip_allowlist = ["10.0.0.0/8", "172.16.0.0/12"]
+
+# API keys that bypass limits
+api_keys = ["${INTERNAL_API_KEY}"]
+```
+
+## Metrics
+
+Monitor rate limiting effectiveness:
+
+| Metric | Description |
+|--------|-------------|
+| `fraiseql_rate_limit_hits_total` | Requests that hit rate limit |
+| `fraiseql_rate_limit_allowed_total` | Requests allowed through |
+| `fraiseql_rate_limit_bucket_size` | Current token bucket size |
+
+### Grafana Query
+
+```
+# Rate limit hit ratio
+sum(rate(fraiseql_rate_limit_hits_total[5m])) /
+sum(rate(fraiseql_rate_limit_allowed_total[5m]) + rate(fraiseql_rate_limit_hits_total[5m]))
+```
+
+## Best Practices
+
+### Start Conservative
+
+Begin with strict limits and relax as needed:
+
+```toml
+[rate_limiting.per_ip]
+requests_per_second = 50  # Start low
+burst_size = 100
+```
+
+### Monitor Before Tuning
+
+Use metrics to understand traffic patterns before adjusting:
+
+```
+# Peak request rate by IP
+topk(10, sum by (ip) (rate(fraiseql_requests_total[5m])))
+```
+
+### Separate Limits by Operation Type
+
+```toml
+[rate_limiting.operations]
+# Reads are cheaper
+"users" = { requests_per_second = 200 }
+"posts" = { requests_per_second = 200 }
+
+# Mutations are more expensive
+"createUser" = { requests_per_second = 20 }
+"updatePost" = { requests_per_second = 50 }
+```
+
+### Use Redis for Production
+
+Single-instance memory limits don't share across servers:
+
+```toml
+# Development
+[rate_limiting]
+backend = "memory"
+
+# Production
+[rate_limiting]
+backend = "redis"
+```
+
+## Troubleshooting
+
+### Rate Limits Too Aggressive
+
+1. Check metrics for actual usage patterns
+2. Increase `burst_size` for bursty traffic
+3. Consider per-user vs per-IP limits
+
+### Rate Limits Not Working
+
+1. Verify `enabled = true`
+2. Check Redis connection (if using Redis backend)
+3. Confirm middleware is applied to routes
+
+### Legitimate Users Being Limited
+
+1. Review per-user limits vs per-IP
+2. Check for shared IPs (NAT, proxies)
+3. Consider API key-based limits for power users
+
+## Next Steps
+
+- [Security](/features/security) - Authentication and authorization
+- [Deployment](/guides/deployment) - Production configuration
+- [Performance](/guides/performance) - Optimization strategies

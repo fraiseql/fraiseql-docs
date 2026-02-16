@@ -1,0 +1,442 @@
+---
+title: Rich Filters
+description: Advanced query operators for semantic scalar types
+---
+
+import EmbeddedSandbox from '../../../components/EmbeddedSandbox.astro';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL's **rich filters** provide sophisticated query operators for 49 semantic scalar types, enabling domain-specific filtering beyond basic string matching and numeric comparisons.
+
+## What Are Rich Filters?
+
+Rich filters are **automatically-generated GraphQL query operators** that specialize in semantic domains like emails, geographic locations, financial codes, and more. Each semantic type generates:
+
+- **Standard operators**: `eq`, `neq`, `contains`, `isnull`
+- **Domain-specific operators**: Email domain matching, geographic distance, financial validation, etc.
+
+All operators compile to optimized SQL at build time — zero runtime overhead.
+
+### Quick Example
+
+```graphql
+query {
+  # Find users at a specific company domain
+  users(where: { email: { domainEq: "example.com" } }) {
+    id
+    email
+  }
+
+  # Find restaurants within 5km
+  restaurants(where: {
+    location: {
+      distanceWithin: {
+        latitude: 40.7128
+        longitude: -74.0060
+        radiusKm: 5
+      }
+    }
+  }) {
+    name
+  }
+}
+```
+
+## Type Categories
+
+FraiseQL supports **49 semantic scalar types** organized into 9 categories:
+
+### Contact Information (5 types)
+`EmailAddress` · `PhoneNumber` · `URL` · `DomainName` · `Hostname`
+
+### Financial (11 types)
+`IBAN` · `CUSIP` · `ISIN` · `SEDOL` · `LEI` · `MIC` · `CurrencyCode` · `Money` · `ExchangeCode` · `ExchangeRate` · `StockSymbol`
+
+### Location/Address (8 types)
+`PostalCode` · `Latitude` · `Longitude` · `Coordinates` · `Timezone` · `LocaleCode` · `LanguageCode` · `CountryCode`
+
+### Identifiers (8 types)
+`Slug` · `SemanticVersion` · `HashSHA256` · `APIKey` · `LicensePlate` · `VIN` · `TrackingNumber` · `ContainerNumber`
+
+### Network (6 types)
+`IPAddress` · `IPv4` · `IPv6` · `MACAddress` · `CIDR` · `Port`
+
+### Transportation (3 types)
+`AirportCode` · `PortCode` · `FlightNumber`
+
+### Content (6 types)
+`Markdown` · `HTML` · `MimeType` · `Color` · `Image` · `File`
+
+### Ranges/Measurements (3 types)
+`DateRange` · `Duration` · `Percentage`
+
+### Others
+Plus additional types for UUIDs, hashes, encodings, and more.
+
+See [Semantic Scalars Reference](/reference/semantic-scalars) for complete documentation of all 49 types.
+
+## Try It Yourself
+
+Execute queries with rich type filters in Apollo Sandbox below:
+
+<EmbeddedSandbox
+  endpoint="https://demo.fraiseql.dev/graphql"
+  title="Rich Filters Example"
+  description="Try filtering by email domain, geographic proximity, VIN, or other semantic types. Modify the query to explore different operators!"
+  height="700px"
+  preloadedQuery={`query RichFilters {
+  # Email domain filtering
+  users(where: { email: { domainEq: "example.com" } }) {
+    id
+    name
+    email
+  }
+
+  # Geographic proximity
+  restaurants(where: {
+    location: {
+      distanceWithin: {
+        latitude: 40.7128
+        longitude: -74.0060
+        radiusKm: 5
+      }
+    }
+  }) {
+    id
+    name
+  }
+}`}
+/>
+
+## Common Use Cases
+
+### 1. Email Domain Filtering
+
+Find all users at a specific company:
+
+```graphql
+query {
+  users(where: { email: { domainEq: "acme.com" } }) {
+    id
+    email
+    name
+  }
+}
+```
+
+Generates efficient database-specific SQL:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    SELECT data FROM v_user
+    WHERE SUBSTRING(data->>'email' FROM POSITION('@' IN data->>'email') + 1) = 'acme.com'
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SELECT data FROM v_user
+    WHERE SUBSTRING_INDEX(JSON_UNQUOTE(JSON_EXTRACT(data, '$.email')), '@', -1) = 'acme.com'
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    SELECT data FROM v_user
+    WHERE substr(json_extract(data, '$.email'), instr(json_extract(data, '$.email'), '@') + 1) = 'acme.com'
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SELECT data FROM dbo.v_user
+    WHERE SUBSTRING(JSON_VALUE(data, '$.email'), CHARINDEX('@', JSON_VALUE(data, '$.email')) + 1, LEN(JSON_VALUE(data, '$.email'))) = 'acme.com'
+    ```
+  </TabItem>
+</Tabs>
+
+### 2. Geographic Proximity
+
+Find restaurants within 5 kilometers:
+
+```graphql
+query {
+  restaurants(where: {
+    location: {
+      distanceWithin: {
+        latitude: 40.7128
+        longitude: -74.0060
+        radiusKm: 5
+      }
+    }
+  }) {
+    id
+    name
+    location { latitude longitude }
+  }
+}
+```
+
+Works across all databases with database-specific optimizations:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    SELECT data FROM v_restaurant
+    WHERE ST_DWithin(
+        ST_Point(json_extract(data, '$.location.longitude'), json_extract(data, '$.location.latitude'))::geography,
+        ST_Point(-74.0060, 40.7128)::geography,
+        5000  -- 5km in meters
+    )
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SELECT data FROM v_restaurant
+    WHERE ST_Distance_Sphere(
+        POINT(json_extract(data, '$.location.longitude'), json_extract(data, '$.location.latitude')),
+        POINT(-74.0060, 40.7128)
+    ) <= 5000
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    SELECT data FROM v_restaurant
+    WHERE (
+        6371000 * acos(
+            cos(radians(40.7128))
+            * cos(radians(CAST(json_extract(data, '$.location.latitude') AS REAL)))
+            * cos(radians(CAST(json_extract(data, '$.location.longitude') AS REAL)) - radians(-74.0060))
+            + sin(radians(40.7128))
+            * sin(radians(CAST(json_extract(data, '$.location.latitude') AS REAL)))
+        )
+    ) <= 5000
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SELECT data FROM dbo.v_restaurant
+    WHERE CAST(json_value(data, '$.location') AS geography).STDistance(
+        geography::Point(40.7128, -74.0060, 4326)
+    ) <= 5000
+    ```
+  </TabItem>
+</Tabs>
+
+### 3. Financial Code Validation
+
+Query by international bank account number:
+
+```graphql
+query {
+  accounts(where: {
+    iban: { ibanCountryEq: "DE" }
+  }) {
+    id
+    iban
+    balance
+  }
+}
+```
+
+### 4. Date Range Queries
+
+Find projects lasting at least 90 days:
+
+```graphql
+query {
+  projects(where: {
+    timeline: {
+      durationGte: 90
+      overlaps: {
+        start: "2024-06-01T00:00:00Z"
+        end: "2024-08-31T23:59:59Z"
+      }
+    }
+  }) {
+    id
+    name
+  }
+}
+```
+
+### 5. Network Range Queries
+
+Find devices on a specific network:
+
+```graphql
+query {
+  devices(where: {
+    ipAddress: { cidrContains: "192.168.0.0/24" }
+  }) {
+    id
+    hostname
+    ipAddress
+  }
+}
+```
+
+## Database Support Matrix
+
+| Type | PostgreSQL | MySQL | SQLite | SQL Server |
+|------|-----------|-------|--------|-----------|
+| EmailAddress | ✅ Native | ✅ Native | ✅ Native | ✅ Native |
+| PhoneNumber | ✅ Regex | ✅ REGEXP | ✅ GLOB | ✅ LIKE |
+| Coordinates | ✅ PostGIS | ✅ ST_Distance | ⚠️ Approx | ✅ Geography |
+| DateRange | ✅ Intervals | ✅ DATEDIFF | ✅ julianday | ✅ DATEDIFF |
+| Duration | ✅ INTERVAL | ✅ Parse | ✅ Parse | ✅ Parse |
+
+### PostGIS for Geographic Queries
+
+Geographic queries on PostgreSQL require the PostGIS extension:
+
+```bash
+# Enable PostGIS
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+# Create spatial index for performance
+CREATE INDEX locations_idx ON users USING GIST (location);
+```
+
+## How Rich Filters Work
+
+### 1. Compile-Time Generation
+
+When you compile your schema with `fraiseql build`:
+
+```python
+@fraiseql.type
+class User:
+    email: EmailAddress
+    location: Coordinates
+```
+
+FraiseQL automatically generates:
+
+```graphql
+input EmailAddressWhereInput {
+  eq: String
+  neq: String
+  contains: String
+  domainEq: String
+  domainIn: [String!]
+  domainEndswith: String
+}
+```
+
+### 2. SQL Template Embedding
+
+The compiler embeds database-specific SQL templates in the compiled schema:
+
+```json
+{
+  "operators": {
+    "domainEq": {
+      "postgres": "SUBSTRING(email FROM POSITION('@' IN email) + 1) = $1",
+      "mysql": "SUBSTRING_INDEX(email, '@', -1) = %s",
+      "sqlite": "SUBSTR(email, INSTR(email, '@') + 1) = ?",
+      "sqlserver": "SUBSTRING(email, CHARINDEX('@', email) + 1, LEN(email)) = @p1"
+    }
+  }
+}
+```
+
+### 3. Zero Runtime Overhead
+
+Rich filters are resolved at **compile time**, not runtime:
+
+- ✅ No reflection or dynamic generation
+- ✅ No string parsing
+- ✅ No database queries for metadata
+- ✅ All operators pre-compiled
+
+### 4. Embedded Lookup Data
+
+Reference data is embedded in `schema.compiled.json`:
+
+```json
+{
+  "lookup_data": {
+    "countries": {
+      "US": { "name": "United States", "continent": "North America" },
+      "FR": { "name": "France", "continent": "Europe" }
+    },
+    "currencies": {
+      "USD": { "symbol": "$", "decimal_places": 2 },
+      "EUR": { "symbol": "€", "decimal_places": 2 }
+    }
+  }
+}
+```
+
+This ensures:
+- Fast lookups with no database queries
+- Consistent validation across instances
+- Deterministic compilation
+
+## Validation with Rich Filters
+
+Rich filters integrate with FraiseQL's validation system to pre-validate parameters before SQL execution:
+
+```toml
+# fraiseql.toml
+[fraiseql.validation]
+# Email domain must be valid format
+email_domain_eq = { pattern = "^[a-z0-9]([a-z0-9-]*\\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$" }
+
+# IBAN must pass MOD-97 checksum
+iban_country_eq = { checksum = "mod97" }
+
+# Distance must be reasonable
+distance_within_radius_km = { numeric_range = { min: 0, max: 40075 } }
+```
+
+See [TOML Configuration - Validation](/reference/toml-config#fraiseqlvalidation) for complete validation documentation.
+
+## Performance Considerations
+
+### Query Optimization
+
+Rich filters generate optimized SQL:
+
+1. **Index-friendly**: Use GIST/BRIN indexes for geospatial queries
+2. **String-optimized**: Prefix indexes for domain matching
+3. **Cached lookups**: Reference data cached in schema, not queried
+
+### Example: Email Domain Filtering
+
+This query:
+```graphql
+users(where: { email: { domainEq: "example.com" } })
+```
+
+Becomes a simple string comparison with good index support:
+```sql
+WHERE SUBSTRING(...) = 'example.com'
+```
+
+### Example: Geospatial Queries
+
+This query:
+```graphql
+restaurants(where: {
+  location: { distanceWithin: { latitude: 40.7128, longitude: -74.0060, radiusKm: 5 } }
+})
+```
+
+Uses PostGIS efficiently:
+```sql
+WHERE ST_DWithin(location::geography, ST_Point(...)::geography, 5000)
+```
+
+## Next Steps
+
+- **[Semantic Scalars Reference](/reference/semantic-scalars)** — Detailed docs for all 49 types and their operators
+- **[TOML Configuration](/reference/toml-config)** — Configure validation rules for rich filter parameters
+- **[Query Operators](/reference/operators)** — All standard operators reference
+- **[Automatic Where](/features/automatic-where)** — Learn about automatic filter generation
+`3

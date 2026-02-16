@@ -1,0 +1,43 @@
+# Compilation Phase 2: Analysis & SQL Generation
+
+direction: right
+
+type_graph: "Type Graph" {
+  shape: oval
+  style.fill: "#9333ea"
+  style.stroke: "#a855f7"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+}
+
+sql_gen: "SQL Generator" {
+  shape: oval
+  style.fill: "#c084fc"
+  style.stroke: "#a855f7"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+}
+
+optimizer: "Query Optimizer" {
+  shape: oval
+  style.fill: "#9333ea"
+  style.stroke: "#a855f7"
+  style.font-color: "#ffffff"
+  style.font-size: 20
+}
+
+type_graph -> sql_gen: "Generate SQL" {
+  style.stroke-width: 3
+  style.stroke: "#a855f7"
+  style.font-size: 16
+  style.bold: true
+  style.font-color: "#581c87"
+}
+
+sql_gen -> optimizer: "Optimize" {
+  style.stroke-width: 3
+  style.stroke: "#a855f7"
+  style.font-size: 16
+  style.bold: true
+  style.font-color: "#581c87"
+}

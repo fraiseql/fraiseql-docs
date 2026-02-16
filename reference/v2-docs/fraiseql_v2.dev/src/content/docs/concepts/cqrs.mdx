@@ -1,0 +1,901 @@
+---
+title: CQRS Pattern
+description: Understanding Command Query Responsibility Segregation in FraiseQL
+---
+
+import D2Diagram from '../../../components/D2Diagram.astro';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL uses **Command Query Responsibility Segregation (CQRS)** at the database level. You separate read and write operations into distinct structures that you design and own: normalized tables (`tb_*`) for writes, JSONB views (`v_*`) for reads.
+
+## Why CQRS?
+
+Traditional APIs couple reads and writes to the same tables. A single `tb_user` table must serve both fast reads and safe writes — and it does neither well:
+
+<D2Diagram name="cqrs-problem" alt="Traditional database architecture where reads and writes compete on the same table" caption="The problem: one table serves conflicting needs" />
+
+FraiseQL separates these concerns at compile time. Write tables handle normalization and constraints. Read views handle denormalization and speed. An auto-sync bridge keeps them consistent:
+
+<D2Diagram name="cqrs-solution" alt="FraiseQL separates write tables from read views with auto-sync" caption="The solution: separated at compile time" />
+
+## CQRS Separation
+
+Here is the full picture — normalized tables on the write side, denormalized JSONB views on the read side, connected by an auto-sync bridge:
+
+<D2Diagram name="cqrs-separation" alt="CQRS architecture separating write-side tables from read-side views" size="wide" />
+
+## Naming Conventions
+
+FraiseQL expects strict prefixes to identify each layer:
+
+### Write Side (Tables)
+
+| Prefix | Purpose | Example |
+|--------|---------|---------|
+| `tb_` | Base table for writes | `tb_user`, `tb_post`, `tb_order` |
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Write table: normalized, constrained
+    CREATE TABLE tb_user (
+        -- Trinity Identifiers
+        pk_user BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        identifier TEXT UNIQUE NOT NULL,
+
+        -- Normalized data
+        email VARCHAR(255) NOT NULL UNIQUE,
+        name VARCHAR(255) NOT NULL,
+        bio TEXT,
+
+        -- Metadata
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- Write table: normalized, constrained
+    CREATE TABLE tb_user (
+        -- Trinity Identifiers
+        pk_user BIGINT PRIMARY KEY AUTO_INCREMENT,
+        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
+        identifier VARCHAR(255) UNIQUE NOT NULL,
+
+        -- Normalized data
+        email VARCHAR(255) NOT NULL UNIQUE,
+        name VARCHAR(255) NOT NULL,
+        bio TEXT,
+
+        -- Metadata
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- Write table: normalized, constrained
+    CREATE TABLE tb_user (
+        -- Trinity Identifiers
+        pk_user INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        identifier TEXT UNIQUE NOT NULL,
+
+        -- Normalized data
+        email TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        bio TEXT,
+
+        -- Metadata
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Write table: normalized, constrained
+    CREATE TABLE dbo.tb_user (
+        -- Trinity Identifiers
+        pk_user BIGINT PRIMARY KEY IDENTITY(1,1),
+        id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),
+        identifier NVARCHAR(255) UNIQUE NOT NULL,
+
+        -- Normalized data
+        email NVARCHAR(255) NOT NULL UNIQUE,
+        name NVARCHAR(255) NOT NULL,
+        bio NVARCHAR(MAX),
+
+        -- Metadata
+        created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+        updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    );
+    ```
+  </TabItem>
+</Tabs>
+
+### Read Side (Views)
+
+| Prefix | Purpose | Example |
+|--------|---------|---------|
+| `v_` | View for reads | `v_user`, `v_post` |
+| `tv_` | Table-backed view (materialized) | `tv_user_profile` |
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Read view: denormalized, JSONB response
+    CREATE OR REPLACE VIEW v_user AS
+    SELECT
+        u.id,
+        jsonb_build_object(
+            'id', u.id::text,
+            'identifier', u.identifier,
+            'email', u.email,
+            'name', u.name,
+            'bio', u.bio,
+            'created_at', u.created_at,
+            'updated_at', u.updated_at
+        ) AS data
+    FROM tb_user u;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- Read view: denormalized, JSON response
+    CREATE OR REPLACE VIEW v_user AS
+    SELECT
+        u.id,
+        JSON_OBJECT(
+            'id', u.id,
+            'identifier', u.identifier,
+            'email', u.email,
+            'name', u.name,
+            'bio', u.bio,
+            'created_at', u.created_at,
+            'updated_at', u.updated_at
+        ) AS data
+    FROM tb_user u;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- Read view: denormalized, JSON response
+    CREATE OR REPLACE VIEW v_user AS
+    SELECT
+        u.id,
+        json_object(
+            'id', u.id,
+            'identifier', u.identifier,
+            'email', u.email,
+            'name', u.name,
+            'bio', u.bio,
+            'created_at', u.created_at,
+            'updated_at', u.updated_at
+        ) AS data
+    FROM tb_user u;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Read view: denormalized, JSON response
+    CREATE VIEW dbo.v_user
+    WITH SCHEMABINDING AS
+    SELECT
+        u.id,
+        (
+            SELECT u.id, u.identifier, u.email, u.name, u.bio, u.created_at, u.updated_at
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_user u;
+    ```
+  </TabItem>
+</Tabs>
+
+### Materialized Read Tables
+
+For high-traffic reads, use table-backed views (`tv_`):
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Materialized projection table
+    CREATE TABLE tv_user (
+        id UUID PRIMARY KEY,
+        data JSONB
+    );
+
+    -- Sync function
+    CREATE OR REPLACE FUNCTION sync_tv_user() RETURNS VOID AS $$
+    BEGIN
+        DELETE FROM tv_user;
+        INSERT INTO tv_user (id, data)
+        SELECT id, data FROM v_user;
+    END;
+    $$ LANGUAGE plpgsql;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- Materialized projection table
+    CREATE TABLE tv_user (
+        id CHAR(36) PRIMARY KEY,
+        data JSON
+    );
+
+    -- Sync procedure
+    DELIMITER //
+    CREATE PROCEDURE sync_tv_user()
+    BEGIN
+        DELETE FROM tv_user;
+        INSERT INTO tv_user (id, data)
+        SELECT id, data FROM v_user;
+    END//
+    DELIMITER ;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- Materialized projection table
+    CREATE TABLE tv_user (
+        id TEXT PRIMARY KEY,
+        data TEXT
+    );
+
+    -- Sync trigger helper
+    CREATE TRIGGER sync_tv_user_after_insert
+    AFTER INSERT ON tb_user
+    BEGIN
+        DELETE FROM tv_user;
+        INSERT INTO tv_user (id, data)
+        SELECT id, data FROM v_user;
+    END;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Materialized projection table
+    CREATE TABLE dbo.tv_user (
+        id UNIQUEIDENTIFIER PRIMARY KEY,
+        data NVARCHAR(MAX)
+    );
+
+    -- Sync procedure
+    CREATE PROCEDURE dbo.sync_tv_user
+    AS
+    BEGIN
+        DELETE FROM dbo.tv_user;
+        INSERT INTO dbo.tv_user (id, data)
+        SELECT id, data FROM dbo.v_user;
+    END;
+    ```
+  </TabItem>
+</Tabs>
+
+## The Data Column Pattern
+
+Every read view exposes a `data` column containing the complete GraphQL response:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    SELECT data FROM v_user WHERE id = '...';
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    SELECT data FROM v_user WHERE id = '...';
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    SELECT data FROM v_user WHERE id = '...';
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    SELECT data FROM dbo.v_user WHERE id = '...';
+    ```
+  </TabItem>
+</Tabs>
+
+Returns:
+```json
+{
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "identifier": "john.doe@example.com",
+    "email": "john.doe@example.com",
+    "name": "John Doe",
+    "bio": "Software engineer",
+    "created_at": "2024-01-15T10:30:00Z",
+    "updated_at": "2024-01-15T10:30:00Z"
+}
+```
+
+**Why JSONB?**
+- Single column contains complete response
+- No runtime JSON serialization needed
+- PostgreSQL optimizes JSONB operations
+- Nested objects compose naturally
+
+## Trinity Identifier Pattern
+
+Each write table uses three identifier columns:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `pk_` | BIGINT | Internal primary key (never exposed) |
+| `id` | UUID | External identifier (exposed in API) |
+| `identifier` | TEXT | Human-readable slug/code |
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE TABLE tb_post (
+        -- Trinity Identifiers
+        pk_post INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        identifier TEXT UNIQUE NOT NULL,
+
+        -- Foreign key uses internal pk
+        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+
+        -- Post data...
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    CREATE TABLE tb_post (
+        -- Trinity Identifiers
+        pk_post BIGINT PRIMARY KEY AUTO_INCREMENT,
+        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
+        identifier VARCHAR(255) UNIQUE NOT NULL,
+
+        -- Foreign key uses internal pk
+        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
+
+        -- Post data...
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE TABLE tb_post (
+        -- Trinity Identifiers
+        pk_post INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        identifier TEXT UNIQUE NOT NULL,
+
+        -- Foreign key uses internal pk
+        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+
+        -- Post data...
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE TABLE dbo.tb_post (
+        -- Trinity Identifiers
+        pk_post BIGINT PRIMARY KEY IDENTITY(1,1),
+        id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),
+        identifier NVARCHAR(255) UNIQUE NOT NULL,
+
+        -- Foreign key uses internal pk
+        fk_user BIGINT NOT NULL REFERENCES dbo.tb_user(pk_user),
+
+        -- Post data...
+    );
+    ```
+  </TabItem>
+</Tabs>
+
+**Why three identifiers?**
+
+1. **`pk_` (Internal)**: Fast integer JOINs, never changes, never exposed
+2. **`id` (External)**: Secure UUID for API access, no enumeration attacks
+3. **`identifier` (Human)**: Readable slugs for URLs, user-facing references
+
+## Foreign Keys
+
+Foreign keys always reference the internal `pk_` column:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Foreign key pattern
+    fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user)
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- Foreign key pattern
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user)
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- Foreign key pattern
+    fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user)
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Foreign key pattern
+    fk_user BIGINT NOT NULL REFERENCES dbo.tb_user(pk_user)
+    ```
+  </TabItem>
+</Tabs>
+
+**Naming convention:** `fk_{entity}` references `pk_{entity}`
+
+This gives you:
+- Fast integer JOINs internally
+- UUID security externally
+- No exposure of database internals
+
+## Write Operations
+
+Writes go through SQL functions that:
+1. Validate input
+2. Insert/update `tb_` tables
+3. Sync `tv_` projections
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE OR REPLACE FUNCTION create_user(
+        user_email TEXT,
+        user_name TEXT,
+        user_bio TEXT DEFAULT NULL
+    ) RETURNS UUID AS $$
+    DECLARE
+        new_user_id UUID;
+    BEGIN
+        -- Validation
+        IF user_email IS NULL OR user_name IS NULL THEN
+            RAISE EXCEPTION 'Email and name are required';
+        END IF;
+
+        -- Check duplicate
+        IF EXISTS (SELECT 1 FROM tb_user WHERE email = user_email) THEN
+            RAISE EXCEPTION 'User with email % already exists', user_email;
+        END IF;
+
+        -- Create user
+        INSERT INTO tb_user (email, name, bio, identifier)
+        VALUES (user_email, user_name, user_bio, user_email)
+        RETURNING id INTO new_user_id;
+
+        -- Sync projection
+        PERFORM sync_tv_user();
+
+        RETURN new_user_id;
+    END;
+    $$ LANGUAGE plpgsql;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    DELIMITER //
+    CREATE PROCEDURE create_user(
+        IN user_email VARCHAR(255),
+        IN user_name VARCHAR(255),
+        IN user_bio TEXT
+    )
+    BEGIN
+        DECLARE new_user_id CHAR(36);
+
+        -- Validation
+        IF user_email IS NULL OR user_name IS NULL THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Email and name are required';
+        END IF;
+
+        -- Check duplicate
+        IF EXISTS (SELECT 1 FROM tb_user WHERE email = user_email) THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User with email already exists';
+        END IF;
+
+        -- Create user
+        SET new_user_id = UUID();
+        INSERT INTO tb_user (id, email, name, bio, identifier)
+        VALUES (new_user_id, user_email, user_name, user_bio, user_email);
+
+        -- Sync projection
+        CALL sync_tv_user();
+
+        SELECT new_user_id;
+    END//
+    DELIMITER ;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    CREATE TRIGGER create_user_trigger
+    INSTEAD OF INSERT ON v_user_insert
+    BEGIN
+        INSERT INTO tb_user (email, name, bio, identifier)
+        VALUES (NEW.email, NEW.name, NEW.bio, NEW.email);
+
+        -- Sync projection
+        DELETE FROM tv_user;
+        INSERT INTO tv_user (id, data)
+        SELECT id, data FROM v_user;
+    END;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    CREATE PROCEDURE dbo.create_user
+        @user_email NVARCHAR(255),
+        @user_name NVARCHAR(255),
+        @user_bio NVARCHAR(MAX) = NULL
+    AS
+    BEGIN
+        DECLARE @new_user_id UNIQUEIDENTIFIER;
+
+        -- Validation
+        IF @user_email IS NULL OR @user_name IS NULL
+        BEGIN
+            THROW 50000, 'Email and name are required', 1;
+        END
+
+        -- Check duplicate
+        IF EXISTS (SELECT 1 FROM dbo.tb_user WHERE email = @user_email)
+        BEGIN
+            THROW 50000, 'User with email already exists', 1;
+        END
+
+        -- Create user
+        SET @new_user_id = NEWID();
+        INSERT INTO dbo.tb_user (id, email, name, bio, identifier)
+        VALUES (@new_user_id, @user_email, @user_name, @user_bio, @user_email);
+
+        -- Sync projection
+        EXEC dbo.sync_tv_user;
+
+        SELECT @new_user_id;
+    END;
+    ```
+  </TabItem>
+</Tabs>
+
+## Read Operations
+
+Reads query `v_` or `tv_` views directly:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Single entity
+    SELECT data FROM v_user WHERE id = $1;
+
+    -- List with pagination
+    SELECT data FROM v_user
+    ORDER BY data->>'created_at' DESC
+    LIMIT $1 OFFSET $2;
+
+    -- With filtering
+    SELECT data FROM v_user
+    WHERE data->>'is_active' = 'true'
+    LIMIT 10;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- Single entity
+    SELECT data FROM v_user WHERE id = ?;
+
+    -- List with pagination
+    SELECT data FROM v_user
+    ORDER BY JSON_UNQUOTE(data->'$.created_at') DESC
+    LIMIT ? OFFSET ?;
+
+    -- With filtering
+    SELECT data FROM v_user
+    WHERE JSON_UNQUOTE(data->'$.is_active') = 'true'
+    LIMIT 10;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- Single entity
+    SELECT data FROM v_user WHERE id = ?;
+
+    -- List with pagination
+    SELECT data FROM v_user
+    ORDER BY json_extract(data, '$.created_at') DESC
+    LIMIT ? OFFSET ?;
+
+    -- With filtering
+    SELECT data FROM v_user
+    WHERE json_extract(data, '$.is_active') = 'true'
+    LIMIT 10;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- Single entity
+    SELECT data FROM dbo.v_user WHERE id = @id;
+
+    -- List with pagination
+    SELECT data FROM dbo.v_user
+    ORDER BY JSON_VALUE(data, '$.created_at') DESC
+    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY;
+
+    -- With filtering
+    SELECT data FROM dbo.v_user
+    WHERE JSON_VALUE(data, '$.is_active') = 'true'
+    LIMIT 10;
+    ```
+  </TabItem>
+</Tabs>
+
+## Complete Example
+
+Here's the full CQRS structure for a blog post:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- WRITE: Base table
+    CREATE TABLE tb_post (
+        pk_post INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        identifier TEXT UNIQUE NOT NULL,
+        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        slug TEXT UNIQUE NOT NULL,
+        is_published BOOLEAN DEFAULT false,
+        published_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- READ: View with nested author
+    CREATE OR REPLACE VIEW v_post AS
+    SELECT
+        p.id,
+        jsonb_build_object(
+            'id', p.id::text,
+            'identifier', p.identifier,
+            'title', p.title,
+            'slug', p.slug,
+            'content', p.content,
+            'is_published', p.is_published,
+            'published_at', p.published_at,
+            'created_at', p.created_at,
+            'updated_at', p.updated_at,
+            'author', vu.data
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+
+    -- READ: Materialized projection
+    CREATE TABLE tv_post (
+        id UUID PRIMARY KEY,
+        data JSONB
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql
+    -- WRITE: Base table
+    CREATE TABLE tb_post (
+        pk_post BIGINT PRIMARY KEY AUTO_INCREMENT,
+        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
+        identifier VARCHAR(255) UNIQUE NOT NULL,
+        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
+        title VARCHAR(255) NOT NULL,
+        content LONGTEXT NOT NULL,
+        slug VARCHAR(255) UNIQUE NOT NULL,
+        is_published BOOLEAN DEFAULT false,
+        published_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    );
+
+    -- READ: View with nested author
+    CREATE OR REPLACE VIEW v_post AS
+    SELECT
+        p.id,
+        JSON_OBJECT(
+            'id', p.id,
+            'identifier', p.identifier,
+            'title', p.title,
+            'slug', p.slug,
+            'content', p.content,
+            'is_published', p.is_published,
+            'published_at', p.published_at,
+            'created_at', p.created_at,
+            'updated_at', p.updated_at,
+            'author', JSON_PARSE(vu.data)
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+
+    -- READ: Materialized projection
+    CREATE TABLE tv_post (
+        id CHAR(36) PRIMARY KEY,
+        data JSON
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql
+    -- WRITE: Base table
+    CREATE TABLE tb_post (
+        pk_post INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        identifier TEXT UNIQUE NOT NULL,
+        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        slug TEXT UNIQUE NOT NULL,
+        is_published BOOLEAN DEFAULT 0,
+        published_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- READ: View with nested author
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        json_object(
+            'id', p.id,
+            'identifier', p.identifier,
+            'title', p.title,
+            'slug', p.slug,
+            'content', p.content,
+            'is_published', p.is_published,
+            'published_at', p.published_at,
+            'created_at', p.created_at,
+            'updated_at', p.updated_at,
+            'author', json(vu.data)
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id;
+
+    -- READ: Materialized projection
+    CREATE TABLE tv_post (
+        id TEXT PRIMARY KEY,
+        data TEXT
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql
+    -- WRITE: Base table
+    CREATE TABLE dbo.tb_post (
+        pk_post BIGINT PRIMARY KEY IDENTITY(1,1),
+        id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),
+        identifier NVARCHAR(255) UNIQUE NOT NULL,
+        fk_user BIGINT NOT NULL REFERENCES dbo.tb_user(pk_user),
+        title NVARCHAR(255) NOT NULL,
+        content NVARCHAR(MAX) NOT NULL,
+        slug NVARCHAR(255) UNIQUE NOT NULL,
+        is_published BIT DEFAULT 0,
+        published_at DATETIMEOFFSET,
+        created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+        updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    );
+
+    -- READ: View with nested author
+    CREATE VIEW dbo.v_post
+    WITH SCHEMABINDING AS
+    SELECT
+        p.id,
+        (
+            SELECT
+                p.id,
+                p.identifier,
+                p.title,
+                p.slug,
+                p.content,
+                p.is_published,
+                p.published_at,
+                p.created_at,
+                p.updated_at,
+                (SELECT vu.data) AS author
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p
+    JOIN dbo.tb_user u ON u.pk_user = p.fk_user
+    JOIN dbo.v_user vu ON vu.id = u.id;
+
+    -- READ: Materialized projection
+    CREATE TABLE dbo.tv_post (
+        id UNIQUEIDENTIFIER PRIMARY KEY,
+        data NVARCHAR(MAX)
+    );
+    ```
+  </TabItem>
+</Tabs>
+
+## When to Use tv_ Tables
+
+Use `tv_` (table-backed views) when:
+
+- **High read frequency**: The view is queried thousands of times per second
+- **Complex JOINs**: The view involves multiple table joins
+- **Stable data**: Data changes infrequently
+- **Large datasets**: The underlying tables have millions of rows
+
+Stick with `v_` views when:
+- Data changes frequently
+- Real-time accuracy is required
+- The view is simple (1-2 table JOINs)
+
+## Python Integration
+
+Define your GraphQL types with decorators that map to your CQRS structure:
+
+```python
+import fraiseql
+
+@fraiseql.type
+class User:
+    """Maps to v_user / tv_user"""
+    id: str
+    identifier: str
+    email: str
+    name: str
+    bio: str | None
+    created_at: str
+    updated_at: str
+
+@fraiseql.query(sql_source="v_user")
+def users(limit: int = 10, offset: int = 0) -> list[User]:
+    """Read from v_user view"""
+    pass
+
+@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+def create_user(name: str, email: str) -> User:
+    """Write through create_user function"""
+    pass
+```
+
+## Next Steps
+
+- [Developer-Owned SQL](/concepts/developer-owned-sql) — Why you write the SQL
+- [View Composition](/concepts/view-composition) — How views embed other views
+- [🍯 Confiture](/confiture) — Database lifecycle management
+- [Mutations](/concepts/mutations) — Write operations in detail
+- [Naming Conventions](/reference/naming-conventions) — Complete naming guide
+`3
