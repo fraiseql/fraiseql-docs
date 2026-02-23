@@ -1,0 +1,714 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "FraiseQL for DevOps & SRE";
+const description = "Simpler deployments. Fewer moving parts. Better observability. Database-first architecture means less infrastructure complexity.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="audience-hero">
+    <div class="container">
+      <h1>For DevOps & SRE</h1>
+      <p>Simpler infrastructure, easier operations</p>
+    </div>
+  </section>
+
+  <section class="audience-content">
+    <div class="container">
+
+      <section class="intro-section">
+        <h2>Your Challenge</h2>
+        <p>Every GraphQL framework adds operational complexity:</p>
+        <ul class="challenge-list">
+          <li>DataLoaders need tuning and monitoring</li>
+          <li>Caching layers add points of failure</li>
+          <li>ORM connection pooling requires careful configuration</li>
+          <li>N+1 queries appear randomly in production</li>
+          <li>Performance issues are hard to debug (where did this query come from?)</li>
+        </ul>
+        <p>You end up managing multiple layers of complexity instead of shipping features.</p>
+      </section>
+
+      <section class="value-section">
+        <h2>What FraiseQL Changes</h2>
+
+        <div class="value-card">
+          <h3>✅ Fewer Moving Parts</h3>
+          <p><strong>Traditional GraphQL</strong>:</p>
+          <ul class="traditional-stack">
+            <li>Application server</li>
+            <li>ORM layer</li>
+            <li>DataLoaders</li>
+            <li>Redis cache</li>
+            <li>Connection pool</li>
+            <li>Query optimizer (your code)</li>
+          </ul>
+          <p><strong>FraiseQL</strong>:</p>
+          <ul class="fraiseql-stack">
+            <li>Application server</li>
+            <li>Database (views handle composition)</li>
+            <li>Optional: Redis (if you want caching)</li>
+          </ul>
+          <p class="impact"><strong>Impact:</strong> 50% fewer layers = 50% fewer things to troubleshoot</p>
+        </div>
+
+        <div class="value-card">
+          <h3>✅ Predictable Query Performance</h3>
+          <p>Every query is compiled at deploy time. You know:</p>
+          <ul class="predictable-list">
+            <li>Exact SQL that runs (no runtime interpretation)</li>
+            <li>Query plan is stable (no surprise slowdowns)</li>
+            <li>No N+1 surprises (caught at compile)</li>
+            <li>Resource usage is predictable</li>
+          </ul>
+          <p>No more debugging "why did this endpoint suddenly get slow?"</p>
+        </div>
+
+        <div class="value-card">
+          <h3>✅ Simpler Scaling</h3>
+          <p>Scale what actually needs scaling:</p>
+          <pre><code set:html={`# Traditional: Everything tied together
+Slow query? → Add cache → Add connection pool → Add servers
+
+# FraiseQL: Everything is independent
+Slow query? → Optimize the view (SQL)
+More users? → Add application servers (stateless)
+Large DB? → Scale database (independent)`}></code></pre>
+          <p class="impact"><strong>Impact:</strong> Horizontal scaling is simple (stateless app servers)</p>
+        </div>
+
+        <div class="value-card">
+          <h3>✅ Easy Debugging</h3>
+          <p>When something goes wrong, you know where to look:</p>
+          <ul class="debugging-list">
+            <li>✅ Slow endpoint? Check the SQL view (not 20 resolvers)</li>
+            <li>✅ High database load? Run EXPLAIN ANALYZE on the view</li>
+            <li>✅ Memory leak? Not in DataLoader or resolver cache</li>
+            <li>✅ Wrong data? Check the view (one place, not many resolvers)</li>
+          </ul>
+        </div>
+
+      </section>
+
+      <section class="deployment-section">
+        <h2>Deployment & Operations</h2>
+
+        <div class="deployment-card">
+          <h3>Build Pipeline</h3>
+          <p>Deploy-time validation means errors caught before production:</p>
+          <pre><code set:html={`# Your CI/CD pipeline
+1. Code pushed
+2. fraiseql build          # Validates views & schema
+3. Run tests
+4. Deploy to staging
+5. Run smoke tests
+6. Deploy to production
+
+If fraiseql build fails, deployment stops.
+No bad code reaches production.`}></code></pre>
+        </div>
+
+        <div class="deployment-card">
+          <h3>Database Migrations</h3>
+          <p>Views are cheap to update. Schema changes are simple:</p>
+          <pre><code set:html={`# Add a field
+1. Update SQL view (adds new field to JSONB)
+2. Update Python/TS schema type
+3. fraiseql build (validates match)
+4. Deploy
+5. Done
+
+No resolver updates needed.
+No cache invalidation needed.
+One atomic change.`}></code></pre>
+        </div>
+
+        <div class="deployment-card">
+          <h3>Rollback Safety</h3>
+          <p>Views are tied to schema versions. Safe rollbacks:</p>
+          <ul class="rollback-list">
+            <li>✅ Revert code → old view runs</li>
+            <li>✅ No dangling schema mismatches</li>
+            <li>✅ No orphaned resolvers</li>
+            <li>✅ No cache to clear</li>
+          </ul>
+        </div>
+
+      </section>
+
+      <section class="observability-section">
+        <h2>Observability & Monitoring</h2>
+
+        <div class="observability-card">
+          <h3>What to Monitor</h3>
+          <p>FraiseQL reduces observability complexity:</p>
+          <table class="monitoring-table">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Traditional</th>
+                <th>FraiseQL</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Query latency</strong></td>
+                <td>Per resolver (many)</td>
+                <td>Per view (few)</td>
+              </tr>
+              <tr>
+                <td><strong>N+1 detection</strong></td>
+                <td>Complex rules + false positives</td>
+                <td>One query per endpoint (guaranteed)</td>
+              </tr>
+              <tr>
+                <td><strong>Cache hits</strong></td>
+                <td>Many caches to track</td>
+                <td>Optional Redis (simple)</td>
+              </tr>
+              <tr>
+                <td><strong>Connection pool</strong></td>
+                <td>Critical monitoring</td>
+                <td>Standard DB connection pool</td>
+              </tr>
+              <tr>
+                <td><strong>Error rates</strong></td>
+                <td>Resolver errors + ORM errors</td>
+                <td>Application errors only</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="impact"><strong>Result**: 70% fewer metrics to monitor</p>
+        </div>
+
+        <div class="observability-card">
+          <h3>Debug a Slow Endpoint</h3>
+          <p>Systematic approach that always works:</p>
+          <ol class="debug-steps">
+            <li><strong>Check request latency</strong> - Is it the query or the response?</li>
+            <li><strong>Check database latency</strong> - Run EXPLAIN ANALYZE on the view</li>
+            <li><strong>Check query plan</strong> - Are indexes being used?</li>
+            <li><strong>Optimize the SQL</strong> - Add index, rewrite query, add materialized view</li>
+            <li><strong>Deploy and verify</strong> - No resolver changes, no cache invalidation</li>
+          </ol>
+          <p class="impact">15 minutes to identify and fix (not guessing for hours)</p>
+        </div>
+
+      </section>
+
+      <section class="scaling-section">
+        <h2>Scaling Patterns</h2>
+
+        <div class="scaling-card">
+          <h3>Horizontal Scaling</h3>
+          <p>Application servers are stateless:</p>
+          <pre><code set:html={`# Add capacity: Just add more servers
+Load Balancer
+  ├─ App Server 1 (stateless)
+  ├─ App Server 2 (stateless)
+  ├─ App Server 3 (stateless)
+  └─ App Server N (stateless)
+       ↓
+    Database (handle complexity)
+
+No session state to manage.
+No cache coherence problems.
+No sticky sessions needed.`}></code></pre>
+        </div>
+
+        <div class="scaling-card">
+          <h3>Database Scaling</h3>
+          <p>Database changes are independent:</p>
+          <ul class="db-scaling">
+            <li>✅ Read replicas: Application doesn't change</li>
+            <li>✅ Connection pooling: Standard pool tuning</li>
+            <li>✅ Sharding: Views still work (at shard level)</li>
+            <li>✅ Caching: Optional layer (not required)</li>
+          </ul>
+        </div>
+
+        <div class="scaling-card">
+          <h3>Cost Optimization</h3>
+          <p>Pay for what you actually use:</p>
+          <ul class="cost-list">
+            <li>App servers: Only compute (no ORM/DataLoader overhead)</li>
+            <li>Database: One query per request (predictable load)</li>
+            <li>Cache: Optional (only if you need it)</li>
+            <li>Observability: Fewer metrics = cheaper monitoring</li>
+          </ul>
+          <p class="impact">Typical: 30-50% lower operational costs</p>
+        </div>
+
+      </section>
+
+      <section class="reliability-section">
+        <h2>Reliability & Resilience</h2>
+
+        <div class="reliability-card">
+          <h3>Failure Modes</h3>
+          <p>FraiseQL has fewer failure modes than traditional GraphQL:</p>
+          <table class="failure-table">
+            <thead>
+              <tr>
+                <th>Scenario</th>
+                <th>Traditional</th>
+                <th>FraiseQL</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Cache expires</td>
+                <td>Thundering herd, slow queries</td>
+                <td>N/A (stateless app)</td>
+              </tr>
+              <tr>
+                <td>Resolver timeout</td>
+                <td>Cascading failures</td>
+                <td>Single query timeout (contained)</td>
+              </tr>
+              <tr>
+                <td>ORM connection leak</td>
+                <td>Pool exhaustion, cascading failures</td>
+                <td>Standard DB connection handling</td>
+              </tr>
+              <tr>
+                <td>N+1 query storm</td>
+                <td>Possible, hard to detect</td>
+                <td>Impossible (caught at compile)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="reliability-card">
+          <h3>High Availability</h3>
+          <p>Simple HA setup:</p>
+          <pre><code set:html={`# Typical HA configuration
+Load Balancer → App Server Pool (autoscale)
+              ↓
+         Database (with replicas)
+
+Everything is standard infrastructure.
+No custom sharding logic.
+No complex cache coherence.`}></code></pre>
+        </div>
+
+      </section>
+
+      <section class="ops-checklist">
+        <h2>DevOps Checklist</h2>
+
+        <div class="checklist">
+          <h3>Before Deploying</h3>
+          <ul class="before-deploy">
+            <li>✅ Run `fraiseql build` (validates schema)</li>
+            <li>✅ Run tests (integration tests)</li>
+            <li>✅ Check database migrations (if any)</li>
+            <li>✅ Verify backup of current state</li>
+          </ul>
+
+          <h3>During Deployment</h3>
+          <ul class="during-deploy">
+            <li>✅ Deploy app servers (stateless, safe)</li>
+            <li>✅ Run smoke tests (verify health)</li>
+            <li>✅ Monitor error rates (should be stable)</li>
+            <li>✅ Monitor latency (should be stable)</li>
+          </ul>
+
+          <h3>After Deployment</h3>
+          <ul class="after-deploy">
+            <li>✅ Verify queries in production</li>
+            <li>✅ Check database load</li>
+            <li>✅ Confirm metrics are expected</li>
+            <li>✅ Done! (No special cleanup needed)</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="tools-section">
+        <h2>Compatible Tools & Services</h2>
+
+        <div class="tools-grid">
+          <div class="tool-category">
+            <h4>Container Orchestration</h4>
+            <ul>
+              <li>Kubernetes</li>
+              <li>Docker Swarm</li>
+              <li>Nomad</li>
+            </ul>
+          </div>
+
+          <div class="tool-category">
+            <h4>Monitoring & Observability</h4>
+            <ul>
+              <li>Datadog</li>
+              <li>New Relic</li>
+              <li>Prometheus + Grafana</li>
+              <li>Elastic Stack</li>
+            </ul>
+          </div>
+
+          <div class="tool-category">
+            <h4>Deployment & CI/CD</h4>
+            <ul>
+              <li>GitHub Actions</li>
+              <li>GitLab CI</li>
+              <li>Jenkins</li>
+              <li>ArgoCD</li>
+            </ul>
+          </div>
+
+          <div class="tool-category">
+            <h4>Infrastructure as Code</h4>
+            <ul>
+              <li>Terraform</li>
+              <li>CloudFormation</li>
+              <li>Pulumi</li>
+            </ul>
+          </div>
+
+          <div class="tool-category">
+            <h4>Databases</h4>
+            <ul>
+              <li>PostgreSQL (RDS, Cloud SQL)</li>
+              <li>MySQL / MariaDB</li>
+              <li>SQLite (for edge)</li>
+            </ul>
+          </div>
+
+          <div class="tool-category">
+            <h4>Caching (Optional)</h4>
+            <ul>
+              <li>Redis</li>
+              <li>Memcached</li>
+              <li>CloudFlare</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="next-section">
+        <h2>Ready to Simplify?</h2>
+        <div class="cta-buttons">
+          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/how-it-works/" class="btn btn-secondary">Architecture</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .audience-hero {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4rem 2rem;
+    text-align: center;
+  }
+
+  .audience-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 1rem 0;
+    font-weight: 700;
+  }
+
+  .audience-hero p {
+    font-size: 1.125rem;
+    opacity: 0.9;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+
+  .audience-content {
+    padding: 4rem 2rem;
+  }
+
+  .audience-content section {
+    margin-bottom: 4rem;
+  }
+
+  .audience-content h2 {
+    font-size: 2rem;
+    margin-bottom: 2rem;
+    color: #1a202c;
+  }
+
+  .audience-content h3 {
+    color: #1a202c;
+    margin-top: 0;
+  }
+
+  .audience-content p {
+    color: #4a5568;
+    line-height: 1.8;
+    margin-bottom: 1rem;
+  }
+
+  /* Lists */
+  .challenge-list,
+  .traditional-stack,
+  .fraiseql-stack,
+  .predictable-list,
+  .debugging-list,
+  .rollback-list,
+  .db-scaling,
+  .cost-list,
+  .before-deploy,
+  .during-deploy,
+  .after-deploy {
+    color: #4a5568;
+    line-height: 2;
+    padding-left: 2rem;
+  }
+
+  .challenge-list li,
+  .traditional-stack li,
+  .fraiseql-stack li,
+  .predictable-list li,
+  .debugging-list li,
+  .rollback-list li,
+  .db-scaling li,
+  .cost-list li,
+  .before-deploy li,
+  .during-deploy li,
+  .after-deploy li {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Value cards */
+  .value-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .value-card pre {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    margin: 1rem 0 0 0;
+  }
+
+  .value-card code {
+    font-family: 'Courier New', monospace;
+    color: #2d3748;
+    line-height: 1.4;
+  }
+
+  .impact {
+    background: #edf2f7;
+    padding: 1rem;
+    border-left: 4px solid #667eea;
+    border-radius: 0.375rem;
+    font-size: 0.95rem;
+    margin: 1rem 0 0 0;
+  }
+
+  /* Cards */
+  .deployment-card,
+  .observability-card,
+  .scaling-card,
+  .reliability-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .deployment-card pre,
+  .observability-card pre,
+  .scaling-card pre,
+  .reliability-card pre {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    margin: 1rem 0 0 0;
+  }
+
+  .deployment-card code,
+  .observability-card code,
+  .scaling-card code,
+  .reliability-card code {
+    font-family: 'Courier New', monospace;
+    color: #2d3748;
+    line-height: 1.4;
+  }
+
+  /* Tables */
+  .monitoring-table,
+  .failure-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .monitoring-table thead,
+  .failure-table thead {
+    background: #f7fafc;
+  }
+
+  .monitoring-table th,
+  .failure-table th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 700;
+    color: #1a202c;
+    border-bottom: 2px solid #e2e8f0;
+  }
+
+  .monitoring-table td,
+  .failure-table td {
+    padding: 1rem;
+    color: #4a5568;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .monitoring-table tbody tr:last-child td,
+  .failure-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Debug steps */
+  .debug-steps {
+    color: #4a5568;
+    line-height: 2;
+    padding-left: 2rem;
+  }
+
+  .debug-steps li {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Checklist */
+  .checklist {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 2rem;
+    margin-bottom: 2rem;
+  }
+
+  .checklist h3 {
+    font-size: 1.125rem;
+    margin: 1.5rem 0 1rem 0;
+    color: #667eea;
+  }
+
+  .checklist h3:first-child {
+    margin-top: 0;
+  }
+
+  /* Tools grid */
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .tool-category {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+  }
+
+  .tool-category h4 {
+    margin-top: 0;
+    color: #667eea;
+    font-size: 0.95rem;
+  }
+
+  .tool-category ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .tool-category li {
+    padding: 0.25rem 0;
+    color: #4a5568;
+    font-size: 0.875rem;
+  }
+
+  /* CTA */
+  .cta-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    padding: 1rem 2rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s ease;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: #667eea;
+    border: 2px solid #667eea;
+  }
+
+  .btn-secondary:hover {
+    background: #f7fafc;
+  }
+
+  @media (max-width: 768px) {
+    .audience-hero h1 {
+      font-size: 2rem;
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+
+    .monitoring-table,
+    .failure-table {
+      font-size: 0.9rem;
+    }
+
+    .monitoring-table th,
+    .failure-table th,
+    .monitoring-table td,
+    .failure-table td {
+      padding: 0.75rem;
+    }
+  }
+</style>

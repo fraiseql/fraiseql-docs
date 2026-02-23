@@ -1,0 +1,597 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "FraiseQL for Data Engineers";
+const description = "Two-plane architecture: JSON/GraphQL for transactional reads, Apache Arrow Flight for columnar analytics. Fact tables (tf_*), Arrow tables (ta_*), and zero-copy Pandas/Polars/DuckDB integration.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="audience-hero">
+    <div class="container">
+      <h1>For Data Engineers</h1>
+      <p>Two planes, one schema — transactional GraphQL and columnar Arrow Flight from the same SQL definitions</p>
+    </div>
+  </section>
+
+  <section class="audience-content">
+    <div class="container">
+
+      <section class="intro-section">
+        <h2>Your Challenge</h2>
+        <p>Data engineers face two workloads that traditionally require separate systems:</p>
+        <div class="challenge-grid">
+          <div class="challenge-card challenge-card-json">
+            <h3>Transactional Reads</h3>
+            <ul>
+              <li>Dashboard charts and KPIs</li>
+              <li>Per-entity reads with filters</li>
+              <li>Flexible GraphQL queries from the app</li>
+              <li>Low-latency, per-request payloads</li>
+            </ul>
+          </div>
+          <div class="challenge-card challenge-card-arrow">
+            <h3>Analytical Bulk Access</h3>
+            <ul>
+              <li>ML feature extraction to Pandas/Polars</li>
+              <li>Full table scans to DuckDB or data lake</li>
+              <li>OLAP drill-down with measures/dimensions</li>
+              <li>Zero-copy columnar streaming</li>
+            </ul>
+          </div>
+        </div>
+        <p>FraiseQL's two-plane architecture handles both from the same compiled schema — no separate ETL pipeline, no data duplication.</p>
+      </section>
+
+      <section class="planes-section">
+        <h2>Two Planes, One Schema</h2>
+
+        <div class="value-card">
+          <h3>✅ JSON Plane — <code>v_*</code> views → GraphQL</h3>
+          <p>Transactional reads and dashboard data. JSONB composition in the database. One SQL query per GraphQL field.</p>
+          <pre><code set:html={`-- v_* views return JSONB for the GraphQL layer
+CREATE VIEW v_daily_metrics AS
+SELECT
+  date_trunc('day', created_at)::date AS date,
+  jsonb_build_object(
+    'date', date_trunc('day', created_at)::date,
+    'total_users', count(DISTINCT user_id),
+    'avg_revenue', avg(revenue),
+    'p95_latency', percentile_cont(0.95)
+      WITHIN GROUP (ORDER BY latency)
+  ) AS data
+FROM tb_events
+GROUP BY date_trunc('day', created_at);
+
+-- Complex aggregations. Window functions. CTEs. All supported.
+-- No magic. Just SQL.`}></code></pre>
+        </div>
+
+        <div class="value-card value-card-arrow">
+          <h3>✅ Arrow Plane — <code>ta_*</code> tables → Arrow Flight (port 50051)</h3>
+          <p>Columnar bulk access for analytics pipelines. <code>ta_*</code> tables are exposed over Apache Arrow Flight — a gRPC protocol for zero-copy columnar transfer. No per-row serialization.</p>
+          <pre><code set:html={`-- ta_* tables: flat, wide schemas — columnar storage is the goal
+CREATE TABLE ta_events (
+  event_id     UUID NOT NULL,
+  occurred_at  TIMESTAMPTZ NOT NULL,
+  user_id      UUID NOT NULL,
+  event_type   TEXT NOT NULL,
+  value        NUMERIC,
+  region       TEXT,
+  plan         TEXT
+);
+
+-- FraiseQL exposes ta_* over Arrow Flight on port 50051
+-- Arrow Flight ticket types:
+--   OptimizedView  → query with filters, returns columnar Arrow
+--   BulkExport     → full table scan in Arrow record batches
+--   BatchedQueries → multiple queries in one Flight call`}></code></pre>
+        </div>
+      </section>
+
+      <section class="fact-section">
+        <h2>Fact Tables (<code>tf_*</code>) — OLAP in SQL</h2>
+        <p>For OLAP queries and drill-down analytics, FraiseQL introduces <strong>fact tables</strong> — denormalized tables with explicit measures, dimensions, and auto-generated temporal buckets.</p>
+
+        <div class="value-card">
+          <h3>Structure</h3>
+          <pre><code set:html={`-- tf_* fact table: denormalized OLAP
+CREATE TABLE tf_sales (
+  id           UUID DEFAULT gen_random_uuid(),
+  occurred_at  TIMESTAMPTZ NOT NULL,   -- temporal column → auto-buckets
+
+  -- Denormalized filters (indexed SQL columns)
+  user_id      UUID NOT NULL,
+  product_id   UUID NOT NULL,
+
+  -- Measures (numeric, aggregatable)
+  revenue      NUMERIC(10, 2) NOT NULL,
+  quantity     INTEGER NOT NULL,
+  discount     NUMERIC(5, 2) DEFAULT 0,
+
+  -- Dimensions (JSONB grouping attributes)
+  data         JSONB NOT NULL DEFAULT '{}'
+  -- data: { "region": "eu", "channel": "web", "plan": "pro" }
+);`}></code></pre>
+        </div>
+
+        <div class="value-card">
+          <h3>Python Declaration</h3>
+          <pre><code set:html={`@fraiseql.fact_table(
+    table_name="tf_sales",
+    measures=["revenue", "quantity", "discount"],
+    dimension_paths=["data.region", "data.channel", "data.plan"],
+    temporal_column="occurred_at",         # auto-generates hour/day/week/month/quarter
+    denormalized_filters=["user_id", "product_id"],
+)
+class SalesFact:
+    pass
+
+@fraiseql.aggregate_query(
+    fact_table="tf_sales",
+    auto_group_by=True,
+    auto_aggregates=True,
+)
+def sales_aggregates(
+    from_date: str | None = None,
+    to_date: str | None = None,
+    region: str | None = None,
+    bucket: str = "day",    # hour | day | week | month | quarter
+) -> list[SalesAggregate]:
+    pass`}></code></pre>
+          <p>The Rust compiler generates optimized SQL with <code>GROUP BY</code>, partial-index-aware <code>WHERE</code>, and temporal bucket expressions. No runtime interpretation.</p>
+        </div>
+      </section>
+
+      <section class="naming-section">
+        <h2>Naming Conventions at a Glance</h2>
+        <p>Every FraiseQL object has a prefix signalling its role and plane:</p>
+        <table class="naming-table">
+          <thead>
+            <tr><th>Prefix</th><th>Type</th><th>Plane</th><th>Purpose</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>tb_*</code></td><td>Base table</td><td>Storage</td><td>Raw transactional data</td></tr>
+            <tr><td><code>v_*</code></td><td>JSON view</td><td>JSON / GraphQL</td><td>JSONB composition for application reads</td></tr>
+            <tr><td><code>fn_*</code></td><td>SQL function</td><td>Write</td><td>Mutations, business logic in the database</td></tr>
+            <tr class="row-highlight"><td><code>tf_*</code></td><td>Fact table</td><td>OLAP</td><td>Denormalized OLAP with measures &amp; dimensions</td></tr>
+            <tr class="row-highlight"><td><code>ta_*</code></td><td>Arrow table</td><td>Arrow Flight</td><td>Columnar bulk export, ML pipelines</td></tr>
+            <tr class="row-highlight"><td><code>va_*</code></td><td>Vector Arrow view</td><td>Arrow Flight</td><td>Embedding / vector-native Arrow export</td></tr>
+            <tr class="row-highlight"><td><code>tv_*</code></td><td>Materialized vector view</td><td>Arrow Flight</td><td>Pre-materialized Table Vector views</td></tr>
+          </tbody>
+        </table>
+        <p class="table-note">Highlighted rows belong to the Arrow analytics plane.</p>
+      </section>
+
+      <section class="tools-section">
+        <h2>Data Tools Integration via Arrow Flight</h2>
+
+        <div class="tool-card">
+          <h3>Polars — Zero-Copy DataFrames</h3>
+          <pre><code set:html={`from pyarrow import flight
+import polars as pl
+
+client = flight.connect("grpc://localhost:50051")
+
+# Pull ta_events as Arrow (no JSON deserialization)
+ticket = flight.Ticket(b'{"type":"OptimizedView","table":"ta_events","from_date":"2025-01-01"}')
+df = pl.from_arrow(client.do_get(ticket).read_all())
+
+# Native Polars operations on columnar data
+print(df.group_by("event_type").agg(pl.col("value").sum()))`}></code></pre>
+        </div>
+
+        <div class="tool-card">
+          <h3>DuckDB — In-Process OLAP</h3>
+          <pre><code set:html={`from pyarrow import flight
+import duckdb
+
+client = flight.connect("grpc://localhost:50051")
+ticket = flight.Ticket(b'{"type":"OptimizedView","table":"tf_sales","region":"eu"}')
+arrow_table = client.do_get(ticket).read_all()
+
+# DuckDB operates directly on Arrow memory — no copy
+result = duckdb.execute(
+  "SELECT data->>'channel' AS channel, SUM(revenue), COUNT(*) "
+  "FROM arrow_table GROUP BY 1 ORDER BY 2 DESC"
+).df()`}></code></pre>
+        </div>
+
+        <div class="tool-card">
+          <h3>Pandas — ML Feature Extraction</h3>
+          <pre><code set:html={`from pyarrow import flight
+
+client = flight.connect("grpc://localhost:50051")
+ticket = flight.Ticket(b'{"type":"BulkExport","table":"ta_events"}')
+
+# Arrow → Pandas (fast zero-copy conversion)
+df = client.do_get(ticket).read_all().to_pandas()
+
+# Use directly for ML training
+model.fit(df[['feature_a', 'feature_b']], df['label'])`}></code></pre>
+        </div>
+
+        <div class="tool-card">
+          <h3>BI Tools via GraphQL (JSON Plane)</h3>
+          <p>Dashboard tools consume the JSON plane directly through GraphQL:</p>
+          <ul class="tools-list">
+            <li>✅ Tableau — Direct connection to GraphQL</li>
+            <li>✅ Looker — SQL views exposed as models</li>
+            <li>✅ Metabase — Self-service BI on <code>v_*</code> views</li>
+            <li>✅ Superset — Explore views with SQL editor</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="analytics-section">
+        <h2>Analytics SQL Patterns</h2>
+
+        <div class="pattern-card">
+          <h3>Pattern 1: Rolling Windows</h3>
+          <pre><code set:html={`CREATE VIEW v_rolling_metrics AS
+SELECT
+  date,
+  jsonb_build_object(
+    'date', date,
+    'revenue_30d', SUM(revenue) OVER (
+      ORDER BY date ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
+    ),
+    'users_7d_avg', AVG(users) OVER (
+      ORDER BY date ROWS BETWEEN 7 PRECEDING AND CURRENT ROW
+    )
+  ) AS data
+FROM tb_daily_metrics;`}></code></pre>
+        </div>
+
+        <div class="pattern-card">
+          <h3>Pattern 2: Retention Cohorts (Arrow Export)</h3>
+          <pre><code set:html={`-- ta_* for Arrow Flight bulk export to Polars heatmap
+CREATE TABLE ta_retention_cohorts AS
+SELECT
+  date_trunc('month', u.created_at)::date AS cohort_month,
+  date_trunc('month', a.activity_date)::date AS activity_month,
+  u.user_id,
+  count(*) AS event_count
+FROM tb_users u
+JOIN tb_activity a ON a.user_id = u.user_id
+GROUP BY 1, 2, u.user_id;
+
+-- Polars builds the heatmap from Arrow Flight:
+# df = pl.from_arrow(client.do_get(retention_ticket).read_all())
+# cohort_matrix = df.pivot(values="event_count", index="cohort_month", columns="activity_month")`}></code></pre>
+        </div>
+
+        <div class="pattern-card">
+          <h3>Pattern 3: Funnel Analysis</h3>
+          <pre><code set:html={`CREATE VIEW v_conversion_funnel AS
+SELECT
+  date_trunc('day', created_at)::date AS day,
+  jsonb_build_object(
+    'day', date_trunc('day', created_at)::date,
+    'signups',  COUNT(DISTINCT CASE WHEN event = 'signup' THEN user_id END),
+    'verified', COUNT(DISTINCT CASE WHEN event = 'verified_email' THEN user_id END),
+    'paying',   COUNT(DISTINCT CASE WHEN event = 'payment' THEN user_id END),
+    'churned',  COUNT(DISTINCT CASE WHEN event = 'churn' THEN user_id END)
+  ) AS data
+FROM tb_events
+GROUP BY date_trunc('day', created_at);`}></code></pre>
+        </div>
+
+        <div class="pattern-card">
+          <h3>Pattern 4: dbt + FraiseQL</h3>
+          <pre><code set:html={`-- dbt manages view definitions; FraiseQL exposes them as GraphQL
+models/
+  ├── staging/
+  │   └── stg_events.sql
+  ├── marts/
+  │   ├── v_daily_metrics.sql      -- v_* JSON view → GraphQL query
+  │   ├── tf_sales.sql             -- tf_* fact table → aggregate query
+  │   └── ta_retention.sql         -- ta_* Arrow table → Arrow Flight
+
+-- dbt generates + maintains the SQL
+-- FraiseQL compiles types + exposes both planes
+-- Both use the database as source of truth`}></code></pre>
+        </div>
+      </section>
+
+      <section class="performance-section">
+        <h2>Performance Optimization</h2>
+
+        <div class="performance-card">
+          <h3>Indexing for Dimension Queries</h3>
+          <pre><code set:html={`-- Partial index on tf_* dimension for fast GROUP BY
+CREATE INDEX idx_tf_sales_region
+  ON tf_sales ((data->>'region'))
+  WHERE data->>'region' IS NOT NULL;
+
+-- BRIN index for time-series range scans
+CREATE INDEX idx_tf_sales_occurred
+  ON tf_sales USING BRIN (occurred_at);
+
+-- Partial index for frequent time ranges
+CREATE INDEX idx_ta_events_recent
+  ON ta_events(occurred_at)
+  WHERE occurred_at > NOW() - INTERVAL '90 days';`}></code></pre>
+        </div>
+
+        <div class="performance-card">
+          <h3>Materialized Views for Expensive Aggregations</h3>
+          <pre><code set:html={`-- Pre-compute expensive aggregation once per hour
+CREATE MATERIALIZED VIEW tv_user_cohorts AS
+SELECT
+  date_trunc('month', created_at)::date AS cohort_date,
+  COUNT(DISTINCT user_id) AS cohort_size,
+  SUM(ltv) AS cohort_ltv
+FROM tb_events
+GROUP BY date_trunc('month', created_at);
+
+-- Refresh on a schedule via pg_cron or your orchestrator
+SELECT cron.schedule('0 * * * *', 'REFRESH MATERIALIZED VIEW tv_user_cohorts');`}></code></pre>
+        </div>
+      </section>
+
+      <section class="next-section">
+        <h2>Start Building Analytics</h2>
+        <p>Learn more about the full analytics dataplane architecture, including all naming conventions and Arrow Flight ticket types.</p>
+        <div class="cta-buttons">
+          <a href="/why/analytics-dataplane/" class="btn btn-primary">Analytics Dataplane →</a>
+          <a href="/docs/getting-started/quickstart/" class="btn btn-secondary">Get Started</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .audience-hero {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4rem 2rem;
+    text-align: center;
+  }
+
+  .audience-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 1rem 0;
+    font-weight: 700;
+  }
+
+  .audience-hero p {
+    font-size: 1.125rem;
+    opacity: 0.9;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+
+  .audience-content {
+    padding: 4rem 2rem;
+  }
+
+  .audience-content section {
+    margin-bottom: 4rem;
+  }
+
+  .audience-content h2 {
+    font-size: 2rem;
+    margin-bottom: 2rem;
+    color: #1a202c;
+  }
+
+  .audience-content h3 {
+    color: #1a202c;
+    margin-top: 0;
+    font-size: 1.1rem;
+  }
+
+  .audience-content p {
+    color: #4a5568;
+    line-height: 1.8;
+    margin-bottom: 1rem;
+  }
+
+  /* Challenge grid */
+  .challenge-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+  }
+
+  .challenge-card {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    border-left: 4px solid #e2e8f0;
+  }
+
+  .challenge-card-json {
+    border-left-color: var(--fraise-500, #e03131);
+  }
+
+  .challenge-card-arrow {
+    border-left-color: #1565c0;
+  }
+
+  .challenge-card h3 {
+    margin-bottom: 0.75rem;
+  }
+
+  .challenge-card ul {
+    color: #4a5568;
+    padding-left: 1.5rem;
+    line-height: 2;
+    margin: 0;
+  }
+
+  /* Value cards */
+  .value-card,
+  .pattern-card,
+  .tool-card,
+  .performance-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .value-card-arrow {
+    border-left: 4px solid #1565c0;
+  }
+
+  .value-card pre,
+  .pattern-card pre,
+  .tool-card pre,
+  .performance-card pre {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.78rem;
+    margin: 1rem 0 0 0;
+  }
+
+  .value-card code,
+  .pattern-card code,
+  .tool-card code,
+  .performance-card code {
+    font-family: 'Courier New', monospace;
+    color: #2d3748;
+    line-height: 1.6;
+  }
+
+  /* Tools list */
+  .tools-list {
+    color: #4a5568;
+    line-height: 2;
+    padding-left: 1.5rem;
+    margin: 1rem 0 0 0;
+  }
+
+  .tools-list li {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Naming table */
+  .naming-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    font-size: 0.9rem;
+  }
+
+  .naming-table thead {
+    background: #f7fafc;
+  }
+
+  .naming-table th {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 700;
+    color: #1a202c;
+    border-bottom: 2px solid #e2e8f0;
+  }
+
+  .naming-table td {
+    padding: 0.75rem 1rem;
+    color: #4a5568;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .naming-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .naming-table td code {
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    background: #f7fafc;
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: #2d3748;
+  }
+
+  .row-highlight td {
+    background: #f0f7ff;
+  }
+
+  .table-note {
+    font-size: 0.85rem;
+    color: #718096;
+    font-style: italic;
+    margin-top: 0.5rem;
+  }
+
+  /* CTA */
+  .cta-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+  }
+
+  .btn {
+    padding: 0.875rem 1.75rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.2s ease;
+    font-size: 1rem;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: #667eea;
+    border: 2px solid #667eea;
+  }
+
+  .btn-secondary:hover {
+    background: #f7fafc;
+  }
+
+  @media (max-width: 768px) {
+    .audience-hero h1 {
+      font-size: 2rem;
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+
+    .naming-table {
+      font-size: 0.8rem;
+    }
+
+    .naming-table th,
+    .naming-table td {
+      padding: 0.5rem 0.75rem;
+    }
+  }
+</style>

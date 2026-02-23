@@ -1,0 +1,1084 @@
+---
+import MarketingLayout from "../components/marketing/MarketingLayout.astro";
+
+const title = "FraiseQL - The Explicit GraphQL Framework for the LLM Era";
+const description = "The Explicit GraphQL Framework for the LLM Era. No N+1 queries. No ORM. Fast responses. Simple patterns you—and your AI assistant—actually understand.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container hero-inner">
+      <!-- Left Col -->
+      <div class="hero-left">
+        <p class="hero-subtitle-small">🍓 Explicit GraphQL Framework</p>
+        <h1 class="hero-title">
+          The Explicit GraphQL Framework<br/>for the LLM Era
+        </h1>
+        <p class="hero-subtitle">
+          Simple patterns. High performance. Database at the center.
+        </p>
+        <p class="hero-description">
+          No N+1 queries. No ORM. Fast responses. Patterns you—and your AI assistant—actually understand.
+        </p>
+
+        <!-- Badges -->
+        <div class="hero-badges">
+          <img src="https://img.shields.io/badge/Any%20Database-green?logo=database" alt="Any Database">
+          <img src="https://img.shields.io/badge/Any%20Language-purple?logo=code" alt="Any Language">
+        </div>
+
+        <!-- Requirements -->
+        <div class="hero-requirements">
+          <span class="req-label">Supports:</span>
+          <span class="req-item">PostgreSQL, MySQL, SQLite, SQL Server</span> ·
+          <span class="req-item">Python, TypeScript, Go, Java, PHP</span>
+        </div>
+
+        <!-- CTAs -->
+        <div class="hero-ctas">
+          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">
+            Get Started
+          </a>
+          <a href="https://github.com/fraiseql/fraiseql" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
+            View on GitHub
+          </a>
+        </div>
+      </div>
+
+      <!-- Right Col - Code Example -->
+      <div class="hero-right">
+        <div class="code-block">
+          <div class="code-header">GraphQL Query</div>
+          <pre><code class="language-graphql" set:html={`query GetUser($id: UUID!) {
+  <span class="token field">user</span>(id: $id) {
+    <span class="token field">id</span>
+    <span class="token field">identifier</span>
+    <span class="token field">name</span>
+    <span class="token field">posts</span> {
+      <span class="token field">id</span>
+      <span class="token field">identifier</span>
+      <span class="token field">title</span>
+    }
+  }
+}`}></code></pre>
+        </div>
+        <div class="code-arrow">↓</div>
+        <div class="code-block">
+          <div class="code-header">One Database Query</div>
+          <pre><code class="language-sql" set:html={`<span class="token keyword">SELECT</span> data <span class="token keyword">FROM</span> <span class="token identifier">v_user</span>
+<span class="token keyword">WHERE</span> id = <span class="token string">$1</span>
+<span class="token comment">-- Pre-computed nested data</span>
+<span class="token comment">-- Sub-millisecond response</span>`}></code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Wave Divider -->
+  <div class="wave-divider">
+    <svg viewBox="0 0 1428 174" xmlns="http://www.w3.org/2000/svg">
+      <g fill="white" fill-rule="nonzero" opacity="0.3">
+        <path d="M0,0 C90.7,0.9 147.9,27.2 291.9,59.9 C387.9,81.7 543.6,89.3 759,82.7 C469.3,156.3 216.3,153.7 0,74.9Z"/>
+        <path d="M100,104.7 C277.4,72.2 426.1,52.5 546.2,45.6 C666.3,38.6 810.5,41.8 979,55.1 C931.1,56.1 810.3,74.8 616.7,111.2 C423.1,147.6 250.9,145.5 100,104.7Z"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Features Section -->
+  <section class="features">
+    <div class="container">
+      <h2>Why FraiseQL?</h2>
+      <div class="features-divider"></div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>Zero N+1 by Design</h3>
+          <p>
+            Your database composes nested data once. Views contain all relations. One query regardless of GraphQL complexity. No DataLoader needed.
+          </p>
+          <a href="/docs/concepts/developer-owned-sql/" class="feature-link">Learn more →</a>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🎯</div>
+          <h3>One Query Per Request</h3>
+          <p>
+            Simple patterns that LLMs understand. No resolver chains to trace. Validation, business logic, and data access live in SQL functions — one place, in the database.
+          </p>
+          <a href="/docs/concepts/cqrs/" class="feature-link">Learn more →</a>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🔒</div>
+          <h3>Security by Architecture</h3>
+          <p>
+            Views define exactly what's exposed. Impossible to accidentally leak sensitive fields. What's not in the view cannot be queried.
+          </p>
+          <a href="/docs/concepts/how-it-works/" class="feature-link">Learn more →</a>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">💰</div>
+          <h3>Simplified Infrastructure</h3>
+          <p>
+            Table views eliminate Redis. Cascade eliminates refetch queries. Built-in audit trails. Fewer services, simpler ops.
+          </p>
+          <a href="/docs/concepts/how-it-works/" class="feature-link">Learn more →</a>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🤖</div>
+          <h3>AI-Native Development</h3>
+          <p>
+            Mutations map to SQL functions. Validation, business logic, and side effects live in the database — not scattered across resolver chains. LLMs generate less, understand more.
+          </p>
+          <a href="/docs/concepts/how-it-works/" class="feature-link">Learn more →</a>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🌐</div>
+          <h3>Database Agnostic</h3>
+          <p>
+            PostgreSQL, MySQL, SQLite, SQL Server. Write once, deploy anywhere. A single compiled schema runs unchanged across all four databases.
+          </p>
+          <a href="/docs/concepts/how-it-works/" class="feature-link">Learn more →</a>
+        </div>
+      </div>
+
+      <div class="features-more">
+        <a href="/docs/concepts/how-it-works/" class="link-primary">Explore all features →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Testimonial -->
+  <section class="testimonial">
+    <div class="container">
+      <h2>What Experts Say</h2>
+
+      <div class="testimonial-grid">
+        <div class="testimonial-card">
+          <blockquote class="testimonial-quote">
+            "That's a clever concept — let the database do the hard stuff and the API layer can be very lightweight and carefree. And the SQL is straightforward. Indeed a clever and robust concept!"
+          </blockquote>
+          <p class="testimonial-author">
+            <a href="https://www.linkedin.com/in/thomaszeutschler/" target="_blank" rel="noopener noreferrer" class="author-link">
+              <strong>Thomas Zeutschler</strong>
+            </a>
+          </p>
+          <p class="testimonial-role">
+            Principal Business Engineer & Co-Founder at 45level<br>
+            BARC Fellow & Senior Analyst (Database Architecture)
+          </p>
+        </div>
+
+        <div class="testimonial-card">
+          <blockquote class="testimonial-quote">
+            "Ça a l'air appétissant 🍓😋!"
+          </blockquote>
+          <p class="testimonial-author">
+            <a href="https://github.com/martinbonnin" target="_blank" rel="noopener noreferrer" class="author-link">
+              <strong>Martin Bonnin</strong>
+            </a>
+          </p>
+          <p class="testimonial-role">
+            Android Engineer at Apollo GraphQL<br>
+            GraphQL Technical Steering Committee
+          </p>
+        </div>
+
+        <div class="testimonial-card">
+          <blockquote class="testimonial-quote">
+            "10x faster than our current solution and faster than the REST frameworks we tested"
+          </blockquote>
+          <p class="testimonial-author">
+            <strong>Charles Pierre</strong>
+          </p>
+          <p class="testimonial-role">
+            Co-Founder & CTO at Wiremind<br>
+            Data Platform Leadership
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Trade-offs Section -->
+  <section class="tradeoffs">
+    <div class="container">
+      <h2>The Trade-Off We Made</h2>
+      <div class="tradeoffs-grid">
+        <div class="tradeoff-card">
+          <h3>Storage Over Compute</h3>
+          <p>
+            Pre-computed views cost 2-4× storage for typical schemas. But storage is cheap; CPU cycles on every read are not.
+          </p>
+          <p>
+            In exchange: single fast query per read, no JOINs on hot path, no ORM, no object hydration.
+          </p>
+          <p class="tradeoff-note">
+            Views can be fully rebuilt from base tables anytime—they don't need separate backups.
+          </p>
+        </div>
+        <div class="tradeoff-card">
+          <h3>When NOT to Use FraiseQL</h3>
+          <ul class="tradeoff-list">
+            <li><strong>Read-light, write-heavy</strong> — view sync adds overhead if you rarely query</li>
+            <li><strong>Massive data, few users</strong> — if storage cost dominates your bill, reconsider</li>
+            <li><strong>Simple CRUD</strong> — if your queries are already fast, you don't need this</li>
+          </ul>
+          <p class="tradeoff-good">
+            ✓ Best for: Read-heavy APIs, real-time dashboards, multi-tenant SaaS
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start Section -->
+  <section class="quickstart">
+    <div class="container">
+      <h2>Quick Start</h2>
+      <div class="quickstart-divider"></div>
+
+      <div class="quickstart-steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <h3>Install</h3>
+          <pre><code># Schema authoring (Python)
+pip install fraiseql
+
+# Runtime &amp; CLI (Rust binary)
+cargo install fraiseql-cli</code></pre>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <h3>Define Schema</h3>
+          <pre><code>import fraiseql
+
+@fraiseql.type
+class User:
+    id: UUID
+    name: str
+
+@fraiseql.query(sql_source="v_user")
+def users(limit: int = 10) -> list[User]:
+    pass
+
+fraiseql.export_schema("schema.json")</code></pre>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <h3>Run</h3>
+          <pre><code># Export schema.json from Python
+python schema.py
+
+# Compile + serve (hot-reload with --watch)
+fraiseql-cli run \
+  --database postgresql://localhost/db</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Performance Section -->
+  <section class="performance">
+    <div class="container">
+      <h2>Honest Performance Comparison</h2>
+      <div class="performance-divider"></div>
+
+      <div class="perf-disclaimer">
+        <h3>What Are We Comparing Against?</h3>
+        <div class="perf-scenarios">
+          <div class="scenario">
+            <h4>Naive ORM</h4>
+            <p>N+1 queries, full object hydration, no caching. The "it works" first pass.</p>
+          </div>
+          <div class="scenario">
+            <h4>Basic Python</h4>
+            <p>Single JOINed query, json.dumps serialization. Competent code, no optimization.</p>
+          </div>
+          <div class="scenario">
+            <h4>Optimized Stack</h4>
+            <p>DataLoaders, Redis, DTOs, fast serialization. Production-tuned by senior devs.</p>
+          </div>
+          <div class="scenario highlight">
+            <h4>FraiseQL</h4>
+            <p>Pre-computed views, single query per read. Database-first architecture.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="perf-table-wrapper">
+        <table class="perf-table">
+          <thead>
+            <tr>
+              <th>Scenario</th>
+              <th>Response Time</th>
+              <th>Queries</th>
+              <th>vs FraiseQL</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Naive ORM</strong><br><small>N+1 queries</small></td>
+              <td>~300ms</td>
+              <td>~100</td>
+              <td class="slower">100-300x slower</td>
+            </tr>
+            <tr>
+              <td><strong>Basic Python</strong><br><small>JOINs + serialization</small></td>
+              <td>~30ms</td>
+              <td>~1</td>
+              <td class="slower">20-60x slower</td>
+            </tr>
+            <tr>
+              <td><strong>Optimized Stack</strong><br><small>DataLoaders, Redis, DTOs</small></td>
+              <td>~3ms (cached)</td>
+              <td>~1</td>
+              <td class="slower">2-3x slower</td>
+            </tr>
+            <tr class="highlight">
+              <td><strong>FraiseQL</strong><br><small>Views + single query</small></td>
+              <td><strong>Sub-millisecond</strong></td>
+              <td><strong>1</strong></td>
+              <td><strong>baseline</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="perf-note">
+        <p>
+          <strong>The 2-3x advantage vs optimized stacks comes with simpler ops:</strong> no Redis, no cache invalidation logic, no DataLoader boilerplate. A single database query you understand completely.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section class="cta-final">
+    <div class="container">
+      <h2>Ready to Build Better APIs?</h2>
+      <div class="cta-buttons">
+        <a href="/docs/getting-started/quickstart/" class="btn btn-primary-large">Get Started</a>
+        <a href="/docs/concepts/how-it-works/" class="btn btn-secondary-large">Learn More</a>
+      </div>
+    </div>
+  </section>
+</MarketingLayout>
+
+<style>
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* HERO SECTION */
+  /* ═══════════════════════════════════════════════════════════════════ */
+  .hero {
+    background: linear-gradient(90deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    color: white;
+    padding: var(--spacing-16) var(--spacing-6);
+  }
+
+  .hero-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-12);
+  }
+
+  .hero-left {
+    flex: 1;
+    min-width: 280px;
+  }
+
+  .hero-right {
+    flex: 1;
+    min-width: 280px;
+    text-align: center;
+  }
+
+  .hero-subtitle-small {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: var(--text-sm);
+    opacity: 0.9;
+    margin: 0 0 var(--spacing-3) 0;
+  }
+
+  .hero-title {
+    font-size: 3rem;
+    font-weight: 700;
+    margin: 0 0 var(--spacing-6) 0;
+    line-height: 1.2;
+  }
+
+  .hero-subtitle {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 var(--spacing-4) 0;
+    opacity: 0.95;
+  }
+
+  .hero-description {
+    font-size: 1.125rem;
+    margin: 0 0 var(--spacing-8) 0;
+    opacity: 0.9;
+    line-height: var(--leading-relaxed);
+  }
+
+  .hero-badges {
+    display: flex;
+    gap: var(--spacing-2);
+    margin-bottom: var(--spacing-4);
+    flex-wrap: wrap;
+  }
+
+  .hero-badges img {
+    height: 28px;
+  }
+
+  .hero-requirements {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-2) var(--spacing-4);
+    margin-bottom: var(--spacing-6);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    font-size: var(--text-sm);
+  }
+
+  .req-label {
+    opacity: 0.8;
+  }
+
+  .req-item {
+    font-weight: 600;
+  }
+
+  .hero-ctas {
+    display: flex;
+    gap: var(--spacing-4);
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    padding: var(--spacing-3) var(--spacing-6);
+    border-radius: 9999px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all var(--transition-base);
+    display: inline-block;
+    border: none;
+    cursor: pointer;
+    font-size: var(--text-base);
+  }
+
+  .btn-primary {
+    background: white;
+    color: var(--fraise-500);
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: white;
+    border: 2px solid white;
+  }
+
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .btn-primary-large {
+    padding: var(--spacing-4) var(--spacing-8);
+    background: var(--fraise-500);
+    color: white;
+    border-radius: var(--radius-md);
+  }
+
+  .btn-primary-large:hover {
+    background: var(--fraise-600);
+    transform: translateY(-2px);
+  }
+
+  .btn-secondary-large {
+    padding: var(--spacing-4) var(--spacing-8);
+    background: transparent;
+    color: var(--fraise-500);
+    border: 2px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+  }
+
+  .btn-secondary-large:hover {
+    background: var(--fraise-50);
+  }
+
+  /* Code Blocks */
+  .code-block {
+    background: #1E1E1E;
+    border: 1px solid #3F3F3F;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    margin-bottom: var(--spacing-3);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  }
+
+  .code-header {
+    background: #2D2D2D;
+    padding: var(--spacing-2) var(--spacing-4);
+    font-size: var(--text-sm);
+    color: #9CA3AF;
+    border-bottom: 1px solid #3F3F3F;
+  }
+
+  .code-block pre {
+    padding: var(--spacing-4) var(--spacing-6);
+    margin: 0;
+    overflow-x: auto;
+    text-align: left;
+  }
+
+  .code-block code {
+    color: #E5E7EB;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    text-align: left;
+  }
+
+  .code-arrow {
+    font-size: 1.5rem;
+    margin: var(--spacing-3) 0;
+    opacity: 0.7;
+  }
+
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-6);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* WAVE DIVIDER */
+  /* ═══════════════════════════════════════════════════════════════════ */
+  .wave-divider {
+    position: relative;
+    margin: calc(var(--spacing-12) * -1) 0 0 0;
+  }
+
+  .wave-divider svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* FEATURES SECTION */
+  /* ═══════════════════════════════════════════════════════════════════ */
+  .features {
+    padding: var(--spacing-16) var(--spacing-6);
+    background: white;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .features h2 {
+    font-size: 2.5rem;
+    text-align: center;
+    margin: 0 0 var(--spacing-4) 0;
+    color: var(--color-text);
+  }
+
+  .features-divider {
+    height: 4px;
+    width: 64px;
+    background: linear-gradient(90deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    margin: 0 auto var(--spacing-12) auto;
+    border-radius: 2px;
+  }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--spacing-6);
+    margin-bottom: var(--spacing-8);
+  }
+
+  .feature-card {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    transition: all var(--transition-base);
+  }
+
+  .feature-card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: var(--fraise-400);
+  }
+
+  .feature-icon {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-3);
+  }
+
+  .feature-card h3 {
+    font-size: 1.25rem;
+    color: var(--color-text);
+    margin: 0 0 var(--spacing-3) 0;
+  }
+
+  .feature-card p {
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+    margin: 0 0 var(--spacing-3) 0;
+  }
+
+  .feature-link {
+    color: var(--fraise-500);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color var(--transition-fast);
+  }
+
+  .feature-link:hover {
+    color: var(--fraise-700);
+  }
+
+  .features-more {
+    text-align: center;
+  }
+
+  .link-primary {
+    color: var(--fraise-500);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1.125rem;
+    transition: color var(--transition-fast);
+  }
+
+  .link-primary:hover {
+    color: var(--fraise-700);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* TESTIMONIAL SECTION */
+  /* ═══════════════════════════════════════════════════════════════════ */
+  .testimonial {
+    background: var(--color-gray-100);
+    padding: var(--spacing-12) var(--spacing-6);
+  }
+
+  .testimonial h2 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-8);
+    color: var(--color-text);
+    text-align: center;
+  }
+
+  .testimonial-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--spacing-6);
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .testimonial-card {
+    background: white;
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    border: 1px solid var(--color-border);
+    transition: all var(--transition-base);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .testimonial-card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: var(--fraise-400);
+  }
+
+  .testimonial-quote {
+    font-size: 1.125rem;
+    color: var(--color-text-muted);
+    font-style: italic;
+    margin-bottom: var(--spacing-4);
+    line-height: var(--leading-relaxed);
+    flex-grow: 1;
+  }
+
+  .testimonial-author {
+    color: var(--fraise-500);
+    font-weight: 600;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .author-link {
+    color: var(--fraise-500);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+  }
+
+  .author-link:hover {
+    color: var(--fraise-700);
+    text-decoration: underline;
+  }
+
+  .testimonial-role {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    margin: var(--spacing-2) 0 0 0;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* TRADE-OFFS SECTION */
+  /* ═══════════════════════════════════════════════════════════════════ */
+  .tradeoffs {
+    background: linear-gradient(90deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    color: white;
+    padding: var(--spacing-16) var(--spacing-6);
+  }
+
+  .tradeoffs h2 {
+    text-align: center;
+    margin: 0 0 var(--spacing-8) 0;
+    font-size: 2rem;
+  }
+
+  .tradeoffs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: var(--spacing-6);
+  }
+
+  .tradeoff-card {
+    background: white;
+    color: var(--color-text);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .tradeoff-card h3 {
+    font-size: 1.25rem;
+    margin: 0 0 var(--spacing-3) 0;
+  }
+
+  .tradeoff-card p {
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+    margin: 0 0 var(--spacing-3) 0;
+  }
+
+  .tradeoff-note {
+    font-size: var(--text-sm);
+    font-style: italic;
+    opacity: 0.8;
+  }
+
+  .tradeoff-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .tradeoff-list li {
+    padding: var(--spacing-2) 0;
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+  }
+
+  .tradeoff-list li strong {
+    color: var(--color-text);
+  }
+
+  .tradeoff-good {
+    margin-top: var(--spacing-3);
+    color: #22c55e;
+    font-weight: 600;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* QUICKSTART SECTION */
+  /* ═══════════════════════════════════════════════════════════════════ */
+  .quickstart {
+    padding: var(--spacing-16) var(--spacing-6);
+    background: var(--color-gray-100);
+  }
+
+  .quickstart h2 {
+    font-size: 2.5rem;
+    text-align: center;
+    margin: 0 0 var(--spacing-4) 0;
+    color: var(--color-text);
+  }
+
+  .quickstart-divider {
+    height: 4px;
+    width: 64px;
+    background: linear-gradient(90deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    margin: 0 auto var(--spacing-12) auto;
+    border-radius: 2px;
+  }
+
+  .quickstart-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--spacing-6);
+  }
+
+  .step {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    overflow: hidden;
+  }
+
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: var(--fraise-500);
+    color: white;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 1.25rem;
+    margin-bottom: var(--spacing-3);
+  }
+
+  .step h3 {
+    font-size: 1.25rem;
+    margin: 0 0 var(--spacing-3) 0;
+    color: var(--color-text);
+  }
+
+  .step pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-3);
+    overflow-x: auto;
+    margin: 0;
+  }
+
+  .step code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--color-text);
+    line-height: 1.5;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* PERFORMANCE SECTION */
+  /* ═══════════════════════════════════════════════════════════════════ */
+  .performance {
+    padding: var(--spacing-16) var(--spacing-6);
+    background: white;
+  }
+
+  .performance h2 {
+    font-size: 2.5rem;
+    text-align: center;
+    margin: 0 0 var(--spacing-4) 0;
+    color: var(--color-text);
+  }
+
+  .performance-divider {
+    height: 4px;
+    width: 64px;
+    background: linear-gradient(90deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    margin: 0 auto var(--spacing-12) auto;
+    border-radius: 2px;
+  }
+
+  .perf-disclaimer {
+    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-8);
+  }
+
+  .perf-disclaimer h3 {
+    text-align: center;
+    margin: 0 0 var(--spacing-6) 0;
+    color: var(--color-text);
+  }
+
+  .perf-scenarios {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--spacing-4);
+  }
+
+  .scenario {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+  }
+
+  .scenario h4 {
+    margin: 0 0 var(--spacing-2) 0;
+    color: var(--fraise-500);
+    font-weight: 600;
+  }
+
+  .scenario p {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .scenario.highlight {
+    border: 2px solid #22c55e;
+  }
+
+  .scenario.highlight h4 {
+    color: #22c55e;
+  }
+
+  .perf-table-wrapper {
+    overflow-x: auto;
+    margin-bottom: var(--spacing-8);
+  }
+
+  .perf-table {
+    width: 100%;
+    max-width: 100%;
+    background: white;
+    border-collapse: collapse;
+    box-shadow: var(--shadow-md);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .perf-table thead {
+    background: var(--color-gray-800);
+    color: white;
+  }
+
+  .perf-table th {
+    padding: var(--spacing-4) var(--spacing-6);
+    text-align: left;
+    font-weight: 600;
+  }
+
+  .perf-table td {
+    padding: var(--spacing-4) var(--spacing-6);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+  }
+
+  .perf-table tr.highlight {
+    background: #f0fdf4;
+  }
+
+  .perf-table tr.highlight td {
+    color: var(--color-text);
+    font-weight: 600;
+  }
+
+  .perf-table td strong {
+    color: var(--color-text);
+  }
+
+  .perf-table td small {
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+
+  .perf-table .slower {
+    color: #dc2626;
+    font-weight: 600;
+  }
+
+  .perf-note {
+    background: var(--color-surface);
+    border-left: 4px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* CTA SECTION */
+  /* ═══════════════════════════════════════════════════════════════════ */
+  .cta-final {
+    background: var(--color-surface);
+    padding: var(--spacing-16) var(--spacing-6);
+    text-align: center;
+  }
+
+  .cta-final h2 {
+    font-size: 2.5rem;
+    margin: 0 0 var(--spacing-8) 0;
+    color: var(--color-text);
+  }
+
+  .cta-buttons {
+    display: flex;
+    gap: var(--spacing-4);
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* RESPONSIVE */
+  /* ═══════════════════════════════════════════════════════════════════ */
+  @media (max-width: 768px) {
+    .hero-inner {
+      flex-direction: column;
+    }
+
+    .hero-title {
+      font-size: 2rem;
+    }
+
+    .hero-subtitle {
+      font-size: 1rem;
+    }
+
+    .hero-badges {
+      justify-content: flex-start;
+    }
+
+    .hero-ctas {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+
+    .features h2,
+    .quickstart h2,
+    .performance h2 {
+      font-size: 2rem;
+    }
+
+    .feature-card {
+      padding: var(--spacing-4);
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn-primary-large,
+    .btn-secondary-large {
+      width: 100%;
+    }
+  }
+</style>

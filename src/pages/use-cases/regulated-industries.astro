@@ -1,0 +1,580 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "Regulated Industries with FraiseQL";
+const description = "Healthcare, Finance, Compliance. Deterministic queries, audit trails, and SQL ownership for regulated data access.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="use-case-hero">
+    <div class="container">
+      <h1>Regulated Industries: Data Compliance by Design</h1>
+      <p>Every data access is an explicit SQL query. No hidden side effects. Full transparency for audits.</p>
+    </div>
+  </section>
+
+  <section class="use-case-content">
+    <div class="container">
+
+      <section class="challenge-section">
+        <h2>Compliance Challenges</h2>
+        <p>Regulated industries require:</p>
+        <ul class="challenge-list">
+          <li><strong>Audit trails</strong> - Every data access must be logged and explainable</li>
+          <li><strong>Deterministic behavior</strong> - No hidden queries or magical field loading</li>
+          <li><strong>Data lineage</strong> - Where did this data come from? How was it calculated?</li>
+          <li><strong>Encryption in motion</strong> - Data queries over secure channels</li>
+          <li><strong>Access control</strong> - Role-based access enforced at database level</li>
+          <li><strong>Immutable records</strong> - Audit logs that cannot be modified</li>
+        </ul>
+        <p><strong>The problem with traditional GraphQL:</strong> Field resolvers execute silently. You don't know what queries are running. Batching and caching obscure the actual data access patterns.</p>
+      </section>
+
+      <section class="solution-section">
+        <h2>FraiseQL for Compliance</h2>
+
+        <div class="solution-step">
+          <h3>1. SQL Views = Explicit Data Access</h3>
+          <p>Every data query is a readable SQL statement. Auditors can review the exact query.</p>
+          <pre><code set:html={`-- Healthcare: HIPAA-compliant patient view
+CREATE VIEW v_patient_record AS
+SELECT
+  jsonb_build_object(
+    'patient_id', p.id::text,
+    'ssn', CASE
+      WHEN current_setting('app.user_role') = 'admin' THEN p.ssn
+      ELSE '***-**-' || right(p.ssn, 4)
+    END,
+    'medical_history', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'date', m.visit_date,
+        'diagnosis', m.diagnosis,
+        'provider', m.provider_id::text
+      ))
+      FROM tb_medical_record m
+      WHERE m.patient_id = p.id
+    )
+  ) AS data
+FROM tb_patient p
+WHERE p.practice_id = current_setting('app.practice_id')::uuid;`}></code></pre>
+        </div>
+
+        <div class="solution-step">
+          <h3>2. Automatic Audit Logging</h3>
+          <p>Use PostgreSQL triggers to log every data access:</p>
+          <pre><code set:html={`-- Create immutable audit log
+CREATE TABLE tb_audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+  user_id UUID NOT NULL,
+  action TEXT NOT NULL,
+  query TEXT NOT NULL,
+  affected_records JSONB,
+  ip_address INET NOT NULL
+);
+
+-- Trigger on view access
+CREATE TRIGGER audit_patient_access
+  AFTER SELECT ON v_patient_record
+  FOR EACH ROW
+  EXECUTE FUNCTION log_patient_access(NEW.patient_id);
+
+-- Function to log
+CREATE OR REPLACE FUNCTION log_patient_access(patient_id UUID)
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO tb_audit_log (user_id, action, query, affected_records, ip_address)
+  VALUES (
+    current_setting('app.user_id')::UUID,
+    'view_patient',
+    current_query(),
+    jsonb_build_object('patient_id', patient_id),
+    inet_client_addr()
+  );
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;`}></code></pre>
+        </div>
+
+        <div class="solution-step">
+          <h3>3. Role-Based Access at Database Level</h3>
+          <pre><code set:html={`-- Finance: Account access by role
+CREATE VIEW v_account_transactions AS
+SELECT
+  jsonb_build_object(
+    'account_id', a.id::text,
+    'balance', CASE
+      WHEN current_setting('app.user_role') IN ('admin', 'account_owner') THEN a.balance
+      ELSE NULL
+    END,
+    'transactions', CASE
+      WHEN current_setting('app.user_role') IN ('admin', 'account_owner') THEN (
+        SELECT jsonb_agg(jsonb_build_object(
+          'id', t.id::text,
+          'date', t.created_at,
+          'amount', t.amount
+        ))
+        FROM tb_transaction t
+        WHERE t.account_id = a.id
+      )
+      ELSE '[]'::jsonb
+    END
+  ) AS data
+FROM tb_account a
+WHERE a.institution_id = current_setting('app.institution_id')::uuid;`}></code></pre>
+        </div>
+      </section>
+
+      <section class="example-section">
+        <h2>Real-World: Healthcare System</h2>
+
+        <div class="example-box">
+          <h3>HIPAA Compliance Scenario</h3>
+          <p>A nurse requests a patient's medical history. The system must:</p>
+          <ul>
+            <li>Verify the nurse has access to that patient's records</li>
+            <li>Log the access with timestamp, user ID, and IP</li>
+            <li>Return only the data the nurse is authorized to see</li>
+            <li>Create an immutable audit record</li>
+          </ul>
+
+          <h3>FraiseQL Approach:</h3>
+          <pre><code set:html={`-- Single view enforces all rules
+CREATE VIEW v_nurse_accessible_patients AS
+SELECT
+  p.id::text AS patient_id,
+  jsonb_build_object(
+    'patient_id', p.id::text,
+    'name', p.name,
+    'date_of_birth', p.dob,
+    'allergies', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'allergen', a.allergen,
+        'severity', a.severity
+      ))
+      FROM tb_allergy a
+      WHERE a.patient_id = p.id
+    ),
+    'current_medications', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'name', m.name,
+        'dosage', m.dosage,
+        'prescribed_by', m.provider_id::text
+      ))
+      FROM tb_medication m
+      WHERE m.patient_id = p.id
+        AND m.stop_date IS NULL
+    )
+  ) AS data
+FROM tb_patient p
+WHERE p.clinic_id = current_setting('app.clinic_id')::uuid
+  AND EXISTS (
+    -- Nurse only sees patients assigned to them
+    SELECT 1 FROM tb_patient_assignment
+    WHERE patient_id = p.id
+      AND provider_id = current_setting('app.user_id')::uuid
+  );`}></code></pre>
+
+          <p><strong>Automatic audit trail:</strong> Every SELECT on this view triggers a log entry.</p>
+        </div>
+      </section>
+
+      <section class="best-practices-section">
+        <h2>Best Practices for Regulated Industries</h2>
+
+        <div class="practice-box">
+          <h3>1. Immutable Audit Logs</h3>
+          <p>Use PostgreSQL's built-in features:</p>
+          <pre><code set:html={`-- Make audit table append-only
+ALTER TABLE tb_audit_log DISABLE TRIGGER ALL;
+-- User cannot modify audit logs
+REVOKE UPDATE, DELETE ON tb_audit_log FROM app_user;
+GRANT SELECT ON tb_audit_log TO app_user;`}></code></pre>
+        </div>
+
+        <div class="practice-box">
+          <h3>2. Encryption at Rest</h3>
+          <p>PostgreSQL Transparent Data Encryption (TDE) or column encryption:</p>
+          <pre><code set:html={`-- Encrypt sensitive columns
+CREATE TABLE tb_patient (
+  id UUID PRIMARY KEY,
+  ssn TEXT ENCRYPTED WITH (algorithm = 'aes-256'),
+  email TEXT ENCRYPTED WITH (algorithm = 'aes-256')
+);
+
+-- Only admins can decrypt
+ALTER TABLE tb_patient ENABLE ROW LEVEL SECURITY;
+CREATE POLICY admin_only ON tb_patient
+  USING (current_setting('app.user_role') = 'admin');`}></code></pre>
+        </div>
+
+        <div class="practice-box">
+          <h3>3. Data Retention Policies</h3>
+          <p>Enforce retention automatically:</p>
+          <pre><code set:html={`-- Archive old records
+CREATE FUNCTION archive_old_records()
+RETURNS void AS $$
+BEGIN
+  INSERT INTO tb_medical_history_archive
+  SELECT * FROM tb_medical_record
+  WHERE created_at < NOW() - INTERVAL '7 years';
+
+  DELETE FROM tb_medical_record
+  WHERE created_at < NOW() - INTERVAL '7 years';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Run daily
+SELECT cron.schedule('archive-medical-records', '0 2 * * *', 'SELECT archive_old_records()');`}></code></pre>
+        </div>
+      </section>
+
+      <section class="compliance-grid-section">
+        <h2>Compliance Mapping</h2>
+
+        <div class="compliance-grid">
+          <div class="compliance-card">
+            <h3>HIPAA</h3>
+            <p><strong>Audit logs</strong> - Every patient access logged</p>
+            <p><strong>Access control</strong> - View-level RBAC</p>
+            <p><strong>Data integrity</strong> - Triggers prevent direct table access</p>
+          </div>
+
+          <div class="compliance-card">
+            <h3>GDPR</h3>
+            <p><strong>Right to explanation</strong> - SQL queries are readable</p>
+            <p><strong>Data minimization</strong> - Views return only authorized fields</p>
+            <p><strong>Audit trail</strong> - Complete access history</p>
+          </div>
+
+          <div class="compliance-card">
+            <h3>SOC 2</h3>
+            <p><strong>Encryption in transit</strong> - Use TLS for connections</p>
+            <p><strong>Access controls</strong> - Database-level RBAC</p>
+            <p><strong>Monitoring</strong> - Audit log queries for anomalies</p>
+          </div>
+
+          <div class="compliance-card">
+            <h3>PCI DSS</h3>
+            <p><strong>Tokenization</strong> - Never store raw card data</p>
+            <p><strong>Encryption</strong> - Sensitive columns encrypted</p>
+            <p><strong>Audit trails</strong> - All access logged</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="resources-section">
+        <h2>Related Resources</h2>
+        <div class="resources-grid">
+          <div class="resource-box">
+            <h3>🔐 For Compliance Teams</h3>
+            <p>Understanding FraiseQL from an audit perspective.</p>
+            <a href="/for/compliance/" class="link">Read →</a>
+          </div>
+          <div class="resource-box">
+            <h3>🔑 Authorization Sprawl</h3>
+            <p>Consolidate authorization at the database level.</p>
+            <a href="/use-cases/authorization-sprawl/" class="link">Read →</a>
+          </div>
+          <div class="resource-box">
+            <h3>💻 SQL Ownership</h3>
+            <p>Own your queries, own your compliance story.</p>
+            <a href="/docs/concepts/how-it-works/" class="link">Read →</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-section">
+        <h2>Build Compliant Systems</h2>
+        <p>FraiseQL makes regulatory compliance part of your architecture, not an afterthought.</p>
+        <div class="cta-buttons">
+          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .use-case-hero {
+    background: linear-gradient(135deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    color: white;
+    padding: var(--spacing-16) var(--spacing-6);
+    text-align: center;
+  }
+
+  .use-case-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 var(--spacing-3) 0;
+    font-weight: 700;
+  }
+
+  .use-case-hero p {
+    font-size: 1.125rem;
+    opacity: 0.95;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-6);
+  }
+
+  .use-case-content {
+    padding: var(--spacing-16) var(--spacing-6);
+  }
+
+  .use-case-content section {
+    margin-bottom: var(--spacing-16);
+  }
+
+  .use-case-content h2 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-8);
+    color: var(--color-text);
+  }
+
+  .use-case-content h3 {
+    font-size: 1.25rem;
+    margin: var(--spacing-6) 0 var(--spacing-3) 0;
+    color: var(--color-text);
+  }
+
+  .use-case-content p {
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+    margin-bottom: var(--spacing-4);
+  }
+
+  .challenge-list {
+    color: var(--color-text-muted);
+    line-height: var(--leading-loose);
+    padding-left: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .challenge-list li {
+    margin-bottom: var(--spacing-3);
+  }
+
+  .solution-step {
+    background: var(--color-surface);
+    border-left: 4px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .solution-step p {
+    margin-bottom: var(--spacing-3);
+  }
+
+  .solution-step pre {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .solution-step code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .example-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .example-box h3 {
+    margin-top: 0;
+  }
+
+  .example-box ul {
+    list-style: none;
+    padding: 0;
+    margin: var(--spacing-3) 0;
+    padding-left: var(--spacing-4);
+  }
+
+  .example-box li {
+    padding: var(--spacing-2) 0;
+    color: var(--color-text-muted);
+  }
+
+  .example-box pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0;
+  }
+
+  .example-box code {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .practice-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .practice-box pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .practice-box code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .compliance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .compliance-card {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-left: 4px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .compliance-card h3 {
+    margin-top: 0;
+    color: var(--fraise-500);
+  }
+
+  .compliance-card p {
+    margin: var(--spacing-2) 0;
+    font-size: var(--text-sm);
+  }
+
+  .resources-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-6);
+  }
+
+  .resource-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .resource-box h3 {
+    margin-top: 0;
+  }
+
+  .link {
+    color: var(--fraise-500);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color var(--transition-fast);
+  }
+
+  .link:hover {
+    color: var(--fraise-700);
+    text-decoration: underline;
+  }
+
+  .cta-section {
+    background: var(--color-surface);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-12);
+    text-align: center;
+  }
+
+  .cta-section h2 {
+    margin-top: 0;
+  }
+
+  .cta-buttons {
+    display: flex;
+    gap: var(--spacing-4);
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: var(--spacing-6);
+  }
+
+  .btn {
+    display: inline-block;
+    padding: var(--spacing-3) var(--spacing-6);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    text-decoration: none;
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    border: none;
+    font-size: var(--text-base);
+  }
+
+  .btn-primary {
+    background: var(--fraise-500);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: var(--fraise-600);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--fraise-500);
+    border: 2px solid var(--fraise-500);
+  }
+
+  .btn-secondary:hover {
+    background: var(--fraise-50);
+  }
+
+  @media (max-width: 768px) {
+    .use-case-hero h1 {
+      font-size: 2rem;
+    }
+
+    .use-case-content h2 {
+      font-size: 1.5rem;
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+  }
+</style>

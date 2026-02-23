@@ -1,0 +1,522 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "FraiseQL for Compliance & Security";
+const description = "Data security by design. Audit-ready architecture. Compliance-first patterns. Transparent data access.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="audience-hero">
+    <div class="container">
+      <h1>For Compliance & Security</h1>
+      <p>Security and audit built into the architecture</p>
+    </div>
+  </section>
+
+  <section class="audience-content">
+    <div class="container">
+
+      <section class="intro-section">
+        <h2>Your Challenge</h2>
+        <p>In regulated industries, you need to know exactly what data goes where:</p>
+        <ul class="challenge-list">
+          <li>Which data is accessed by which endpoints?</li>
+          <li>Who accessed what data and when?</li>
+          <li>Are there hidden queries that bypass authorization?</li>
+          <li>Can you prove data wasn't accessed by unauthorized users?</li>
+          <li>How do you audit data lineage and dependencies?</li>
+        </ul>
+        <p>Most APIs have hidden data flows you can't audit. FraiseQL makes everything visible.</p>
+      </section>
+
+      <section class="security-section">
+        <h2>Security by Architecture</h2>
+
+        <div class="security-card">
+          <h3>✅ Single Source of Truth: Views</h3>
+          <p>All data access goes through defined views:</p>
+          <pre><code set:html={`Benefit:
+  - One place to enforce access control
+  - Easy to audit: "which data does this view access?"
+  - Row-level security: Built into the view
+  - Transparent: Anyone can read the SQL
+
+CREATE VIEW v_user_for_tenant AS
+SELECT * FROM tb_user
+WHERE tenant_id = current_tenant_id;
+
+No hidden queries. No bypasses. Just SQL.`}></code></pre>
+        </div>
+
+        <div class="security-card">
+          <h3>✅ Row-Level Security (RLS)</h3>
+          <p>Implement security at the database level:</p>
+          <pre><code set:html={`-- PostgreSQL RLS Example
+ALTER TABLE tb_user ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON tb_user
+  USING (tenant_id = current_tenant_id);
+
+Result:
+  ✅ No query can read data from other tenants
+  ✅ Security enforced at DB level (not app)
+  ✅ Impossible to bypass from application
+  ✅ Auditable: All access logged by database`}></code></pre>
+        </div>
+
+        <div class="security-card">
+          <h3>✅ Data Encryption</h3>
+          <p>FraiseQL works seamlessly with encryption:</p>
+          <ul class="encryption-list">
+            <li>✅ Transparent Data Encryption (TDE) - at database level</li>
+            <li>✅ Encryption at rest - managed by database</li>
+            <li>✅ Encryption in transit - standard HTTPS + TLS</li>
+            <li>✅ Field-level encryption - in application or view</li>
+          </ul>
+        </div>
+
+        <div class="security-card">
+          <h3>✅ No Hidden Queries</h3>
+          <p>Every query is explicit and auditable:</p>
+          <pre><code set:html={`Traditional GraphQL:
+  @resolver
+  def user(parent):
+    # Hidden query: db.find("SELECT * FROM users ...")
+    return db.find_user_posts(parent.id)  # Another hidden query!
+    # What other queries might be triggered?
+
+FraiseQL:
+  @fraiseql.query(sql_source="v_user")
+  def user(id: UUID) -> User:
+    # Compiled to a SQL template at build time
+    # Rust executes it — no runtime query construction
+    pass
+
+No hidden queries. Auditors see exactly what runs.`}></code></pre>
+        </div>
+
+      </section>
+
+      <section class="audit-section">
+        <h2>Audit & Logging</h2>
+
+        <div class="audit-card">
+          <h3>Query Audit Trail</h3>
+          <p>Every query is traceable to its view:</p>
+          <pre><code set:html={`Database logs (enable query logging):
+  - Which view was accessed (e.g., v_user_sensitive)
+  - Who accessed it (authenticated user)
+  - When it was accessed (timestamp)
+  - From which application (connection info)
+
+Log every access automatically. No app-level logging needed.
+Database is the source of truth for who accessed what.`}></code></pre>
+        </div>
+
+        <div class="audit-card">
+          <h3>Data Lineage</h3>
+          <p>Easy to trace where data comes from:</p>
+          <pre><code set:html={`GraphQL Query Request
+    ↓
+  Application logs: which resolver called
+    ↓
+  View: v_user_with_posts (explicitly named)
+    ↓
+  SQL View Definition: shows exact tables/joins
+    ↓
+  Tables: tb_user, tb_post (source tables)
+
+Auditors can trace: "This data came from these tables, via this view."
+No mystery. All transparent.`}></code></pre>
+        </div>
+
+        <div class="audit-card">
+          <h3>Change Audit</h3>
+          <p>Track all changes to views and schemas:</p>
+          <pre><code set:html={`Git + Code Review:
+  ✅ Every view change is in version control
+  ✅ Every change has commit history
+  ✅ Every change was reviewed (PR)
+  ✅ Every change is auditable
+
+Deploy:
+  ✅ fraiseql build validates schema
+  ✅ Deployment logs what changed
+  ✅ Rollback is clean and traceable
+
+Result: Complete audit trail of all data access changes.`}></code></pre>
+        </div>
+
+      </section>
+
+      <section class="compliance-section">
+        <h2>Compliance Frameworks</h2>
+
+        <div class="compliance-card">
+          <h3>GDPR Compliance</h3>
+          <p>FraiseQL architecture supports GDPR requirements:</p>
+          <ul class="gdpr-list">
+            <li>✅ <strong>Data Subject Access (DSA):</strong> Query specific user's data (filtered view)</li>
+            <li>✅ <strong>Right to Erasure:</strong> Delete specific rows, views reflect immediately</li>
+            <li>✅ <strong>Data Portability:</strong> Export via view (structured, auditable)</li>
+            <li>✅ <strong>Audit Logging:</strong> All access logged at DB level</li>
+          </ul>
+        </div>
+
+        <div class="compliance-card">
+          <h3>HIPAA Compliance</h3>
+          <p>Healthcare data requires strict access controls:</p>
+          <ul class="hipaa-list">
+            <li>✅ <strong>Encryption at rest:</strong> Database TDE</li>
+            <li>✅ <strong>Encryption in transit:</strong> HTTPS + TLS</li>
+            <li>✅ <strong>Access controls:</strong> Views enforce RLS</li>
+            <li>✅ <strong>Audit logging:</strong> Every access logged</li>
+            <li>✅ <strong>Data integrity:</strong> Database constraints</li>
+          </ul>
+        </div>
+
+        <div class="compliance-card">
+          <h3>SOC 2 Compliance</h3>
+          <p>System organization control requirements:</p>
+          <ul class="soc2-list">
+            <li>✅ <strong>CC6 (Logical Access):</strong> Views define access</li>
+            <li>✅ <strong>CC7 (System Monitoring):</strong> Database logging</li>
+            <li>✅ <strong>A1 (Control):</strong> Architecture is control</li>
+            <li>✅ <strong>C1 (Confidentiality):</strong> Encryption built-in</li>
+          </ul>
+        </div>
+
+        <div class="compliance-card">
+          <h3>PCI-DSS Compliance</h3>
+          <p>Payment card data protection:</p>
+          <ul class="pci-list">
+            <li>✅ <strong>Encryption:</strong> TDE + field encryption</li>
+            <li>✅ <strong>Access Control:</strong> Views + RLS</li>
+            <li>✅ <strong>Audit Trails:</strong> Database logging</li>
+            <li>✅ <strong>Vulnerability Management:</strong> No hidden queries</li>
+          </ul>
+        </div>
+
+      </section>
+
+      <section class="threat-section">
+        <h2>Threat Mitigation</h2>
+
+        <div class="threat-card">
+          <h3>SQL Injection</h3>
+          <p><strong>Traditional Risk:</strong> Dynamic SQL in resolvers can be vulnerable</p>
+          <p><strong>FraiseQL Approach:</strong> Views are static SQL, parameterized queries</p>
+          <pre><code set:html={`-- View is static SQL (no user input)
+CREATE VIEW v_user AS
+SELECT * FROM tb_user WHERE id = $1;
+
+-- Compiled SQL template uses $1 placeholder
+-- Rust runtime binds user_id at execution time
+
+Result: SQL injection impossible.`}></code></pre>
+        </div>
+
+        <div class="threat-card">
+          <h3>Unauthorized Data Access</h3>
+          <p><strong>Traditional Risk:</strong> Resolver can bypass authorization</p>
+          <p><strong>FraiseQL Approach:</strong> Authorization built into view</p>
+          <pre><code set:html={`-- View enforces authorization
+CREATE VIEW v_user_data AS
+SELECT * FROM tb_user
+WHERE id IN (
+  SELECT authorized_users
+  FROM tb_permissions
+  WHERE user_id = current_user_id
+);
+
+-- No way to access unauthorized data
+-- Even if app logic fails, DB prevents it`}></code></pre>
+        </div>
+
+        <div class="threat-card">
+          <h3>Information Disclosure</h3>
+          <p><strong>Traditional Risk:</strong> Resolver returns too much data</p>
+          <p><strong>FraiseQL Approach:</strong> Views define exactly what data is returned</p>
+          <pre><code set:html={`-- Public view (limited fields)
+CREATE VIEW v_user_public AS
+SELECT id, name FROM tb_user;
+
+-- Internal view (all fields)
+CREATE VIEW v_user_internal AS
+SELECT * FROM tb_user;
+
+-- No accidental data leakage
+-- Auditor can verify what's returned`}></code></pre>
+        </div>
+
+        <div class="threat-card">
+          <h3>Privilege Escalation</h3>
+          <p><strong>Traditional Risk:</strong> Resolver uses wrong credentials</p>
+          <p><strong>FraiseQL Approach:</strong> Database connection uses service account</p>
+          <pre><code set:html={`-- Application runs as limited service account
+database_connection:
+  user: fraiseql_app (limited permissions)
+  password: *** (rotated regularly)
+
+-- Service account can only access defined views
+-- Cannot access raw tables
+-- Cannot escalate privileges
+
+Result: Even if app is compromised, damage is limited.`}></code></pre>
+        </div>
+
+      </section>
+
+      <section class="incident-section">
+        <h2>Incident Response</h2>
+
+        <div class="incident-card">
+          <h3>Breach Investigation</h3>
+          <p>When a breach is suspected, you can answer quickly:</p>
+          <ol class="investigation-steps">
+            <li><strong>What data was accessed?</strong> - Check which views were queried (view logs)</li>
+            <li><strong>Who accessed it?</strong> - Database logs show authenticated user</li>
+            <li><strong>When was it accessed?</strong> - Timestamp in logs</li>
+            <li><strong>How was it accessed?</strong> - Which endpoint / query</li>
+            <li><strong>Was authorization bypassed?</strong> - Check RLS policies (enforced at DB level)</li>
+          </ol>
+          <p class="impact"><strong>Result:</strong> Answer in minutes, not days. Architecture is self-documenting.</p>
+        </div>
+
+        <div class="incident-card">
+          <h3>Rapid Remediation</h3>
+          <p>Fix security issues quickly:</p>
+          <pre><code set:html={`If a view exposes too much data:
+1. Update the view (SQL change)
+2. Run fraiseql build (validate)
+3. Deploy (atomic)
+4. Breached data no longer accessible
+5. All future access denied
+
+No resolver code changes needed.
+No cache to clear.
+No complex rollback.`}></code></pre>
+        </div>
+
+      </section>
+
+      <section class="documentation-section">
+        <h2>Compliance Documentation</h2>
+
+        <div class="documentation-card">
+          <h3>Data Flow Documentation</h3>
+          <p>Automatically generate compliance documentation:</p>
+          <ul class="doc-list">
+            <li>✅ System Architecture Diagram (views show data flow)</li>
+            <li>✅ Data Classification (which data in which view)</li>
+            <li>✅ Access Control Matrix (who can access what)</li>
+            <li>✅ Encryption Inventory (where encryption is applied)</li>
+            <li>✅ Audit Logging Configuration (what's logged)</li>
+          </ul>
+        </div>
+
+        <div class="documentation-card">
+          <h3>Audit Report Generation</h3>
+          <p>Views make it easy to generate compliance reports:</p>
+          <pre><code set:html={`SELECT
+  view_name,
+  accessed_by,
+  access_time,
+  data_accessed
+FROM audit_logs
+WHERE access_time BETWEEN start_date AND end_date
+ORDER BY access_time;
+
+Single query. Complete audit trail.
+Export for compliance officer.`}></code></pre>
+        </div>
+
+      </section>
+
+      <section class="certification-section">
+        <h2>Ready for Certification</h2>
+        <div class="cta-buttons">
+          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/trade-offs/" class="btn btn-secondary">Learn More</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .audience-hero {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4rem 2rem;
+    text-align: center;
+  }
+
+  .audience-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 1rem 0;
+    font-weight: 700;
+  }
+
+  .audience-hero p {
+    font-size: 1.125rem;
+    opacity: 0.9;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+
+  .audience-content {
+    padding: 4rem 2rem;
+  }
+
+  .audience-content section {
+    margin-bottom: 4rem;
+  }
+
+  .audience-content h2 {
+    font-size: 2rem;
+    margin-bottom: 2rem;
+    color: #1a202c;
+  }
+
+  .audience-content h3 {
+    color: #1a202c;
+    margin-top: 0;
+  }
+
+  .audience-content p {
+    color: #4a5568;
+    line-height: 1.8;
+    margin-bottom: 1rem;
+  }
+
+  /* Lists */
+  .challenge-list,
+  .encryption-list,
+  .gdpr-list,
+  .hipaa-list,
+  .soc2-list,
+  .pci-list,
+  .doc-list,
+  .investigation-steps {
+    color: #4a5568;
+    line-height: 2;
+    padding-left: 2rem;
+  }
+
+  .challenge-list li,
+  .encryption-list li,
+  .gdpr-list li,
+  .hipaa-list li,
+  .soc2-list li,
+  .pci-list li,
+  .doc-list li,
+  .investigation-steps li {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Cards */
+  .security-card,
+  .audit-card,
+  .compliance-card,
+  .threat-card,
+  .incident-card,
+  .documentation-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .security-card pre,
+  .audit-card pre,
+  .threat-card pre,
+  .incident-card pre,
+  .documentation-card pre {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    margin: 1rem 0 0 0;
+  }
+
+  .security-card code,
+  .audit-card code,
+  .threat-card code,
+  .incident-card code,
+  .documentation-card code {
+    font-family: 'Courier New', monospace;
+    color: #2d3748;
+    line-height: 1.4;
+  }
+
+  .impact {
+    background: #edf2f7;
+    padding: 1rem;
+    border-left: 4px solid #667eea;
+    border-radius: 0.375rem;
+    font-size: 0.95rem;
+    margin: 1rem 0 0 0;
+  }
+
+  /* CTA */
+  .cta-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    padding: 1rem 2rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s ease;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: #667eea;
+    border: 2px solid #667eea;
+  }
+
+  .btn-secondary:hover {
+    background: #f7fafc;
+  }
+
+  @media (max-width: 768px) {
+    .audience-hero h1 {
+      font-size: 2rem;
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+  }
+</style>

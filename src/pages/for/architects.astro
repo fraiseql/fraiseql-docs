@@ -1,0 +1,634 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "FraiseQL for Architects";
+const description = "Clean system design. Database-first architecture. Clear separation of concerns. Scalable patterns.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="audience-hero">
+    <div class="container">
+      <h1>For Architects</h1>
+      <p>Design systems with confidence</p>
+    </div>
+  </section>
+
+  <section class="audience-content">
+    <div class="container">
+
+      <section class="intro-section">
+        <h2>Your Challenge</h2>
+        <p>Building scalable systems requires clean architecture. Most GraphQL frameworks compromise on fundamentals:</p>
+        <ul class="challenge-list">
+          <li>Resolvers blur the line between business logic and data access</li>
+          <li>N+1 queries are a surprise (happens at scale)</li>
+          <li>Caching logic spreads across application code</li>
+          <li>No clear separation between queries and mutations</li>
+          <li>Difficult to reason about data flow and dependencies</li>
+        </ul>
+        <p>You end up with tangled systems that are hard to scale and maintain.</p>
+      </section>
+
+      <section class="architecture-section">
+        <h2>Database-First Architecture</h2>
+
+        <div class="architecture-card">
+          <h3>Clear Separation of Concerns</h3>
+          <p>FraiseQL enforces architectural boundaries:</p>
+          <pre><code set:html={`┌─────────────────────────────────────┐
+│  API Layer (schema.json → Rust)     │
+│  - Routing &amp; serialization          │
+│  - Authentication                   │
+│  - Query compilation                │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│  Read Layer (SQL Views, v_*)        │
+│  - Data composition                 │
+│  - Relationships                    │
+│  - Joins (one query, always)        │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│  Write Layer (SQL Functions, fn_*)  │
+│  - Business logic                   │
+│  - Validation &amp; constraints         │
+│  - Side effects &amp; triggers          │
+└─────────────────────────────────────┘
+
+Business logic lives in the database, not the API.`}></code></pre>
+          <p class="impact">Result: System is predictable, testable, scalable</p>
+        </div>
+
+        <div class="architecture-card">
+          <h3>CQRS at Architecture Level</h3>
+          <p>Queries and Mutations are fundamentally different:</p>
+          <table class="cqrs-table">
+            <thead>
+              <tr>
+                <th>Aspect</th>
+                <th>Queries (Reads)</th>
+                <th>Mutations (Writes)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Pattern</strong></td>
+                <td>Read from pre-composed views</td>
+                <td>Write to base tables</td>
+              </tr>
+              <tr>
+                <td><strong>Consistency</strong></td>
+                <td>Eventually consistent (fine for reads)</td>
+                <td>Strongly consistent (critical for writes)</td>
+              </tr>
+              <tr>
+                <td><strong>Scaling</strong></td>
+                <td>Read replicas (unlimited scale)</td>
+                <td>Single writer + replicas (write bottleneck)</td>
+              </tr>
+              <tr>
+                <td><strong>Optimization</strong></td>
+                <td>Views + indexes</td>
+                <td>Constraints + triggers</td>
+              </tr>
+              <tr>
+                <td><strong>Caching</strong></td>
+                <td>Cache entire view (safe)</td>
+                <td>Careful invalidation (risky)</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="impact">Treating them separately enables better architecture</p>
+        </div>
+
+      </section>
+
+      <section class="design-patterns">
+        <h2>Design Patterns Enabled by FraiseQL</h2>
+
+        <div class="pattern-card">
+          <h3>Pattern 1: Event Sourcing Compatible</h3>
+          <p>Views naturally work with event-driven architecture:</p>
+          <pre><code set:html={`Events (immutable log)
+    ↓
+State (computed from events)
+    ↓
+Views (composed from state)
+    ↓
+GraphQL queries (read from views)
+
+This is the CQRS pattern:
+- Command side: Write events
+- Query side: Read from views`}></code></pre>
+        </div>
+
+        <div class="pattern-card">
+          <h3>Pattern 2: Multi-Tenant Architecture</h3>
+          <p>Views make multi-tenancy clean:</p>
+          <pre><code set:html={`CREATE VIEW v_user_for_tenant AS
+SELECT ...
+FROM tb_user
+WHERE tenant_id = current_tenant_id;
+
+Each tenant gets their own view (or filtered).
+No special logic in application.
+Data isolation at database level.`}></code></pre>
+        </div>
+
+        <div class="pattern-card">
+          <h3>Pattern 3: API Versioning</h3>
+          <p>Different GraphQL versions, same database:</p>
+          <pre><code set:html={`v1.0: Use v_user (old schema)
+v1.1: Use v_user + new fields (backward compatible)
+v2.0: Use v_user_v2 (new schema, backward incompatible)
+
+Old clients use old views.
+New clients use new views.
+Database handles both. Database is source of truth.`}></code></pre>
+        </div>
+
+        <div class="pattern-card">
+          <h3>Pattern 4: Read Model Generation</h3>
+          <p>Generate reporting APIs without touching OLTP:</p>
+          <pre><code set:html={`OLTP Database (production transactional DB)
+    ↓
+ETL / Replication
+    ↓
+Reporting DB (or data warehouse)
+    ↓
+FraiseQL Views (for reporting API)
+    ↓
+GraphQL Reporting API
+
+Separate read model, no OLTP impact.`}></code></pre>
+        </div>
+
+      </section>
+
+      <section class="scaling-section">
+        <h2>Scaling Architecture</h2>
+
+        <div class="scaling-card">
+          <h3>Horizontal Scaling</h3>
+          <p>Application is stateless, scales horizontally:</p>
+          <pre><code set:html={`Request Load Balancer
+  ├─ App 1
+  ├─ App 2
+  ├─ App 3
+  └─ App N
+       ↓
+   Database
+
+Any app can handle any request.
+No shared state between apps.
+Add/remove apps at will.`}></code></pre>
+        </div>
+
+        <div class="scaling-card">
+          <h3>Read Scaling (Replicas)</h3>
+          <p>Reads scale independently from writes:</p>
+          <pre><code set:html={`Primary Database (writes)
+    ↓
+Read Replica 1 (reads)
+Read Replica 2 (reads)
+Read Replica 3 (reads)
+
+Views work on replicas.
+Queries automatically distributed.
+Writes go to primary.`}></code></pre>
+        </div>
+
+        <div class="scaling-card">
+          <h3>Vertical Scaling (Database)</h3>
+          <p>When database becomes bottleneck, you know it:</p>
+          <ul class="scaling-list">
+            <li>✅ Add more memory (cache queries)</li>
+            <li>✅ Add more CPU (parallel execution)</li>
+            <li>✅ Add better storage (SSD optimization)</li>
+            <li>✅ Add indexes (query optimization)</li>
+          </ul>
+          <p>No guessing. Database metrics tell you exactly what to do.</p>
+        </div>
+
+        <div class="scaling-card">
+          <h3>Data Tier Scaling</h3>
+          <p>Database itself can scale:</p>
+          <ul class="data-scaling">
+            <li>Read replicas (geographic distribution)</li>
+            <li>Connection pooling (efficient connections)</li>
+            <li>Sharding (if needed, but views hide complexity)</li>
+            <li>Materialized views (pre-compute heavy aggregations)</li>
+          </ul>
+        </div>
+
+      </section>
+
+      <section class="reliability-section">
+        <h2>Reliability & Resilience</h2>
+
+        <div class="reliability-card">
+          <h3>Fail-Safe Defaults</h3>
+          <p>FraiseQL architecture prevents common failure modes:</p>
+          <table class="failure-modes">
+            <thead>
+              <tr>
+                <th>Failure Mode</th>
+                <th>Traditional</th>
+                <th>FraiseQL</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Cache stampede</strong></td>
+                <td>Many queries simultaneously</td>
+                <td>Stateless app, no cache state</td>
+              </tr>
+              <tr>
+                <td><strong>Resolver cascade</strong></td>
+                <td>One slow resolver blocks others</td>
+                <td>One query, no blocking</td>
+              </tr>
+              <tr>
+                <td><strong>Connection leak</strong></td>
+                <td>ORM + resolver complexity</td>
+                <td>Standard DB connections</td>
+              </tr>
+              <tr>
+                <td><strong>N+1 explosion</strong></td>
+                <td>Database overload (surprise)</td>
+                <td>Caught at compile time</td>
+              </tr>
+              <tr>
+                <td><strong>Stale data</strong></td>
+                <td>Cache invalidation bugs</td>
+                <td>Views always reflect current state</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="reliability-card">
+          <h3>Circuit Breaker Pattern</h3>
+          <p>Implement at application level (not inside framework):</p>
+          <pre><code set:html={`@fraiseql.query(sql_source="v_expensive")
+def expensive() -> list[Data]:
+  pass  # Backed by v_expensive view`}></code></pre>
+        </div>
+
+      </section>
+
+      <section class="integration-section">
+        <h2>Integration Patterns</h2>
+
+        <div class="integration-card">
+          <h3>Microservices</h3>
+          <p>Each service has its own database and GraphQL API:</p>
+          <pre><code set:html={`User Service      Order Service     Product Service
+    ↓                  ↓                  ↓
+v_user           v_order              v_product
+    ↓                  ↓                  ↓
+GraphQL API      GraphQL API          GraphQL API
+
+Federation / Apollo can compose across services.
+Each service owns its data and views.`}></code></pre>
+        </div>
+
+        <div class="integration-card">
+          <h3>API Gateway</h3>
+          <p>Use standard API gateway in front:</p>
+          <ul class="integration-list">
+            <li>✅ Rate limiting (at gateway)</li>
+            <li>✅ Authentication (at gateway)</li>
+            <li>✅ Request transformation (at gateway)</li>
+            <li>✅ GraphQL queries (reach your FraiseQL API)</li>
+          </ul>
+        </div>
+
+        <div class="integration-card">
+          <h3>Data Warehouse Integration</h3>
+          <p>Two databases, different purposes:</p>
+          <pre><code set:html={`OLTP DB (production, FraiseQL)
+  ↓
+ETL / Stream
+  ↓
+Data Warehouse (analytics, big queries)
+  ↓
+BI Tools, Dashboards
+
+FraiseQL handles operational queries (fast, small).
+Data warehouse handles analytical queries (slow, big).`}></code></pre>
+        </div>
+
+      </section>
+
+      <section class="tradeoff-section">
+        <h2>Architectural Trade-Offs</h2>
+
+        <div class="tradeoff-card">
+          <h3>Storage vs Compute</h3>
+          <p><strong>FraiseQL trades storage for compute simplicity:</strong></p>
+          <ul class="tradeoff-list">
+            <li>✅ Denormalized JSONB in views (2-4x storage)</li>
+            <li>✅ One query per request (1x compute)</li>
+            <li>✅ No resolvers (0 app logic complexity)</li>
+            <li>❌ Storage cost higher than normalized schema</li>
+          </ul>
+          <p>Modern storage is cheap. Complexity is expensive. This is the right trade-off.</p>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>Flexibility vs Predictability</h3>
+          <p><strong>FraiseQL chooses predictability:</strong></p>
+          <ul class="tradeoff-list">
+            <li>✅ Every query is compiled and validated</li>
+            <li>✅ Performance is predictable</li>
+            <li>✅ No runtime interpretation</li>
+            <li>❌ Cannot generate ad-hoc queries at runtime</li>
+          </ul>
+          <p>For production APIs, predictability > flexibility.</p>
+        </div>
+
+      </section>
+
+      <section class="metrics-section">
+        <h2>Architectural Metrics</h2>
+
+        <div class="metrics-card">
+          <h3>What Improves with FraiseQL</h3>
+          <table class="metrics-table">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Typical Gain</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Query complexity (cyclomatic)</td>
+                <td>↓ 60-70%</td>
+              </tr>
+              <tr>
+                <td>Number of resolvers</td>
+                <td>↓ 80%</td>
+              </tr>
+              <tr>
+                <td>Database queries per request</td>
+                <td>↓ 95%</td>
+              </tr>
+              <tr>
+                <td>Request latency (p99)</td>
+                <td>↓ 70-80%</td>
+              </tr>
+              <tr>
+                <td>Operational complexity</td>
+                <td>↓ 50%</td>
+              </tr>
+              <tr>
+                <td>Onboarding time for new developers</td>
+                <td>↓ 40%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="next-section">
+        <h2>Design with Confidence</h2>
+        <div class="cta-buttons">
+          <a href="/docs/concepts/how-it-works/" class="btn btn-primary">Philosophy</a>
+          <a href="/how-it-works/" class="btn btn-secondary">Architecture</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .audience-hero {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4rem 2rem;
+    text-align: center;
+  }
+
+  .audience-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 1rem 0;
+    font-weight: 700;
+  }
+
+  .audience-hero p {
+    font-size: 1.125rem;
+    opacity: 0.9;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+
+  .audience-content {
+    padding: 4rem 2rem;
+  }
+
+  .audience-content section {
+    margin-bottom: 4rem;
+  }
+
+  .audience-content h2 {
+    font-size: 2rem;
+    margin-bottom: 2rem;
+    color: #1a202c;
+  }
+
+  .audience-content h3 {
+    color: #1a202c;
+    margin-top: 0;
+  }
+
+  .audience-content p {
+    color: #4a5568;
+    line-height: 1.8;
+    margin-bottom: 1rem;
+  }
+
+  /* Lists */
+  .challenge-list,
+  .scaling-list,
+  .data-scaling,
+  .integration-list,
+  .tradeoff-list {
+    color: #4a5568;
+    line-height: 2;
+    padding-left: 2rem;
+  }
+
+  .challenge-list li,
+  .scaling-list li,
+  .data-scaling li,
+  .integration-list li,
+  .tradeoff-list li {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Cards */
+  .architecture-card,
+  .pattern-card,
+  .scaling-card,
+  .reliability-card,
+  .integration-card,
+  .tradeoff-card,
+  .metrics-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .architecture-card pre,
+  .pattern-card pre,
+  .scaling-card pre,
+  .reliability-card pre,
+  .integration-card pre {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    margin: 1rem 0 0 0;
+  }
+
+  .architecture-card code,
+  .pattern-card code,
+  .scaling-card code,
+  .reliability-card code,
+  .integration-card code {
+    font-family: 'Courier New', monospace;
+    color: #2d3748;
+    line-height: 1.4;
+  }
+
+  .impact {
+    background: #edf2f7;
+    padding: 1rem;
+    border-left: 4px solid #667eea;
+    border-radius: 0.375rem;
+    font-size: 0.95rem;
+    margin: 1rem 0 0 0;
+  }
+
+  /* Tables */
+  .cqrs-table,
+  .failure-modes,
+  .metrics-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .cqrs-table thead,
+  .failure-modes thead,
+  .metrics-table thead {
+    background: #f7fafc;
+  }
+
+  .cqrs-table th,
+  .failure-modes th,
+  .metrics-table th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 700;
+    color: #1a202c;
+    border-bottom: 2px solid #e2e8f0;
+  }
+
+  .cqrs-table td,
+  .failure-modes td,
+  .metrics-table td {
+    padding: 1rem;
+    color: #4a5568;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .cqrs-table tbody tr:last-child td,
+  .failure-modes tbody tr:last-child td,
+  .metrics-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* CTA */
+  .cta-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    padding: 1rem 2rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s ease;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: #667eea;
+    border: 2px solid #667eea;
+  }
+
+  .btn-secondary:hover {
+    background: #f7fafc;
+  }
+
+  @media (max-width: 768px) {
+    .audience-hero h1 {
+      font-size: 2rem;
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+
+    .cqrs-table,
+    .failure-modes,
+    .metrics-table {
+      font-size: 0.9rem;
+    }
+
+    .cqrs-table th,
+    .failure-modes th,
+    .metrics-table th,
+    .cqrs-table td,
+    .failure-modes td,
+    .metrics-table td {
+      padding: 0.75rem;
+    }
+  }
+</style>

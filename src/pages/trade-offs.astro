@@ -1,0 +1,480 @@
+---
+import MarketingLayout from "../components/marketing/MarketingLayout.astro";
+
+const title = "Trade-Offs: When NOT to Use FraiseQL";
+const description = "Honest assessment of FraiseQL's limitations and when alternative approaches might be better.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="tradeoffs-hero">
+    <div class="container">
+      <h1>Trade-Offs</h1>
+      <p>When FraiseQL might not be the right choice</p>
+    </div>
+  </section>
+
+  <section class="tradeoffs-content">
+    <div class="container">
+
+      <section class="intro-section">
+        <h2>We're Honest About Trade-Offs</h2>
+        <p>FraiseQL is great at specific problems. But it's not a silver bullet. Here's where it has limitations:</p>
+      </section>
+
+      <section class="tradeoff-group">
+        <h2>1. Rapid Schema Evolution</h2>
+
+        <div class="tradeoff-card">
+          <h3>The Problem</h3>
+          <p>FraiseQL compiles views at deploy time. If you're rapidly changing your schema multiple times per day, you'll need to redeploy for each change.</p>
+          <p><strong>This means:</strong> Deploy cycle for every schema change. Not great for early-stage startups doing rapid experimentation.</p>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>Better Alternatives</h3>
+          <ul class="alt-list">
+            <li><strong>Hasura</strong> - Schema inference from database (changes reflected immediately)</li>
+            <li><strong>PostGraphile</strong> - Auto-generates schema from database structure</li>
+            <li><strong>Apollo with resolvers</strong> - Runtime flexibility, no recompilation needed</li>
+          </ul>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>When FraiseQL Still Works</h3>
+          <ul class="good-list">
+            <li>You've stabilized your schema (post-MVP)</li>
+            <li>Schema changes are planned and infrequent</li>
+            <li>Your deployment pipeline is automated</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="tradeoff-group">
+        <h2>2. Flexible, Ad-Hoc Queries</h2>
+
+        <div class="tradeoff-card">
+          <h3>The Problem</h3>
+          <p>FraiseQL views are pre-defined. Each view is a specific query composition.</p>
+          <p>If you need completely flexible, user-defined queries (like building a reporting tool), FraiseQL requires a view for each possible query combination.</p>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>Better Alternatives</h3>
+          <ul class="alt-list">
+            <li><strong>Metabase/Superset</strong> - Ad-hoc query builders with caching</li>
+            <li><strong>Cube.js</strong> - Semantic layer for analytics</li>
+            <li><strong>Traditional GraphQL</strong> - Field resolvers provide flexibility</li>
+            <li><strong>REST API</strong> - Simple, flexible for reporting</li>
+          </ul>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>When FraiseQL Still Works</h3>
+          <ul class="good-list">
+            <li>You know the queries developers need (dashboards, reports, etc.)</li>
+            <li>You can predict data composition patterns</li>
+            <li>You have a finite set of common queries</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="tradeoff-group">
+        <h2>3. Complex Runtime Logic</h2>
+
+        <div class="tradeoff-card">
+          <h3>The Problem</h3>
+          <p>FraiseQL moves logic to the database (SQL views). This works great for data composition.</p>
+          <p>But if you need complex application logic (business rules, integrations, workflows), FraiseQL keeps that in resolvers—which then defeats the "no N+1" advantage if those resolvers fetch additional data.</p>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>Better Alternatives</h3>
+          <ul class="alt-list">
+            <li><strong>Traditional GraphQL</strong> - Resolvers give you full control over logic</li>
+            <li><strong>REST API</strong> - Better for complex business logic workflows</li>
+            <li><strong>gRPC</strong> - Type-safe, efficient for complex services</li>
+          </ul>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>When FraiseQL Still Works</h3>
+          <ul class="good-list">
+            <li>Most of your logic is data composition (not business logic)</li>
+            <li>You can push logic to the database layer</li>
+            <li>You don't need external service integrations in resolvers</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="tradeoff-group">
+        <h2>4. Prototype/MVP Speed</h2>
+
+        <div class="tradeoff-card">
+          <h3>The Problem</h3>
+          <p>FraiseQL requires upfront schema planning. You need to:</p>
+          <ul class="setup-list">
+            <li>Design your database schema</li>
+            <li>Write SQL views</li>
+            <li>Define types in your framework</li>
+            <li>Compile and deploy</li>
+          </ul>
+          <p>For a quick MVP where you don't know what you're building, this overhead might be too much.</p>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>Better Alternatives</h3>
+          <ul class="alt-list">
+            <li><strong>Firebase/Supabase</strong> - Fastest path to MVP</li>
+            <li><strong>Hasura</strong> - Auto-generates API from schema</li>
+            <li><strong>Apollo + Node.js</strong> - Rapid development with resolvers</li>
+          </ul>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>When FraiseQL Still Works</h3>
+          <ul class="good-list">
+            <li>You have a clear data model in mind</li>
+            <li>Your MVP is past the validation stage</li>
+            <li>You're ready to build for scale</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="tradeoff-group">
+        <h2>5. NoSQL / Document Databases</h2>
+
+        <div class="tradeoff-card">
+          <h3>The Problem</h3>
+          <p>FraiseQL is SQL-first. It works with PostgreSQL, MySQL, MariaDB, and SQLite—databases with structured schemas and SQL support.</p>
+          <p>If you're using MongoDB, DynamoDB, or other NoSQL databases, FraiseQL doesn't apply.</p>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>Better Alternatives</h3>
+          <ul class="alt-list">
+            <li><strong>Apollo</strong> - Language-agnostic, works with any data source</li>
+            <li><strong>Pothos</strong> - GraphQL schema builder for TypeScript</li>
+            <li><strong>Strawberry</strong> - Python GraphQL with dataloader support</li>
+          </ul>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>When FraiseQL Still Works</h3>
+          <ul class="good-list">
+            <li>You're committed to SQL databases</li>
+            <li>You need ACID transactions and referential integrity</li>
+            <li>Your data is relational and structured</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="tradeoff-group">
+        <h2>6. Deployment Overhead</h2>
+
+        <div class="tradeoff-card">
+          <h3>The Problem</h3>
+          <p>FraiseQL introduces an extra deployment step: view compilation.</p>
+          <p>For tiny APIs or MVPs where simplicity matters more than scale, this can feel like extra ceremony.</p>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>Better Alternatives</h3>
+          <ul class="alt-list">
+            <li><strong>Vercel Functions + Apollo</strong> - Simplest possible deployment</li>
+            <li><strong>Firebase Functions</strong> - Serverless GraphQL</li>
+            <li><strong>Hasura Cloud</strong> - Single-click deployment</li>
+          </ul>
+        </div>
+
+        <div class="tradeoff-card">
+          <h3>When FraiseQL Still Works</h3>
+          <ul class="good-list">
+            <li>You have a mature deployment pipeline</li>
+            <li>Your team is comfortable with compiled systems</li>
+            <li>You're building for scale from the start</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="decision-section">
+        <h2>Decision Matrix</h2>
+        <p>Use this to help decide if FraiseQL is right for your project:</p>
+
+        <table class="decision-table">
+          <thead>
+            <tr>
+              <th>Question</th>
+              <th>FraiseQL ✅</th>
+              <th>Something Else ❌</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Is your data relational and structured?</strong></td>
+              <td>Yes</td>
+              <td>No (using NoSQL)</td>
+            </tr>
+            <tr>
+              <td><strong>Do you use SQL databases?</strong></td>
+              <td>PostgreSQL, MySQL, MariaDB, SQLite</td>
+              <td>MongoDB, DynamoDB, Firestore</td>
+            </tr>
+            <tr>
+              <td><strong>Is your schema mostly stable?</strong></td>
+              <td>Yes (post-MVP)</td>
+              <td>No (rapid iteration)</td>
+            </tr>
+            <tr>
+              <td><strong>Do you know your common queries?</strong></td>
+              <td>Yes (defined views)</td>
+              <td>No (ad-hoc queries)</td>
+            </tr>
+            <tr>
+              <td><strong>Is performance critical?</strong></td>
+              <td>Yes (zero N+1)</td>
+              <td>Flexible</td>
+            </tr>
+            <tr>
+              <td><strong>Do you need to scale?</strong></td>
+              <td>Yes (compile-time safety)</td>
+              <td>Not immediately</td>
+            </tr>
+            <tr>
+              <td><strong>Is your logic mostly data composition?</strong></td>
+              <td>Yes</td>
+              <td>No (complex business logic)</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="honest-section">
+        <h2>The Honest Truth</h2>
+        <p>FraiseQL solves a specific problem really well:</p>
+        <blockquote>
+          <strong>"I have relational data in SQL, I know my queries, and I want predictable, fast APIs without N+1 queries."</strong>
+        </blockquote>
+        <p>If that's you, FraiseQL is probably the best choice.</p>
+        <p>If you need something else, there are great tools for those problems too. Use the right tool for your job.</p>
+      </section>
+
+      <section class="next-section">
+        <h2>Next Steps</h2>
+        <div class="next-links">
+          <div class="next-item">
+            <h3>Learn More</h3>
+            <p>Still interested? Check out the getting started guide.</p>
+            <a href="/docs/getting-started/quickstart/" class="link">Get Started →</a>
+          </div>
+          <div class="next-item">
+            <h3>Explore Philosophy</h3>
+            <p>Want to understand the thinking behind FraiseQL?</p>
+            <a href="/docs/concepts/how-it-works/" class="link">Read Why →</a>
+          </div>
+          <div class="next-item">
+            <h3>See It in Action</h3>
+            <p>Check out real-world examples and use cases.</p>
+            <a href="/how-it-works/" class="link">How It Works →</a>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .tradeoffs-hero {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4rem 2rem;
+    text-align: center;
+  }
+
+  .tradeoffs-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 1rem 0;
+    font-weight: 700;
+  }
+
+  .tradeoffs-hero p {
+    font-size: 1.125rem;
+    opacity: 0.9;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+
+  .tradeoffs-content {
+    padding: 4rem 2rem;
+  }
+
+  .tradeoffs-content section {
+    margin-bottom: 4rem;
+  }
+
+  .tradeoffs-content h2 {
+    font-size: 2rem;
+    margin-bottom: 2rem;
+    color: #1a202c;
+  }
+
+  .tradeoffs-content h3 {
+    font-size: 1.125rem;
+    color: #1a202c;
+    margin-top: 0;
+  }
+
+  .tradeoffs-content p {
+    color: #4a5568;
+    line-height: 1.8;
+    margin-bottom: 1rem;
+  }
+
+  .intro-section p {
+    font-size: 1.125rem;
+  }
+
+  /* Trade-off groups */
+  .tradeoff-group h2 {
+    border-top: 2px solid #e2e8f0;
+    padding-top: 2rem;
+  }
+
+  /* Cards */
+  .tradeoff-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .tradeoff-card h3 {
+    margin-top: 0;
+  }
+
+  /* Lists */
+  .alt-list,
+  .good-list,
+  .setup-list {
+    color: #4a5568;
+    line-height: 1.8;
+    padding-left: 2rem;
+    margin: 1rem 0;
+  }
+
+  .alt-list li,
+  .good-list li,
+  .setup-list li {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Decision table */
+  .decision-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 2rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .decision-table thead {
+    background: #f7fafc;
+  }
+
+  .decision-table th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 700;
+    color: #1a202c;
+    border-bottom: 2px solid #e2e8f0;
+  }
+
+  .decision-table td {
+    padding: 1rem;
+    color: #4a5568;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .decision-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Honest section */
+  .honest-section {
+    background: #f8f9fa;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 2rem;
+    margin-bottom: 2rem;
+  }
+
+  .honest-section blockquote {
+    background: white;
+    border-left: 4px solid #667eea;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    font-style: italic;
+    color: #1a202c;
+  }
+
+  /* Next section */
+  .next-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 2rem;
+  }
+
+  .next-item {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+  }
+
+  .next-item h3 {
+    margin-top: 0;
+  }
+
+  .next-item p {
+    margin: 0.5rem 0 1rem 0;
+    font-size: 0.95rem;
+  }
+
+  .link {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.3s ease;
+  }
+
+  .link:hover {
+    color: #764ba2;
+  }
+
+  @media (max-width: 768px) {
+    .tradeoffs-hero h1 {
+      font-size: 2rem;
+    }
+
+    .tradeoffs-content h2 {
+      font-size: 1.5rem;
+    }
+
+    .decision-table {
+      font-size: 0.9rem;
+    }
+
+    .decision-table th,
+    .decision-table td {
+      padding: 0.75rem;
+    }
+  }
+</style>

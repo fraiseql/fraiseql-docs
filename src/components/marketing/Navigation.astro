@@ -1,0 +1,330 @@
+---
+interface NavItem {
+  label: string;
+  href: string;
+  external?: boolean;
+}
+
+interface PersonaItem {
+  label: string;
+  href: string;
+  icon: string;
+}
+
+const mainNav: NavItem[] = [
+  { label: "Use Cases", href: "/use-cases" },
+  { label: "Trade-Offs", href: "/trade-offs" },
+  { label: "Docs", href: "/docs/getting-started/introduction/" },
+  { label: "GitHub", href: "https://github.com/fraiseql/fraiseql", external: true },
+];
+
+const personas: PersonaItem[] = [
+  {
+    label: "For Developers",
+    href: "/for/developers",
+    icon: "code",
+  },
+  {
+    label: "For DevOps",
+    href: "/for/devops",
+    icon: "rocket",
+  },
+  {
+    label: "For Architects",
+    href: "/for/architects",
+    icon: "building",
+  },
+  {
+    label: "For Compliance",
+    href: "/for/compliance",
+    icon: "shield",
+  },
+  {
+    label: "For Data Engineers",
+    href: "/for/data-engineers",
+    icon: "chart",
+  },
+  {
+    label: "For AI Engineers",
+    href: "/for/ai-engineers",
+    icon: "cpu",
+  },
+];
+
+const currentPath = Astro.url.pathname;
+---
+
+<nav class="navbar">
+  <div class="navbar-container">
+    <!-- Logo -->
+    <a href="/" class="navbar-logo" aria-label="FraiseQL Home">
+      <span class="navbar-logo-emoji">&#x1F353;</span>
+      <span>FraiseQL</span>
+    </a>
+
+    <!-- Main Navigation -->
+    <div class="navbar-menu">
+      <ul class="nav-items">
+        {
+          mainNav.map((item) => (
+            <li>
+              <a
+                href={item.href}
+                class={`nav-link ${currentPath === item.href ? "active" : ""}`}
+                target={item.external ? "_blank" : undefined}
+                rel={item.external ? "noopener noreferrer" : undefined}
+              >
+                {item.label}
+                {item.external && <span class="external-icon">&#8599;</span>}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <!-- Persona Selector & GitHub -->
+    <div class="navbar-actions">
+      <div class="persona-selector">
+        <button class="persona-btn" aria-label="Select persona">
+          Persona
+        </button>
+        <ul class="persona-menu">
+          {
+            personas.map((persona) => (
+              <li>
+                <a href={persona.href} class="persona-link">
+                  <span>{persona.label}</span>
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <a
+        href="https://github.com/fraiseql"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="github-link"
+        aria-label="FraiseQL on GitHub"
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+          <path
+            fill-rule="evenodd"
+            d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.868-.013-1.703-2.782.603-3.369-1.343-3.369-1.343-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.546 2.914 1.19.092-.926.35-1.546.636-1.902-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0110 4.817c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C17.137 18.191 20 14.44 20 10.017 20 4.484 15.522 0 10 0z"
+          ></path>
+        </svg>
+      </a>
+    </div>
+
+    <!-- Mobile Menu Button -->
+    <button class="mobile-menu-btn" aria-label="Toggle navigation menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+  </div>
+</nav>
+
+<style>
+  .navbar {
+    background: white;
+    border-bottom: 1px solid var(--color-border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: var(--shadow-subtle);
+  }
+
+  .navbar-container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-6);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+  }
+
+  .navbar-logo {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    font-weight: 700;
+    font-size: var(--text-lg);
+    color: var(--fraise-500);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .navbar-logo:hover {
+    color: var(--fraise-700);
+  }
+
+  .navbar-logo-emoji {
+    font-size: 1.25rem;
+  }
+
+  .navbar-menu {
+    display: none;
+    flex: 1;
+    margin-left: var(--spacing-12);
+  }
+
+  .nav-items {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    gap: var(--spacing-8);
+  }
+
+  .nav-link {
+    color: var(--color-text);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color var(--transition-fast);
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+  }
+
+  .external-icon {
+    font-size: 0.75em;
+    opacity: 0.7;
+  }
+
+  .nav-link:hover {
+    color: var(--fraise-500);
+  }
+
+  .nav-link.active {
+    color: var(--fraise-500);
+  }
+
+  .nav-link.active::after {
+    content: "";
+    position: absolute;
+    bottom: -8px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--fraise-500);
+    border-radius: 2px;
+  }
+
+  .navbar-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-4);
+  }
+
+  .persona-selector {
+    position: relative;
+  }
+
+  .persona-btn {
+    background: none;
+    border: 1px solid var(--color-border);
+    padding: var(--spacing-2) var(--spacing-4);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--color-text);
+    transition: all var(--transition-fast);
+    font-size: var(--text-sm);
+  }
+
+  .persona-btn:hover {
+    border-color: var(--fraise-500);
+    color: var(--fraise-500);
+  }
+
+  .persona-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    list-style: none;
+    padding: var(--spacing-2);
+    margin: 0;
+    min-width: 200px;
+    display: none;
+    flex-direction: column;
+    gap: 0;
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+  }
+
+  .persona-selector:hover .persona-menu {
+    display: flex;
+  }
+
+  .persona-link {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-3);
+    padding: var(--spacing-2) var(--spacing-3);
+    color: var(--color-text);
+    text-decoration: none;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .persona-link:hover {
+    background: var(--color-gray-100);
+    color: var(--fraise-500);
+  }
+
+  .github-link {
+    color: var(--color-text);
+    transition: color var(--transition-fast);
+  }
+
+  .github-link:hover {
+    color: var(--fraise-500);
+  }
+
+  .mobile-menu-btn {
+    display: none;
+    flex-direction: column;
+    background: none;
+    border: none;
+    cursor: pointer;
+    gap: 4px;
+    padding: var(--spacing-2);
+  }
+
+  .mobile-menu-btn span {
+    width: 24px;
+    height: 2px;
+    background: var(--color-text);
+    border-radius: 1px;
+    transition: all var(--transition-fast);
+  }
+
+  @media (min-width: 769px) {
+    .navbar-menu {
+      display: block;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .mobile-menu-btn {
+      display: flex;
+    }
+
+    .navbar-container {
+      padding: 0 var(--spacing-4);
+    }
+
+    .persona-menu {
+      right: auto;
+      left: 0;
+    }
+  }
+</style>

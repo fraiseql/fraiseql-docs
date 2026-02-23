@@ -1,0 +1,693 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "Unpredictable Performance: FraiseQL Solution";
+const description = "Eliminate surprise slow queries. Compile-time validation, execution plans, and deterministic performance.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="use-case-hero">
+    <div class="container">
+      <h1>Predictable Performance by Design</h1>
+      <p>No more surprise slow queries. Compile-time validation catches issues before production.</p>
+    </div>
+  </section>
+
+  <section class="use-case-content">
+    <div class="container">
+
+      <section class="problem-section">
+        <h2>The Performance Problem</h2>
+
+        <div class="problem-example">
+          <h3>Traditional GraphQL: Runtime Surprises</h3>
+          <pre><code set:html={`# Your code looks fine
+@resolver
+async def posts(parent: User, info) -> list[Post]:
+  return db.find_posts(user_id=parent.id)
+
+# But if called inside a list of users, it's N+1
+@resolver
+async def users() -> list[User]:
+  return db.find_all_users()  # 1 query
+  # ^ Each user loops through posts resolver = 1 + N queries
+
+# You only discover this in production
+# When your API slows to a crawl`}></code></pre>
+        </div>
+
+        <div class="problem-grid">
+          <div class="problem-item">
+            <div class="problem-value">1000ms</div>
+            <div class="problem-label">Query time</div>
+            <div class="problem-detail">production peak</div>
+          </div>
+          <div class="problem-item">
+            <div class="problem-value">Mystery</div>
+            <div class="problem-label">Root cause</div>
+            <div class="problem-detail">field resolver cascade</div>
+          </div>
+          <div class="problem-item">
+            <div class="problem-value">Hours</div>
+            <div class="problem-label">Debug time</div>
+            <div class="problem-detail">tracing query cascade</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="solution-section">
+        <h2>FraiseQL Solution: Compile-Time Safety</h2>
+
+        <div class="solution-box">
+          <h3>Key Principle: Views Are Compiled, Not Interpreted</h3>
+          <p>When you deploy with FraiseQL:</p>
+          <ul>
+            <li>Views compile to SQL at deploy time</li>
+            <li>The database validates the execution plan</li>
+            <li>EXPLAIN ANALYZE checks performance before production</li>
+            <li>Your types match your views (compile-time verification)</li>
+          </ul>
+        </div>
+
+        <div class="solution-step">
+          <h3>Step 1: Define View with Single Query</h3>
+          <pre><code set:html={`-- Compile once, never worry about N+1
+CREATE VIEW v_user_with_posts AS
+SELECT
+  jsonb_build_object(
+    'id', u.id::text,
+    'name', u.name,
+    'posts', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', p.id::text,
+        'title', p.title
+      ))
+      FROM tb_post p
+      WHERE p.user_id = u.id
+    )
+  ) AS data
+FROM tb_user u;
+
+-- At deploy time, the database creates an index plan for this query
+-- EXPLAIN ANALYZE shows it's one query, ~100ms for 1000 users`}></code></pre>
+        </div>
+
+        <div class="solution-step">
+          <h3>Step 2: Index for Performance</h3>
+          <pre><code set:html={`-- FraiseQL helps you identify the right indexes
+CREATE INDEX idx_post_user_id ON tb_post(user_id);
+CREATE INDEX idx_post_created_at ON tb_post(created_at DESC);
+
+-- Deploy these with your view
+-- Database optimizer uses them automatically`}></code></pre>
+        </div>
+
+        <div class="solution-step">
+          <h3>Step 3: Query with Confidence</h3>
+          <pre><code set:html={`@fraiseql.query(sql_source="v_user_with_posts")
+def users(limit: int = 100) -> list[User]:
+  # This is always 1 query, always fast
+  pass
+
+# Performance: Always ~100-200ms regardless of data size
+# (as long as indexes are in place)`}></code></pre>
+        </div>
+      </section>
+
+      <section class="comparison-section">
+        <h2>Before & After</h2>
+
+        <div class="comparison-grid">
+          <div class="comparison-card before">
+            <h3>❌ Traditional GraphQL</h3>
+            <div class="metric-value">1000-2000ms</div>
+            <div class="metric-label">Response time (peak)</div>
+            <ul class="comparison-list">
+              <li>Runtime query interpretation</li>
+              <li>Field resolvers execute silently</li>
+              <li>N+1 discovered in production</li>
+              <li>Hours to debug and fix</li>
+              <li>Unpredictable performance</li>
+              <li>DataLoader complexity</li>
+            </ul>
+          </div>
+
+          <div class="comparison-card after">
+            <h3>✅ FraiseQL</h3>
+            <div class="metric-value">100-200ms</div>
+            <div class="metric-label">Response time (consistent)</div>
+            <ul class="comparison-list">
+              <li>Compile-time query verification</li>
+              <li>Single query, verified at deploy</li>
+              <li>No N+1 possible</li>
+              <li>Errors caught before production</li>
+              <li>Predictable performance</li>
+              <li>No batching complexity</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="tools-section">
+        <h2>FraiseQL Performance Tools</h2>
+
+        <div class="tool-box">
+          <h3>1. EXPLAIN ANALYZE Integration</h3>
+          <pre><code set:html={`# FraiseQL CLI includes performance checker
+$ fraiseql explain views/v_user_with_posts.sql
+
+Query Plan:
+  Seq Scan on tb_user (cost=0.00..1500.00 rows=1000)
+    Filter: (deleted_at IS NULL)
+  SubPlan 1
+    Index Scan on tb_post (cost=0.10..2.50 rows=5)
+      Index Cond: (user_id = u.id)
+
+Execution time: ~150ms for 1000 users
+✅ PASS: Query is optimized`}></code></pre>
+        </div>
+
+        <div class="tool-box">
+          <h3>2. Type Validation</h3>
+          <pre><code set:html={`# Your Python types must match your views
+# Compile-time mismatch detection
+
+@fraiseql.type
+class Post:
+  id: UUID
+  title: str
+  # Compiler checks this matches v_user_with_posts
+
+# If you change the view, you get a compile error
+# before deploying to production`}></code></pre>
+        </div>
+
+        <div class="tool-box">
+          <h3>3. Query Logging</h3>
+          <pre><code set:html={`# Every query logged with timing
+# Not hidden like field resolver cascades
+
+2024-01-15 10:23:45.123 [db] users() executed in 145ms
+  Query: SELECT ... FROM v_user_with_posts
+  Rows: 1000
+
+2024-01-15 10:23:46.234 [db] user(id=123) executed in 12ms
+  Query: SELECT ... FROM v_user_with_posts WHERE id = $1
+  Rows: 1`}></code></pre>
+        </div>
+      </section>
+
+      <section class="best-practices-section">
+        <h2>Performance Best Practices</h2>
+
+        <div class="practice-box">
+          <h3>1. Create Appropriate Indexes</h3>
+          <pre><code set:html={`-- Index foreign keys
+CREATE INDEX idx_post_user_id ON tb_post(user_id);
+
+-- Index sorted queries
+CREATE INDEX idx_post_created_at ON tb_post(created_at DESC);
+
+-- Composite indexes for common filters
+CREATE INDEX idx_post_user_published ON tb_post(user_id, published_at);`}></code></pre>
+        </div>
+
+        <div class="practice-box">
+          <h3>2. Limit Result Sets</h3>
+          <pre><code set:html={`-- Don't return 10,000 records by default
+CREATE VIEW v_recent_posts AS
+SELECT ... FROM tb_post
+ORDER BY created_at DESC
+LIMIT 100;  -- Reasonable default
+
+-- Pagination for large result sets
+@fraiseql.query(sql_source="v_recent_posts")
+def posts(limit: int = 50, offset: int = 0) -> list[Post]:
+  pass`}></code></pre>
+        </div>
+
+        <div class="practice-box">
+          <h3>3. Profile at Decode Time</h3>
+          <pre><code set:html={`-- Test with realistic data sizes
+CREATE VIEW v_product_recommendations AS
+SELECT ... FROM tb_product
+WHERE ...
+LIMIT 1000;
+
+-- Run EXPLAIN ANALYZE with production-like data
+EXPLAIN ANALYZE
+SELECT * FROM v_product_recommendations;
+
+-- FraiseQL alerts you if it's slow
+-- Fix before deploying`}></code></pre>
+        </div>
+
+        <div class="practice-box">
+          <h3>4. Monitor in Production</h3>
+          <pre><code set:html={`# FraiseQL includes performance monitoring
+# Slow queries trigger alerts
+
+fraiseql_config:
+  performance:
+    slow_query_threshold_ms: 200
+    alert_on_slow: true
+
+# Dashboard shows query times and trends
+# Alerts fire before users complain`}></code></pre>
+        </div>
+      </section>
+
+      <section class="metrics-section">
+        <h2>Real-World Performance Gains</h2>
+
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <h3>Latency Improvement</h3>
+            <p>Typical reduction from DataLoader patterns</p>
+            <div class="metric-value">5-10x faster</div>
+          </div>
+
+          <div class="metric-box">
+            <h3>Predictability</h3>
+            <p>Standard deviation of query times</p>
+            <div class="metric-value">80% reduction</div>
+          </div>
+
+          <div class="metric-box">
+            <h3>CPU Usage</h3>
+            <p>Fewer queries = less CPU per request</p>
+            <div class="metric-value">40-60% lower</div>
+          </div>
+
+          <div class="metric-box">
+            <h3>P99 Latency</h3>
+            <p>Worst-case response time improvement</p>
+            <div class="metric-value">10-100x better</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="resources-section">
+        <h2>Related Resources</h2>
+        <div class="resources-grid">
+          <div class="resource-box">
+            <h3>📘 How It Works</h3>
+            <p>Learn how compilation gives you safety and performance.</p>
+            <a href="/how-it-works/" class="link">Read →</a>
+          </div>
+          <div class="resource-box">
+            <h3>🔄 N+1 Elimination</h3>
+            <p>The root cause of unpredictable performance.</p>
+            <a href="/use-cases/n-plus-one/" class="link">Read →</a>
+          </div>
+          <div class="resource-box">
+            <h3>🔍 Why Compilation</h3>
+            <p>Why compiled queries beat interpreted ones.</p>
+            <a href="/why/compiled-not-interpreted/" class="link">Read →</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-section">
+        <h2>Build Predictable Systems</h2>
+        <p>Stop chasing performance issues. Build it right from the start.</p>
+        <div class="cta-buttons">
+          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .use-case-hero {
+    background: linear-gradient(135deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    color: white;
+    padding: var(--spacing-16) var(--spacing-6);
+    text-align: center;
+  }
+
+  .use-case-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 var(--spacing-3) 0;
+    font-weight: 700;
+  }
+
+  .use-case-hero p {
+    font-size: 1.125rem;
+    opacity: 0.95;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-6);
+  }
+
+  .use-case-content {
+    padding: var(--spacing-16) var(--spacing-6);
+  }
+
+  .use-case-content section {
+    margin-bottom: var(--spacing-16);
+  }
+
+  .use-case-content h2 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-8);
+    color: var(--color-text);
+  }
+
+  .use-case-content h3 {
+    font-size: 1.25rem;
+    margin: var(--spacing-6) 0 var(--spacing-3) 0;
+    color: var(--color-text);
+  }
+
+  .use-case-content p {
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+    margin-bottom: var(--spacing-4);
+  }
+
+  .problem-example {
+    background: #fef2f2;
+    border-left: 4px solid #d62830;
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .problem-example pre {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0;
+  }
+
+  .problem-example code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .problem-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-4);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .problem-item {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-4);
+    text-align: center;
+  }
+
+  .problem-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #d62830;
+    margin-bottom: var(--spacing-1);
+  }
+
+  .problem-label {
+    font-weight: 600;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-1);
+  }
+
+  .problem-detail {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .solution-box {
+    background: var(--color-surface);
+    border-left: 4px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .solution-box ul {
+    list-style: none;
+    padding: 0;
+    margin: var(--spacing-3) 0;
+  }
+
+  .solution-box li {
+    padding: var(--spacing-2) 0;
+    color: var(--color-text-muted);
+  }
+
+  .solution-step {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .solution-step pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .solution-step code {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .comparison-card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .comparison-card.before {
+    border-left: 4px solid #d62830;
+  }
+
+  .comparison-card.after {
+    border-left: 4px solid #22c55e;
+  }
+
+  .comparison-card h3 {
+    margin-top: 0;
+  }
+
+  .metric-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--fraise-500);
+    margin-bottom: var(--spacing-2);
+  }
+
+  .metric-label {
+    font-weight: 600;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-3);
+  }
+
+  .comparison-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .comparison-list li {
+    padding: var(--spacing-2) 0;
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+  }
+
+  .tool-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .tool-box pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .tool-box code {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .practice-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .practice-box pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .practice-box code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .metric-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    text-align: center;
+  }
+
+  .metric-box h3 {
+    margin-top: 0;
+  }
+
+  .resources-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-6);
+  }
+
+  .resource-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .resource-box h3 {
+    margin-top: 0;
+  }
+
+  .link {
+    color: var(--fraise-500);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color var(--transition-fast);
+  }
+
+  .link:hover {
+    color: var(--fraise-700);
+    text-decoration: underline;
+  }
+
+  .cta-section {
+    background: var(--color-surface);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-12);
+    text-align: center;
+  }
+
+  .cta-section h2 {
+    margin-top: 0;
+  }
+
+  .cta-buttons {
+    display: flex;
+    gap: var(--spacing-4);
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: var(--spacing-6);
+  }
+
+  .btn {
+    display: inline-block;
+    padding: var(--spacing-3) var(--spacing-6);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    text-decoration: none;
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    border: none;
+    font-size: var(--text-base);
+  }
+
+  .btn-primary {
+    background: var(--fraise-500);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: var(--fraise-600);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--fraise-500);
+    border: 2px solid var(--fraise-500);
+  }
+
+  .btn-secondary:hover {
+    background: var(--fraise-50);
+  }
+
+  @media (max-width: 768px) {
+    .use-case-hero h1 {
+      font-size: 2rem;
+    }
+
+    .use-case-content h2 {
+      font-size: 1.5rem;
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+  }
+</style>

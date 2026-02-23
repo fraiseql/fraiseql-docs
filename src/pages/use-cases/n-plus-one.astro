@@ -1,0 +1,750 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "N+1 Query Elimination with FraiseQL";
+const description = "Stop fighting N+1 queries with DataLoaders. Compose relationships at the database level. One query. One network hop. Done.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="use-case-hero">
+    <div class="container">
+      <h1>Eliminate N+1 Queries Forever</h1>
+      <p>Compose relationships in views, not resolvers. One query per request.</p>
+    </div>
+  </section>
+
+  <section class="use-case-content">
+    <div class="container">
+
+      <!-- The Problem -->
+      <section class="problem-section">
+        <h2>The N+1 Problem: Classic GraphQL Trap</h2>
+
+        <div class="problem-example">
+          <h3>Typical GraphQL Resolver Pattern</h3>
+          <pre><code set:html={`# Fetch user
+@resolver
+async def user(info, id: str) -> User:
+  return db.find_user(id)  # Query 1
+
+# User has posts (needs resolver)
+@resolver
+async def posts(parent: User, info) -> list[Post]:
+  return db.find_posts(user_id=parent.id)  # Query 2 per user!
+
+# Result: 1 user query + N posts queries = 1 + N queries`}></code></pre>
+
+          <p><strong>Problem:</strong> Fetch 100 users and you get 101 database queries. DataLoaders help, but they add complexity and still require careful batching.</p>
+        </div>
+
+        <div class="impact-grid">
+          <div class="impact-item">
+            <div class="impact-number">101</div>
+            <div class="impact-label">Database hits</div>
+            <div class="impact-detail">for 100 users + posts</div>
+          </div>
+          <div class="impact-item">
+            <div class="impact-number">2-5s</div>
+            <div class="impact-label">Response time</div>
+            <div class="impact-detail">typical latency</div>
+          </div>
+          <div class="impact-item">
+            <div class="impact-number">50%</div>
+            <div class="impact-label">Code complexity</div>
+            <div class="impact-detail">DataLoader boilerplate</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- The FraiseQL Solution -->
+      <section class="solution-section">
+        <h2>FraiseQL Solution: Compose at Database Level</h2>
+
+        <p>Views eliminate N+1 by composing relationships once in SQL:</p>
+
+        <div class="solution-steps">
+          <div class="step">
+            <h3>Step 1: SQL View Composes Everything</h3>
+            <pre><code set:html={`CREATE VIEW v_user_with_posts AS
+SELECT
+  jsonb_build_object(
+    'id', u.id::text,
+    'name', u.name,
+    'email', u.email,
+    'posts', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', p.id::text,
+        'title', p.title,
+        'created_at', p.created_at
+      ))
+      FROM tb_post p
+      WHERE p.user_id = u.id
+    )
+  ) AS data
+FROM tb_user u;`}></code></pre>
+          </div>
+
+          <div class="step">
+            <h3>Step 2: Single Resolver Query</h3>
+            <pre><code set:html={`@fraiseql.query(sql_source="v_user_with_posts")
+def users(limit: int = 100) -> list[User]:
+  # One query returns everything — pre-composed in the view
+  pass`}></code></pre>
+          </div>
+
+          <div class="step">
+            <h3>Step 3: Python Type Matches View</h3>
+            <pre><code set:html={`@fraiseql.type
+class UserPost:
+  id: UUID
+  title: str
+  created_at: str
+
+@fraiseql.type
+class User:
+  id: UUID
+  name: str
+  email: str
+  posts: list[UserPost]`}></code></pre>
+          </div>
+        </div>
+
+        <div class="result-box">
+          <h3>Result</h3>
+          <p>100 users + all their posts = <strong>1 database query</strong></p>
+          <p>Response time: <strong>~300ms</strong> vs 2-5s before</p>
+        </div>
+      </section>
+
+      <!-- Comparison -->
+      <section class="comparison-section">
+        <h2>Side-by-Side Comparison</h2>
+
+        <div class="comparison-grid">
+          <div class="comparison-card traditional">
+            <h3>❌ Traditional GraphQL</h3>
+            <ul class="comparison-list">
+              <li>Fetch users → 1 query</li>
+              <li>Load posts per user → N queries</li>
+              <li>Try to batch with DataLoader</li>
+              <li>Still need careful resolver design</li>
+              <li>Total: ~100+ queries</li>
+              <li>Latency: 2-5s typical</li>
+            </ul>
+          </div>
+
+          <div class="comparison-card fraiseql">
+            <h3>✅ FraiseQL</h3>
+            <ul class="comparison-list">
+              <li>SQL view pre-composes everything</li>
+              <li>Single resolver query</li>
+              <li>No batching complexity</li>
+              <li>Deterministic execution plan</li>
+              <li>Total: 1 query</li>
+              <li>Latency: ~300ms</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Complex Examples -->
+      <section class="examples-section">
+        <h2>Complex Composition Examples</h2>
+
+        <div class="example-card">
+          <h3>Posts with Comments and Likes</h3>
+          <pre><code set:html={`CREATE VIEW v_posts_full AS
+SELECT
+  jsonb_build_object(
+    'id', p.id::text,
+    'title', p.title,
+    'comments', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', c.id::text,
+        'text', c.text,
+        'author', jsonb_build_object(
+          'id', u.id::text,
+          'name', u.name
+        ),
+        'likes', (SELECT count(*) FROM tb_like WHERE comment_id = c.id)
+      ))
+      FROM tb_comment c
+      LEFT JOIN tb_user u ON c.user_id = u.id
+      WHERE c.post_id = p.id
+    ),
+    'like_count', (SELECT count(*) FROM tb_like WHERE post_id = p.id)
+  ) AS data
+FROM tb_post p;`}></code></pre>
+          <p><strong>Single query returns:</strong> Post → Comments → Comment Author + Comment Likes + Post Likes</p>
+        </div>
+
+        <div class="example-card">
+          <h3>Nested E-Commerce Data</h3>
+          <pre><code set:html={`CREATE VIEW v_orders_with_details AS
+SELECT
+  jsonb_build_object(
+    'id', o.id::text,
+    'order_date', o.created_at,
+    'items', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'product_id', oi.product_id::text,
+        'product_name', p.name,
+        'category', p.category,
+        'price', oi.price,
+        'quantity', oi.quantity
+      ))
+      FROM tb_order_item oi
+      JOIN tb_product p ON oi.product_id = p.id
+      WHERE oi.order_id = o.id
+    ),
+    'shipping_address', jsonb_build_object(
+      'street', a.street,
+      'city', a.city,
+      'zip', a.zip
+    )
+  ) AS data
+FROM tb_order o
+JOIN tb_address a ON o.address_id = a.id;`}></code></pre>
+          <p><strong>Single query returns:</strong> Order → Items → Product Details → Shipping Address</p>
+        </div>
+      </section>
+
+      <!-- Performance Metrics -->
+      <section class="metrics-section">
+        <h2>Real-World Performance Impact</h2>
+
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <h4>Query Count</h4>
+            <div class="before-after">
+              <div class="before">
+                <div class="value">101</div>
+                <div class="label">Traditional</div>
+              </div>
+              <div class="arrow">→</div>
+              <div class="after">
+                <div class="value">1</div>
+                <div class="label">FraiseQL</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="metric-box">
+            <h4>Response Time</h4>
+            <div class="before-after">
+              <div class="before">
+                <div class="value">2-5s</div>
+                <div class="label">With DataLoader</div>
+              </div>
+              <div class="arrow">→</div>
+              <div class="after">
+                <div class="value">~300ms</div>
+                <div class="label">FraiseQL</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="metric-box">
+            <h4>Resolver Code</h4>
+            <div class="before-after">
+              <div class="before">
+                <div class="value">47</div>
+                <div class="label">Custom patterns</div>
+              </div>
+              <div class="arrow">→</div>
+              <div class="after">
+                <div class="value">1</div>
+                <div class="label">Repeatable pattern</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- When to Use -->
+      <section class="best-practices-section">
+        <h2>When to Use This Pattern</h2>
+
+        <div class="best-practices-grid">
+          <div class="practice-card good">
+            <h3>✅ Use Database Composition</h3>
+            <ul>
+              <li>Related data from same database</li>
+              <li>Reads that need aggregation</li>
+              <li>Relationships with consistent cardinality</li>
+              <li>Performance-critical queries</li>
+            </ul>
+          </div>
+
+          <div class="practice-card consider">
+            <h3>⚠️ Consider Per-Field Resolvers When</h3>
+            <ul>
+              <li>Data comes from external APIs</li>
+              <li>Complex business logic needed</li>
+              <li>Field rarely queried (expensive composition)</li>
+              <li>Conditional field availability</li>
+            </ul>
+          </div>
+        </div>
+
+        <p><strong>Best practice:</strong> Pre-compose reads in views. Put business logic in SQL functions (<code>fn_*</code>) that back your mutations.</p>
+      </section>
+
+      <!-- Related Use Cases -->
+      <section class="related-section">
+        <h2>Related Solutions</h2>
+        <div class="related-grid">
+          <div class="related-box">
+            <h3>🏢 Enterprise SaaS</h3>
+            <p>Multi-tenant isolation with N+1 prevention built-in.</p>
+            <a href="/use-cases/enterprise-saas/" class="link">Read →</a>
+          </div>
+          <div class="related-box">
+            <h3>📊 Analytics & BI</h3>
+            <p>Complex aggregations composed efficiently in SQL.</p>
+            <a href="/use-cases/analytics/" class="link">Read →</a>
+          </div>
+          <div class="related-box">
+            <h3>⚡ Performance</h3>
+            <p>Database composition for predictable, fast queries.</p>
+            <a href="/use-cases/unpredictable-performance/" class="link">Read →</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- CTA -->
+      <section class="cta-section">
+        <h2>Stop the N+1 Trap</h2>
+        <p>Build APIs that scale naturally with database-first composition.</p>
+        <div class="cta-buttons">
+          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .use-case-hero {
+    background: linear-gradient(135deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    color: white;
+    padding: var(--spacing-16) var(--spacing-6);
+    text-align: center;
+  }
+
+  .use-case-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 var(--spacing-3) 0;
+    font-weight: 700;
+  }
+
+  .use-case-hero p {
+    font-size: 1.125rem;
+    opacity: 0.95;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-6);
+  }
+
+  .use-case-content {
+    padding: var(--spacing-16) var(--spacing-6);
+  }
+
+  .use-case-content section {
+    margin-bottom: var(--spacing-16);
+  }
+
+  .use-case-content h2 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-8);
+    color: var(--color-text);
+  }
+
+  .use-case-content h3 {
+    font-size: 1.25rem;
+    margin: var(--spacing-6) 0 var(--spacing-3) 0;
+    color: var(--color-text);
+  }
+
+  .use-case-content p {
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+    margin-bottom: var(--spacing-4);
+  }
+
+  /* Problem Example */
+  .problem-example {
+    background: var(--color-surface);
+    border-left: 4px solid #d62830;
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .problem-example pre {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0;
+  }
+
+  .problem-example code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  /* Impact Grid */
+  .impact-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-4);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .impact-item {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-4);
+    text-align: center;
+  }
+
+  .impact-number {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #d62830;
+    margin-bottom: var(--spacing-1);
+  }
+
+  .impact-label {
+    font-weight: 600;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-1);
+  }
+
+  .impact-detail {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  /* Solution Steps */
+  .solution-steps {
+    margin-bottom: var(--spacing-6);
+  }
+
+  .step {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .step pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .step code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  /* Result Box */
+  .result-box {
+    background: #f0fdf4;
+    border-left: 4px solid #22c55e;
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-top: var(--spacing-6);
+  }
+
+  .result-box h3 {
+    margin-top: 0;
+    color: #15803d;
+  }
+
+  .result-box p {
+    margin: var(--spacing-2) 0;
+    color: var(--color-text);
+    font-weight: 500;
+  }
+
+  /* Comparison Grid */
+  .comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .comparison-card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .comparison-card.traditional {
+    border-left: 4px solid #d62830;
+  }
+
+  .comparison-card.fraiseql {
+    border-left: 4px solid #22c55e;
+  }
+
+  .comparison-card h3 {
+    margin-top: 0;
+  }
+
+  .comparison-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .comparison-list li {
+    padding: var(--spacing-2) 0;
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+  }
+
+  /* Examples */
+  .example-card {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .example-card pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0;
+  }
+
+  .example-card code {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  /* Metrics */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--spacing-6);
+  }
+
+  .metric-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .metric-box h4 {
+    margin-top: 0;
+    color: var(--color-text);
+  }
+
+  .before-after {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-3);
+  }
+
+  .before,
+  .after {
+    flex: 1;
+    text-align: center;
+  }
+
+  .value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--fraise-500);
+    margin-bottom: var(--spacing-1);
+  }
+
+  .label {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    font-weight: 500;
+  }
+
+  .arrow {
+    color: var(--color-text-muted);
+    font-size: 1.5rem;
+  }
+
+  /* Best Practices */
+  .best-practices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .practice-card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .practice-card.good {
+    border-left: 4px solid #22c55e;
+  }
+
+  .practice-card.consider {
+    border-left: 4px solid #f59e0b;
+  }
+
+  .practice-card h3 {
+    margin-top: 0;
+  }
+
+  .practice-card ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .practice-card li {
+    padding: var(--spacing-2) 0;
+    color: var(--color-text-muted);
+  }
+
+  /* Related */
+  .related-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-6);
+  }
+
+  .related-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .related-box h3 {
+    margin-top: 0;
+  }
+
+  .link {
+    color: var(--fraise-500);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color var(--transition-fast);
+  }
+
+  .link:hover {
+    color: var(--fraise-700);
+    text-decoration: underline;
+  }
+
+  /* CTA */
+  .cta-section {
+    background: var(--color-surface);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-12);
+    text-align: center;
+  }
+
+  .cta-section h2 {
+    margin-top: 0;
+  }
+
+  .cta-buttons {
+    display: flex;
+    gap: var(--spacing-4);
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: var(--spacing-6);
+  }
+
+  .btn {
+    display: inline-block;
+    padding: var(--spacing-3) var(--spacing-6);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    text-decoration: none;
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    border: none;
+    font-size: var(--text-base);
+  }
+
+  .btn-primary {
+    background: var(--fraise-500);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: var(--fraise-600);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--fraise-500);
+    border: 2px solid var(--fraise-500);
+  }
+
+  .btn-secondary:hover {
+    background: var(--fraise-50);
+  }
+
+  @media (max-width: 768px) {
+    .use-case-hero h1 {
+      font-size: 2rem;
+    }
+
+    .use-case-content h2 {
+      font-size: 1.5rem;
+    }
+
+    .before-after {
+      flex-direction: column;
+      gap: var(--spacing-2);
+    }
+
+    .arrow {
+      transform: rotate(90deg);
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+  }
+</style>

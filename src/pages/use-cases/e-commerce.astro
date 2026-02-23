@@ -1,0 +1,603 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "E-Commerce with FraiseQL";
+const description = "Build product catalogs, inventory systems, and recommendation engines. Compose complex relationships at the database level.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="use-case-hero">
+    <div class="container">
+      <h1>E-Commerce Platforms with FraiseQL</h1>
+      <p>Complex product relationships composed efficiently. Serve web, mobile, and internal APIs from a single source of truth.</p>
+    </div>
+  </section>
+
+  <section class="use-case-content">
+    <div class="container">
+
+      <section class="challenge-section">
+        <h2>E-Commerce Complexity</h2>
+        <p>Modern e-commerce requires serving:</p>
+        <ul class="challenge-list">
+          <li><strong>Product catalog</strong> - Categories, variants, attributes, images</li>
+          <li><strong>Inventory</strong> - Real-time stock levels, warehouse locations</li>
+          <li><strong>Pricing</strong> - Dynamic pricing, discounts, promotions</li>
+          <li><strong>Reviews & ratings</strong> - User-generated content with aggregations</li>
+          <li><strong>Recommendations</strong> - Related products, often-bought-together</li>
+          <li><strong>Mobile-optimized responses</strong> - Minimal payload, predictable performance</li>
+        </ul>
+      </section>
+
+      <section class="solution-section">
+        <h2>FraiseQL: Single Source of Truth</h2>
+
+        <div class="solution-step">
+          <h3>Complete Product View</h3>
+          <p>Compose the entire product entity in one view:</p>
+          <pre><code set:html={`CREATE VIEW v_product_complete AS
+SELECT
+  jsonb_build_object(
+    'id', p.id::text,
+    'name', p.name,
+    'description', p.description,
+    'category', jsonb_build_object(
+      'id', c.id::text,
+      'name', c.name
+    ),
+    'variants', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', v.id::text,
+        'sku', v.sku,
+        'color', v.color,
+        'size', v.size,
+        'price', v.price,
+        'stock', (SELECT quantity FROM tb_inventory WHERE variant_id = v.id LIMIT 1)
+      ))
+      FROM tb_variant v
+      WHERE v.product_id = p.id
+    ),
+    'images', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'url', i.url,
+        'alt', i.alt_text
+      ))
+      FROM tb_image i
+      WHERE i.product_id = p.id
+      ORDER BY i.display_order
+    ),
+    'reviews', jsonb_build_object(
+      'average_rating', (SELECT avg(rating) FROM tb_review WHERE product_id = p.id),
+      'count', (SELECT count(*) FROM tb_review WHERE product_id = p.id),
+      'items', (
+        SELECT jsonb_agg(jsonb_build_object(
+          'rating', r.rating,
+          'title', r.title,
+          'text', r.text,
+          'author', r.author_name,
+          'helpful_count', r.helpful_count
+        ))
+        FROM tb_review r
+        WHERE r.product_id = p.id
+        ORDER BY r.created_at DESC
+        LIMIT 10
+      )
+    ),
+    'related_products', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', rp.id::text,
+        'name', rp.name,
+        'price', (SELECT min(price) FROM tb_variant WHERE product_id = rp.id)
+      ))
+      FROM tb_product_relation pr
+      JOIN tb_product rp ON pr.related_product_id = rp.id
+      WHERE pr.product_id = p.id
+      LIMIT 5
+    )
+  ) AS data
+FROM tb_product p
+LEFT JOIN tb_category c ON p.category_id = c.id;`}></code></pre>
+        </div>
+
+        <div class="solution-step">
+          <h3>Inventory & Pricing</h3>
+          <pre><code set:html={`CREATE VIEW v_variant_with_inventory AS
+SELECT
+  jsonb_build_object(
+    'variant_id', v.id::text,
+    'sku', v.sku,
+    'inventory', jsonb_build_object(
+      'total', sum(i.quantity) FILTER (WHERE i.status = 'available'),
+      'by_warehouse', (
+        SELECT jsonb_object_agg(w.name, i.quantity)
+        FROM tb_inventory i
+        JOIN tb_warehouse w ON i.warehouse_id = w.id
+        WHERE i.variant_id = v.id
+      )
+    ),
+    'pricing', jsonb_build_object(
+      'base_price', v.price,
+      'discount', (
+        SELECT CASE
+          WHEN d.type = 'percentage' THEN v.price * (d.value / 100.0)
+          ELSE d.value
+        END
+        FROM tb_discount d
+        WHERE d.variant_id = v.id
+          AND NOW() BETWEEN d.start_date AND d.end_date
+        LIMIT 1
+      ),
+      'final_price', v.price - COALESCE((
+        SELECT CASE
+          WHEN d.type = 'percentage' THEN v.price * (d.value / 100.0)
+          ELSE d.value
+        END
+        FROM tb_discount d
+        WHERE d.variant_id = v.id
+          AND NOW() BETWEEN d.start_date AND d.end_date
+        LIMIT 1
+      ), 0)
+    )
+  ) AS data
+FROM tb_variant v
+GROUP BY v.id, v.sku, v.price;`}></code></pre>
+        </div>
+
+        <div class="solution-step">
+          <h3>Python Types</h3>
+          <pre><code set:html={`from uuid import UUID
+
+@fraiseql.type
+class Category:
+  id: UUID
+  name: str
+
+@fraiseql.type
+class Variant:
+  id: UUID
+  sku: str
+  color: str
+  size: str
+  price: float
+  stock: int
+
+@fraiseql.type
+class Image:
+  url: str
+  alt: str
+
+@fraiseql.type
+class Review:
+  rating: int
+  title: str
+  text: str
+  author: str
+  helpful_count: int
+
+@fraiseql.type
+class Product:
+  id: UUID
+  name: str
+  description: str
+  category: Category
+  variants: list[Variant]
+  images: list[Image]
+  reviews: ReviewSummary`}></code></pre>
+        </div>
+      </section>
+
+      <section class="example-section">
+        <h2>Real-World Example: Product Listing</h2>
+
+        <div class="example-box">
+          <h3>Request: Show product with all details</h3>
+          <p>Mobile app requests product page data (web/iOS/Android all use same API)</p>
+
+          <h3>Single Query Response:</h3>
+          <pre><code set:html={`@fraiseql.query(sql_source="v_product_complete")
+def product(product_id: UUID) -> Product:
+  pass
+
+# Returns:
+# {
+#   "id": "...",
+#   "name": "Wireless Headphones",
+#   "variants": [
+#     { "id": "...", "color": "black", "stock": 45 },
+#     { "id": "...", "color": "white", "stock": 12 }
+#   ],
+#   "images": [{ "url": "...", "alt": "..." }],
+#   "reviews": {
+#     "average_rating": 4.5,
+#     "count": 234,
+#     "items": [...]
+#   },
+#   "related_products": [...]
+# }`}></code></pre>
+
+          <p><strong>Result:</strong> One database query. Complete product data for all clients (web, mobile, internal dashboards).</p>
+        </div>
+      </section>
+
+      <section class="performance-section">
+        <h2>Performance Advantages</h2>
+
+        <div class="benefit-grid">
+          <div class="benefit-card">
+            <h3>Mobile-First</h3>
+            <p>Minimal payload. All data in one response. Reduces network latency.</p>
+            <p class="metric">~50-100ms per request</p>
+          </div>
+
+          <div class="benefit-card">
+            <h3>Inventory Consistency</h3>
+            <p>Real-time stock levels from the database. No cache misses.</p>
+            <p class="metric">100% accurate</p>
+          </div>
+
+          <div class="benefit-card">
+            <h3>Scalable Variants</h3>
+            <p>Thousands of variants per product. Single query still fast.</p>
+            <p class="metric">Linear complexity</p>
+          </div>
+
+          <div class="benefit-card">
+            <h3>Personalization Ready</h3>
+            <p>Add user preferences to views. Personalized catalogs per user.</p>
+            <p class="metric">Custom data per request</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="advanced-section">
+        <h2>Advanced Patterns</h2>
+
+        <div class="pattern-box">
+          <h3>Personalized Product Feed</h3>
+          <pre><code set:html={`CREATE VIEW v_personalized_products AS
+SELECT
+  jsonb_build_object(
+    'product_id', p.id::text,
+    'relevance_score', (
+      SELECT count(*) FROM tb_user_view
+      WHERE product_id = p.id
+        AND user_id = current_setting('app.user_id')::uuid
+    ),
+    'product_data', jsonb_build_object(
+      'id', p.id::text,
+      'name', p.name,
+      'price', min(v.price)
+    )
+  ) AS data
+FROM tb_product p
+JOIN tb_variant v ON p.id = v.product_id
+GROUP BY p.id
+ORDER BY relevance_score DESC;`}></code></pre>
+        </div>
+
+        <div class="pattern-box">
+          <h3>Cross-Sell Recommendations</h3>
+          <pre><code set:html={`CREATE VIEW v_often_bought_together AS
+SELECT
+  p1.id::text AS product_id,
+  jsonb_build_object(
+    'product_id', p1.id::text,
+    'recommendations', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', p2.id::text,
+        'name', p2.name,
+        'frequently_bought_together_count', count(*)
+      ))
+      FROM tb_order_item oi1
+      JOIN tb_order_item oi2 ON oi1.order_id = oi2.order_id
+      JOIN tb_product p2 ON oi2.product_id = p2.id
+      WHERE oi1.product_id = p1.id
+        AND p2.id != p1.id
+      GROUP BY p2.id
+      ORDER BY count(*) DESC
+      LIMIT 5
+    )
+  ) AS data
+FROM tb_product p1;`}></code></pre>
+        </div>
+      </section>
+
+      <section class="resources-section">
+        <h2>Related Resources</h2>
+        <div class="resources-grid">
+          <div class="resource-box">
+            <h3>📊 Analytics</h3>
+            <p>Real-time product metrics and sales dashboards.</p>
+            <a href="/use-cases/analytics/" class="link">Read →</a>
+          </div>
+          <div class="resource-box">
+            <h3>📱 For Developers</h3>
+            <p>Building client-side apps with FraiseQL.</p>
+            <a href="/for/developers/" class="link">Read →</a>
+          </div>
+          <div class="resource-box">
+            <h3>⚡ Performance</h3>
+            <p>Scale to millions of products naturally.</p>
+            <a href="/use-cases/unpredictable-performance/" class="link">Read →</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-section">
+        <h2>Ready to Build Your Store?</h2>
+        <p>Start building scalable e-commerce APIs with FraiseQL today.</p>
+        <div class="cta-buttons">
+          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .use-case-hero {
+    background: linear-gradient(135deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    color: white;
+    padding: var(--spacing-16) var(--spacing-6);
+    text-align: center;
+  }
+
+  .use-case-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 var(--spacing-3) 0;
+    font-weight: 700;
+  }
+
+  .use-case-hero p {
+    font-size: 1.125rem;
+    opacity: 0.95;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-6);
+  }
+
+  .use-case-content {
+    padding: var(--spacing-16) var(--spacing-6);
+  }
+
+  .use-case-content section {
+    margin-bottom: var(--spacing-16);
+  }
+
+  .use-case-content h2 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-8);
+    color: var(--color-text);
+  }
+
+  .use-case-content h3 {
+    font-size: 1.25rem;
+    margin: var(--spacing-6) 0 var(--spacing-3) 0;
+    color: var(--color-text);
+  }
+
+  .use-case-content p {
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+    margin-bottom: var(--spacing-4);
+  }
+
+  .challenge-list {
+    color: var(--color-text-muted);
+    line-height: var(--leading-loose);
+    padding-left: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .challenge-list li {
+    margin-bottom: var(--spacing-3);
+  }
+
+  .solution-step {
+    background: var(--color-surface);
+    border-left: 4px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .solution-step pre {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .solution-step code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .example-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .example-box h3 {
+    margin-top: 0;
+  }
+
+  .example-box pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0;
+  }
+
+  .example-box code {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .benefit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .benefit-card {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .benefit-card h3 {
+    margin-top: 0;
+  }
+
+  .metric {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--fraise-500);
+    margin-top: var(--spacing-3);
+  }
+
+  .pattern-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .pattern-box pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .pattern-box code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .resources-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-6);
+  }
+
+  .resource-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .resource-box h3 {
+    margin-top: 0;
+  }
+
+  .link {
+    color: var(--fraise-500);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color var(--transition-fast);
+  }
+
+  .link:hover {
+    color: var(--fraise-700);
+    text-decoration: underline;
+  }
+
+  .cta-section {
+    background: var(--color-surface);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-12);
+    text-align: center;
+  }
+
+  .cta-section h2 {
+    margin-top: 0;
+  }
+
+  .cta-buttons {
+    display: flex;
+    gap: var(--spacing-4);
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: var(--spacing-6);
+  }
+
+  .btn {
+    display: inline-block;
+    padding: var(--spacing-3) var(--spacing-6);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    text-decoration: none;
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    border: none;
+    font-size: var(--text-base);
+  }
+
+  .btn-primary {
+    background: var(--fraise-500);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: var(--fraise-600);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--fraise-500);
+    border: 2px solid var(--fraise-500);
+  }
+
+  .btn-secondary:hover {
+    background: var(--fraise-50);
+  }
+
+  @media (max-width: 768px) {
+    .use-case-hero h1 {
+      font-size: 2rem;
+    }
+
+    .use-case-content h2 {
+      font-size: 1.5rem;
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+  }
+</style>

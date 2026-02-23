@@ -1,0 +1,285 @@
+---
+interface FooterLink {
+  label: string;
+  href: string;
+  external?: boolean;
+}
+
+interface FooterSection {
+  title: string;
+  links: FooterLink[];
+}
+
+const sections: FooterSection[] = [
+  {
+    title: "Product",
+    links: [
+      { label: "Use Cases", href: "/use-cases" },
+      { label: "Trade-Offs", href: "/trade-offs" },
+      { label: "For Developers", href: "/for/developers" },
+      { label: "For Architects", href: "/for/architects" },
+    ],
+  },
+  {
+    title: "Resources",
+    links: [
+      { label: "Documentation", href: "/docs/getting-started/introduction/" },
+      { label: "Examples", href: "/docs/examples/" },
+      { label: "API Reference", href: "/docs/reference/cli/" },
+      { label: "Quick Start", href: "/docs/getting-started/quickstart/" },
+    ],
+  },
+  {
+    title: "Community",
+    links: [
+      { label: "GitHub", href: "https://github.com/fraiseql", external: true },
+      {
+        label: "Discussions",
+        href: "https://github.com/fraiseql/fraiseql/discussions",
+        external: true,
+      },
+      { label: "Contributing", href: "/docs/community/contributing/" },
+      { label: "Support", href: "/docs/community/support/" },
+    ],
+  },
+  {
+    title: "Company",
+    links: [
+      { label: "About", href: "/about" },
+      { label: "Contact", href: "/contact" },
+      { label: "Security", href: "/security" },
+      { label: "License", href: "/license" },
+    ],
+  },
+];
+---
+
+<footer class="footer">
+  <div class="footer-container">
+    <!-- Brand Section -->
+    <div class="footer-brand">
+      <h3 class="brand-title">&#x1F353; FraiseQL</h3>
+      <p class="brand-description">
+        Database-first GraphQL ecosystem with 11 interconnected tools for
+        deterministic, high-performance query execution.
+      </p>
+      <div class="social-links">
+        <a
+          href="https://github.com/fraiseql"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="GitHub"
+          class="social-link"
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fill-rule="evenodd"
+              d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.868-.013-1.703-2.782.603-3.369-1.343-3.369-1.343-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.546 2.914 1.19.092-.926.35-1.546.636-1.902-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0110 4.817c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C17.137 18.191 20 14.44 20 10.017 20 4.484 15.522 0 10 0z"
+            ></path>
+          </svg>
+        </a>
+      </div>
+    </div>
+
+    <!-- Links Sections -->
+    {
+      sections.map((section) => (
+        <div class="footer-section">
+          <h4 class="footer-section-title">{section.title}</h4>
+          <ul class="footer-links">
+            {section.links.map((link) => (
+              <li>
+                <a
+                  href={link.href}
+                  class="footer-link"
+                  target={link.external ? "_blank" : undefined}
+                  rel={link.external ? "noopener noreferrer" : undefined}
+                >
+                  {link.label}
+                  {link.external && (
+                    <span class="external-icon" aria-label="external link">
+                      &#8599;
+                    </span>
+                  )}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))
+    }
+  </div>
+
+  <!-- Bottom Bar -->
+  <div class="footer-bottom">
+    <p class="footer-copyright">
+      &copy; 2025 FraiseQL Team. All rights reserved.
+    </p>
+    <div class="footer-badges">
+      <span class="badge">MIT License</span>
+      <span class="badge">Open Source</span>
+      <span class="badge">Production Ready</span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    background: var(--color-gray-50);
+    border-top: 1px solid var(--color-border);
+    margin-top: var(--spacing-32);
+    color: var(--color-text);
+  }
+
+  .footer-container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: var(--spacing-16) var(--spacing-6);
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+    gap: var(--spacing-8);
+  }
+
+  .footer-brand {
+    padding-right: var(--spacing-4);
+  }
+
+  .brand-title {
+    margin: 0 0 var(--spacing-3) 0;
+    font-size: var(--text-xl);
+    color: var(--fraise-500);
+  }
+
+  .brand-description {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+    margin: 0 0 var(--spacing-4) 0;
+  }
+
+  .social-links {
+    display: flex;
+    gap: var(--spacing-3);
+  }
+
+  .social-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    background: white;
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    transition: all var(--transition-fast);
+  }
+
+  .social-link:hover {
+    background: var(--fraise-500);
+    color: white;
+    border-color: var(--fraise-500);
+  }
+
+  .footer-section {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .footer-section-title {
+    margin: 0 0 var(--spacing-3) 0;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .footer-links {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .footer-link {
+    color: var(--color-text-muted);
+    text-decoration: none;
+    font-size: var(--text-sm);
+    transition: color var(--transition-fast);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+  }
+
+  .footer-link:hover {
+    color: var(--fraise-500);
+  }
+
+  .external-icon {
+    font-size: 0.75em;
+    opacity: 0.6;
+  }
+
+  .footer-bottom {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: var(--spacing-6);
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .footer-copyright {
+    margin: 0;
+  }
+
+  .footer-badges {
+    display: flex;
+    gap: var(--spacing-3);
+  }
+
+  .badge {
+    display: inline-block;
+    padding: var(--spacing-1) var(--spacing-3);
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--fraise-500);
+  }
+
+  @media (max-width: 1024px) {
+    .footer-container {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .footer-brand {
+      grid-column: 1 / -1;
+      padding-right: 0;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .footer-container {
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--spacing-6);
+      padding: var(--spacing-8) var(--spacing-4);
+    }
+
+    .footer-bottom {
+      flex-direction: column;
+      gap: var(--spacing-4);
+      text-align: center;
+    }
+
+    .footer-badges {
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+  }
+</style>

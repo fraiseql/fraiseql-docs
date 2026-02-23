@@ -1,0 +1,638 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "FraiseQL for Developers";
+const description = "Build faster APIs with less complexity. Write SQL, map to types, serve GraphQL. No resolvers. No N+1.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="audience-hero">
+    <div class="container">
+      <h1>For Developers</h1>
+      <p>Build APIs the way you think about data</p>
+    </div>
+  </section>
+
+  <section class="audience-content">
+    <div class="container">
+
+      <section class="intro-section">
+        <h2>Your Problem</h2>
+        <p>You're tired of:</p>
+        <ul class="problem-list">
+          <li>Writing field resolvers for every relationship</li>
+          <li>Fighting N+1 queries with DataLoaders</li>
+          <li>Debugging why a simple query runs 50 database hits</li>
+          <li>Spending more time optimizing than building features</li>
+        </ul>
+        <p>You know SQL. You understand your database. You just want to serve it as GraphQL.</p>
+      </section>
+
+      <section class="value-section">
+        <h2>What FraiseQL Gives You</h2>
+
+        <div class="value-card">
+          <h3>✅ Think in SQL</h3>
+          <p>Write SQL views. Compose JSONB. You understand exactly what's happening.</p>
+          <p>No magic. No ORM generating queries you didn't ask for.</p>
+        </div>
+
+        <div class="value-card">
+          <h3>✅ Map to Types</h3>
+          <p>Define types in your language. FraiseQL validates that types match views.</p>
+          <pre><code set:html={`# Your schema matches your database
+from uuid import UUID
+
+@fraiseql.type
+class User:
+  id: UUID
+  name: str
+  email: str`}></code></pre>
+        </div>
+
+        <div class="value-card">
+          <h3>✅ No Field Resolvers</h3>
+          <p>No per-field queries. No N+1 prevention logic. Just queries and mutations.</p>
+          <pre><code set:html={`# One query. One database hit. Done.
+@fraiseql.query(sql_source="v_user")
+def user(id: UUID) -> User:
+  pass`}></code></pre>
+        </div>
+
+        <div class="value-card">
+          <h3>✅ Deploy with Confidence</h3>
+          <p>Views compile at deploy time. Errors caught before production.</p>
+          <p>No runtime schema interpretation. Just execute.</p>
+        </div>
+
+      </section>
+
+      <section class="comparison-section">
+        <h2>How FraiseQL vs Traditional GraphQL</h2>
+
+        <div class="comparison-item">
+          <h3>❌ Traditional GraphQL</h3>
+          <pre><code set:html={`# Fetch user
+@resolver
+async def user(info, id) -> User:
+  return db.find_user(id)
+
+# Fetch user + posts (needs resolver)
+@resolver
+async def posts(parent, info) -> List[Post]:
+  posts = db.find_posts(parent.id)  # Separate query!
+  return posts
+
+# Result: N+1 problem
+# 1 user query + 1 posts query per user = 1 + N queries`}></code></pre>
+        </div>
+
+        <div class="comparison-item">
+          <h3>✅ FraiseQL</h3>
+          <pre><code set:html={`# SQL view pre-composes everything
+CREATE VIEW v_user_with_posts AS
+SELECT id, jsonb_build_object(
+  'name', name,
+  'posts', (SELECT jsonb_agg(...))
+) AS data
+FROM tb_user;
+
+# Single resolver
+@fraiseql.query(sql_source="v_user_with_posts")
+def user(id: UUID) -> User:
+  pass
+
+# Result: 1 query for user + posts`}></code></pre>
+        </div>
+      </section>
+
+      <section class="learning-section">
+        <h2>Your Learning Path</h2>
+
+        <div class="path-step">
+          <div class="step-number">1</div>
+          <h3>Start: 10 minutes</h3>
+          <p>Read the Getting Started guide. Write your first view and schema.</p>
+          <a href="/docs/getting-started/quickstart/" class="link">Get Started →</a>
+        </div>
+
+        <div class="path-step">
+          <div class="step-number">2</div>
+          <h3>Understand: 20 minutes</h3>
+          <p>Learn how FraiseQL works under the hood and why it's different.</p>
+          <a href="/how-it-works/" class="link">How It Works →</a>
+        </div>
+
+        <div class="path-step">
+          <div class="step-number">3</div>
+          <h3>Think: 30 minutes</h3>
+          <p>Explore the philosophy. Why database-first? Why CQRS? Why compilation?</p>
+          <a href="/docs/concepts/how-it-works/" class="link">Philosophy →</a>
+        </div>
+
+        <div class="path-step">
+          <div class="step-number">4</div>
+          <h3>Build: 1-2 hours</h3>
+          <p>Create your first real project. Start simple, add complexity.</p>
+          <a href="/examples/" class="link">See Examples →</a>
+        </div>
+
+      </section>
+
+      <section class="use-case-section">
+        <h2>What You Can Build</h2>
+
+        <div class="use-case-grid">
+          <div class="use-case-item">
+            <h4>REST → GraphQL Migration</h4>
+            <p>Have a REST API? Add GraphQL without rewriting everything.</p>
+            <p>Define views for existing tables. Map to types. Done.</p>
+          </div>
+
+          <div class="use-case-item">
+            <h4>Dashboards & Analytics</h4>
+            <p>Complex queries with multiple tables? Pre-compose in views.</p>
+            <p>Serve aggregations as GraphQL.</p>
+          </div>
+
+          <div class="use-case-item">
+            <h4>Real-time APIs</h4>
+            <p>Use subscriptions on top of pre-composed views.</p>
+            <p>Performance scales naturally.</p>
+          </div>
+
+          <div class="use-case-item">
+            <h4>Multi-tenant SaaS</h4>
+            <p>Filter at database level with views.</p>
+            <p>Security and performance in one place.</p>
+          </div>
+
+          <div class="use-case-item">
+            <h4>Mobile Backends</h4>
+            <p>Mobile apps need efficient APIs. FraiseQL delivers.</p>
+            <p>One query per request. Minimal bandwidth.</p>
+          </div>
+
+          <div class="use-case-item">
+            <h4>Complex Relationships</h4>
+            <p>Posts with comments, likes, author info?</p>
+            <p>Compose once in views. Query once from API.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sdk-section">
+        <h2>Choose Your Language</h2>
+
+        <div class="sdk-grid">
+          <div class="sdk-card">
+            <h3>Python</h3>
+            <p>Most popular for data work</p>
+            <pre><code set:html={`@fraiseql.query(sql_source="v_users")
+def users(limit: int = 100) -> list[User]:
+  pass`}></code></pre>
+          </div>
+
+          <div class="sdk-card">
+            <h3>TypeScript</h3>
+            <p>Full type safety in Node</p>
+            <pre><code set:html={`@fraiseqlQuery({ sqlSource: "v_users" })
+function users(limit: number = 100): User[] {
+  // authoring only
+}`}></code></pre>
+          </div>
+
+          <div class="sdk-card">
+            <h3>Go</h3>
+            <p>Performance and simplicity</p>
+            <pre><code set:html={`func (r *Query) Users(ctx context.Context) ([]*User, error) {
+  // authoring only
+}`}></code></pre>
+          </div>
+
+          <div class="sdk-card">
+            <h3>PHP</h3>
+            <p>For existing PHP backends</p>
+            <pre><code set:html={`#[FraiseQLQuery(sqlSource: "v_users")]
+function users(int $limit = 100): array {
+  // authoring only
+}`}></code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="tools-section">
+        <h2>Works With Your Stack</h2>
+
+        <div class="tools-list">
+          <div class="tool-group">
+            <h4>Databases</h4>
+            <ul>
+              <li>PostgreSQL</li>
+              <li>MySQL / MariaDB</li>
+              <li>SQLite</li>
+            </ul>
+          </div>
+
+          <div class="tool-group">
+            <h4>Authentication</h4>
+            <ul>
+              <li>Auth0</li>
+              <li>Firebase</li>
+              <li>Clerk</li>
+              <li>Custom JWT</li>
+            </ul>
+          </div>
+
+          <div class="tool-group">
+            <h4>Caching</h4>
+            <ul>
+              <li>Redis</li>
+              <li>Memcached</li>
+              <li>In-memory</li>
+            </ul>
+          </div>
+
+          <div class="tool-group">
+            <h4>Deployment</h4>
+            <ul>
+              <li>Docker</li>
+              <li>Kubernetes</li>
+              <li>Railway</li>
+              <li>Fly.io</li>
+              <li>AWS</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="common-questions">
+        <h2>Common Questions</h2>
+
+        <div class="faq-item">
+          <h4>Q: How long to learn?</h4>
+          <p><strong>A:</strong> 10-30 minutes to understand. 1-2 hours to build something real. You already know SQL and your language.</p>
+        </div>
+
+        <div class="faq-item">
+          <h4>Q: Can I use existing databases?</h4>
+          <p><strong>A:</strong> Yes! Add views to your existing schema. No migration needed.</p>
+        </div>
+
+        <div class="faq-item">
+          <h4>Q: What about complex logic?</h4>
+          <p><strong>A:</strong> Compose data in views. Implement logic in SQL functions (<code>fn_*</code>) that back your mutations — the database is where the logic lives.</p>
+        </div>
+
+        <div class="faq-item">
+          <h4>Q: How do I debug?</h4>
+          <p><strong>A:</strong> Views are SQL. Run EXPLAIN ANALYZE to see query plans. One query per request means clear debugging.</p>
+        </div>
+
+        <div class="faq-item">
+          <h4>Q: Is it production-ready?</h4>
+          <p><strong>A:</strong> Yes. Used in production at several companies. Compile-time validation means fewer bugs.</p>
+        </div>
+
+      </section>
+
+      <section class="next-section">
+        <h2>Ready to Start?</h2>
+        <div class="cta-buttons">
+          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started Now</a>
+          <a href="/examples/" class="btn btn-secondary">See Examples</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .audience-hero {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4rem 2rem;
+    text-align: center;
+  }
+
+  .audience-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 1rem 0;
+    font-weight: 700;
+  }
+
+  .audience-hero p {
+    font-size: 1.125rem;
+    opacity: 0.9;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+
+  .audience-content {
+    padding: 4rem 2rem;
+  }
+
+  .audience-content section {
+    margin-bottom: 4rem;
+  }
+
+  .audience-content h2 {
+    font-size: 2rem;
+    margin-bottom: 2rem;
+    color: #1a202c;
+  }
+
+  .audience-content h3 {
+    color: #1a202c;
+    margin-top: 0;
+  }
+
+  .audience-content p {
+    color: #4a5568;
+    line-height: 1.8;
+    margin-bottom: 1rem;
+  }
+
+  /* Lists */
+  .problem-list,
+  .tools-list {
+    color: #4a5568;
+    line-height: 2;
+    padding-left: 2rem;
+  }
+
+  .problem-list li {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Value cards */
+  .value-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .value-card pre {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    margin: 1rem 0 0 0;
+  }
+
+  .value-card code {
+    font-family: 'Courier New', monospace;
+    color: #2d3748;
+    line-height: 1.5;
+  }
+
+  /* Comparison */
+  .comparison-item {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .comparison-item pre {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.75rem;
+    margin: 1rem 0 0 0;
+  }
+
+  .comparison-item code {
+    font-family: 'Courier New', monospace;
+    color: #2d3748;
+    line-height: 1.4;
+  }
+
+  /* Learning path */
+  .path-step {
+    background: white;
+    border-left: 4px solid #667eea;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 1.5rem;
+    align-items: flex-start;
+  }
+
+  .step-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: #667eea;
+    color: white;
+    border-radius: 50%;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .path-step h3 {
+    margin: 0 0 0.5rem 0;
+  }
+
+  .path-step p {
+    margin: 0 0 0.75rem 0;
+  }
+
+  .link {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .link:hover {
+    color: #764ba2;
+  }
+
+  /* Use case grid */
+  .use-case-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .use-case-item {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+  }
+
+  .use-case-item h4 {
+    margin-top: 0;
+    color: #667eea;
+  }
+
+  .use-case-item p {
+    margin: 0.5rem 0;
+    font-size: 0.95rem;
+  }
+
+  /* SDK grid */
+  .sdk-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .sdk-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    text-align: center;
+  }
+
+  .sdk-card h3 {
+    margin-top: 0;
+  }
+
+  .sdk-card p {
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+  }
+
+  .sdk-card pre {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    overflow-x: auto;
+    font-size: 0.7rem;
+    margin: 0;
+    text-align: left;
+  }
+
+  .sdk-card code {
+    font-family: 'Courier New', monospace;
+    color: #2d3748;
+    line-height: 1.3;
+  }
+
+  /* Tools */
+  .tools-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 2rem;
+  }
+
+  .tool-group {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+  }
+
+  .tool-group h4 {
+    margin-top: 0;
+    color: #667eea;
+    font-size: 0.95rem;
+  }
+
+  .tool-group ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .tool-group li {
+    padding: 0.25rem 0;
+    color: #4a5568;
+    font-size: 0.875rem;
+  }
+
+  /* FAQ */
+  .faq-item {
+    background: white;
+    border-left: 4px solid #667eea;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .faq-item h4 {
+    margin-top: 0;
+    color: #1a202c;
+  }
+
+  .faq-item p {
+    margin: 0;
+  }
+
+  /* CTA */
+  .cta-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    padding: 1rem 2rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s ease;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: #667eea;
+    border: 2px solid #667eea;
+  }
+
+  .btn-secondary:hover {
+    background: #f7fafc;
+  }
+
+  @media (max-width: 768px) {
+    .audience-hero h1 {
+      font-size: 2rem;
+    }
+
+    .path-step {
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+  }
+</style>

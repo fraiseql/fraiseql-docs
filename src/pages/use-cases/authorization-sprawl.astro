@@ -1,0 +1,676 @@
+---
+import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+
+const title = "Authorization Sprawl with FraiseQL";
+const description = "Consolidate authorization logic at the database level. Stop scattering RBAC across resolvers.";
+---
+
+<MarketingLayout title={title} description={description}>
+  <section class="use-case-hero">
+    <div class="container">
+      <h1>Authorization: One Source of Truth</h1>
+      <p>Stop scattering RBAC across 47 field resolvers. Move authorization to the database.</p>
+    </div>
+  </section>
+
+  <section class="use-case-content">
+    <div class="container">
+
+      <section class="problem-section">
+        <h2>The Authorization Sprawl Problem</h2>
+
+        <p>In traditional GraphQL, authorization logic is scattered everywhere:</p>
+
+        <div class="problem-example">
+          <h3>Typical Authorization Mess</h3>
+          <pre><code set:html={`# Authorization in resolver 1
+@resolver
+async def user(info, id: str) -> User:
+  if not info.context["user"].can_view(id):  # Check 1
+    raise PermissionError()
+  return db.find_user(id)
+
+# Authorization in resolver 2
+@resolver
+async def posts(parent: User, info) -> list[Post]:
+  if not info.context["user"].can_view_posts(parent.id):  # Check 2
+    raise PermissionError()
+  return db.find_posts(parent.id)
+
+# Authorization in resolver 3
+@resolver
+async def comments(parent: Post, info) -> list[Comment]:
+  if not info.context["user"].can_view_comments(parent.id):  # Check 3
+    raise PermissionError()
+  return db.find_comments(parent.id)
+
+# By resolver 47, you've written 47 different authorization checks
+# Some check roles, some check ownership, some check teams
+# Consistency: ❌ ZERO`}></code></pre>
+        </div>
+
+        <div class="risk-grid">
+          <div class="risk-item">
+            <h4>🔓 Authorization Bypass</h4>
+            <p>Forget one check and data leaks</p>
+          </div>
+          <div class="risk-item">
+            <h4>🔀 Inconsistent Rules</h4>
+            <p>Same user, different permissions in different resolvers</p>
+          </div>
+          <div class="risk-item">
+            <h4>🐛 Hard to Audit</h4>
+            <p>Where is authorization actually enforced?</p>
+          </div>
+          <div class="risk-item">
+            <h4>😰 Maintenance Nightmare</h4>
+            <p>Change a permission rule = update 20+ resolvers</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="solution-section">
+        <h2>FraiseQL Solution: Database-Level Authorization</h2>
+
+        <p>Define authorization once in SQL views. Every query respects it automatically.</p>
+
+        <div class="solution-step">
+          <h3>Step 1: Consolidate Authorization in Views</h3>
+          <pre><code set:html={`-- Single source of truth for all authorization
+CREATE VIEW v_user_visible_posts AS
+SELECT
+  jsonb_build_object(
+    'id', p.id::text,
+    'title', p.title,
+    'content', p.content,
+    'author_id', p.author_id::text,
+    'created_at', p.created_at
+  ) AS data
+FROM tb_post p
+WHERE
+  -- Public posts anyone can see
+  p.is_public = true
+  OR
+  -- Posts user authored
+  p.author_id = current_setting('app.user_id')::uuid
+  OR
+  -- Posts in teams user belongs to
+  EXISTS (
+    SELECT 1 FROM tb_team_member tm
+    WHERE tm.team_id = p.team_id
+      AND tm.user_id = current_setting('app.user_id')::uuid
+  );`}></code></pre>
+        </div>
+
+        <div class="solution-step">
+          <h3>Step 2: Set Context Once</h3>
+          <pre><code set:html={`# Single authorization check at the API level
+@fraiseql.query(sql_source="v_user_visible_posts")
+def posts() -> list[Post]:
+  # User context is set by the Rust runtime via fraiseql.toml
+  # All views respect this context automatically
+  pass`}></code></pre>
+        </div>
+
+        <div class="solution-step">
+          <h3>Step 3: No Per-Field Checks Needed</h3>
+          <pre><code set:html={`@fraiseql.type
+class Post:
+  id: UUID
+  title: str
+  content: str
+  author_id: UUID
+  created_at: str
+
+# No resolver checks needed
+# The view already enforces authorization`}></code></pre>
+        </div>
+      </section>
+
+      <section class="example-section">
+        <h2>Real-World: Multi-Team SaaS</h2>
+
+        <div class="example-box">
+          <h3>Authorization Rules:</h3>
+          <ul>
+            <li>Users see only their own team's data</li>
+            <li>Admins see all data</li>
+            <li>Editors can modify posts, viewers are read-only</li>
+            <li>Team leads see their team + team leads' reports</li>
+          </ul>
+
+          <h3>FraiseQL Approach: Single View</h3>
+          <pre><code set:html={`CREATE VIEW v_accessible_posts AS
+SELECT
+  jsonb_build_object(
+    'id', p.id::text,
+    'title', p.title,
+    'can_edit', CASE
+      WHEN current_setting('app.user_role') = 'admin' THEN true
+      WHEN current_setting('app.user_role') = 'editor'
+        AND tm.user_id IS NOT NULL THEN true
+      ELSE false
+    END,
+    'team', jsonb_build_object(
+      'id', t.id::text,
+      'name', t.name
+    )
+  ) AS data
+FROM tb_post p
+JOIN tb_team t ON p.team_id = t.id
+LEFT JOIN tb_team_member tm ON (
+  t.id = tm.team_id
+  AND tm.user_id = current_setting('app.user_id')::uuid
+)
+WHERE
+  -- Admins see everything
+  current_setting('app.user_role') = 'admin'
+  OR
+  -- Regular users see only their team
+  (
+    EXISTS (
+      SELECT 1 FROM tb_team_member
+      WHERE team_id = p.team_id
+        AND user_id = current_setting('app.user_id')::uuid
+    )
+  )
+  OR
+  -- Team leads see peer team leads
+  (
+    current_setting('app.user_role') = 'team_lead'
+    AND EXISTS (
+      SELECT 1 FROM tb_team_member tl
+      WHERE tl.user_id = current_setting('app.user_id')::uuid
+        AND tl.role = 'team_lead'
+        AND tl.team_id IN (
+          SELECT team_id FROM tb_team_member
+          WHERE user_id = p.author_id
+        )
+    )
+  );`}></code></pre>
+
+          <p><strong>Result:</strong> Authorization is tested once, applies everywhere.</p>
+        </div>
+      </section>
+
+      <section class="patterns-section">
+        <h2>Authorization Patterns</h2>
+
+        <div class="pattern-box">
+          <h3>Pattern 1: Role-Based Access Control</h3>
+          <pre><code set:html={`CREATE VIEW v_rbac_posts AS
+SELECT ... FROM tb_post p
+WHERE (
+  current_setting('app.user_role') = 'admin'
+) OR (
+  current_setting('app.user_role') = 'editor'
+  AND p.author_id = current_setting('app.user_id')::uuid
+) OR (
+  current_setting('app.user_role') = 'viewer'
+  AND p.is_published = true
+);`}></code></pre>
+        </div>
+
+        <div class="pattern-box">
+          <h3>Pattern 2: Ownership-Based</h3>
+          <pre><code set:html={`CREATE VIEW v_owned_resources AS
+SELECT ... FROM tb_resource r
+WHERE r.owner_id = current_setting('app.user_id')::uuid
+  OR r.org_id IN (
+    SELECT org_id FROM tb_org_member
+    WHERE user_id = current_setting('app.user_id')::uuid
+  );`}></code></pre>
+        </div>
+
+        <div class="pattern-box">
+          <h3>Pattern 3: Hierarchical Permissions</h3>
+          <pre><code set:html={`CREATE VIEW v_hierarchical_access AS
+SELECT ... FROM tb_resource r
+WHERE r.org_id = current_setting('app.org_id')::uuid
+  AND (
+    -- Can access own resources
+    r.created_by = current_setting('app.user_id')::uuid
+    OR
+    -- Can access team resources if team lead
+    (
+      r.team_id = current_setting('app.team_id')::uuid
+      AND current_setting('app.user_role') = 'team_lead'
+    )
+    OR
+    -- Can access org resources if admin
+    (
+      current_setting('app.user_role') = 'admin'
+    )
+  );`}></code></pre>
+        </div>
+      </section>
+
+      <section class="testing-section">
+        <h2>Testing Authorization</h2>
+
+        <div class="testing-box">
+          <h3>Test Cases Are Simpler</h3>
+          <pre><code set:html={`# Test: User can't see other team's data
+def test_user_isolation():
+  # Set context for Team A user
+  db.execute("SET app.user_id = 'team-a-user'")
+  posts_team_a = db.find_many("v_accessible_posts")
+
+  # Set context for Team B user
+  db.execute("SET app.user_id = 'team-b-user'")
+  posts_team_b = db.find_many("v_accessible_posts")
+
+  # They see different data
+  assert posts_team_a[0]["team_id"] != posts_team_b[0]["team_id"]
+
+# You're not testing resolver logic
+# You're testing the database view behavior
+# Much simpler and more reliable`}></code></pre>
+        </div>
+      </section>
+
+      <section class="benefits-section">
+        <h2>Authorization Benefits</h2>
+
+        <div class="benefit-grid">
+          <div class="benefit-card">
+            <h3>✅ Single Source of Truth</h3>
+            <p>One place to define and audit authorization.</p>
+          </div>
+
+          <div class="benefit-card">
+            <h3>✅ No Bypass Possible</h3>
+            <p>Database enforces rules for every query, automatically.</p>
+          </div>
+
+          <div class="benefit-card">
+            <h3>✅ Easy to Audit</h3>
+            <p>SQL views are readable. Compliance teams understand them.</p>
+          </div>
+
+          <div class="benefit-card">
+            <h3>✅ Change Once, Apply Everywhere</h3>
+            <p>Update the view, all queries respect new rules.</p>
+          </div>
+
+          <div class="benefit-card">
+            <h3>✅ Testable Rules</h3>
+            <p>Test authorization logic like SQL, not resolver mocking.</p>
+          </div>
+
+          <div class="benefit-card">
+            <h3>✅ Performance</h3>
+            <p>Database optimizes authorization filters.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="related-section">
+        <h2>Related Use Cases</h2>
+        <div class="related-grid">
+          <div class="related-box">
+            <h3>⚖️ Regulated Industries</h3>
+            <p>Authorization + compliance in one place.</p>
+            <a href="/use-cases/regulated-industries/" class="link">Read →</a>
+          </div>
+          <div class="related-box">
+            <h3>🏢 Enterprise SaaS</h3>
+            <p>Multi-tenant isolation with database-level RBAC.</p>
+            <a href="/use-cases/enterprise-saas/" class="link">Read →</a>
+          </div>
+          <div class="related-box">
+            <h3>🔒 SQL Ownership</h3>
+            <p>Own your queries, own your security.</p>
+            <a href="/docs/concepts/how-it-works/" class="link">Read →</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-section">
+        <h2>Eliminate Authorization Sprawl</h2>
+        <p>Build secure systems with clear, auditable authorization logic.</p>
+        <div class="cta-buttons">
+          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .use-case-hero {
+    background: linear-gradient(135deg, var(--fraise-500) 0%, var(--fraise-600) 100%);
+    color: white;
+    padding: var(--spacing-16) var(--spacing-6);
+    text-align: center;
+  }
+
+  .use-case-hero h1 {
+    font-size: 2.5rem;
+    margin: 0 0 var(--spacing-3) 0;
+    font-weight: 700;
+  }
+
+  .use-case-hero p {
+    font-size: 1.125rem;
+    opacity: 0.95;
+    margin: 0;
+  }
+
+  .container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-6);
+  }
+
+  .use-case-content {
+    padding: var(--spacing-16) var(--spacing-6);
+  }
+
+  .use-case-content section {
+    margin-bottom: var(--spacing-16);
+  }
+
+  .use-case-content h2 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-8);
+    color: var(--color-text);
+  }
+
+  .use-case-content h3 {
+    font-size: 1.25rem;
+    margin: var(--spacing-6) 0 var(--spacing-3) 0;
+    color: var(--color-text);
+  }
+
+  .use-case-content p {
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+    margin-bottom: var(--spacing-4);
+  }
+
+  .problem-example {
+    background: var(--color-surface);
+    border-left: 4px solid #d62830;
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .problem-example pre {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0;
+  }
+
+  .problem-example code {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .risk-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-4);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .risk-item {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-4);
+  }
+
+  .risk-item h4 {
+    margin-top: 0;
+    color: var(--color-text);
+  }
+
+  .risk-item p {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .solution-step {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-left: 4px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .solution-step pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .solution-step code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .example-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .example-box h3 {
+    margin-top: 0;
+  }
+
+  .example-box ul {
+    list-style: none;
+    padding: 0;
+    margin: var(--spacing-3) 0;
+    padding-left: var(--spacing-4);
+  }
+
+  .example-box li {
+    padding: var(--spacing-2) 0;
+    color: var(--color-text-muted);
+  }
+
+  .example-box pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0;
+  }
+
+  .example-box code {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .pattern-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .pattern-box pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .pattern-box code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .testing-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .testing-box pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-4);
+    overflow-x: auto;
+    margin: var(--spacing-3) 0 0 0;
+  }
+
+  .testing-box code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+  }
+
+  .benefit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--spacing-6);
+    margin-bottom: var(--spacing-6);
+  }
+
+  .benefit-card {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-top: 3px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .benefit-card h3 {
+    margin-top: 0;
+    color: var(--fraise-500);
+  }
+
+  .related-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-6);
+  }
+
+  .related-box {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+  }
+
+  .related-box h3 {
+    margin-top: 0;
+  }
+
+  .link {
+    color: var(--fraise-500);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color var(--transition-fast);
+  }
+
+  .link:hover {
+    color: var(--fraise-700);
+    text-decoration: underline;
+  }
+
+  .cta-section {
+    background: var(--color-surface);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-12);
+    text-align: center;
+  }
+
+  .cta-section h2 {
+    margin-top: 0;
+  }
+
+  .cta-buttons {
+    display: flex;
+    gap: var(--spacing-4);
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: var(--spacing-6);
+  }
+
+  .btn {
+    display: inline-block;
+    padding: var(--spacing-3) var(--spacing-6);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    text-decoration: none;
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    border: none;
+    font-size: var(--text-base);
+  }
+
+  .btn-primary {
+    background: var(--fraise-500);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: var(--fraise-600);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--fraise-500);
+    border: 2px solid var(--fraise-500);
+  }
+
+  .btn-secondary:hover {
+    background: var(--fraise-50);
+  }
+
+  @media (max-width: 768px) {
+    .use-case-hero h1 {
+      font-size: 2rem;
+    }
+
+    .use-case-content h2 {
+      font-size: 1.5rem;
+    }
+
+    .cta-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+  }
+</style>
