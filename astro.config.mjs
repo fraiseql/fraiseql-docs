@@ -69,6 +69,7 @@ export default defineConfig({
           label: 'Core Concepts',
           items: [
             { label: 'How It Works', slug: 'concepts/how-it-works' },
+            { label: 'Why FraiseQL', slug: 'concepts/why-fraiseql' },
             { label: 'Developer-Owned SQL', slug: 'concepts/developer-owned-sql' },
             { label: 'CQRS Pattern', slug: 'concepts/cqrs' },
             { label: 'View Composition', slug: 'concepts/view-composition' },
@@ -234,7 +235,12 @@ export default defineConfig({
             { label: 'Examples Overview', slug: 'examples' },
             { label: 'SaaS Blog Platform', slug: 'examples/saas-blog' },
             { label: 'Real-Time Collaboration', slug: 'examples/realtime-collaboration' },
+            { label: 'Real-Time Analytics', slug: 'examples/realtime-analytics' },
             { label: 'Mobile Analytics Backend', slug: 'examples/mobile-analytics-backend' },
+            { label: 'Federation + E-Commerce', slug: 'examples/federation-ecommerce' },
+            { label: 'SaaS + Federation + NATS', slug: 'examples/saas-federation-nats' },
+            { label: 'Microservices Choreography', slug: 'examples/microservices-choreography' },
+            { label: 'NATS Event Pipeline', slug: 'examples/nats-event-pipeline' },
           ],
         },
         {
@@ -270,6 +276,7 @@ export default defineConfig({
             { label: 'Common Issues', slug: 'troubleshooting/common-issues' },
             { label: 'Performance Issues', slug: 'troubleshooting/performance-issues' },
             { label: 'Security Issues', slug: 'troubleshooting/security-issues' },
+            { label: 'Federation & NATS', slug: 'troubleshooting/federation-nats' },
             { label: 'PostgreSQL', slug: 'troubleshooting/by-database/postgresql' },
             { label: 'MySQL', slug: 'troubleshooting/by-database/mysql' },
             { label: 'SQLite', slug: 'troubleshooting/by-database/sqlite' },
@@ -292,6 +299,14 @@ export default defineConfig({
           collapsed: true,
           items: [
             { label: 'Architecture', slug: 'diagrams/architecture' },
+            { label: 'Analytics Architecture', slug: 'analytics-architecture' },
+          ],
+        },
+        {
+          label: 'Tools',
+          collapsed: true,
+          items: [
+            { label: 'Schema Validator', slug: 'tools/schema-validator' },
           ],
         },
         {
