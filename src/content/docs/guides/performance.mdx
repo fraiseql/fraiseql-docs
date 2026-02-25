@@ -3,6 +3,8 @@ title: Performance
 description: Optimize FraiseQL for high-throughput production workloads
 ---
 
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
 This guide covers performance optimization for FraiseQL, from database tuning to caching strategies.
 
 ## Database Optimization
@@ -41,9 +43,7 @@ url = "${DATABASE_REPLICA_URL}"
 pool_max = 200  # More connections for reads
 ```
 
-
-              ─
-                ─
+All read queries (GraphQL queries) are automatically routed to the replica. Mutations always go to the primary.
 
 ### PostgreSQL Tuning
 
@@ -61,7 +61,7 @@ max_connections = 200
 superuser_reserved_connections = 3
 
 -- Write performance
-wal_buffers = '64MB'
+ wal_buffers = '64MB'
 checkpoint_completion_target = 0.9
 max_wal_size = '4GB'
 
@@ -140,6 +140,10 @@ Keep JSONB payloads reasonably sized:
 | 10-100 KB | Acceptable |
 | > 100 KB | Consider restructuring |
 
+<Aside type="tip">
+Keep individual JSONB payloads under 10 KB for best performance. If a type's data regularly exceeds this, consider splitting it into a separate view or using IDs to reference large nested objects instead of embedding them directly.
+</Aside>
+
 ### Denormalization Strategy
 
 Balance between:
@@ -187,12 +191,7 @@ url = "${REDIS_URL}"
 
 ### Cache Invalidation
 
-FraiseQL automatically invalidates cache on mutations:
-
-```
-
-  ─
-```
+FraiseQL automatically invalidates cache on mutations. When a mutation modifies an entity, all cached responses containing that entity type are invalidated.
 
 Configure cascade invalidation:
 
@@ -428,6 +427,17 @@ FraiseQL benchmarks (single instance, 4 cores, 16GB RAM):
 
 ## Next Steps
 
-- [Deployment](/guides/deployment) — Production deployment
-- [Troubleshooting](/guides/troubleshooting) — Debug performance issues
-- [Caching](/features/caching) — Advanced caching strategies
+<CardGrid>
+  <Card title="Performance Benchmarks" icon="bars">
+    Detailed benchmark results and methodology for FraiseQL performance claims. [Performance Benchmarks](/guides/performance-benchmarks)
+  </Card>
+  <Card title="Schema Design" icon="pencil">
+    Design your GraphQL schema for optimal query performance. [Schema Design](/guides/schema-design)
+  </Card>
+  <Card title="Caching" icon="star">
+    Advanced caching strategies including edge caching and CDN integration. [Caching](/features/caching)
+  </Card>
+  <Card title="Scaling" icon="rocket">
+    Horizontal scaling, load balancing, and deployment topologies. [Scaling](/deployment/scaling)
+  </Card>
+</CardGrid>

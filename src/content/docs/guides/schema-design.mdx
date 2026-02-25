@@ -3,6 +3,8 @@ title: Schema Design
 description: GraphQL API design principles and FraiseQL-specific patterns
 ---
 
+import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
 This guide covers both general GraphQL best practices and FraiseQL-specific patterns for designing effective, maintainable APIs.
 
 ## Part 1: GraphQL Design Principles
@@ -259,7 +261,7 @@ class Customer:
     country: CountryCode    # ISO 3166-1, filters: _in_eu, _gdpr_applicable
     created_at: DateTime
     balance: Decimal        # Arbitrary precision for financial data
-```python
+```
 
 **Benefits:**
 - **Automatic validation** at API boundary
@@ -311,8 +313,6 @@ class Post:
 class User:
     post_ids: list[ID]  # Not full Post objects
 ```
-
-                                                                                                      ─
 
 ### Trinity Identifier Pattern
 
@@ -422,7 +422,9 @@ def on_order_created(order: Order): ...
 
 FraiseQL compiles your schema to SQL. There are no runtime resolvers:
 
-**Every field must map to SQL:**
+<Aside type="tip">
+**Every field must map to SQL.** Unlike traditional GraphQL servers with per-field resolvers, FraiseQL generates a single SQL query from your schema. All data must come from the database — computed fields, aggregations, and derived values must be defined in your views.
+</Aside>
 
 ```python
 from fraiseql.scalars import ID, Email
@@ -572,8 +574,17 @@ Before finalizing your schema:
 
 ## Next Steps
 
-- [Scalar Types](/reference/scalars) — All 47+ rich scalar types
-- [Naming Conventions](/reference/naming-conventions) — Complete naming guide
-- [CQRS Pattern](/concepts/cqrs) — Write vs read separation
-- [View Composition](/concepts/view-composition) — How views compose
-- [Observers](/concepts/observers) — Side effect handling
+<CardGrid>
+  <Card title="Custom Queries" icon="pencil">
+    Learn how to write custom SQL queries beyond the auto-generated ones. [Custom Queries](/guides/custom-queries)
+  </Card>
+  <Card title="CQRS Pattern" icon="random">
+    Understand the write vs read separation at the heart of FraiseQL. [CQRS Pattern](/concepts/cqrs)
+  </Card>
+  <Card title="View Composition" icon="puzzle">
+    Deep dive into how views compose to build rich nested types. [View Composition](/concepts/view-composition)
+  </Card>
+  <Card title="Performance" icon="rocket">
+    Optimize your FraiseQL API for high-throughput production workloads. [Performance](/guides/performance)
+  </Card>
+</CardGrid>

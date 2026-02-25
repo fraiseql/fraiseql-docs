@@ -1,0 +1,456 @@
+---
+title: Error Handling
+description: Define, raise, and handle errors in FraiseQL — from PostgreSQL functions through GraphQL responses
+---
+
+import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL propagates errors from three sources — PostgreSQL functions, middleware, and the GraphQL layer — in a consistent JSON structure that clients can inspect programmatically.
+
+## Error Response Structure
+
+Every error response follows the GraphQL specification:
+
+```json
+{
+  "errors": [
+    {
+      "message": "Post not found",
+      "extensions": {
+        "code": "NOT_FOUND",
+        "statusCode": 404,
+        "requestId": "req_abc123"
+      }
+    }
+  ],
+  "data": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message` | string | Human-readable description |
+| `extensions.code` | string | Machine-readable error code |
+| `extensions.statusCode` | number | Corresponding HTTP status code |
+| `extensions.requestId` | string | Use when reporting issues to support |
+
+---
+
+## Raising Errors from PostgreSQL Functions
+
+Most business logic in FraiseQL lives in PostgreSQL functions. Raise errors with `RAISE EXCEPTION`:
+
+```sql title="db/schema/03_functions/fn_publish_post.sql"
+CREATE OR REPLACE FUNCTION fn_publish_post(p_post_id UUID, p_user_id UUID)
+RETURNS SETOF v_post
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_post tb_post;
+BEGIN
+    SELECT * INTO v_post
+    FROM tb_post
+    WHERE id = p_post_id;
+
+    -- NOT_FOUND
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Post not found'
+            USING ERRCODE = 'P0001',
+                  DETAIL  = 'post_id: ' || p_post_id::text,
+                  HINT    = 'NOT_FOUND';
+    END IF;
+
+    -- FORBIDDEN
+    IF v_post.fk_user != (SELECT pk_user FROM tb_user WHERE id = p_user_id) THEN
+        RAISE EXCEPTION 'Cannot publish another user''s post'
+            USING ERRCODE = 'P0002',
+                  HINT    = 'FORBIDDEN';
+    END IF;
+
+    -- INVALID_STATE
+    IF v_post.is_published THEN
+        RAISE EXCEPTION 'Post is already published'
+            USING ERRCODE = 'P0003',
+                  HINT    = 'INVALID_STATE';
+    END IF;
+
+    UPDATE tb_post SET is_published = true, updated_at = now()
+    WHERE pk_post = v_post.pk_post;
+
+    RETURN QUERY SELECT * FROM v_post WHERE id = p_post_id;
+END;
+$$;
+```
+
+FraiseQL maps the PostgreSQL error to a GraphQL response:
+
+```json
+{
+  "errors": [{
+    "message": "Post not found",
+    "extensions": {
+      "code": "NOT_FOUND",
+      "statusCode": 404
+    }
+  }]
+}
+```
+
+### Standard Error Codes
+
+Use consistent error codes across all PostgreSQL functions:
+
+| Code | HTTP Status | When to Use |
+|------|-------------|-------------|
+| `NOT_FOUND` | 404 | Resource does not exist |
+| `FORBIDDEN` | 403 | Caller lacks permission |
+| `CONFLICT` | 409 | Unique constraint violation, duplicate resource |
+| `INVALID_STATE` | 422 | Operation not valid in current state |
+| `INVALID_INPUT` | 422 | Input fails business validation |
+| `RATE_LIMITED` | 429 | Request rate exceeded |
+
+---
+
+## Raising Errors from Middleware
+
+Use `GraphQLError` for errors that should stop request processing:
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python title="schema.py"
+from fraiseql.errors import GraphQLError
+import fraiseql
+
+@fraiseql.middleware
+def check_maintenance_mode(request, next):
+    if is_maintenance_mode():
+        raise GraphQLError(
+            "Service temporarily unavailable for maintenance",
+            extensions={
+                "code": "SERVICE_UNAVAILABLE",
+                "statusCode": 503,
+                "retryAfter": get_maintenance_end_timestamp(),
+            },
+        )
+    return next(request)
+
+@fraiseql.middleware
+def enforce_rate_limit(request, next):
+    if is_rate_limited(request.client_ip):
+        raise GraphQLError(
+            "Too many requests",
+            extensions={
+                "code": "RATE_LIMITED",
+                "statusCode": 429,
+                "retryAfter": 60,
+            },
+        )
+    return next(request)
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript title="schema.ts"
+import { middleware, GraphQLError } from 'fraiseql';
+
+middleware((request, next) => {
+  if (isMaintenanceMode()) {
+    throw new GraphQLError('Service temporarily unavailable', {
+      extensions: {
+        code: 'SERVICE_UNAVAILABLE',
+        statusCode: 503,
+        retryAfter: getMaintenanceEndTimestamp(),
+      },
+    });
+  }
+  return next(request);
+});
+
+middleware((request, next) => {
+  if (isRateLimited(request.clientIp)) {
+    throw new GraphQLError('Too many requests', {
+      extensions: { code: 'RATE_LIMITED', statusCode: 429, retryAfter: 60 },
+    });
+  }
+  return next(request);
+});
+```
+
+  </TabItem>
+</Tabs>
+
+---
+
+## Input Validation Errors
+
+FraiseQL's compile-time validators raise structured errors automatically when input fails validation:
+
+```json
+{
+  "errors": [{
+    "message": "Invalid input for field 'email'",
+    "extensions": {
+      "code": "INVALID_INPUT",
+      "statusCode": 422,
+      "field": "email",
+      "reason": "Must be a valid email address"
+    }
+  }]
+}
+```
+
+For business-logic validation that can't happen at compile time, raise from the PostgreSQL function (see above).
+
+---
+
+## Authentication and Authorization Errors
+
+FraiseQL raises these automatically based on `@authenticated` and `@requires_scope` decorators:
+
+### 401 Unauthorized
+
+Raised when a query or mutation decorated with `@authenticated` is called without a valid token:
+
+```json
+{
+  "errors": [{
+    "message": "Unauthorized",
+    "extensions": {
+      "code": "UNAUTHORIZED",
+      "statusCode": 401,
+      "reason": "Token expired"
+    }
+  }]
+}
+```
+
+### 403 Forbidden
+
+Raised when the token is valid but lacks a required scope:
+
+```json
+{
+  "errors": [{
+    "message": "Insufficient permissions",
+    "extensions": {
+      "code": "FORBIDDEN",
+      "statusCode": 403,
+      "requiredScopes": ["write:posts"],
+      "grantedScopes": ["read:posts"]
+    }
+  }]
+}
+```
+
+---
+
+## Handling Errors on the Client Side
+
+Clients consuming your FraiseQL API receive standard GraphQL error responses. Here are handling patterns for common client languages:
+
+<Tabs>
+  <TabItem label="Python">
+
+```python
+import httpx
+
+async def publish_post(post_id: str, token: str) -> dict:
+    async with httpx.AsyncClient() as http:
+        response = await http.post(
+            "https://api.example.com/graphql",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "query": """
+                    mutation PublishPost($id: ID!) {
+                        publishPost(id: $id) { id isPublished }
+                    }
+                """,
+                "variables": {"id": post_id},
+            },
+        )
+        result = response.json()
+
+        if "errors" in result:
+            error = result["errors"][0]
+            code = error.get("extensions", {}).get("code")
+
+            match code:
+                case "NOT_FOUND":
+                    raise ValueError(f"Post {post_id} not found")
+                case "FORBIDDEN":
+                    raise PermissionError("Not your post")
+                case "UNAUTHORIZED":
+                    raise PermissionError("Please log in")
+                case _:
+                    raise RuntimeError(error["message"])
+
+        return result["data"]["publishPost"]
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript
+async function publishPost(postId: string, token: string) {
+  const response = await fetch('https://api.example.com/graphql', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      query: `
+        mutation PublishPost($id: ID!) {
+          publishPost(id: $id) { id isPublished }
+        }
+      `,
+      variables: { id: postId },
+    }),
+  });
+
+  const result = await response.json();
+
+  if (result.errors) {
+    const error = result.errors[0];
+    const code = error.extensions?.code;
+
+    switch (code) {
+      case 'NOT_FOUND':
+        throw new Error(`Post ${postId} not found`);
+      case 'FORBIDDEN':
+        throw new Error('Not your post');
+      case 'UNAUTHORIZED':
+        throw new Error('Please log in');
+      default:
+        throw new Error(error.message);
+    }
+  }
+
+  return result.data.publishPost;
+}
+```
+
+  </TabItem>
+</Tabs>
+
+---
+
+## Retry with Exponential Backoff
+
+For transient errors (`RATE_LIMITED`, `SERVICE_UNAVAILABLE`):
+
+<Tabs>
+  <TabItem label="Python">
+
+```python
+import asyncio
+import random
+
+async def with_retry(operation, max_attempts=3):
+    for attempt in range(max_attempts):
+        try:
+            return await operation()
+        except Exception as e:
+            code = getattr(e, 'code', None)
+            if code not in ('RATE_LIMITED', 'SERVICE_UNAVAILABLE'):
+                raise
+            if attempt == max_attempts - 1:
+                raise
+            # Exponential backoff with jitter
+            wait = (2 ** attempt) + random.uniform(0, 1)
+            await asyncio.sleep(min(wait, 60))
+
+# Usage
+result = await with_retry(lambda: publish_post(post_id, token))
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxAttempts = 3,
+): Promise<T> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (e: any) {
+      const retryable = ['RATE_LIMITED', 'SERVICE_UNAVAILABLE'];
+      if (!retryable.includes(e.code) || attempt === maxAttempts - 1) throw e;
+      const wait = Math.min(2 ** attempt + Math.random(), 60) * 1000;
+      await new Promise(resolve => setTimeout(resolve, wait));
+    }
+  }
+  throw new Error('unreachable');
+}
+```
+
+  </TabItem>
+</Tabs>
+
+---
+
+## Error Code Reference
+
+### Authentication
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `UNAUTHORIZED` | 401 | Token missing or expired |
+| `INVALID_TOKEN` | 401 | Token signature invalid |
+| `FORBIDDEN` | 403 | Insufficient permission or scope |
+
+### Input
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `INVALID_INPUT` | 422 | Input validation failed |
+| `MISSING_REQUIRED_FIELD` | 422 | Required field absent |
+| `GRAPHQL_VALIDATION_FAILED` | 422 | Query references unknown field or type |
+
+### Business Logic
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `NOT_FOUND` | 404 | Resource does not exist |
+| `CONFLICT` | 409 | Duplicate or state conflict |
+| `INVALID_STATE` | 422 | Operation invalid in current state |
+
+### Infrastructure
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `RATE_LIMITED` | 429 | Request rate exceeded |
+| `SERVICE_UNAVAILABLE` | 503 | Scheduled maintenance or overload |
+| `INTERNAL_ERROR` | 500 | Unhandled server error — report with `requestId` |
+
+---
+
+## Best Practices
+
+1. **Use consistent error codes** — Define them in a shared SQL file and reference it in all functions
+2. **Include enough context** — The `DETAIL` clause in `RAISE EXCEPTION` gives clients actionable information
+3. **Never expose internals** — Catch unexpected errors and return `INTERNAL_ERROR`; log the details server-side
+4. **Log with `requestId`** — Include `requestId` in all error logs for traceability
+5. **Validate at boundaries** — Use compile-time validation for schema constraints; use PostgreSQL functions for business rules
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Authentication" icon="approve-check-circle">
+    [Set up JWT and scope-based auth](/guides/authentication)
+  </Card>
+  <Card title="Custom Business Logic" icon="setting">
+    [Raising errors from PostgreSQL functions](/guides/custom-resolvers)
+  </Card>
+  <Card title="Troubleshooting" icon="warning">
+    [Common errors and debugging](/guides/troubleshooting)
+  </Card>
+  <Card title="Rate Limiting" icon="rocket">
+    [Configure per-user and global rate limits](/features/rate-limiting)
+  </Card>
+</CardGrid>

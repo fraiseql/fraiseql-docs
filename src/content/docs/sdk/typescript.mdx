@@ -1,0 +1,474 @@
+---
+title: TypeScript SDK
+description: Define GraphQL schemas in TypeScript using FraiseQL's type-safe schema authoring SDK
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+The FraiseQL TypeScript SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations in TypeScript using decorators, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+
+<Aside type="note">
+This is not a GraphQL client library. FraiseQL TypeScript lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client (Apollo Client, urql, etc.).
+</Aside>
+
+## Installation
+
+```bash
+# npm
+npm install fraiseql
+
+# pnpm (recommended)
+pnpm add fraiseql
+
+# yarn
+yarn add fraiseql
+
+# bun
+bun add fraiseql
+```
+
+**Requirements:** Node.js 18+, TypeScript 5.0+
+
+### TypeScript Configuration
+
+Enable decorators in your `tsconfig.json`:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strict": true
+  }
+}
+```
+
+---
+
+## Core Concepts
+
+FraiseQL TypeScript provides four decorators:
+
+| Decorator | GraphQL Equivalent | Purpose |
+|-----------|-------------------|---------|
+| `@type()` | `type` | Define a GraphQL output type |
+| `@input()` | `input` | Define a GraphQL input type |
+| `@query()` | `Query` field | Wire a query to a SQL view |
+| `@mutation()` | `Mutation` field | Define a mutation |
+
+---
+
+## Defining Types
+
+Use `@type()` to define GraphQL output types. Fields map 1:1 to keys in your backing SQL view's `.data` JSON object.
+
+```typescript title="schema.ts"
+import { type } from 'fraiseql';
+import { ID, Email, Slug, DateTime } from 'fraiseql/scalars';
+
+@type()
+class User {
+  /** A registered user. */
+  id: ID;
+  username: string;
+  email: Email;
+  bio: string | null;
+  createdAt: DateTime;
+}
+
+@type()
+class Post {
+  /** A blog post. */
+  id: ID;
+  title: string;
+  slug: Slug;
+  content: string;
+  isPublished: boolean;
+  createdAt: DateTime;
+  updatedAt: DateTime;
+  // Nested types are composed from views at compile time
+  author: User;
+  comments: Comment[];
+}
+
+@type()
+class Comment {
+  /** A comment on a post. */
+  id: ID;
+  content: string;
+  createdAt: DateTime;
+  author: User;
+}
+```
+
+### Built-in Scalars
+
+```typescript
+import {
+  ID,           // UUID, auto-serialized
+  Email,        // Validated email address
+  Slug,         // URL-safe slug
+  DateTime,     // ISO 8601 datetime
+  URL,          // Validated URL
+  PhoneNumber,  // E.164 phone number
+} from 'fraiseql/scalars';
+```
+
+---
+
+## Defining Inputs
+
+Use `@input()` to define GraphQL input types for mutations. Add validation with the `validate` option:
+
+```typescript title="schema.ts"
+import { input, validate } from 'fraiseql';
+import { ID, Email } from 'fraiseql/scalars';
+
+@input()
+class CreateUserInput {
+  @validate({ minLength: 3, maxLength: 50, pattern: /^[a-z0-9_]+$/ })
+  username: string;
+
+  @validate({ message: 'Must be a valid email address' })
+  email: Email;
+
+  bio?: string;
+}
+
+@input()
+class CreatePostInput {
+  @validate({ minLength: 1, maxLength: 200 })
+  title: string;
+
+  content: string;
+
+  authorId: ID;
+
+  isPublished: boolean = false;
+}
+
+@input()
+class UpdatePostInput {
+  id: ID;
+  title?: string;
+  content?: string;
+  isPublished?: boolean;
+}
+```
+
+Validation runs at compile time — invalid input structures cannot be deployed.
+
+---
+
+## Defining Queries
+
+Use `@query()` to wire queries to SQL views:
+
+```typescript title="schema.ts"
+import { query, authenticated } from 'fraiseql';
+import { ID } from 'fraiseql/scalars';
+
+// List query — maps to SELECT * FROM v_post WHERE <args>
+@query({ sqlSource: 'v_post' })
+function posts(isPublished?: boolean, authorId?: ID, limit = 20): Post[] {
+  /**
+   * Fetch published posts, optionally filtered by author.
+   * Arguments matching view column names become WHERE clauses automatically.
+   */
+}
+
+// Single-item query — maps to SELECT * FROM v_post WHERE id = $1
+@query({ sqlSource: 'v_post', idArg: 'id' })
+function post(id: ID): Post | null {
+  /** Fetch a single post by ID. */
+}
+
+// Query with row filter (for user-scoped data)
+@query({ sqlSource: 'v_post', rowFilter: 'author_id = {currentUserId}' })
+@authenticated
+function myPosts(limit = 20): Post[] {
+  /** Fetch the current user's posts. */
+}
+```
+
+### Automatic-WHERE
+
+FraiseQL maps query arguments to SQL `WHERE` clauses automatically. A TypeScript argument named `isPublished` matching the `is_published` column in `v_post` generates:
+
+```sql
+SELECT data FROM v_post WHERE is_published = true LIMIT 20;
+```
+
+No resolver code required.
+
+---
+
+## Defining Mutations
+
+Use `@mutation()` to define mutations that execute PostgreSQL functions:
+
+```typescript title="schema.ts"
+import { mutation, authenticated, requiresScope } from 'fraiseql';
+import { ID } from 'fraiseql/scalars';
+
+@mutation()
+function createUser(input: CreateUserInput): User {
+  /**
+   * Create a new user account.
+   * FraiseQL calls fn_create_user($1::jsonb)
+   */
+}
+
+@mutation()
+@authenticated
+@requiresScope('write:posts')
+function createPost(input: CreatePostInput): Post {
+  /** Create a new blog post. */
+}
+
+@mutation()
+@authenticated
+@requiresScope('write:posts')
+function publishPost(id: ID): Post {
+  /** Publish a draft post. */
+}
+
+@mutation()
+@authenticated
+@requiresScope('admin:posts')
+function deletePost(id: ID): boolean {
+  /** Soft-delete a post. */
+}
+```
+
+---
+
+## Authorization
+
+```typescript title="schema.ts"
+import { query, mutation, authenticated, requiresScope } from 'fraiseql';
+
+@query({ sqlSource: 'v_post' })
+@authenticated
+function posts(limit = 20): Post[] {
+  /** Requires authentication. */
+}
+
+@mutation()
+@authenticated
+@requiresScope('write:posts')
+function createPost(input: CreatePostInput): Post {
+  /** Requires authentication and write:posts scope. */
+}
+```
+
+---
+
+## Middleware
+
+```typescript title="schema.ts"
+import { middleware } from 'fraiseql';
+
+middleware((request, next) => {
+  /** Extract user ID and org from verified JWT. */
+  if (request.auth) {
+    request.context.currentUserId = request.auth.claims.sub;
+    request.context.orgId = request.auth.claims.org_id;
+  }
+  return next(request);
+});
+
+middleware(async (request, next) => {
+  /** Audit all mutations. */
+  const result = await next(request);
+  if (request.operationType === 'mutation') {
+    await auditLog.record({
+      userId: request.context.currentUserId,
+      operation: request.operationName,
+    });
+  }
+  return result;
+});
+```
+
+---
+
+## Complete Schema Example
+
+```typescript title="schema.ts"
+import { type, input, query, mutation, middleware, authenticated, requiresScope, validate } from 'fraiseql';
+import { ID, Email, Slug, DateTime } from 'fraiseql/scalars';
+
+// --- Types ---
+
+@type()
+class User {
+  id: ID;
+  username: string;
+  email: Email;
+  bio: string | null;
+  createdAt: DateTime;
+}
+
+@type()
+class Post {
+  id: ID;
+  title: string;
+  slug: Slug;
+  content: string;
+  isPublished: boolean;
+  createdAt: DateTime;
+  updatedAt: DateTime;
+  author: User;
+  comments: Comment[];
+}
+
+@type()
+class Comment {
+  id: ID;
+  content: string;
+  createdAt: DateTime;
+  author: User;
+}
+
+// --- Inputs ---
+
+@input()
+class CreatePostInput {
+  @validate({ minLength: 1, maxLength: 200 })
+  title: string;
+
+  content: string;
+  isPublished: boolean = false;
+}
+
+@input()
+class CreateCommentInput {
+  postId: ID;
+
+  @validate({ minLength: 1, maxLength: 10_000 })
+  content: string;
+}
+
+// --- Queries ---
+
+@query({ sqlSource: 'v_post' })
+function posts(isPublished?: boolean, limit = 20): Post[] {}
+
+@query({ sqlSource: 'v_post', idArg: 'id' })
+function post(id: ID): Post | null {}
+
+// --- Mutations ---
+
+@mutation()
+@authenticated
+@requiresScope('write:posts')
+function createPost(input: CreatePostInput): Post {}
+
+@mutation()
+@authenticated
+@requiresScope('write:comments')
+function createComment(input: CreateCommentInput): Comment {}
+
+// --- Middleware ---
+
+middleware((request, next) => {
+  if (request.auth) {
+    request.context.currentUserId = request.auth.claims.sub;
+  }
+  return next(request);
+});
+```
+
+---
+
+## Build and Serve
+
+<Steps>
+
+1. Build the schema:
+
+   ```bash
+   fraiseql build
+   ```
+
+   Expected output:
+
+   ```
+   ✓ Schema compiled: 3 types, 2 queries, 2 mutations
+   ✓ Views validated against database
+   ✓ Build complete: schema.json
+   ```
+
+2. Serve the API:
+
+   ```bash
+   fraiseql serve
+   ```
+
+   Expected output:
+
+   ```
+   ✓ FraiseQL 2.0.0 running on http://localhost:8080/graphql
+   ```
+
+</Steps>
+
+---
+
+## Testing
+
+```typescript title="tests/posts.test.ts"
+import { TestClient } from 'fraiseql/testing';
+
+const client = new TestClient({ schemaPath: './schema.ts', databaseUrl: process.env.TEST_DB });
+
+test('creates and fetches a post', async () => {
+  const result = await client.mutate(`
+    mutation {
+      createPost(input: { title: "Hello", content: "World" }) {
+        id
+        title
+        isPublished
+      }
+    }
+  `);
+
+  expect(result.createPost.title).toBe('Hello');
+  expect(result.createPost.isPublished).toBe(false);
+});
+
+test('lists published posts', async () => {
+  const result = await client.query(`
+    query {
+      posts(isPublished: true, limit: 10) {
+        id
+        title
+        author { username }
+      }
+    }
+  `);
+
+  expect(Array.isArray(result.posts)).toBe(true);
+});
+```
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Full Tutorial" icon="open-book">
+    [Build a complete blog API from scratch](/getting-started/first-api)
+  </Card>
+  <Card title="Custom Queries" icon="magnifier">
+    [Filtering, pagination, and search](/guides/custom-queries)
+  </Card>
+  <Card title="Security" icon="approve-check-circle">
+    [Authentication, RBAC, and input validation](/features/security)
+  </Card>
+  <Card title="Other SDKs" icon="puzzle">
+    [Python, Go, Java, Rust, PHP](/sdk/)
+  </Card>
+</CardGrid>
