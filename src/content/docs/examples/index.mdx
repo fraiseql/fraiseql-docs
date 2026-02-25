@@ -7,6 +7,45 @@ import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/
 
 Learn FraiseQL by exploring complete, production-ready example applications.
 
+## Prerequisites
+
+Before running any example:
+- FraiseQL installed:
+  ```bash
+  uv add fraiseql
+  # or: pip install fraiseql
+  ```
+- PostgreSQL 14+ running locally or via Docker (`docker run -p 5432:5432 postgres:16`)
+- Node.js 18+ (for frontend examples)
+
+When the development server starts successfully you will see:
+
+```
+$ fraiseql run
+INFO  FraiseQL 2.x starting…
+INFO  Schema compiled — 12 types, 8 queries, 4 mutations
+INFO  Connected to PostgreSQL at localhost:5432/mydb
+INFO  GraphQL endpoint: http://localhost:8000/graphql
+INFO  GraphiQL playground: http://localhost:8000/graphiql
+```
+
+## Example Catalog
+
+<Aside type="tip">
+New to FraiseQL? Start with the **[SaaS Blog](../saas-blog)** example — it covers the most common production patterns (multi-tenancy, RLS, JWT auth) in a single focused project.
+</Aside>
+
+| Example | Description | Database | Complexity | Tags |
+|---------|-------------|----------|------------|------|
+| [SaaS Blog](../saas-blog) | Multi-tenant blog with posts, comments, and role-based access. Requires PostgreSQL (uses Row-Level Security) | PostgreSQL | Intermediate | auth, RLS, CQRS |
+| [Federation E-Commerce](../federation-ecommerce) | Product catalog, orders, and inventory across federated databases | PostgreSQL (federated) | Intermediate | federation, saga |
+| [Real-Time Collaboration](../realtime-collaboration) | Collaborative document editing with live cursors and conflict resolution | PostgreSQL | Advanced | WebSocket, CRDT |
+| [Real-Time Analytics](../realtime-analytics) | Event ingestion, metrics, and live dashboards | PostgreSQL + TimescaleDB | Intermediate | time-series, streaming |
+| [Mobile Analytics Backend](../mobile-analytics-backend) | Push notifications, offline sync, and background jobs. Requires PostgreSQL (uses materialized views) | PostgreSQL | Intermediate | mobile, jobs |
+| [SaaS Federation + NATS](../saas-federation-nats) | Multi-tenant SaaS with cross-service federation over NATS | PostgreSQL + NATS | Advanced | federation, NATS |
+| [NATS Event Pipeline](../nats-event-pipeline) | Event-driven pipeline with NATS subjects and durable consumers | PostgreSQL + NATS | Advanced | events, NATS |
+| [Microservices Choreography](../microservices-choreography) | Service-to-service choreography with saga and compensating transactions | PostgreSQL | Advanced | microservices, saga |
+
 ## Available Examples
 
 ### 1. SaaS Blog Platform (Multi-Tenant)
@@ -22,13 +61,13 @@ Learn FraiseQL by exploring complete, production-ready example applications.
 - User accounts and profiles
 - Blog posts and comments
 - Multiple teams/organizations
-- Tenant-isolated data
+- Tenant-isolated data (requires PostgreSQL 14+)
 - Feature flags per subscription tier
 - Analytics dashboard
 
 **Technology Stack**:
 - Backend: FraiseQL + FastAPI
-- Database: PostgreSQL
+- Database: PostgreSQL (uses Row-Level Security)
 - Frontend: Next.js (React)
 - Authentication: JWT + Okta
 - Hosting: Docker + Kubernetes
@@ -39,7 +78,7 @@ Learn FraiseQL by exploring complete, production-ready example applications.
 
 ---
 
-### 2. E-Commerce API
+### 2. Federation E-Commerce
 
 **What you'll learn**:
 - Federation across multiple databases
@@ -66,81 +105,13 @@ Learn FraiseQL by exploring complete, production-ready example applications.
 - Notifications: Twilio (SMS), SendGrid (Email)
 - Hosting: AWS (ECS + RDS)
 
-**Repository**: [github.com/fraiseql/examples/ecommerce-api](https://github.com/fraiseql/examples/ecommerce-api)
+**Repository**: [github.com/fraiseql/examples/federation-ecommerce](https://github.com/fraiseql/examples/federation-ecommerce)
 
 **Duration**: 1 hour to understand, 4-5 hours to deploy
 
 ---
 
-### 3. Social Network API
-
-**What you'll learn**:
-- Real-time subscriptions with NATS
-- Feed generation and caching
-- Following/follower relationships
-- Like and comment systems
-- Notification delivery
-- Trending algorithms
-
-**Features**:
-- User profiles and authentication
-- Following/follower graph
-- Post creation and sharing
-- Like and comment systems
-- Real-time notifications
-- Trending posts
-- User discovery
-
-**Technology Stack**:
-- Backend: FraiseQL + FastAPI
-- Database: PostgreSQL
-- Frontend: React Native (mobile)
-- Real-time: NATS
-- Caching: Redis
-- Search: Elasticsearch
-- Hosting: Kubernetes
-
-**Repository**: [github.com/fraiseql/examples/social-network](https://github.com/fraiseql/examples/social-network)
-
-**Duration**: 1+ hour to understand, 5+ hours to deploy
-
----
-
-### 4. Admin Dashboard Backend
-
-**What you'll learn**:
-- Audit logging
-- Soft deletes
-- Bulk operations
-- Export to CSV/PDF
-- Advanced filtering
-- Data validation
-- Activity tracking
-
-**Features**:
-- User management
-- Permission management
-- Audit logs (who did what when)
-- Activity timeline
-- Bulk actions
-- Data exports
-- Soft deletes (undo capability)
-- Search and filtering
-
-**Technology Stack**:
-- Backend: FraiseQL + FastAPI
-- Database: PostgreSQL
-- Frontend: Vue.js + Bootstrap
-- Export: ReportLab (PDF), CSV
-- Hosting: Docker Compose
-
-**Repository**: [github.com/fraiseql/examples/admin-dashboard](https://github.com/fraiseql/examples/admin-dashboard)
-
-**Duration**: 30 minutes to understand, 2 hours to deploy
-
----
-
-### 5. Real-Time Collaboration App
+### 3. Real-Time Collaboration App
 
 **What you'll learn**:
 - WebSocket-based real-time updates
@@ -166,13 +137,13 @@ Learn FraiseQL by exploring complete, production-ready example applications.
 - Real-time: WebSocket (built-in to FraiseQL)
 - Hosting: Kubernetes
 
-**Repository**: [github.com/fraiseql/examples/collaboration-app](https://github.com/fraiseql/examples/collaboration-app)
+**Repository**: [github.com/fraiseql/examples/realtime-collaboration](https://github.com/fraiseql/examples/realtime-collaboration)
 
 **Duration**: 1.5 hours to understand, 6+ hours to deploy
 
 ---
 
-### 6. Analytics & Reporting API
+### 4. Real-Time Analytics
 
 **What you'll learn**:
 - Time-series data aggregation
@@ -198,13 +169,13 @@ Learn FraiseQL by exploring complete, production-ready example applications.
 - Streaming: Apache Kafka (optional)
 - Hosting: Docker
 
-**Repository**: [github.com/fraiseql/examples/analytics-api](https://github.com/fraiseql/examples/analytics-api)
+**Repository**: [github.com/fraiseql/examples/realtime-analytics](https://github.com/fraiseql/examples/realtime-analytics)
 
 **Duration**: 1 hour to understand, 4 hours to deploy
 
 ---
 
-### 7. Mobile Backend API
+### 5. Mobile Analytics Backend
 
 **What you'll learn**:
 - Push notifications
@@ -212,7 +183,7 @@ Learn FraiseQL by exploring complete, production-ready example applications.
 - Background jobs
 - File uploads
 - Deep linking
-- Analytics tracking
+- Analytics tracking (requires PostgreSQL — uses materialized views)
 
 **Features**:
 - User authentication
@@ -226,47 +197,92 @@ Learn FraiseQL by exploring complete, production-ready example applications.
 
 **Technology Stack**:
 - Backend: FraiseQL + FastAPI
-- Database: PostgreSQL
+- Database: PostgreSQL (uses materialized views)
 - Mobile: React Native + Expo
 - Push: Firebase Cloud Messaging
 - Files: AWS S3
 - Jobs: Celery + Redis
 - Hosting: AWS
 
-**Repository**: [github.com/fraiseql/examples/mobile-backend](https://github.com/fraiseql/examples/mobile-backend)
+**Repository**: [github.com/fraiseql/examples/mobile-analytics-backend](https://github.com/fraiseql/examples/mobile-analytics-backend)
 
 **Duration**: 45 minutes to understand, 3-4 hours to deploy
 
 ---
 
-### 8. Data API / Data Mesh
+### 6. SaaS Federation + NATS
 
 **What you'll learn**:
-- Data federation across sources
-- GraphQL data layer
-- Schema composition
-- Data quality checks
-- API governance
-- Versioning
+- Multi-tenant federation
+- Cross-service data composition
+- NATS pub/sub messaging
+- Durable consumers and fan-out
 
 **Features**:
-- Federated data sources
-- Unified GraphQL schema
-- Data lineage tracking
-- Schema validation
-- Access control
-- Usage analytics
-- API versioning
+- Multi-tenant SaaS with federated services
+- Cross-service GraphQL queries
+- Event-driven notifications via NATS
+- Tenant-scoped subscriptions
 
 **Technology Stack**:
-- Backend: FraiseQL (multi-database federation)
-- Databases: PostgreSQL (multiple instances), S3 (data lake)
-- Frontend: Apollo Studio (exploration)
-- Hosting: Kubernetes
+- Backend: FraiseQL + FastAPI
+- Databases: PostgreSQL + NATS JetStream
+- Hosting: Docker + Kubernetes
 
-**Repository**: [github.com/fraiseql/examples/data-api](https://github.com/fraiseql/examples/data-api)
+**Repository**: [github.com/fraiseql/examples/saas-federation-nats](https://github.com/fraiseql/examples/saas-federation-nats)
 
-**Duration**: 1+ hour to understand, 5+ hours to deploy
+**Duration**: 1 hour to understand, 4 hours to deploy
+
+---
+
+### 7. NATS Event Pipeline
+
+**What you'll learn**:
+- NATS subjects and consumer groups
+- Durable consumers with JetStream
+- Event fan-out and filtering
+- Dead-letter queue handling
+
+**Features**:
+- Event ingestion with NATS subjects
+- Durable consumers for reliability
+- Fan-out to multiple processors
+- DLQ for failed messages
+
+**Technology Stack**:
+- Backend: FraiseQL + FastAPI
+- Databases: PostgreSQL + NATS JetStream
+- Hosting: Docker
+
+**Repository**: [github.com/fraiseql/examples/nats-event-pipeline](https://github.com/fraiseql/examples/nats-event-pipeline)
+
+**Duration**: 45 minutes to understand, 2-3 hours to deploy
+
+---
+
+### 8. Microservices Choreography
+
+**What you'll learn**:
+- Service-to-service choreography
+- Saga pattern with compensating transactions
+- Idempotent event handlers
+- Distributed audit trails
+
+**Features**:
+- Order → Inventory → Payment → Shipping pipeline
+- Compensation on failure (inventory release, refunds)
+- Full event log for observability
+- Retry and DLQ handling
+
+**Technology Stack**:
+- Backend: FraiseQL + FastAPI (multiple services)
+- Database: PostgreSQL
+- Messaging: NATS JetStream
+- Hosting: Docker Compose / Kubernetes
+
+**Repository**: [github.com/fraiseql/examples/microservices-choreography](https://github.com/fraiseql/examples/microservices-choreography)
+
+**Duration**: 1 hour to understand, 4-5 hours to deploy
 
 ---
 
@@ -312,7 +328,19 @@ Learn FraiseQL by exploring complete, production-ready example applications.
    fraiseql run
    ```
 
-7. **In another terminal, start frontend**
+7. **Verify the API is healthy**
+
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+   Expected response:
+
+   ```json
+   {"status": "healthy", "database": "connected", "version": "0.9.0"}
+   ```
+
+8. **In another terminal, start frontend**
 
    ```bash
    cd frontend && npm run dev
@@ -343,19 +371,17 @@ See each example's `README.md` for specific instructions.
 
 ## Learning Path
 
-**Beginner** (Start here):
-1. Admin Dashboard Backend (simplest)
-2. SaaS Blog Platform (multi-tenancy)
-3. E-Commerce API (federation)
-
-**Intermediate**:
-4. Mobile Backend API (files + notifications)
-5. Analytics API (time-series)
-6. Social Network (real-time + caching)
+**Intermediate** (Start here):
+1. SaaS Blog Platform (multi-tenancy, RLS, auth)
+2. Federation E-Commerce (federation, saga)
+3. Real-Time Analytics (time-series, materialized views)
+4. Mobile Analytics Backend (files + notifications + background jobs)
 
 **Advanced**:
-7. Real-Time Collaboration (CRDT)
-8. Data API / Data Mesh (federation)
+5. NATS Event Pipeline (event-driven, durable consumers)
+6. SaaS Federation + NATS (cross-service federation)
+7. Real-Time Collaboration (WebSocket, CRDT, OT)
+8. Microservices Choreography (saga, compensation, distributed transactions)
 
 ## Common Patterns Across Examples
 

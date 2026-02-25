@@ -1244,14 +1244,17 @@ Define your own domain-specific scalars:
 
 ```python
 from typing import NewType
+import fraiseql
 
 # Simple custom scalar (zero runtime overhead)
 CompanyId = NewType("CompanyId", str)
 ProductSKU = NewType("ProductSKU", str)
 
-
-
-
+@fraiseql.type
+class Order:
+    id: str
+    company_id: CompanyId   # serializes as String, documents intent
+    sku: ProductSKU
 
 ```
 
