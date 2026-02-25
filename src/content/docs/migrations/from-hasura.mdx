@@ -1,0 +1,341 @@
+---
+title: Migrating from Hasura to FraiseQL
+description: Guide to migrate from Hasura to FraiseQL for type-safe GraphQL backends
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+# Migrating from Hasura to FraiseQL
+
+This guide covers migrating from Hasura (auto-generated GraphQL from database introspection) to FraiseQL (code-first GraphQL backed by hand-written SQL views and PostgreSQL functions).
+
+## Comparison
+
+| Feature | Hasura | FraiseQL |
+|---------|--------|----------|
+| **Approach** | Database-first (auto-schema from DB) | Code-first (schema from Python/TS/Go decorators) |
+| **Configuration** | Web UI + YAML | SDK decorators + TOML |
+| **Type Safety** | GraphQL generated | Native SDK types (Python, TypeScript, Go) |
+| **Hosting** | Cloud or self-hosted | Any server — Docker, K8s, bare metal |
+| **Custom Logic** | Actions + Webhooks | PostgreSQL functions (`fn_*`) |
+| **Federation** | No | Yes (multi-database) |
+| **Performance** | Good | Excellent (pre-compiled SQL views) |
+| **Runtime** | Node.js / Haskell | Rust binary |
+| **Learning Curve** | Low (UI-driven) | Medium (code-driven) |
+
+## Architecture Difference
+
+**Hasura** auto-generates a GraphQL schema by introspecting your database tables. Every column and relationship becomes a queryable field automatically.
+
+**FraiseQL** uses hand-written SQL views (`v_*`) for reads and PostgreSQL functions (`fn_*`) for writes. The Rust binary serves a GraphQL API derived from your decorator-annotated schema types — giving you explicit control over exactly what data is exposed and how it is shaped.
+
+<Aside type="tip">
+The key trade-off: Hasura is faster to prototype (zero SQL views to write) but harder to customize and secure. FraiseQL requires writing SQL views upfront but gives you precise control over query shape, row-level filtering, and performance.
+</Aside>
+
+## Migration Path
+
+<Steps>
+
+1. **Export Hasura Configuration**
+
+   ```bash
+   # Get current Hasura metadata
+   hasura metadata export
+
+   # Review generated metadata
+   cat metadata/databases/default/tables/
+   ```
+
+2. **Map Hasura Tables to FraiseQL Types**
+
+   Each Hasura table becomes a FraiseQL `@fraiseql.type`. Relationships defined in Hasura YAML become typed fields on the class.
+
+   <Tabs>
+     <TabItem label="Hasura (YAML)">
+       ```yaml
+       # metadata/databases/default/tables/user.yaml
+       table:
+         name: user
+         schema: public
+       select_permissions:
+         - role: user
+           permission:
+             columns: [id, email, name]
+             filter:
+               id:
+                 _eq: X-Hasura-User-Id
+       relationships:
+         - name: posts
+           type: array
+           using:
+             foreign_key_constraint_on:
+               column: user_id
+               table:
+                 name: post
+                 schema: public
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (Python)">
+       ```python
+       @fraiseql.type
+       class User:
+           id: ID
+           email: str
+           name: str
+           posts: list['Post']  # Relationship via SQL view JOIN
+
+       @fraiseql.query(sql_source="v_user", requires_scope="read:User")
+       def user(id: ID) -> User:
+           """Get user (enforces RLS filter via SQL view)."""
+           pass
+       ```
+     </TabItem>
+   </Tabs>
+
+3. **Replicate Permissions via SQL Views**
+
+   Hasura row-level permissions become `WHERE` clauses in your PostgreSQL views. The FraiseQL Rust binary passes the authenticated user's context as a PostgreSQL session variable.
+
+   <Tabs>
+     <TabItem label="Hasura (YAML permissions)">
+       ```yaml
+       select_permissions:
+         - role: user
+           permission:
+             columns: [id, name, email]
+             filter:
+               id:
+                 _eq: X-Hasura-User-Id
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (SQL view)">
+       ```python
+       @fraiseql.query(sql_source="v_user_filtered", requires_scope="read:User")
+       def my_profile() -> User:
+           """User can only see their own profile."""
+           pass
+       ```
+
+       ```sql
+       -- v_user_filtered enforces row-level access in SQL
+       CREATE VIEW v_user_filtered AS
+       SELECT * FROM tb_user
+       WHERE id = current_setting('app.current_user_id')::uuid;
+       ```
+     </TabItem>
+   </Tabs>
+
+4. **Migrate Custom Actions to PostgreSQL Functions**
+
+   Hasura Actions are webhook-based — they call an external HTTP endpoint. FraiseQL replaces these with PostgreSQL functions (`fn_*`) or observer hooks that trigger side effects.
+
+   <Tabs>
+     <TabItem label="Hasura (Actions webhook)">
+       ```yaml
+       actions:
+         - name: sendEmail
+           definition:
+             kind: action
+             arguments:
+               - name: email
+                 type: String!
+               - name: message
+                 type: String!
+             output_type: ActionOutput
+             webhook_url: https://myapp.com/send-email
+             timeout: 30
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (mutation + PostgreSQL function)">
+       ```python
+       @fraiseql.input
+       class SendEmailInput:
+           email: str
+           message: str
+
+       @fraiseql.mutation(sql_source="fn_send_email")
+       def send_email(input: SendEmailInput) -> ActionOutput:
+           """Send email via PostgreSQL function."""
+           pass
+       ```
+
+       ```sql
+       -- Business logic lives in the database
+       CREATE FUNCTION fn_send_email(p_email TEXT, p_message TEXT)
+       RETURNS TABLE(success BOOL, message TEXT) AS $$
+       BEGIN
+           -- Insert into outbox for async processing
+           INSERT INTO tb_email_outbox (recipient, body) VALUES (p_email, p_message);
+           RETURN QUERY SELECT true, 'Email queued'::TEXT;
+       END;
+       $$ LANGUAGE plpgsql;
+       ```
+     </TabItem>
+   </Tabs>
+
+5. **Migrate Subscriptions to NATS**
+
+   <Tabs>
+     <TabItem label="Hasura (Event-based)">
+       ```graphql
+       subscription OnUserCreated {
+         user(event: insert) {
+           id
+           name
+           email
+         }
+       }
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (NATS-backed)">
+       ```python
+       @fraiseql.subscription(entity_type="User", topic="created")
+       def user_created() -> User:
+           """Subscribe to new users."""
+           pass
+       ```
+     </TabItem>
+   </Tabs>
+
+6. **Update Client Queries**
+
+   FraiseQL uses a slightly different filter syntax from Hasura. Update your client queries accordingly.
+
+   <Tabs>
+     <TabItem label="Hasura filtering">
+       ```graphql
+       query {
+         user(where: {
+           email: { _eq: "alice@example.com" }
+           posts: { title: { _ilike: "hello%" } }
+         }) {
+           id
+           email
+         }
+       }
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL filtering">
+       ```graphql
+       query {
+         user(
+           email_eq: "alice@example.com"
+           posts_title_contains: "hello"
+         ) {
+           id
+           email
+         }
+       }
+       ```
+     </TabItem>
+   </Tabs>
+
+   Ordering and pagination syntax is compatible:
+
+   <Tabs>
+     <TabItem label="Hasura ordering">
+       ```graphql
+       query {
+         users(order_by: { created_at: desc }) {
+           id
+           name
+         }
+       }
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL ordering">
+       ```graphql
+       query {
+         users(orderBy: "created_at DESC") {
+           id
+           name
+         }
+       }
+       ```
+     </TabItem>
+   </Tabs>
+
+   Pagination is identical in both:
+   ```graphql
+   query {
+     users(limit: 10, offset: 20) {
+       id
+       name
+     }
+   }
+   ```
+
+7. **Performance Test and Decommission**
+
+   Once all client queries are migrated and validated, decommission Hasura. FraiseQL's pre-compiled SQL views typically deliver 3-5x better performance than Hasura's auto-generated queries.
+
+</Steps>
+
+## Performance Improvements
+
+**Hasura** auto-generates SQL from the GraphQL query at runtime. This is flexible but can produce suboptimal queries, especially for nested relationships.
+
+**FraiseQL** uses hand-written SQL views that you optimize yourself. The Rust binary executes pre-compiled queries — no runtime SQL generation.
+
+```
+Hasura query (10 users with posts):
+  users: 1 query
+  user[0].posts: 1 query (N+1!)
+  user[1].posts: 1 query
+  ... (8 more)
+  Total: 11 queries
+
+FraiseQL query (10 users with posts):
+  users: 1 query (v_user)
+  posts (batched): 1 query (v_post WHERE user_id IN (...))
+  Total: 2 queries
+```
+
+## Cost Comparison
+
+| | Hasura Cloud | FraiseQL (Self-hosted) |
+|---|---|---|
+| **Starter** | $25/month | — |
+| **Professional** | $99/month | — |
+| **Server** | Included in price | $20-50/month |
+| **Database** | Extra | Existing |
+| **Total** | $99-200+/month | $20-50/month |
+
+**Typical savings: 50-80%** on hosting costs, plus better performance.
+
+## Migration Checklist
+
+- [ ] Export Hasura metadata and config
+- [ ] Document all tables, relationships, and permissions
+- [ ] Map tables to FraiseQL types
+- [ ] Write SQL views (`v_*`) replicating Hasura's select permissions
+- [ ] Write PostgreSQL functions (`fn_*`) replacing Hasura actions
+- [ ] Define FraiseQL decorator types and queries
+- [ ] Migrate subscriptions to NATS
+- [ ] Update client query syntax
+- [ ] Performance test
+- [ ] Decommission Hasura
+
+<CardGrid>
+  <Card title="Prisma Migration" icon="rocket">
+    Migrating from Prisma ORM.
+
+    [Read guide](/migrations/from-prisma)
+  </Card>
+  <Card title="Apollo Migration" icon="rocket">
+    Migrating from Apollo Server.
+
+    [Read guide](/migrations/from-apollo)
+  </Card>
+  <Card title="REST Migration" icon="rocket">
+    Migrating from REST APIs.
+
+    [Read guide](/migrations/from-rest)
+  </Card>
+  <Card title="Getting Started" icon="open-book">
+    Learn FraiseQL fundamentals from scratch.
+
+    [Read guide](/getting-started/introduction)
+  </Card>
+</CardGrid>

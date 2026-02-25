@@ -3,6 +3,8 @@ title: FAQ - Frequently Asked Questions
 description: Answers to common FraiseQL questions about architecture, performance, deployment, and usage
 ---
 
+import { CardGrid, Card } from '@astrojs/starlight/components';
+
 # Frequently Asked Questions
 
 Find answers to the most common FraiseQL questions.
@@ -106,7 +108,7 @@ A: FraiseQL exports Prometheus metrics. Monitor p95 latency, error rate, databas
 ## Deployment (8)
 
 **Q: Where can I deploy FraiseQL?**
-A: Anywhere Python runs: Docker, Kubernetes, AWS (ECS/Fargate), Google Cloud Run, Azure App Service, self-hosted servers, etc.
+A: Anywhere Docker or Linux runs — it's a compiled Rust binary: Docker, Kubernetes, AWS (ECS/Fargate), Google Cloud Run, Azure App Service, self-hosted servers, etc.
 
 **Q: What's the easiest way to deploy FraiseQL?**
 A: Docker Compose for development, Google Cloud Run for production (serverless). No infrastructure management needed.
@@ -115,7 +117,7 @@ A: Docker Compose for development, Google Cloud Run for production (serverless).
 A: Horizontal scaling: add more instances behind a load balancer. Auto-scaling: configure based on CPU/memory/RPS. Vertical scaling: increase instance resources.
 
 **Q: Can FraiseQL run serverless?**
-A: Yes, with Google Cloud Run or AWS Lambda (cold start ~500ms for Python). Ideal for variable load.
+A: Yes, with Google Cloud Run or AWS Lambda (cold start ~100ms for the Rust binary). Ideal for variable load.
 
 **Q: How do I implement database failover?**
 A: Use managed database (AWS RDS, Cloud SQL) with automatic failover, or set up replication with manual failover.
@@ -242,9 +244,6 @@ A: Apollo requires manual resolver coding. FraiseQL maps GraphQL types to SQL vi
 **Q: Should I use Hasura or FraiseQL?**
 A: Hasura is database-first; FraiseQL is code-first. FraiseQL has better IDE support and versioning. Choose based on workflow preference. See [comparison](/vs/hasura).
 
-
-                                           ─                ─
-
 **Q: Can I migrate from Apollo?**
 A: Yes. Replace manual resolvers with FraiseQL decorators. See [Apollo migration guide](/migrations/from-apollo).
 
@@ -293,10 +292,20 @@ A: After profiling (measure first). Follow: 1) Add indexes, 2) Cache, 3) optimiz
 
 ## Still have questions?
 
-**Discord**: [Join our Discord](https://discord.gg/fraiseql) for community help
-**GitHub**: [Create an issue](https://github.com/fraiseql/fraiseql/issues) for bugs
-**Discussions**: [GitHub Discussions](https://github.com/fraiseql/fraiseql/discussions) for feature requests
-**Email**: [support@fraiseql.dev](mailto:support@fraiseql.dev) for commercial support
+<CardGrid>
+  <Card title="Discord Community" icon="discord">
+    Get quick answers from the FraiseQL community. [Join our Discord](https://discord.gg/fraiseql)
+  </Card>
+  <Card title="GitHub Issues" icon="github">
+    Found a bug or unexpected behavior? [Create an issue](https://github.com/fraiseql/fraiseql/issues)
+  </Card>
+  <Card title="GitHub Discussions" icon="github">
+    Deep-dive questions, feature requests, and RFCs. [Start a discussion](https://github.com/fraiseql/fraiseql/discussions)
+  </Card>
+  <Card title="Email Support" icon="email">
+    Commercial support and enterprise inquiries. [support@fraiseql.dev](mailto:support@fraiseql.dev)
+  </Card>
+</CardGrid>
 
 ---
 

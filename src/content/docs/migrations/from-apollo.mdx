@@ -1,0 +1,399 @@
+---
+title: Migrating from Apollo Server to FraiseQL
+description: Guide to migrate from Apollo Server to FraiseQL's database-first GraphQL approach
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+# Migrating from Apollo Server to FraiseQL
+
+This guide walks through migrating from manually-built Apollo Server GraphQL backends to FraiseQL's database-first approach.
+
+## Architecture Comparison
+
+<Tabs>
+  <TabItem label="Apollo Server (Manual)">
+    ```
+    1. Write TypeScript interfaces
+    2. Write GraphQL schema by hand
+    3. Implement resolvers manually
+    4. Connect to database
+    5. Handle N+1 queries manually (DataLoader)
+    6. Implement caching manually
+    ```
+  </TabItem>
+  <TabItem label="FraiseQL (Database-first)">
+    ```
+    1. Define Python/TypeScript/Go schema types
+    2. Schema derived from decorator types
+    3. Resolvers mapped to hand-written SQL views (v_*)
+    4. Mutations mapped to PostgreSQL functions (fn_*)
+    5. Automatic N+1 batching
+    6. Built-in caching
+    7. Rust binary serves everything
+    ```
+  </TabItem>
+</Tabs>
+
+## Key Differences
+
+| Aspect | Apollo | FraiseQL |
+|--------|--------|----------|
+| **Schema Definition** | GraphQL SDL (manual) | Python/TS/Go types with decorators |
+| **Resolvers** | Hand-written TypeScript | Mapped to SQL views — no resolver code |
+| **Database** | ORM or raw queries in resolvers | Hand-written SQL views (`v_*`) |
+| **Mutations** | Resolver functions | PostgreSQL functions (`fn_*`) |
+| **Caching** | redis-apollo-link | Built-in federation cache |
+| **Subscriptions** | WebSocket (manual PubSub) | Native with NATS |
+| **Performance** | Manual optimization + DataLoader | Automatic batching via SQL joins |
+| **Type Safety** | apollo-codegen | Native SDK types |
+| **Runtime** | Node.js | Rust binary |
+| **Complexity** | High (resolver logic) | Low (decorators + SQL) |
+
+## Step-by-Step Migration
+
+<Steps>
+
+1. **Understand Your Current Apollo Setup**
+
+   Inventory all type definitions, resolvers, and subscriptions before migrating.
+
+   ```typescript
+   import { ApolloServer, gql } from 'apollo-server-express';
+   import { PrismaClient } from '@prisma/client';
+
+   const typeDefs = gql`
+     type User {
+       id: ID!
+       email: String!
+       name: String!
+       posts: [Post!]!
+     }
+
+     type Post {
+       id: ID!
+       title: String!
+       content: String!
+       author: User!
+     }
+
+     type Query {
+       user(id: ID!): User
+       users(limit: Int): [User!]!
+       post(id: ID!): Post
+       posts(limit: Int): [Post!]!
+     }
+
+     type Mutation {
+       createUser(email: String!, name: String!): User!
+       createPost(title: String!, content: String!, authorId: ID!): Post!
+     }
+   `;
+
+   const resolvers = {
+     Query: {
+       user: async (_, { id }) => prisma.user.findUnique({ where: { id } }),
+       users: async (_, { limit }) => prisma.user.findMany({ take: limit }),
+       post: async (_, { id }) => prisma.post.findUnique({ where: { id } }),
+       posts: async (_, { limit }) => prisma.post.findMany({ take: limit })
+     },
+
+     User: {
+       posts: async (user) => prisma.post.findMany({ where: { userId: user.id } })
+       // N+1 problem: runs once per user!
+     },
+
+     Post: {
+       author: async (post) => prisma.user.findUnique({ where: { id: post.userId } })
+     },
+
+     Mutation: {
+       createUser: async (_, { email, name }) =>
+         prisma.user.create({ data: { email, name } }),
+       createPost: async (_, { title, content, authorId }) =>
+         prisma.post.create({ data: { title, content, userId: authorId } })
+     }
+   };
+   ```
+
+2. **Write SQL Views for Queries**
+
+   For every Apollo `Query` resolver, create a PostgreSQL view (`v_*`). Relationships between types become JOIN clauses in the view — no DataLoader required.
+
+   ```sql
+   -- v_user: replaces User query resolvers
+   CREATE VIEW v_user AS
+   SELECT
+     u.id,
+     u.email,
+     u.name,
+     COALESCE(
+       json_agg(
+         json_build_object('id', p.id, 'title', p.title, 'content', p.content)
+       ) FILTER (WHERE p.id IS NOT NULL),
+       '[]'
+     ) AS posts
+   FROM tb_user u
+   LEFT JOIN tb_post p ON p.user_id = u.id
+   GROUP BY u.id;
+
+   -- v_post: replaces Post query resolvers
+   CREATE VIEW v_post AS
+   SELECT
+     p.id,
+     p.title,
+     p.content,
+     u.id AS author_id,
+     u.email AS author_email,
+     u.name AS author_name
+   FROM tb_post p
+   JOIN tb_user u ON u.id = p.user_id;
+   ```
+
+3. **Write PostgreSQL Functions for Mutations**
+
+   For every Apollo `Mutation` resolver, create a PostgreSQL function (`fn_*`).
+
+   ```sql
+   CREATE FUNCTION fn_create_user(p_email TEXT, p_name TEXT)
+   RETURNS SETOF v_user AS $$
+   BEGIN
+       INSERT INTO tb_user (email, name) VALUES (p_email, p_name);
+       RETURN QUERY SELECT * FROM v_user WHERE email = p_email;
+   END;
+   $$ LANGUAGE plpgsql;
+
+   CREATE FUNCTION fn_create_post(p_title TEXT, p_content TEXT, p_author_id UUID)
+   RETURNS SETOF v_post AS $$
+   BEGIN
+       INSERT INTO tb_post (title, content, user_id) VALUES (p_title, p_content, p_author_id);
+       RETURN QUERY SELECT * FROM v_post WHERE user_id = p_author_id ORDER BY id DESC LIMIT 1;
+   END;
+   $$ LANGUAGE plpgsql;
+   ```
+
+4. **Convert Apollo Schema to FraiseQL Decorators**
+
+   Map each GraphQL SDL type to a FraiseQL type decorator. The Rust binary reads these decorator definitions to generate the full GraphQL schema — no SDL authoring needed.
+
+   ```python
+   from fraiseql import FraiseQL, ID
+
+   fraiseql = FraiseQL()
+
+   @fraiseql.type
+   class User:
+       id: ID
+       email: str
+       name: str
+       posts: list['Post']
+
+   @fraiseql.type
+   class Post:
+       id: ID
+       title: str
+       content: str
+       author_id: ID
+       author: User
+
+   # Queries map to SQL views
+   @fraiseql.query(sql_source="v_user")
+   def user(id: ID) -> User:
+       """Get single user."""
+       pass
+
+   @fraiseql.query(sql_source="v_user")
+   def users(limit: int = 50) -> list[User]:
+       """Get multiple users."""
+       pass
+
+   @fraiseql.query(sql_source="v_post")
+   def post(id: ID) -> Post:
+       """Get single post."""
+       pass
+
+   @fraiseql.query(sql_source="v_post")
+   def posts(limit: int = 50) -> list[Post]:
+       """Get multiple posts."""
+       pass
+
+   # Mutations map to PostgreSQL functions
+   @fraiseql.mutation(sql_source="fn_create_user")
+   def create_user(email: str, name: str) -> User:
+       """Create user."""
+       pass
+
+   @fraiseql.mutation(sql_source="fn_create_post")
+   def create_post(title: str, content: str, author_id: ID) -> Post:
+       """Create post."""
+       pass
+   ```
+
+5. **Update Frontend Client Code**
+
+   The GraphQL query syntax is identical — only the client initialization changes.
+
+   <Tabs>
+     <TabItem label="Apollo Client">
+       ```typescript
+       import { useQuery, gql } from '@apollo/client';
+
+       const GET_USERS = gql`
+         query GetUsers {
+           users(limit: 10) { id name }
+         }
+       `;
+
+       function UsersList() {
+         const { data } = useQuery(GET_USERS);
+         // ...
+       }
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL Client">
+       ```typescript
+       import { Client } from '@fraiseql/client';
+
+       const client = new Client({
+         url: 'https://api.example.com/graphql',
+         apiKey: process.env.FRAISEQL_API_KEY
+       });
+
+       async function getUsers() {
+         return await client.query(`
+           query GetUsers {
+             users(limit: 10) { id name }
+           }
+         `);
+       }
+       ```
+     </TabItem>
+   </Tabs>
+
+6. **Migrate Subscriptions**
+
+   <Tabs>
+     <TabItem label="Apollo (Complex PubSub)">
+       ```typescript
+       const pubsub = new PubSub();
+
+       const resolvers = {
+         Subscription: {
+           userCreated: {
+             subscribe: () => pubsub.asyncIterator(['USER_CREATED'])
+           }
+         },
+         Mutation: {
+           createUser: async (_, { email, name }) => {
+             const user = await prisma.user.create({ data: { email, name } });
+             pubsub.publish('USER_CREATED', { userCreated: user });
+             return user;
+           }
+         }
+       };
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (NATS-backed)">
+       ```python
+       @fraiseql.subscription(entity_type="User", topic="created")
+       def user_created() -> User:
+           """Subscribe to new users."""
+           pass
+
+       # Client code stays the same!
+       ```
+     </TabItem>
+   </Tabs>
+
+   <Aside type="note">
+   FraiseQL subscriptions are powered by NATS. When a `fn_*` PostgreSQL function runs, FraiseQL automatically publishes the event. No manual `pubsub.publish()` calls are needed.
+   </Aside>
+
+7. **Performance Test and Decommission**
+
+   Run performance tests to validate the improvement. Apollo with DataLoader typically runs 10-20 queries per request; FraiseQL uses pre-compiled SQL views, reducing this to 1-2 queries.
+
+   Once results are confirmed, decommission the Apollo Server and remove its dependencies.
+
+</Steps>
+
+## The N+1 Problem: Gone
+
+### Apollo — N+1 Without DataLoader
+
+```typescript
+// Querying 10 users with posts = 11 queries
+const users = await prisma.user.findMany({ take: 10 });  // 1 query
+// Then for each user's posts field:
+// User.posts resolver called 10 times = 10 more queries
+// Total: 11 queries
+```
+
+Even with DataLoader, you must remember to wire it up manually for every relationship.
+
+### FraiseQL — Automatic via SQL Views
+
+```graphql
+query GetUsers {
+  users(limit: 10) {
+    name
+    posts {  # Resolved by a single batched SQL JOIN in the view
+      title
+    }
+  }
+}
+```
+
+FraiseQL executes only **2 queries**:
+1. `SELECT * FROM v_user LIMIT 10`
+2. `SELECT * FROM v_post WHERE user_id IN (list_of_user_ids)`
+
+That's **5x fewer queries** — and you cannot accidentally create N+1 because the SQL is pre-written.
+
+## Performance Comparison
+
+| Metric | Apollo Server | FraiseQL |
+|--------|---------------|----------|
+| **Resolver Lines** | 500+ | 0 (mapped to SQL views) |
+| **Queries/Request** | 11 | 2 |
+| **Request Time** | ~200ms | ~20ms |
+| **Development Time** | High | Low |
+| **Caching** | Manual | Automatic |
+| **N+1 Problems** | Common | Architecturally impossible |
+| **Runtime** | Node.js | Rust binary |
+
+## Migration Checklist
+
+- [ ] Document all Apollo resolvers and queries
+- [ ] Map Apollo types to FraiseQL decorator types
+- [ ] Create SQL views (`v_*`) for all queries
+- [ ] Create PostgreSQL functions (`fn_*`) for all mutations
+- [ ] Define FraiseQL decorators
+- [ ] Test FraiseQL produces same results as Apollo
+- [ ] Update frontend clients
+- [ ] Migrate subscriptions to NATS
+- [ ] Performance testing (expect 5-10x faster)
+- [ ] Decommission Apollo
+
+<CardGrid>
+  <Card title="Prisma Migration" icon="rocket">
+    Also migrating from Prisma ORM.
+
+    [Read guide](/migrations/from-prisma)
+  </Card>
+  <Card title="Hasura Migration" icon="rocket">
+    Coming from Hasura's database-first approach.
+
+    [Read guide](/migrations/from-hasura)
+  </Card>
+  <Card title="NATS Integration" icon="puzzle">
+    Learn how FraiseQL subscriptions work with NATS.
+
+    [Read guide](/features/nats)
+  </Card>
+  <Card title="Getting Started" icon="open-book">
+    Learn FraiseQL fundamentals from scratch.
+
+    [Read guide](/getting-started/introduction)
+  </Card>
+</CardGrid>

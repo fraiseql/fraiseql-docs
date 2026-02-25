@@ -3,24 +3,21 @@ title: FraiseQL vs Apollo
 description: How FraiseQL compares to Apollo GraphQL Server
 ---
 
-Apollo is the most popular GraphQL framework. Here's how FraiseQL differs.
+import { CardGrid, Card } from '@astrojs/starlight/components';
+
+Apollo is the most popular GraphQL framework. Here's how FraiseQL differs — and when each is the right choice.
 
 ## The Fundamental Difference
 
 **Apollo** requires you to write resolver functions for every field and relationship.
 
-**FraiseQL** eliminates resolvers entirely by compiling your schema to optimized database views.
-
-```
-                 ─           ─                   ─            ─
-                 ─               ─                 ─
-```
+**FraiseQL** eliminates resolvers entirely by mapping your schema to optimized database views. It runs as a compiled Rust binary with no resolver code needed.
 
 ## Side-by-Side Comparison
 
 | Aspect | FraiseQL | Apollo Server |
 |--------|----------|---------------|
-| **Architecture** | Compiled, database-first | Runtime, resolver-based |
+| **Architecture** | Compiled Rust binary, database-first | Runtime, resolver-based |
 | **Resolver code** | None | Required for every field |
 | **N+1 handling** | Eliminated by design | DataLoader (manual setup) |
 | **Configuration** | TOML | JavaScript/TypeScript |
@@ -297,7 +294,7 @@ FraiseQL is a better choice when:
 - **You want zero resolver code** — Define types, get API
 - **You need guaranteed performance** — No N+1, ever
 - **You prefer less code** — 15 lines vs 40+ lines
-- **You want simple deployment** — Single binary vs Node.js + DataLoaders
+- **You want simple deployment** — Single Rust binary vs Node.js + DataLoaders
 
 ## Migration from Apollo
 
@@ -366,3 +363,22 @@ They're not needed. Delete them.
 | **FraiseQL** | Database-first, zero resolvers, guaranteed performance |
 
 Apollo gives you more control. FraiseQL gives you less code.
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Build Your First API" icon="rocket">
+    Get a working GraphQL API in minutes. [Quick Start Guide](/getting-started/first-api)
+  </Card>
+  <Card title="Performance Benchmarks" icon="bars">
+    See how FraiseQL performs compared to Apollo with real numbers. [View Benchmarks](/guides/performance-benchmarks)
+  </Card>
+  <Card title="Migrate from Apollo" icon="right-arrow">
+    Step-by-step guide to moving your existing Apollo API. [Migration Guide](/migrations/from-apollo)
+  </Card>
+  <Card title="How FraiseQL Works" icon="information">
+    Understand the compiled, database-first architecture. [Core Concepts](/concepts/how-it-works)
+  </Card>
+</CardGrid>

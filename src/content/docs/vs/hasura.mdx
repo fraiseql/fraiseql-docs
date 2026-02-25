@@ -3,24 +3,21 @@ title: FraiseQL vs Hasura
 description: How FraiseQL compares to Hasura GraphQL Engine
 ---
 
+import { CardGrid, Card } from '@astrojs/starlight/components';
+
 Both FraiseQL and Hasura provide GraphQL APIs over databases. Here's how they differ.
 
 ## The Fundamental Difference
 
 **Hasura** is a runtime GraphQL engine that interprets queries and generates SQL on-the-fly.
 
-**FraiseQL** is a compiled GraphQL framework that pre-generates optimized SQL views at build time.
-
-```
-                 ─                ─               ─
-                 ─                ─                ─
-```
+**FraiseQL** is a compiled Rust binary that pre-generates optimized SQL views at build time — no runtime SQL generation, no resolver code.
 
 ## Side-by-Side Comparison
 
 | Aspect | FraiseQL | Hasura |
 |--------|----------|--------|
-| **Architecture** | Compiled | Interpreted |
+| **Architecture** | Compiled Rust binary | Interpreted runtime engine |
 | **Query execution** | Pre-built SQL views | Runtime SQL generation |
 | **N+1 handling** | Eliminated by design | Runtime batching |
 | **Configuration** | TOML | Console + YAML |
@@ -234,7 +231,7 @@ FraiseQL is a better choice when:
 - **You want predictable performance** — Compiled queries, no surprises
 - **You prefer code over configuration** — Schema in your language
 - **You need multi-database support** — PostgreSQL, MySQL, SQLite, SQL Server
-- **You want simple deployment** — Single binary, no orchestration
+- **You want simple deployment** — Single Rust binary, no orchestration
 - **You value readability** — TOML over YAML, one file over many
 
 ## Migration from Hasura
@@ -313,3 +310,22 @@ def on_pending_payment():
 | **FraiseQL** | Predictable performance, code-first, multi-database |
 
 Both are excellent tools. Choose based on your team's preferences and requirements.
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Build Your First API" icon="rocket">
+    Get a working GraphQL API in minutes. [Quick Start Guide](/getting-started/first-api)
+  </Card>
+  <Card title="Performance Benchmarks" icon="bars">
+    See how FraiseQL performs with real numbers. [View Benchmarks](/guides/performance-benchmarks)
+  </Card>
+  <Card title="Migrate from Hasura" icon="right-arrow">
+    Step-by-step guide to moving your existing Hasura setup. [Migration Guide](/migrations/from-hasura)
+  </Card>
+  <Card title="How FraiseQL Works" icon="information">
+    Understand the compiled, database-first architecture. [Core Concepts](/concepts/how-it-works)
+  </Card>
+</CardGrid>

@@ -1,0 +1,420 @@
+---
+title: FraiseQL vs Prisma
+description: How FraiseQL compares to Prisma ORM
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+Prisma is a popular ORM. FraiseQL is a GraphQL framework backed by a Rust binary. Here's why you might choose one over the other.
+
+## The Fundamental Difference
+
+**Prisma** is an ORM that generates a type-safe database client. You still need to build your API layer (Express, Fastify, Apollo, etc.).
+
+**FraiseQL** generates the entire GraphQL API, including the database access layer — backed by hand-written PostgreSQL views (`v_*`) for reads and PostgreSQL functions (`fn_*`) for writes.
+
+```
+With Prisma:
+  Your Code -> Prisma Client -> Database
+  (You build the API layer)
+
+With FraiseQL:
+  Client -> GraphQL -> FraiseQL Rust Binary -> PostgreSQL Views/Functions
+  (API layer is built-in)
+```
+
+## Side-by-Side Comparison
+
+| Aspect | FraiseQL | Prisma |
+|--------|----------|--------|
+| **What it is** | GraphQL framework (Rust binary) | ORM / Database client |
+| **Output** | Complete GraphQL API | Database client library |
+| **API layer** | Included | Build yourself |
+| **Schema source** | Python, TypeScript, Go decorators | Prisma Schema Language |
+| **Reads** | Pre-compiled PostgreSQL views (`v_*`) | Generated SQL via ORM |
+| **Writes** | PostgreSQL functions (`fn_*`) | Generated SQL via ORM |
+| **N+1 handling** | Eliminated by design (SQL JOINs in views) | `include` option (manual) |
+| **Query language** | GraphQL | Prisma Client API |
+| **Configuration** | TOML | `.prisma` files |
+| **Database support** | PostgreSQL-first | PostgreSQL, MySQL, SQLite, SQL Server, MongoDB |
+| **Runtime** | Rust binary | Node.js |
+
+## What You Build
+
+<Tabs>
+  <TabItem label="With Prisma">
+    ```typescript
+    // 1. Define Prisma schema
+    // schema.prisma
+    model User {
+      id    String @id @default(uuid())
+      name  String
+      email String @unique
+      posts Post[]
+    }
+
+    model Post {
+      id       String @id @default(uuid())
+      title    String
+      author   User   @relation(fields: [authorId], references: [id])
+      authorId String
+    }
+
+    // 2. Generate client
+    // $ prisma generate
+
+    // 3. Build your API layer (Express, Fastify, Apollo, etc.)
+    app.get('/users', async (req, res) => {
+      const users = await prisma.user.findMany({
+        include: { posts: true }
+      });
+      res.json(users);
+    });
+
+    app.get('/users/:id', async (req, res) => {
+      const user = await prisma.user.findUnique({
+        where: { id: req.params.id },
+        include: { posts: true }
+      });
+      res.json(user);
+    });
+
+    app.post('/users', async (req, res) => {
+      const user = await prisma.user.create({
+        data: req.body
+      });
+      res.json(user);
+    });
+
+    // ... 50+ more endpoints
+    ```
+  </TabItem>
+  <TabItem label="With FraiseQL">
+    ```python
+    # 1. Define schema with decorators
+    @fraiseql.type
+    class User:
+        id: str
+        name: str
+        email: str
+        posts: list['Post']
+
+    @fraiseql.type
+    class Post:
+        id: str
+        title: str
+        author: User
+
+    # 2. Declare queries (backed by PostgreSQL views)
+    @fraiseql.query(sql_source="v_user")
+    def users(limit: int = 50) -> list[User]:
+        pass
+
+    # 3. Build and serve
+    # $ fraiseql build && fraiseql serve
+
+    # Done. Full GraphQL API is ready.
+    ```
+
+    ```sql
+    -- The backing SQL view (you write this)
+    CREATE VIEW v_user AS
+    SELECT u.id, u.name, u.email,
+      COALESCE(json_agg(p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS posts
+    FROM tb_user u
+    LEFT JOIN tb_post p ON p.author_id = u.id
+    GROUP BY u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+FraiseQL requires writing SQL views and PostgreSQL functions. This is more upfront work than Prisma's ORM approach, but gives you complete control over query shape, performance, and security — and the Rust binary executes those pre-written queries without generating SQL at runtime.
+</Aside>
+
+## N+1 Query Handling
+
+### Prisma: Manual `include`
+
+```typescript
+// Without include: N+1 problem
+const users = await prisma.user.findMany();
+for (const user of users) {
+  user.posts = await prisma.post.findMany({
+    where: { authorId: user.id }
+  }); // N queries!
+}
+
+// With include: You must remember to add it
+const users = await prisma.user.findMany({
+  include: { posts: true }
+});
+```
+
+If you forget `include`, you get N+1. If you include too much, you fetch unnecessary data.
+
+### FraiseQL: Eliminated by Design
+
+```graphql
+# This query:
+query {
+  users {
+    name
+    posts { title }
+  }
+}
+```
+
+Because the `v_user` view already JOINs `tb_post`, this resolves in a single SQL execution. You cannot accidentally create N+1 queries — the SQL is pre-compiled into the view.
+
+## Schema Language
+
+<Tabs>
+  <TabItem label="Prisma (PSL)">
+    ```prisma
+    // schema.prisma
+    model User {
+      id        String   @id @default(uuid())
+      email     String   @unique
+      name      String?
+      posts     Post[]
+      createdAt DateTime @default(now())
+
+      @@index([email])
+      @@map("users")
+    }
+
+    model Post {
+      id        String   @id @default(uuid())
+      title     String
+      content   String?
+      published Boolean  @default(false)
+      author    User     @relation(fields: [authorId], references: [id])
+      authorId  String
+
+      @@map("posts")
+    }
+    ```
+
+    - Custom DSL to learn
+    - Good tooling (VS Code extension)
+    - Limited to Prisma's feature set
+  </TabItem>
+  <TabItem label="FraiseQL (Python decorators)">
+    ```python
+    # schema.py
+    @fraiseql.type
+    class User:
+        id: str
+        email: str
+        name: str | None
+        posts: list['Post']
+        created_at: datetime
+
+    @fraiseql.type
+    class Post:
+        id: str
+        title: str
+        content: str | None
+        published: bool = False
+        author: User
+    ```
+
+    - Use your existing language (Python, TypeScript, or Go)
+    - Full IDE support with standard tooling
+    - Any language features available (inheritance, generics, etc.)
+  </TabItem>
+</Tabs>
+
+## Input Validation
+
+### Prisma: External Libraries
+
+Prisma doesn't include validation — you must use external libraries:
+
+```typescript
+// Prisma + Zod for validation
+import { z } from 'zod';
+
+const createUserSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1),
+  age: z.number().min(0).max(150)
+});
+
+app.post('/users', async (req, res) => {
+  const validated = createUserSchema.parse(req.body); // Runtime validation
+  const user = await prisma.user.create({
+    data: validated
+  });
+  res.json(user);
+});
+```
+
+- **External dependencies** — Zod, Joi, Yup, etc.
+- **Runtime validation** — Happens during request handling
+- **Your responsibility** — Must validate before database calls
+- **Database risk** — Invalid data if validation is missed
+
+### FraiseQL: Built-In Validators
+
+FraiseQL includes 13 validators enforced at compile-time:
+
+```toml
+[fraiseql.validation]
+email = { pattern = "^[^@]+@[^@]+\\.[^@]+$" }
+age = { range = { min = 0, max = 150 } }
+name = { length = { min = 1 } }
+```
+
+- **13 built-in validators** — No external libraries needed
+  - Standard: required, pattern, length, range, enum, checksum
+  - Cross-field: comparison operators, conditionals
+  - Mutual exclusivity: OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent
+- **Compile-time enforcement** — Invalid schemas are impossible at runtime
+- **Zero dependencies** — Everything built-in
+- **Database protection** — Invalid data never reaches the database
+
+### Validation Comparison
+
+| Aspect | FraiseQL | Prisma |
+|--------|----------|--------|
+| Built-in validators | 13 rules | 0 (requires external libs) |
+| External dependencies | None | Zod, Joi, Yup, etc. |
+| Compile-time enforcement | Yes | No |
+| Runtime validation overhead | None | Per-request |
+| Learning curve | Low | Medium (varies by library) |
+| Database protection | Guaranteed | Depends on implementation |
+
+## When to Use Prisma
+
+Prisma is a better choice when:
+
+- **You're building a REST API** — Prisma doesn't prescribe your API layer
+- **You need fine-grained control** — Build exactly the endpoints you want
+- **You want GraphQL with custom resolvers** — Prisma + Apollo/Yoga/etc.
+- **You need MongoDB support** — FraiseQL is PostgreSQL-first
+- **Your API has complex business logic** — More control over request handling
+- **You prefer auto-generated SQL** — No SQL views to write upfront
+
+## When to Use FraiseQL
+
+FraiseQL is a better choice when:
+
+- **You want a GraphQL API** — It's built-in, no extra layer to wire up
+- **You want less application code** — Schema + SQL views, no API layer
+- **You need guaranteed N+1 prevention** — By design, not by discipline
+- **You prefer compiled output** — Rust binary with predictable performance
+- **You want simple configuration** — TOML over multiple files
+- **You trust your SQL** — Write the queries you know are optimal
+
+## Using Them Together
+
+You can use Prisma's migration tooling alongside FraiseQL's API server:
+
+```bash
+# Use Prisma Migrate for database schema management
+prisma migrate dev
+
+# Use FraiseQL to serve the GraphQL API
+fraiseql build && fraiseql serve
+```
+
+<Aside type="tip">
+This combination is popular: Prisma's migration tooling is excellent for managing schema changes, while FraiseQL handles serving the GraphQL API from hand-optimized SQL views.
+</Aside>
+
+Or use FraiseQL for your customer-facing GraphQL API and Prisma for admin/internal tools.
+
+## Migration from Prisma
+
+<Steps>
+
+1. **Convert Schema**
+
+   <Tabs>
+     <TabItem label="Prisma">
+       ```prisma
+       model User {
+         id    String @id @default(uuid())
+         name  String
+         posts Post[]
+       }
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL">
+       ```python
+       @fraiseql.type
+       class User:
+           id: str
+           name: str
+           posts: list['Post']
+       ```
+     </TabItem>
+   </Tabs>
+
+2. **Write SQL Views to Replace the API Layer**
+
+   Your Express/Fastify routes are replaced by the GraphQL API. Each query maps to a PostgreSQL view that you write and control.
+
+   ```sql
+   CREATE VIEW v_user AS
+   SELECT u.id, u.name,
+     COALESCE(json_agg(p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS posts
+   FROM tb_user u
+   LEFT JOIN tb_post p ON p.user_id = u.id
+   GROUP BY u.id;
+   ```
+
+3. **Move Business Logic to PostgreSQL Functions**
+
+   Complex route handlers become PostgreSQL functions (`fn_*`), or use FraiseQL's observer pattern to react to data changes:
+
+   ```python
+   @observer(
+       entity="Order",
+       event="UPDATE",
+       condition="status = 'pending'",
+       actions=[
+           webhook("https://payments.internal/process",
+                   body={"order_id": "{id}", "amount": "{total}"}),
+       ],
+   )
+   def on_order_pending():
+       """Process payment when order becomes pending."""
+       pass
+   ```
+
+</Steps>
+
+## Summary
+
+| Choose | When |
+|--------|------|
+| **Prisma** | You want an ORM, building REST, need MongoDB, want full control over application code |
+| **FraiseQL** | You want GraphQL, less application code, guaranteed N+1 prevention, Rust-level performance |
+
+Prisma is a database client. FraiseQL is a complete GraphQL API server.
+
+<CardGrid>
+  <Card title="Prisma Migration Guide" icon="rocket">
+    Step-by-step guide to migrate from Prisma to FraiseQL.
+
+    [Read guide](/migrations/from-prisma)
+  </Card>
+  <Card title="Getting Started" icon="open-book">
+    Learn FraiseQL fundamentals from scratch.
+
+    [Read guide](/getting-started/introduction)
+  </Card>
+  <Card title="Schema Concepts" icon="puzzle">
+    Understand SQL views, types, and decorators in depth.
+
+    [Read guide](/concepts/schema)
+  </Card>
+  <Card title="All Comparisons" icon="list-format">
+    See how FraiseQL compares to other tools.
+
+    [View comparisons](/vs)
+  </Card>
+</CardGrid>

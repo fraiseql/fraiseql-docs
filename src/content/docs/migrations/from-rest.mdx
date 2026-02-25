@@ -1,0 +1,419 @@
+---
+title: Migrating from REST API to GraphQL
+description: Guide to convert REST API to GraphQL using FraiseQL
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+# Migrating from REST API to GraphQL
+
+This guide shows how to migrate from traditional REST APIs to GraphQL using FraiseQL.
+
+## Why Migrate?
+
+| Problem | REST | GraphQL |
+|---------|------|---------|
+| **Over-fetching** | GET /users returns all fields | Query only needed fields |
+| **Under-fetching** | Must chain API calls | Get all data in one request |
+| **Versioning** | /v1/, /v2/ endpoints | Single endpoint, evolves safely |
+| **Documentation** | Separate docs | Self-documenting via schema |
+| **Client bloat** | Multiple endpoints | Single endpoint |
+| **Real-time** | WebSocket polling | Native subscriptions |
+
+## Conversion Examples
+
+### Getting a User with Posts
+
+<Tabs>
+  <TabItem label="REST (Over/under-fetching)">
+    ```bash
+    # Request 1: Get user (gets all fields)
+    GET /api/users/123
+    # Response: 500 bytes with fields you don't need
+
+    # Request 2: Get user's posts
+    GET /api/users/123/posts
+    # Response: another round-trip
+
+    # Request 3: Get post comments
+    GET /api/posts/456/comments
+    # Total: 3 requests, lots of unused data
+    ```
+  </TabItem>
+  <TabItem label="GraphQL (Exact data needed)">
+    ```graphql
+    query {
+      user(id: 123) {
+        name
+        email
+        posts {
+          title
+          comments {
+            text
+          }
+        }
+      }
+    }
+    # Single request, exactly what you need
+    ```
+  </TabItem>
+</Tabs>
+
+## Step-by-Step Conversion
+
+<Steps>
+
+1. **Document REST Endpoints**
+
+   Map out every existing REST endpoint before you begin:
+
+   ```bash
+   GET /api/users              -> Get all users
+   GET /api/users/:id          -> Get user
+   POST /api/users             -> Create user
+   PUT /api/users/:id          -> Update user
+   DELETE /api/users/:id       -> Delete user
+   GET /api/users/:id/posts    -> Get user's posts
+   GET /api/posts              -> Get all posts
+   GET /api/posts/:id          -> Get post
+   POST /api/posts             -> Create post
+   ```
+
+2. **Map Endpoints to GraphQL Operations**
+
+   | REST | GraphQL |
+   |------|---------|
+   | `GET /users` | `query { users { ... } }` |
+   | `GET /users/:id` | `query { user(id: ...) { ... } }` |
+   | `POST /users` | `mutation { createUser(...) { ... } }` |
+   | `PUT /users/:id` | `mutation { updateUser(...) { ... } }` |
+   | `DELETE /users/:id` | `mutation { deleteUser(...) { ... } }` |
+   | `GET /users/:id/posts` | `query { user { posts { ... } } }` |
+
+3. **Define FraiseQL Types and SQL Views**
+
+   Each REST resource becomes a FraiseQL type backed by a PostgreSQL view (`v_*`). The FraiseQL Rust binary reads data directly from these views — there are no Python resolvers at runtime.
+
+   <Tabs>
+     <TabItem label="REST (Python/Flask)">
+       ```python
+       # routes/users.py
+       @app.get("/api/users")
+       def get_users():
+           return {"users": User.all()}
+
+       @app.get("/api/users/{user_id}")
+       def get_user(user_id: int):
+           return {"user": User.get(user_id)}
+
+       @app.post("/api/users")
+       def create_user(data: UserInput):
+           return {"user": User.create(data)}
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL">
+       ```python
+       @fraiseql.type
+       class User:
+           id: ID
+           name: str
+           email: str
+           posts: list['Post']
+
+       # Reads from PostgreSQL view v_user
+       @fraiseql.query(sql_source="v_user")
+       def users(limit: int = 50) -> list[User]:
+           """GET /users -> query { users { ... } }"""
+           pass
+
+       @fraiseql.query(sql_source="v_user")
+       def user(id: ID) -> User:
+           """GET /users/:id -> query { user(id: ...) { ... } }"""
+           pass
+
+       # Calls PostgreSQL function fn_create_user
+       @fraiseql.mutation(sql_source="fn_create_user")
+       def create_user(name: str, email: str) -> User:
+           """POST /users -> mutation { createUser(...) { ... } }"""
+           pass
+       ```
+     </TabItem>
+   </Tabs>
+
+4. **Build GraphQL API Alongside REST**
+
+   Run both systems in parallel during migration. Route a percentage of traffic to the new GraphQL endpoint while keeping REST available as a fallback.
+
+5. **Update Client Code**
+
+   <Tabs>
+     <TabItem label="REST Client">
+       ```typescript
+       // Before
+       async function getUser(userId: number) {
+         const userRes = await fetch(`/api/users/${userId}`);
+         const user = await userRes.json();
+
+         const postsRes = await fetch(`/api/users/${userId}/posts`);
+         const posts = await postsRes.json();
+
+         return { ...user, posts: posts.posts };
+       }
+       ```
+     </TabItem>
+     <TabItem label="GraphQL Client">
+       ```typescript
+       // After
+       async function getUser(userId: number) {
+         const response = await client.query(`
+           query {
+             user(id: ${userId}) {
+               name
+               email
+               posts {
+                 id
+                 title
+               }
+             }
+           }
+         `);
+
+         return response.data.user;
+       }
+       ```
+     </TabItem>
+   </Tabs>
+
+6. **Route Traffic Gradually**
+
+   ```
+   Week 1-2: Build GraphQL alongside REST
+   Week 3-4: Route 50% of traffic to GraphQL
+   Week 5-6: Route 100% to GraphQL
+   Week 7+: Decommission REST
+   ```
+
+7. **Decommission REST Endpoints**
+
+   Once all clients are migrated and GraphQL is confirmed stable, remove the REST endpoints and clean up related dependencies.
+
+</Steps>
+
+## Request/Response Comparison
+
+<Tabs>
+  <TabItem label="REST (3 requests)">
+    ```bash
+    # Request 1
+    GET /api/users/123
+    # Response includes unused fields: createdAt, updatedAt
+
+    # Request 2
+    GET /api/users/123/posts
+    # Response includes all post fields
+
+    # Request 3
+    GET /api/posts/456/comments
+
+    # Total: 3 requests + latency
+    ```
+  </TabItem>
+  <TabItem label="GraphQL (1 request)">
+    ```bash
+    POST /graphql
+    Content-Type: application/json
+
+    {
+      "query": "query { user(id: 123) { name email posts { title comments { text } } } }"
+    }
+
+    # Response
+    {
+      "data": {
+        "user": {
+          "name": "Alice",
+          "email": "alice@example.com",
+          "posts": [
+            {
+              "title": "First Post",
+              "comments": [
+                { "text": "Nice!" },
+                { "text": "Great article!" }
+              ]
+            }
+          ]
+        }
+      }
+    }
+
+    # Total: 1 request, exact data needed
+    ```
+  </TabItem>
+</Tabs>
+
+## Pagination
+
+<Tabs>
+  <TabItem label="REST">
+    ```bash
+    GET /api/users?limit=10&offset=20
+    ```
+  </TabItem>
+  <TabItem label="GraphQL">
+    ```graphql
+    query {
+      users(limit: 10, offset: 20) {
+        id
+        name
+      }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Filtering
+
+<Tabs>
+  <TabItem label="REST">
+    ```bash
+    GET /api/posts?status=published&author_id=123&sort=-created_at
+    ```
+  </TabItem>
+  <TabItem label="GraphQL">
+    ```graphql
+    query {
+      posts(
+        status_eq: "published"
+        author_id_eq: 123
+        orderBy: "created_at DESC"
+      ) {
+        id
+        title
+      }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Error Handling
+
+<Tabs>
+  <TabItem label="REST (HTTP Status Codes)">
+    ```
+    404 Not Found
+    400 Bad Request
+    500 Internal Server Error
+    401 Unauthorized
+    ```
+  </TabItem>
+  <TabItem label="GraphQL (200 OK + error in body)">
+    ```json
+    {
+      "errors": [
+        {
+          "message": "User not found",
+          "extensions": {
+            "code": "NOT_FOUND",
+            "userId": "123"
+          }
+        }
+      ]
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+FraiseQL includes helpful error codes and context in all error responses.
+
+## Subscriptions (New Capability)
+
+REST has no good real-time support. FraiseQL provides native subscriptions via WebSocket and NATS:
+
+```graphql
+subscription {
+  postCreated {
+    id
+    title
+    author {
+      name
+    }
+  }
+}
+```
+
+<Aside type="note">
+FraiseQL subscriptions are backed by NATS messaging. When a PostgreSQL function (`fn_*`) completes a write, FraiseQL automatically publishes the event to subscribed clients — no polling required.
+</Aside>
+
+## Performance Impact
+
+| Metric | REST | GraphQL |
+|--------|------|---------|
+| **Requests per view** | 3+ | 1 |
+| **Response time** | 200-500ms | 50-100ms |
+| **Unused data** | 50-70% | 0% |
+| **Data joining** | Client-side | Server-side (SQL views) |
+
+## Deployment Simplification
+
+**REST:**
+```
+Multiple endpoints
+/api/v1/users
+/api/v1/posts
+/api/v1/comments
+/api/v2/users  (new version!)
+/api/v2/posts
+```
+
+**GraphQL:**
+```
+Single endpoint
+/graphql
+  (Schema evolves safely; clients request only what they need)
+```
+
+## Migration Checklist
+
+- [ ] Document all REST endpoints
+- [ ] Map endpoints to GraphQL queries/mutations
+- [ ] Write SQL views (`v_*`) for all read operations
+- [ ] Write PostgreSQL functions (`fn_*`) for all write operations
+- [ ] Define FraiseQL types and decorators
+- [ ] Build GraphQL API alongside REST
+- [ ] Update client code
+- [ ] Performance test
+- [ ] Route traffic gradually
+- [ ] Decommission REST endpoints
+
+## Key Advantages of GraphQL
+
+1. **Single Request** - Get all data in one call
+2. **Exact Data** - No over/under-fetching
+3. **Self-Documenting** - Schema is documentation
+4. **Subscriptions** - Real-time updates
+5. **Evolves Safely** - Add fields without breaking clients
+6. **Better Performance** - Pre-compiled SQL views, automatic optimization
+
+<CardGrid>
+  <Card title="Prisma Migration" icon="rocket">
+    Migrating from Prisma ORM to FraiseQL.
+
+    [Read guide](/migrations/from-prisma)
+  </Card>
+  <Card title="Apollo Migration" icon="rocket">
+    Migrating from Apollo Server to FraiseQL.
+
+    [Read guide](/migrations/from-apollo)
+  </Card>
+  <Card title="Hasura Migration" icon="rocket">
+    Migrating from Hasura to FraiseQL.
+
+    [Read guide](/migrations/from-hasura)
+  </Card>
+  <Card title="Getting Started" icon="open-book">
+    Learn FraiseQL fundamentals from scratch.
+
+    [Read guide](/getting-started/introduction)
+  </Card>
+</CardGrid>

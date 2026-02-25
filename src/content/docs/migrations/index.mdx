@@ -1,0 +1,181 @@
+---
+title: Migration Guides
+description: Migrate from Prisma, Apollo Server, Hasura, or REST API to FraiseQL
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+# Migration Guides
+
+Choose your migration path based on what you're currently using.
+
+## What Are You Migrating From?
+
+<CardGrid>
+  <Card title="From Prisma" icon="rocket">
+    Replace your ORM-based approach with a database-first GraphQL API backed by SQL views and PostgreSQL functions.
+
+    [Prisma Migration Guide](/migrations/from-prisma)
+  </Card>
+  <Card title="From Apollo Server" icon="rocket">
+    Cut resolver boilerplate and eliminate N+1 queries by mapping GraphQL operations to pre-written SQL views.
+
+    [Apollo Migration Guide](/migrations/from-apollo)
+  </Card>
+  <Card title="From Hasura" icon="rocket">
+    Move from auto-generated GraphQL to code-first types with hand-crafted SQL views for precise control.
+
+    [Hasura Migration Guide](/migrations/from-hasura)
+  </Card>
+  <Card title="From REST" icon="rocket">
+    Consolidate multiple REST endpoints into a single GraphQL API with exact field selection and subscriptions.
+
+    [REST Migration Guide](/migrations/from-rest)
+  </Card>
+</CardGrid>
+
+## Comparison Table
+
+| Feature | Prisma | Apollo | Hasura | REST | FraiseQL |
+|---------|--------|--------|--------|------|----------|
+| **API Type** | ORM | GraphQL | GraphQL | REST | GraphQL |
+| **Runtime** | Node.js | Node.js | Node.js / Haskell | Any | Rust binary |
+| **Schema source** | Prisma Schema Language | GraphQL SDL | DB introspection | Code | Python/TS/Go decorators |
+| **Reads** | ORM `.findMany()` | Resolver functions | Auto-generated SQL | Route handlers | PostgreSQL views (`v_*`) |
+| **Writes** | ORM `.create()` | Resolver functions | Auto-generated SQL | Route handlers | PostgreSQL functions (`fn_*`) |
+| **N+1 handling** | Manual `include` | DataLoader (manual) | Auto (limited) | N/A | Eliminated by design |
+| **Real-time** | Polling | Manual PubSub | Event-based | Polling | NATS subscriptions |
+| **Federation** | No | Limited | No | No | Yes |
+
+## Migration Benefits
+
+### Common to All
+
+- **Single GraphQL Endpoint** - No version juggling
+- **Type-Safe SDKs** - Python, TypeScript, Go schema authoring
+- **Query Optimization** - Pre-compiled SQL views, no runtime SQL generation
+- **Real-time Subscriptions** - Built-in with NATS
+- **Multi-Database** - Native federation support
+- **Better Performance** - Rust binary, 3-10x typical improvement
+
+### Specific to Each
+
+**From Prisma:**
+- Eliminate N+1 problems — resolved at the SQL view level
+- Declarative schema via Python/TypeScript/Go decorators
+- GraphQL API layer is built-in, no Express/Fastify needed
+
+**From Apollo:**
+- Cut resolver code by 90% — replace with SQL views
+- Eliminate DataLoader boilerplate
+- Built-in performance optimizations via pre-compiled SQL views
+
+**From Hasura:**
+- Full control over query shape via hand-written SQL views
+- Replace webhook Actions with PostgreSQL functions
+- No managed cloud service required
+
+**From REST:**
+- Single request instead of multiple chained calls
+- No client-side data joining
+- Self-documenting API via GraphQL schema
+
+## Before You Start
+
+<Steps>
+
+1. **Assess Current Stack**
+   - What are you using now?
+   - How complex is your API?
+   - How many endpoints/types?
+   - How many SQL views/functions will need to be written?
+
+2. **Plan Timeline**
+   - Can you run both systems in parallel?
+   - What is your team's GraphQL experience?
+   - Estimate 1-3 weeks based on API complexity
+
+3. **Identify Success Metrics**
+   - Performance improvement target (request latency, query count)
+   - Developer velocity goal (lines of code, deployment frequency)
+   - Error rate reduction
+
+</Steps>
+
+## General Migration Steps
+
+All migrations follow the same five-phase pattern:
+
+<Steps>
+
+1. **Preparation**
+   - Document current API surface (endpoints, types, permissions)
+   - Plan FraiseQL schema types and SQL view structure
+   - Set up FraiseQL development environment
+
+2. **Build FraiseQL Backend**
+   - Define types with `@fraiseql.type`, `@fraiseql.input`, `@fraiseql.query`, `@fraiseql.mutation` decorators
+   - Write PostgreSQL views (`v_*`) for all read operations
+   - Write PostgreSQL functions (`fn_*`) for all write operations
+
+3. **Client Migration**
+   - Update client code to issue GraphQL requests
+   - Test that all operations produce equivalent results
+   - Compare performance metrics
+
+4. **Deployment**
+   - Run both systems in parallel
+   - Gradually route traffic to FraiseQL
+   - Monitor latency, error rates, and query patterns
+
+5. **Decommission**
+   - Remove old system once FraiseQL is confirmed stable
+   - Clean up unused dependencies
+   - Document lessons learned
+
+</Steps>
+
+<Aside type="tip">
+Start with a single feature module rather than migrating the entire API at once. This gives your team time to develop familiarity with SQL view authoring before tackling complex relationships.
+</Aside>
+
+## Cost Savings
+
+Most teams save 20-40% on infrastructure and development costs after migrating:
+
+| Cost Area | Before | After | Savings |
+|-----------|--------|-------|---------|
+| **Server Costs** | $500-1000/month | $200-300/month | 60-70% |
+| **Development** | High (manual resolvers, DataLoader) | Low (SQL views) | 30-50% |
+| **Database** | Manual optimization | Pre-compiled views | Maintained |
+| **Total** | ~$1000/month + time | ~$300/month | ~70% |
+
+## Getting Help
+
+- **Questions?** Check [FAQ](/guides/faq)
+- **Specific issue?** See [Troubleshooting](/troubleshooting)
+- **Want to discuss?** Join our [Discord](https://discord.gg/fraiseql)
+- **Custom needs?** Contact [support](mailto:support@fraiseql.dev)
+
+<CardGrid>
+  <Card title="Getting Started" icon="open-book">
+    New to FraiseQL? Start with the fundamentals.
+
+    [Introduction](/getting-started/introduction)
+  </Card>
+  <Card title="Schema Concepts" icon="puzzle">
+    Understand SQL views, types, and decorators.
+
+    [Schema Guide](/concepts/schema)
+  </Card>
+  <Card title="Performance Guide" icon="rocket">
+    Optimize your SQL views for maximum throughput.
+
+    [Performance Guide](/guides/performance)
+  </Card>
+  <Card title="Deployment Guide" icon="seti:config">
+    Deploy FraiseQL to production.
+
+    [Deployment Guide](/guides/deployment)
+  </Card>
+</CardGrid>
