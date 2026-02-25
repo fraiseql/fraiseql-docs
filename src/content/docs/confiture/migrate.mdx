@@ -3,6 +3,8 @@ title: "Incremental Migrations"
 description: "Evolve existing databases with targeted schema changes"
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
+
 The Migrate medium applies incremental schema changes to existing databases. When you can't drop and rebuild (production, staging with real data), migrations let you evolve the schema while preserving data.
 
 ## How It Works
@@ -165,7 +167,7 @@ db/migrations/
 └── 003_create_tb_comment.down.sql
 ```
 
-🍯 Confiture auto-increments the version number when you run `confiture migrate generate`.
+Confiture auto-increments the version number when you run `confiture migrate generate`.
 
 ## Build + Migrate Together
 
@@ -174,21 +176,36 @@ In practice, you maintain both DDL files and migrations:
 - **DDL files** (`db/schema/`) — the current state of your schema (used by `confiture build`)
 - **Migration files** (`db/migrations/`) — the changes applied to existing databases (used by `confiture migrate`)
 
+<Aside type="tip">
 When you create a migration, also update the corresponding DDL file so that `confiture build` always produces the same result as running all migrations from scratch.
+</Aside>
 
 ## When to Use Migrate
 
-**Use Migrate for:**
+<Aside type="tip" title="Use Migrate for">
 - Production databases with data you can't lose
 - Staging environments with test data you want to preserve
 - Any environment where dropping and rebuilding isn't an option
+</Aside>
 
-**Don't use Migrate for:**
+<Aside type="caution" title="Don't use Migrate for">
 - Fresh development databases — use [Build](/confiture/build) instead (faster)
 - Major schema refactoring on large tables — use [Schema-to-Schema](/confiture/schema-to-schema) instead (zero downtime)
+</Aside>
 
 ## Next Steps
 
-- [🍯 Confiture Overview](/confiture) — All 4 Mediums
-- [Build from DDL](/confiture/build) — For fresh databases
-- [Schema-to-Schema](/confiture/schema-to-schema) — For zero-downtime refactoring
+<CardGrid>
+  <Card title="Confiture Overview" icon="open-book">
+    [All 4 Mediums](/confiture) and when to use each one.
+  </Card>
+  <Card title="Build from DDL" icon="rocket">
+    [For fresh databases](/confiture/build) — faster than replaying migrations.
+  </Card>
+  <Card title="Schema-to-Schema" icon="approve-check-circle">
+    [For zero-downtime refactoring](/confiture/schema-to-schema) of large production tables.
+  </Card>
+  <Card title="Production Data Sync" icon="random">
+    [Copy production data locally](/confiture/sync) with built-in anonymization.
+  </Card>
+</CardGrid>

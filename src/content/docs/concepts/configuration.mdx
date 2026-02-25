@@ -3,6 +3,8 @@ title: TOML Configuration
 description: Configure FraiseQL with a simple, readable TOML file
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
+
 FraiseQL uses a single `fraiseql.toml` file for all configuration. TOML is human-readable, git-friendly, and has no YAML gotchas.
 
 ## Minimal Configuration
@@ -183,7 +185,7 @@ burst = 20
 # Per-user limits (requires auth)
 per_user = true
 user_requests_per_minute = 60
-```bash
+```
 
 ## Environment Variables
 
@@ -335,6 +337,17 @@ tenant_header = "X-Tenant-ID"
 
 ## Next Steps
 
-- [How It Works](/concepts/how-it-works) — Understand compilation
-- [Schema Definition](/concepts/schema) — Define your types
-- [CLI Reference](/reference/cli) — All CLI commands
+<CardGrid>
+  <Card title="How It Works" icon="information">
+    [Understand compilation](/concepts/how-it-works) and how FraiseQL maps your schema to SQL.
+  </Card>
+  <Card title="Schema Definition" icon="document">
+    [Define your types](/concepts/schema) in Python, TypeScript, or Go.
+  </Card>
+  <Card title="CLI Reference" icon="laptop">
+    [All CLI commands](/reference/cli) for building and serving your API.
+  </Card>
+  <Card title="Type System" icon="puzzle">
+    [Understand the type system](/concepts/type-system) and how Python types map to GraphQL.
+  </Card>
+</CardGrid>

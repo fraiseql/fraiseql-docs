@@ -3,6 +3,8 @@ title: "Build from DDL"
 description: "Create fresh databases from DDL files in under 1 second"
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
+
 The Build medium creates a complete database by concatenating and executing all your DDL files in order. No migration history to replay, no ORM to bootstrap — just SQL files executed once.
 
 ## How It Works
@@ -16,7 +18,7 @@ confiture build --env local
   → Created 3 tables, 3 views, 2 functions
 ```
 
-🍯 Confiture reads your SQL files from numbered directories and executes them in alphabetical order:
+Confiture reads your SQL files from numbered directories and executes them in alphabetical order:
 
 ```
 db/schema/
@@ -46,7 +48,7 @@ Build takes the opposite approach: **your current DDL files are the source of tr
 | Approach | Fresh DB Time | Files Executed | Source of Truth |
 |----------|--------------|----------------|-----------------|
 | Migration replay | 2-30 seconds | All migrations (cumulative) | Migration history |
-| 🍯 Confiture Build | Under 1 second | Current DDL files only | DDL files |
+| Confiture Build | Under 1 second | Current DDL files only | DDL files |
 
 ## Commands
 
@@ -76,7 +78,7 @@ This drops and recreates all `v_*` views and `tv_*` materialized tables, leaving
 
 ## Directory Structure
 
-🍯 Confiture processes directories alphabetically. The numbering convention ensures correct execution order:
+Confiture processes directories alphabetically. The numbering convention ensures correct execution order:
 
 | Directory | Contents | Why This Order |
 |-----------|----------|----------------|
@@ -91,16 +93,18 @@ Within each directory, files are also processed alphabetically. If `v_post` depe
 
 ## When to Use Build
 
-**Use Build for:**
+<Aside type="tip" title="Use Build for">
 - Local development — reset your database with one command
 - CI/CD pipelines — create test databases instantly
 - Fresh staging environments — no migration history to manage
 - Demo databases — reproducible setup in under 1 second
 - Onboarding — new team members get a working database immediately
+</Aside>
 
-**Don't use Build for:**
+<Aside type="caution" title="Don't use Build for">
 - Production databases with data — use [Migrate](/confiture/migrate) instead
 - Partial schema changes — use [Migrate](/confiture/migrate) for targeted ALTERs
+</Aside>
 
 ## Integration with FraiseQL
 
@@ -122,6 +126,17 @@ fraiseql serve
 
 ## Next Steps
 
-- [🍯 Confiture Overview](/confiture) — All 4 Mediums
-- [Incremental Migrations](/confiture/migrate) — For existing databases with data
-- [Developer-Owned SQL](/concepts/developer-owned-sql) — Why you write the SQL
+<CardGrid>
+  <Card title="Confiture Overview" icon="open-book">
+    [All 4 Mediums](/confiture) and when to use each one.
+  </Card>
+  <Card title="Incremental Migrations" icon="right-arrow">
+    [For existing databases with data](/confiture/migrate) you need to preserve.
+  </Card>
+  <Card title="Developer-Owned SQL" icon="seti:sql">
+    [Why you write the SQL views](/concepts/developer-owned-sql) and how FraiseQL maps them.
+  </Card>
+  <Card title="Production Data Sync" icon="random">
+    [Copy production data locally](/confiture/sync) with built-in anonymization.
+  </Card>
+</CardGrid>

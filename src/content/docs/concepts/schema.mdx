@@ -3,6 +3,8 @@ title: Schema Definition
 description: Define your GraphQL schema in Python, TypeScript, Go, or other languages
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
+
 FraiseQL lets you define your GraphQL schema in your preferred programming language. Each type maps to a SQL view you've written (e.g., `User` maps to `v_user`). This page covers the Python syntax; other languages follow similar patterns.
 
 ## Basic Types
@@ -194,11 +196,7 @@ async def search_posts(info, query: str) -> list[Post]:
 
 ### Default Mutations
 
-FraiseQL creates default mutation endpoints mapped to SQL functions you write (`fn_create_user`, `fn_update_user`, `fn_delete_user`):
-
-                                        ─
-                                                 ─
-                        ─
+FraiseQL creates default mutation endpoints mapped to SQL functions you write (`fn_create_user`, `fn_update_user`, `fn_delete_user`).
 
 ### Custom Mutations
 
@@ -301,8 +299,17 @@ type User struct {
 
 ## Next Steps
 
-- [Developer-Owned SQL](/concepts/developer-owned-sql) — Why you write the SQL views
-- [CQRS Pattern](/concepts/cqrs) — The table/view separation
-- [TOML Configuration](/concepts/configuration) — Configure your project
-- [How It Works](/concepts/how-it-works) — Understand the compilation mapping
-- [Queries and Mutations](/reference/graphql-api) — Full API reference
+<CardGrid>
+  <Card title="Developer-Owned SQL" icon="seti:sql">
+    [Why you write the SQL views](/concepts/developer-owned-sql) and how FraiseQL maps them.
+  </Card>
+  <Card title="CQRS Pattern" icon="random">
+    [The table/view separation](/concepts/cqrs) at the heart of FraiseQL.
+  </Card>
+  <Card title="TOML Configuration" icon="setting">
+    [Configure your project](/concepts/configuration) with a simple TOML file.
+  </Card>
+  <Card title="Queries and Mutations" icon="document">
+    [Full API reference](/reference/graphql-api) for GraphQL queries and mutations.
+  </Card>
+</CardGrid>

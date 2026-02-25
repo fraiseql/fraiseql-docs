@@ -3,6 +3,8 @@ title: "Production Data Sync"
 description: "Copy production data to dev/staging with built-in anonymization"
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
+
 The Sync medium copies data from one environment to another with built-in PII anonymization. Debug with realistic data without exposing personal information.
 
 ## How It Works
@@ -74,6 +76,10 @@ sync:
 - **Non-reversible** — you cannot recover the original data from the anonymized version
 - **Format-preserving** — emails look like emails, phones look like phones
 
+<Aside type="note" title="GDPR and CCPA Compliance">
+The non-reversible, format-preserving anonymization makes Sync suitable for privacy-compliant data operations under GDPR and CCPA.
+</Aside>
+
 ## Performance
 
 | Mode | Throughput | Use Case |
@@ -93,18 +99,31 @@ confiture sync --resume --checkpoint sync.json
 
 ## When to Use Sync
 
-**Use Sync for:**
+<Aside type="tip" title="Use Sync for">
 - Local debugging with realistic data volumes and patterns
 - Staging performance testing with production-scale data
 - Reproducing production bugs locally
 - Privacy-compliant data operations (GDPR, CCPA)
+</Aside>
 
-**Don't use Sync for:**
+<Aside type="caution" title="Don't use Sync for">
 - Creating fresh databases — use [Build](/confiture/build) instead
 - Schema changes — use [Migrate](/confiture/migrate) instead
+</Aside>
 
 ## Next Steps
 
-- [🍯 Confiture Overview](/confiture) — All 4 Mediums
-- [Build from DDL](/confiture/build) — For fresh databases
-- [Incremental Migrations](/confiture/migrate) — For schema evolution
+<CardGrid>
+  <Card title="Confiture Overview" icon="open-book">
+    [All 4 Mediums](/confiture) and when to use each one.
+  </Card>
+  <Card title="Build from DDL" icon="rocket">
+    [For fresh databases](/confiture/build) — fast setup from DDL files in under 1 second.
+  </Card>
+  <Card title="Incremental Migrations" icon="right-arrow">
+    [For schema evolution](/confiture/migrate) on existing databases with data.
+  </Card>
+  <Card title="Schema-to-Schema" icon="approve-check-circle">
+    [Zero-downtime refactoring](/confiture/schema-to-schema) for major production changes.
+  </Card>
+</CardGrid>

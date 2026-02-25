@@ -1,13 +1,15 @@
 ---
-title: "\U0001F36F Confiture"
+title: "Confiture"
 description: Database lifecycle management for FraiseQL
 ---
 
-FraiseQL is database-first — you write SQL tables and views, and FraiseQL maps them to GraphQL. But who manages the database itself? You **🍯 confiture** it.
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
+
+FraiseQL is database-first — you write SQL tables and views, and FraiseQL maps them to GraphQL. But who manages the database itself? You **confiture** it.
 
 > **confiture** */kɔ̃.fi.tyʁ/* — French for *jam, preserve*. Sounds like **configure**. That's the point.
 
-🍯 Confiture is a database schema evolution framework that provides four strategies ("Mediums") for every database lifecycle scenario. It treats your DDL files as the single source of truth, not migration history. You don't configure your database — you 🍯 confiture it.
+Confiture is a database schema evolution framework that provides four strategies ("Mediums") for every database lifecycle scenario. It treats your DDL files as the single source of truth, not migration history. You don't configure your database — you confiture it.
 
 ## The 4 Mediums
 
@@ -18,7 +20,7 @@ FraiseQL is database-first — you write SQL tables and views, and FraiseQL maps
 | [**Sync**](/confiture/sync) | Copies production data with anonymization | Realistic local development |
 | [**Schema-to-Schema**](/confiture/schema-to-schema) | Zero-downtime migration via FDW | Major production refactoring |
 
-## FraiseQL + 🍯 Confiture Workflow
+## FraiseQL + Confiture Workflow
 
 The typical development cycle:
 
@@ -64,7 +66,7 @@ fraiseql compile && fraiseql serve
 
 ## Configuration
 
-🍯 Confiture uses a `confiture.yaml` configuration file:
+Confiture uses a `confiture.yaml` configuration file:
 
 ```yaml title="confiture.yaml"
 project:
@@ -113,7 +115,17 @@ environments:
 
 ## Next Steps
 
-- [Build from DDL](/confiture/build) — Instant database creation
-- [Incremental Migrations](/confiture/migrate) — Schema evolution with data
-- [Production Data Sync](/confiture/sync) — Safe data synchronization
-- [Schema-to-Schema](/confiture/schema-to-schema) — Zero-downtime refactoring
+<CardGrid>
+  <Card title="Build from DDL" icon="rocket">
+    [Instant database creation](/confiture/build) from your DDL files in under 1 second.
+  </Card>
+  <Card title="Incremental Migrations" icon="right-arrow">
+    [Schema evolution with data](/confiture/migrate) for existing production databases.
+  </Card>
+  <Card title="Production Data Sync" icon="random">
+    [Safe data synchronization](/confiture/sync) with built-in PII anonymization.
+  </Card>
+  <Card title="Schema-to-Schema" icon="approve-check-circle">
+    [Zero-downtime refactoring](/confiture/schema-to-schema) for major production changes.
+  </Card>
+</CardGrid>

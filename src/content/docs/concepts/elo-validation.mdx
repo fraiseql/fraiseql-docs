@@ -3,6 +3,8 @@ title: Elo Validation Language
 description: Understand the Elo expression language for custom scalar validation
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
+
 Elo is a domain-specific expression language designed for safe, human-readable validation logic. FraiseQL integrates Elo to enable powerful custom scalar validation at runtime.
 
 ## What is Elo?
@@ -11,7 +13,7 @@ Elo is a domain-specific expression language designed for safe, human-readable v
 
 - **Validate at runtime**: Elo expressions are interpreted when input values are received
 - **Execute safely**: No arbitrary code execution, no injection vulnerabilities
-- **Perform efficiently**: Validation executes in <100µs (99th percentile) per check
+- **Perform efficiently**: Validation executes in &lt;100µs (99th percentile) per check
 - **Read naturally**: Concise, expressive syntax for complex validation rules
 
 In FraiseQL, Elo expressions let you define custom scalar validation rules that are:
@@ -206,10 +208,12 @@ When a query or mutation provides a value of a custom scalar type, FraiseQL's **
 
 #### Validation Workflow
 
+<Steps>
 1. **Type Lookup**: Retrieve `CustomTypeDef` from registry
 2. **Rule Execution**: Execute any built-in validation rules first
 3. **Elo Evaluation**: If `elo_expression` is present, interpret it with the input value
 4. **Result**: Return success or validation error
+</Steps>
 
 Example flow:
 
@@ -221,13 +225,13 @@ CustomTypeRegistry.get("Email")
 Execute elo_expression:
   matches(value, /^[a-zA-Z0-9._%+-]+@.../) && length(value) <= 254
     ↓
-Result: ✅ Valid
+Result: Valid
 ```
 
 #### Performance Characteristics
 
 - **Compile time** (schema building): Elo expressions parsed and validated once
-- **Runtime** (per request): Expressions interpreted in <100µs per validation
+- **Runtime** (per request): Expressions interpreted in &lt;100µs per validation
 - **Memory**: Minimal (evaluator is stateless)
 
 ### Multiple Validation Rules
@@ -248,7 +252,7 @@ class Password(str):
     '''
 ```
 
-This expression is evaluated left-to-right with short-circuit AND logic—if `length(value) >= 8` fails, the remaining conditions aren't checked.
+This expression is evaluated left-to-right with short-circuit AND logic — if `length(value) >= 8` fails, the remaining conditions aren't checked.
 
 ### Using Semantic Scalars as Base
 
@@ -344,7 +348,7 @@ FraiseQL's `CustomTypeRegistry`:
 
 1. Looks up `ISBN` custom type definition
 2. Executes the Elo expression: `(length("978-0-13-468599-1") == 10 ...) || ...`
-3. **Result**: `length(...) == 13` → `true`, validates successfully ✅
+3. **Result**: `length(...) == 13` → `true`, validates successfully
 
 If the client provides an invalid ISBN:
 
@@ -496,11 +500,13 @@ class RecentDate(Date):
 
 When FraiseQL compiles your schema, it:
 
+<Steps>
 1. **Parses** each Elo expression
 2. **Type-checks** against the scalar's base type
 3. **Validates** that all functions are valid
 4. **Optimizes** the expression for target languages
 5. **Generates** database constraints when possible
+</Steps>
 
 For example:
 
@@ -512,9 +518,6 @@ class PositiveInteger(int):
 
 FraiseQL generates:
 - **PostgreSQL**: `CHECK (column > 0)`
-- **MySQL**: `CHECK (column > 0)`
-- **SQLite**: `CHECK (column > 0)`
-- **SQL Server**: `CHECK ([column] > 0)`
 - **JavaScript**: Compiled function `(value) => value > 0`
 - **Rust**: Type-safe validator function
 
@@ -524,10 +527,10 @@ FraiseQL generates:
 
 **Error: "Unknown function 'validate'"**
 ```python
-# ❌ Wrong
+# Wrong
 elo_expression = 'validate(value)'
 
-# ✅ Correct
+# Correct
 elo_expression = 'length(value) > 0'
 ```
 
@@ -537,10 +540,10 @@ elo_expression = 'length(value) > 0'
 ```python
 @scalar
 class Age(int):
-    # ❌ Wrong - comparing int to string
+    # Wrong - comparing int to string
     elo_expression = 'value == "18"'
 
-    # ✅ Correct - comparing int to int
+    # Correct - comparing int to int
     elo_expression = 'value == 18'
 ```
 
@@ -550,19 +553,20 @@ class Age(int):
 ```python
 @scalar
 class Email(str):
-    # ❌ Wrong - unescaped dots
+    # Wrong - unescaped dots
     elo_expression = 'matches(value, /^[a-z]+@[a-z]+.[a-z]+$/)'
 
-    # ✅ Correct - escaped special chars
+    # Correct - escaped special chars
     elo_expression = 'matches(value, /^[a-z]+@[a-z]+\\.[a-z]+$/)'
 ```
 
 ### Performance Considerations
 
-**Validation Targets:**
-- **Database level** (<1µs): `CHECK` constraints
-- **Application level** (<100µs): Compiled validators
-- **API boundary** (<1ms): HTTP request validation
+<Aside type="tip" title="Validation Performance Targets">
+- **Database level** (&lt;1µs): `CHECK` constraints
+- **Application level** (&lt;100µs): Compiled validators
+- **API boundary** (&lt;1ms): HTTP request validation
+</Aside>
 
 **Optimization tips:**
 - Put most restrictive checks first (short-circuit AND)
@@ -589,9 +593,20 @@ assert validator('hi') == False
 
 ## Next Steps
 
-- **[Custom Scalar Types](../guides/custom-scalars.md)** - Learn how to implement and configure custom scalars
-- **[Semantic Scalars Reference](../reference/semantic-scalars.md)** - Explore built-in scalars you can extend
-- **[Type System Guide](./type-system.md)** - Understand FraiseQL's type system
+<CardGrid>
+  <Card title="Custom Scalar Types" icon="puzzle">
+    [Learn how to implement and configure custom scalars](/guides/custom-scalars) in your schema.
+  </Card>
+  <Card title="Semantic Scalars Reference" icon="list-format">
+    [Explore built-in scalars](/reference/semantic-scalars) you can extend with Elo.
+  </Card>
+  <Card title="Type System Guide" icon="open-book">
+    [Understand FraiseQL's type system](/concepts/type-system) and how types flow through layers.
+  </Card>
+  <Card title="Schema Definition" icon="document">
+    [Define your GraphQL schema](/concepts/schema) with Python, TypeScript, or Go.
+  </Card>
+</CardGrid>
 
 ## Resources
 

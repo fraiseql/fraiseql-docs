@@ -3,13 +3,11 @@ title: Type System
 description: Understanding FraiseQL's type system and type inference
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
+
 FraiseQL's type system bridges Python types, GraphQL schema, and PostgreSQL. This guide explains how types flow through the system.
 
 ## Type Flow
-
-```
-             ─                ─           ─
-```
 
 Each layer has its own type representation:
 
@@ -340,12 +338,6 @@ SELECT
 FROM tb_user u;
 ```
 
-
-         ─
-           ─             ─
-          ─                ─
-              ─                    ─
-
 ### From Functions
 
 ```sql
@@ -361,8 +353,6 @@ FraiseQL infers:
 
 ## Nullability Rules
 
-           ─
-
 | Python | GraphQL | Notes |
 |--------|---------|-------|
 | `str` | `String!` | Non-null |
@@ -370,8 +360,6 @@ FraiseQL infers:
 | `list[str]` | `[String!]!` | Non-null list and items |
 | `list[str] \| None` | `[String!]` | Nullable list, non-null items |
 | `list[str \| None]` | `[String]!` | Non-null list, nullable items |
-
-             ─
 
 | PostgreSQL | Python |
 |------------|--------|
@@ -499,6 +487,17 @@ class Order:
 
 ## Next Steps
 
-- [Scalars](/reference/scalars) — Scalar type reference
-- [Decorators](/reference/decorators) — All decorators
-- [Schema Design](/guides/schema-design) — Design patterns
+<CardGrid>
+  <Card title="Scalars Reference" icon="list-format">
+    [Scalar type reference](/reference/scalars) for all built-in and custom scalars.
+  </Card>
+  <Card title="Decorators" icon="puzzle">
+    [All decorators](/reference/decorators) available in the FraiseQL schema DSL.
+  </Card>
+  <Card title="Schema Design" icon="open-book">
+    [Design patterns](/guides/schema-design) for structuring your FraiseQL schema.
+  </Card>
+  <Card title="Elo Validation" icon="approve-check-circle">
+    [Custom scalar validation](/concepts/elo-validation) with the Elo expression language.
+  </Card>
+</CardGrid>
