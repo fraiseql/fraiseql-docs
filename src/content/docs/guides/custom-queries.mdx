@@ -1,0 +1,845 @@
+---
+title: Custom Queries — Filtering, Search, and Pagination
+description: Add argument-driven filtering, full-text search, cursor-based pagination, and sorting to your blog API views
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide picks up where [Adding Mutations](/getting-started/adding-mutations) left off. You have a working blog API with queries and mutations. Now you make the `posts` query useful in production: filtering by author or published state, full-text search, cursor-based pagination, and sorting.
+
+## How Filtering Works in FraiseQL
+
+FraiseQL uses **automatic-where**: any argument declared on a query that matches a column name exposed by the backing view is automatically appended as a `WHERE` clause. No resolver code required.
+
+```
+query {
+  posts(is_published: true, author_id: "usr_01HZ3K") { ... }
+}
+```
+
+FraiseQL sees `is_published` and `author_id`, finds matching columns in `v_post`, and issues:
+
+```sql
+SELECT data FROM v_post
+WHERE is_published = true
+AND author_id = 'usr_01HZ3K'
+```
+
+For arguments that do not map 1:1 to a column — like `search` — you embed the logic in the view itself (a generated column or a virtual table) and expose a column that FraiseQL can filter on.
+
+---
+
+## Step 1: Extend the View for Filtering
+
+The `v_post` view from [Your First API](/getting-started/first-api) exposes `id` and `data`. To support automatic-where on `is_published` and `author_id`, those values must be top-level columns in the view. For full-text search, you add a `search_vector` column.
+
+Replace `db/schema/02_read/v_post.sql`:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+
+        /*filtering columns — matched by automatic-where*/
+        p.is_published,
+        u.id                              AS author_id,
+        p.created_at,
+
+        /*full-text search vector*/
+        to_tsvector('english',
+            coalesce(p.title, '') || ' ' || coalesce(p.content, '')
+        )                                 AS search_vector,
+
+        jsonb_build_object(
+            'id',           p.id::text,
+            'title',        p.title,
+            'slug',         p.slug,
+            'content',      p.content,
+            'is_published', p.is_published,
+            'created_at',   p.created_at,
+            'updated_at',   p.updated_at,
+            'author',       vu.data,
+            'comments',     COALESCE(
+                                jsonb_agg(vc.data) FILTER (WHERE vc.id IS NOT NULL),
+                                '[]'::jsonb
+                            )
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u  ON u.pk_user = p.fk_user
+    JOIN v_user vu  ON vu.id     = u.id
+    LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
+    GROUP BY p.pk_post, u.id, vu.data;
+    ```
+
+    The `search_vector` column is a `tsvector`. FraiseQL passes a `search` argument as a `tsquery` match against this column — see Step 2 for the schema declaration.
+
+    Add an index so searches stay fast:
+
+    ```sql title="db/schema/01_write/ix_post_search.sql"
+    CREATE INDEX ix_tb_post_search
+    ON tb_post
+    USING GIN (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(content,'')));
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    MySQL uses a `FULLTEXT` index on the base table. Add the index first, then expose a computed match score as a filterable column in the view.
+
+    ```sql title="db/schema/01_write/ix_post_search.sql"
+    ALTER TABLE tb_post
+    ADD FULLTEXT INDEX ft_post_search (title, content);
+    ```
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+
+        /*filtering columns — matched by automatic-where*/
+        p.is_published,
+        u.id                                               AS author_id,
+        p.created_at,
+
+        /*full-text: expose title+content for MATCH..AGAINST via search_text*/
+        CONCAT(COALESCE(p.title,''), ' ', COALESCE(p.content,'')) AS search_text,
+
+        JSON_OBJECT(
+            'id',           p.id,
+            'title',        p.title,
+            'slug',         p.slug,
+            'content',      p.content,
+            'is_published', p.is_published,
+            'created_at',   p.created_at,
+            'updated_at',   p.updated_at,
+            'author',       vu.data,
+            'comments',     COALESCE(JSON_ARRAYAGG(vc.data), JSON_ARRAY())
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u  ON u.pk_user = p.fk_user
+    JOIN v_user vu  ON vu.id     = u.id
+    LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
+    GROUP BY p.pk_post, u.id, vu.data;
+    ```
+
+    For MySQL, `search` is handled differently — FraiseQL rewrites `WHERE search_text LIKE '%term%'` using a `MATCH ... AGAINST` hint when the `search` argument is declared with `full_text: true` in the schema. See Step 2.
+  </TabItem>
+
+  <TabItem label="SQLite">
+    SQLite uses an FTS5 virtual table alongside the main table. The view joins to it.
+
+    ```sql title="db/schema/01_write/fts_post.sql"
+    CREATE VIRTUAL TABLE fts_post USING fts5(
+        title,
+        content,
+        content='tb_post',
+        content_rowid='pk_post'
+    );
+
+    /*keep the FTS table in sync*/
+    CREATE TRIGGER tg_post_ai AFTER INSERT ON tb_post BEGIN
+        INSERT INTO fts_post(rowid, title, content)
+        VALUES (new.pk_post, new.title, new.content);
+    END;
+
+    CREATE TRIGGER tg_post_ad AFTER DELETE ON tb_post BEGIN
+        INSERT INTO fts_post(fts_post, rowid, title, content)
+        VALUES ('delete', old.pk_post, old.title, old.content);
+    END;
+
+    CREATE TRIGGER tg_post_au AFTER UPDATE ON tb_post BEGIN
+        INSERT INTO fts_post(fts_post, rowid, title, content)
+        VALUES ('delete', old.pk_post, old.title, old.content);
+        INSERT INTO fts_post(rowid, title, content)
+        VALUES (new.pk_post, new.title, new.content);
+    END;
+    ```
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+
+        /*filtering columns — matched by automatic-where*/
+        p.is_published,
+        u.id                    AS author_id,
+        p.created_at,
+
+        /*full-text rank (NULL when no search is applied)*/
+        fts.rank                AS search_rank,
+
+        json_object(
+            'id',           p.id,
+            'title',        p.title,
+            'slug',         p.slug,
+            'content',      p.content,
+            'is_published', p.is_published,
+            'created_at',   p.created_at,
+            'updated_at',   p.updated_at,
+            'author',       vu.data,
+            'comments',     COALESCE(
+                                (SELECT json_group_array(vc.data)
+                                 FROM v_comment vc
+                                 WHERE vc.fk_post = p.pk_post),
+                                json_array()
+                            )
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u  ON u.pk_user = p.fk_user
+    JOIN v_user vu  ON vu.id     = u.id
+    LEFT JOIN fts_post fts ON fts.rowid = p.pk_post;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    SQL Server uses a Full-Text Index. Enable Full-Text Search on the database and create the catalog first.
+
+    ```sql title="db/schema/01_write/ft_post.sql"
+    /*requires Full-Text Search feature installed*/
+    CREATE FULLTEXT CATALOG ft_catalog AS DEFAULT;
+
+    CREATE FULLTEXT INDEX ON dbo.tb_post (title, content)
+    KEY INDEX PK_tb_post
+    ON ft_catalog;
+    ```
+
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW dbo.v_post AS
+    SELECT
+        p.id,
+
+        /*filtering columns — matched by automatic-where*/
+        p.is_published,
+        u.id                      AS author_id,
+        p.created_at,
+
+        /*full-text: expose for CONTAINS/FREETEXT via search argument*/
+        CONCAT(ISNULL(p.title,''), N' ', ISNULL(p.content,'')) AS search_text,
+
+        (
+            SELECT
+                p.id, p.title, p.slug, p.content,
+                p.is_published, p.created_at, p.updated_at,
+                JSON_QUERY(vu.data) AS author,
+                JSON_QUERY(COALESCE(
+                    (SELECT '[' + STRING_AGG(vc.data, ',') + ']'
+                     FROM dbo.v_comment vc
+                     WHERE vc.fk_post = p.pk_post),
+                    '[]'
+                )) AS comments
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p
+    JOIN dbo.tb_user u  ON u.pk_user = p.fk_user
+    JOIN dbo.v_user vu  ON vu.id     = u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+Rebuild the database after changing views:
+
+```bash
+confiture build --env local
+```
+
+---
+
+## Step 2: Declare Filtering Arguments in the Schema
+
+Add `is_published`, `author_id`, and `search` to the `posts` query. FraiseQL matches these to the view columns added in Step 1.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    @fraiseql.type
+    class Post:
+        id: ID
+        title: str
+        slug: Slug
+        content: str
+        is_published: bool
+        created_at: DateTime
+        updated_at: DateTime
+        author: User
+        comments: list[Comment]
+
+    @fraiseql.query(sql_source="v_post")
+    def posts(
+        is_published: bool | None = None,
+        author_id: ID | None = None,
+        search: str | None = None,
+    ) -> list[Post]:
+        """List posts. All arguments are optional and combinable."""
+        pass
+    ```
+
+    `is_published` and `author_id` are matched verbatim to view columns — automatic-where handles them. `search` is declared as a full-text argument:
+
+    ```python title="schema.py"
+    @fraiseql.query(sql_source="v_post")
+    def posts(
+        is_published: bool | None = None,
+        author_id: ID | None = None,
+        search: Annotated[str | None, fraiseql.FullText("search_vector")] = None,
+    ) -> list[Post]:
+        pass
+    ```
+
+    The `fraiseql.FullText("search_vector")` annotation tells FraiseQL to rewrite the WHERE clause as `search_vector @@ plainto_tsquery('english', $1)` on PostgreSQL instead of a plain equality check.
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    import { type, query, FullText } from 'fraiseql';
+    import { ID, Slug, DateTime } from 'fraiseql/scalars';
+
+    @type()
+    class Post {
+      id: ID;
+      title: string;
+      slug: Slug;
+      content: string;
+      isPublished: boolean;
+      createdAt: DateTime;
+      updatedAt: DateTime;
+      author: User;
+      comments: Comment[];
+    }
+
+    @query({ sqlSource: 'v_post' })
+    async function posts(
+      isPublished?: boolean,
+      authorId?: ID,
+      @FullText('search_vector') search?: string,
+    ): Promise<Post[]> {}
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go title="schema.go"
+    // PostsArgs defines the filterable arguments for the posts query.
+    type PostsArgs struct {
+        IsPublished *bool      `fraiseql:"auto_where"`
+        AuthorID    *scalars.ID `fraiseql:"auto_where,column=author_id"`
+        Search      *string    `fraiseql:"full_text,column=search_vector"`
+    }
+
+    // Posts returns a list of posts with optional filters applied.
+    func Posts(ctx context.Context, args PostsArgs) ([]Post, error) {
+        return nil, nil
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+Test the filters in the playground:
+
+```graphql
+# Published posts only
+query {
+  posts(isPublished: true) {
+    title
+    author { username }
+  }
+}
+
+# Posts by a specific author
+query {
+  posts(authorId: "usr_01HZ3K") {
+    title
+    isPublished
+  }
+}
+
+# Full-text search
+query {
+  posts(search: "database performance") {
+    title
+    slug
+  }
+}
+
+# Combined
+query {
+  posts(isPublished: true, search: "GraphQL") {
+    title
+    author { username }
+  }
+}
+```
+
+---
+
+## Step 3: Add Cursor-Based Pagination
+
+FraiseQL uses cursor-based pagination: clients pass `first` (page size) and `after` (an opaque cursor) and receive a [Relay-style connection type](https://relay.dev/graphql/connections.htm) with `edges`, `node`, and `pageInfo`.
+
+The cursor encodes the `pk_post` value as a base64 string. The view must expose `pk_post` as a filterable column so FraiseQL can apply `WHERE pk_post > :after_cursor ORDER BY pk_post LIMIT :first`.
+
+### Update the view to expose the cursor column
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        p.pk_post,                        /*pagination cursor*/
+        p.is_published,
+        u.id                              AS author_id,
+        p.created_at,
+        to_tsvector('english',
+            coalesce(p.title, '') || ' ' || coalesce(p.content, '')
+        )                                 AS search_vector,
+        jsonb_build_object(
+            'id',           p.id::text,
+            'title',        p.title,
+            'slug',         p.slug,
+            'content',      p.content,
+            'is_published', p.is_published,
+            'created_at',   p.created_at,
+            'updated_at',   p.updated_at,
+            'author',       vu.data,
+            'comments',     COALESCE(
+                                jsonb_agg(vc.data) FILTER (WHERE vc.id IS NOT NULL),
+                                '[]'::jsonb
+                            )
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u  ON u.pk_user = p.fk_user
+    JOIN v_user vu  ON vu.id     = u.id
+    LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
+    GROUP BY p.pk_post, u.id, vu.data;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        p.pk_post,                        /*pagination cursor*/
+        p.is_published,
+        u.id                                               AS author_id,
+        p.created_at,
+        CONCAT(COALESCE(p.title,''), ' ', COALESCE(p.content,'')) AS search_text,
+        JSON_OBJECT(
+            'id',           p.id,
+            'title',        p.title,
+            'slug',         p.slug,
+            'content',      p.content,
+            'is_published', p.is_published,
+            'created_at',   p.created_at,
+            'updated_at',   p.updated_at,
+            'author',       vu.data,
+            'comments',     COALESCE(JSON_ARRAYAGG(vc.data), JSON_ARRAY())
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u  ON u.pk_user = p.fk_user
+    JOIN v_user vu  ON vu.id     = u.id
+    LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
+    GROUP BY p.pk_post, u.id, vu.data;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        p.pk_post,                        /*pagination cursor*/
+        p.is_published,
+        u.id                    AS author_id,
+        p.created_at,
+        fts.rank                AS search_rank,
+        json_object(
+            'id',           p.id,
+            'title',        p.title,
+            'slug',         p.slug,
+            'content',      p.content,
+            'is_published', p.is_published,
+            'created_at',   p.created_at,
+            'updated_at',   p.updated_at,
+            'author',       vu.data,
+            'comments',     COALESCE(
+                                (SELECT json_group_array(vc.data)
+                                 FROM v_comment vc
+                                 WHERE vc.fk_post = p.pk_post),
+                                json_array()
+                            )
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u  ON u.pk_user = p.fk_user
+    JOIN v_user vu  ON vu.id     = u.id
+    LEFT JOIN fts_post fts ON fts.rowid = p.pk_post;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW dbo.v_post AS
+    SELECT
+        p.id,
+        p.pk_post,                        /*pagination cursor*/
+        p.is_published,
+        u.id                      AS author_id,
+        p.created_at,
+        CONCAT(ISNULL(p.title,''), N' ', ISNULL(p.content,'')) AS search_text,
+        (
+            SELECT
+                p.id, p.title, p.slug, p.content,
+                p.is_published, p.created_at, p.updated_at,
+                JSON_QUERY(vu.data) AS author,
+                JSON_QUERY(COALESCE(
+                    (SELECT '[' + STRING_AGG(vc.data, ',') + ']'
+                     FROM dbo.v_comment vc
+                     WHERE vc.fk_post = p.pk_post),
+                    '[]'
+                )) AS comments
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p
+    JOIN dbo.tb_user u  ON u.pk_user = p.fk_user
+    JOIN dbo.v_user vu  ON vu.id     = u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+### Declare pagination arguments in the schema
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    from fraiseql import connection
+
+    @fraiseql.type
+    class PageInfo:
+        has_next_page: bool
+        end_cursor: str | None
+
+    @fraiseql.type
+    class PostEdge:
+        cursor: str
+        node: Post
+
+    @fraiseql.type
+    class PostConnection:
+        edges: list[PostEdge]
+        page_info: PageInfo
+
+    @fraiseql.query(sql_source="v_post", cursor_column="pk_post")
+    def posts(
+        first: int = 20,
+        after: str | None = None,
+        is_published: bool | None = None,
+        author_id: ID | None = None,
+        search: Annotated[str | None, fraiseql.FullText("search_vector")] = None,
+    ) -> PostConnection:
+        pass
+    ```
+
+    `cursor_column="pk_post"` tells FraiseQL which column to use for the `WHERE pk_post > :cursor` clause. The cursor value is base64-encoded by FraiseQL before being returned to the client and decoded on the way in.
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    import { type, query, FullText, Connection, Edge, PageInfo } from 'fraiseql';
+
+    @type()
+    class PostEdge implements Edge<Post> {
+      cursor: string;
+      node: Post;
+    }
+
+    @type()
+    class PostConnection implements Connection<Post> {
+      edges: PostEdge[];
+      pageInfo: PageInfo;
+    }
+
+    @query({ sqlSource: 'v_post', cursorColumn: 'pk_post' })
+    async function posts(
+      first: number = 20,
+      after?: string,
+      isPublished?: boolean,
+      authorId?: ID,
+      @FullText('search_vector') search?: string,
+    ): Promise<PostConnection> {}
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go title="schema.go"
+    // PostEdge wraps a post node with its cursor.
+    type PostEdge struct {
+        Cursor string `fraiseql:"type"`
+        Node   Post
+    }
+
+    // PageInfo describes pagination state.
+    type PageInfo struct {
+        HasNextPage bool
+        EndCursor   *string
+    }
+
+    // PostConnection is the paginated result for posts.
+    type PostConnection struct {
+        Edges    []PostEdge
+        PageInfo PageInfo
+    }
+
+    // PostsArgs defines the arguments for the paginated posts query.
+    type PostsArgs struct {
+        First       int         `fraiseql:"default=20"`
+        After       *string     `fraiseql:"cursor"`
+        IsPublished *bool       `fraiseql:"auto_where"`
+        AuthorID    *scalars.ID `fraiseql:"auto_where,column=author_id"`
+        Search      *string     `fraiseql:"full_text,column=search_vector"`
+    }
+
+    // Posts returns a paginated connection of posts.
+    // Maps to v_post with cursor pagination on pk_post.
+    func Posts(ctx context.Context, args PostsArgs) (PostConnection, error) {
+        return PostConnection{}, nil
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+### What the response looks like
+
+```graphql
+query {
+  posts(first: 2, isPublished: true) {
+    edges {
+      cursor
+      node {
+        title
+        author { username }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+```
+
+```json
+{
+  "data": {
+    "posts": {
+      "edges": [
+        {
+          "cursor": "cGtfcG9zdDox",
+          "node": {
+            "title": "Hello World",
+            "author": { "username": "alice" }
+          }
+        },
+        {
+          "cursor": "cGtfcG9zdDoy",
+          "node": {
+            "title": "Getting Started with FraiseQL",
+            "author": { "username": "bob" }
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": true,
+        "endCursor": "cGtfcG9zdDoy"
+      }
+    }
+  }
+}
+```
+
+Fetch the next page by passing `endCursor` as `after`:
+
+```graphql
+query {
+  posts(first: 2, after: "cGtfcG9zdDoy", isPublished: true) {
+    edges {
+      cursor
+      node { title }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+```
+
+---
+
+## Step 4: Sorting
+
+Declare an `order_by` enum argument to control sort order. FraiseQL maps enum values to `ORDER BY` expressions you define in the schema configuration.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    import enum
+
+    @fraiseql.enum
+    class PostOrderBy(enum.Enum):
+        CREATED_AT_ASC  = "created_at ASC"
+        CREATED_AT_DESC = "created_at DESC"
+        TITLE_ASC       = "title ASC"
+
+    @fraiseql.query(sql_source="v_post", cursor_column="pk_post")
+    def posts(
+        first: int = 20,
+        after: str | None = None,
+        is_published: bool | None = None,
+        author_id: ID | None = None,
+        search: Annotated[str | None, fraiseql.FullText("search_vector")] = None,
+        order_by: PostOrderBy = PostOrderBy.CREATED_AT_DESC,
+    ) -> PostConnection:
+        pass
+    ```
+
+    The enum value string is used verbatim in the `ORDER BY` clause. FraiseQL validates that the value matches a declared enum member — arbitrary strings cannot be injected.
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    import { fraiseqlEnum } from 'fraiseql';
+
+    const PostOrderBy = fraiseqlEnum('PostOrderBy', {
+      CREATED_AT_ASC:  'created_at ASC',
+      CREATED_AT_DESC: 'created_at DESC',
+      TITLE_ASC:       'title ASC',
+    });
+    type PostOrderBy = keyof typeof PostOrderBy;
+
+    @query({ sqlSource: 'v_post', cursorColumn: 'pk_post' })
+    async function posts(
+      first: number = 20,
+      after?: string,
+      isPublished?: boolean,
+      authorId?: ID,
+      @FullText('search_vector') search?: string,
+      orderBy: PostOrderBy = 'CREATED_AT_DESC',
+    ): Promise<PostConnection> {}
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go title="schema.go"
+    // PostOrderBy defines the allowed sort orders for the posts query.
+    type PostOrderBy string
+
+    const (
+        PostOrderByCreatedAtAsc  PostOrderBy = "created_at ASC"
+        PostOrderByCreatedAtDesc PostOrderBy = "created_at DESC"
+        PostOrderByTitleAsc      PostOrderBy = "title ASC"
+    )
+
+    // PostsArgs defines the arguments for the paginated posts query.
+    type PostsArgs struct {
+        First       int         `fraiseql:"default=20"`
+        After       *string     `fraiseql:"cursor"`
+        IsPublished *bool       `fraiseql:"auto_where"`
+        AuthorID    *scalars.ID `fraiseql:"auto_where,column=author_id"`
+        Search      *string     `fraiseql:"full_text,column=search_vector"`
+        OrderBy     PostOrderBy `fraiseql:"order_by,default=created_at DESC"`
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+When using cursor pagination together with sorting, the `order_by` argument must be stable between pages. FraiseQL encodes the active sort order into the cursor so that `after` always refers to the correct position regardless of the `order_by` value — but changing `order_by` between pages invalidates existing cursors and restarts from the beginning.
+
+---
+
+## Test Queries
+
+All features combined. Run these in the playground at `http://localhost:8080/graphql`.
+
+### Published posts, newest first
+
+```graphql
+query {
+  posts(first: 10, isPublished: true, orderBy: CREATED_AT_DESC) {
+    edges {
+      node {
+        title
+        slug
+        createdAt
+        author { username }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+### Search with pagination
+
+```graphql
+query {
+  posts(first: 5, search: "GraphQL tutorial", orderBy: CREATED_AT_DESC) {
+    edges {
+      cursor
+      node {
+        title
+        isPublished
+        author { username }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+### Author's published posts, alphabetical
+
+```graphql
+query {
+  posts(
+    authorId: "usr_01HZ3K"
+    isPublished: true
+    orderBy: TITLE_ASC
+    first: 20
+  ) {
+    edges {
+      node {
+        title
+        slug
+        comments { content }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+### Fetch page two
+
+```graphql
+query {
+  posts(
+    first: 5
+    after: "cGtfcG9zdDo1"
+    isPublished: true
+    orderBy: CREATED_AT_DESC
+  ) {
+    edges {
+      node { title }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+---
+
+## What's Next
+
+- [Threaded Comments](/guides/threaded-comments) — Recursive CTEs for nested comment trees
+- [Projection Tables](/guides/projection-tables) — CQRS read models updated by triggers
+- [Observers](/guides/observers) — Trigger side effects after mutations

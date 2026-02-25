@@ -708,7 +708,4 @@ async def on_order_created(order: Order, ctx):
 
 - [Custom Resolvers](/guides/custom-resolvers) — Business logic integration
 - [Federation with NATS](/guides/federation-nats-integration) — Distributed coordination
-- [Event Sourcing](/patterns/event-sourcing) — Complete rebuild pattern
 - [NATS Docs](https://docs.nats.io/) — Official NATS documentation
-`3
-`3

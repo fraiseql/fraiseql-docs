@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "FraiseQL for Architects";
 const description = "Clean system design. Database-first architecture. Clear separation of concerns. Scalable patterns.";
@@ -35,7 +36,7 @@ const description = "Clean system design. Database-first architecture. Clear sep
         <div class="architecture-card">
           <h3>Clear Separation of Concerns</h3>
           <p>FraiseQL enforces architectural boundaries:</p>
-          <pre><code set:html={`┌─────────────────────────────────────┐
+          <Code lang="python" theme="github-light" code={`┌─────────────────────────────────────┐
 │  API Layer (schema.json → Rust)     │
 │  - Routing &amp; serialization          │
 │  - Authentication                   │
@@ -56,7 +57,7 @@ const description = "Clean system design. Database-first architecture. Clear sep
 │  - Side effects &amp; triggers          │
 └─────────────────────────────────────┘
 
-Business logic lives in the database, not the API.`}></code></pre>
+Business logic lives in the database, not the API.`} />
           <p class="impact">Result: System is predictable, testable, scalable</p>
         </div>
 
@@ -110,7 +111,7 @@ Business logic lives in the database, not the API.`}></code></pre>
         <div class="pattern-card">
           <h3>Pattern 1: Event Sourcing Compatible</h3>
           <p>Views naturally work with event-driven architecture:</p>
-          <pre><code set:html={`Events (immutable log)
+          <Code lang="python" theme="github-light" code={`Events (immutable log)
     ↓
 State (computed from events)
     ↓
@@ -120,38 +121,38 @@ GraphQL queries (read from views)
 
 This is the CQRS pattern:
 - Command side: Write events
-- Query side: Read from views`}></code></pre>
+- Query side: Read from views`} />
         </div>
 
         <div class="pattern-card">
           <h3>Pattern 2: Multi-Tenant Architecture</h3>
           <p>Views make multi-tenancy clean:</p>
-          <pre><code set:html={`CREATE VIEW v_user_for_tenant AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_user_for_tenant AS
 SELECT ...
 FROM tb_user
 WHERE tenant_id = current_tenant_id;
 
 Each tenant gets their own view (or filtered).
 No special logic in application.
-Data isolation at database level.`}></code></pre>
+Data isolation at database level.`} />
         </div>
 
         <div class="pattern-card">
           <h3>Pattern 3: API Versioning</h3>
           <p>Different GraphQL versions, same database:</p>
-          <pre><code set:html={`v1.0: Use v_user (old schema)
+          <Code lang="python" theme="github-light" code={`v1.0: Use v_user (old schema)
 v1.1: Use v_user + new fields (backward compatible)
 v2.0: Use v_user_v2 (new schema, backward incompatible)
 
 Old clients use old views.
 New clients use new views.
-Database handles both. Database is source of truth.`}></code></pre>
+Database handles both. Database is source of truth.`} />
         </div>
 
         <div class="pattern-card">
           <h3>Pattern 4: Read Model Generation</h3>
           <p>Generate reporting APIs without touching OLTP:</p>
-          <pre><code set:html={`OLTP Database (production transactional DB)
+          <Code lang="python" theme="github-light" code={`OLTP Database (production transactional DB)
     ↓
 ETL / Replication
     ↓
@@ -161,7 +162,7 @@ FraiseQL Views (for reporting API)
     ↓
 GraphQL Reporting API
 
-Separate read model, no OLTP impact.`}></code></pre>
+Separate read model, no OLTP impact.`} />
         </div>
 
       </section>
@@ -172,7 +173,7 @@ Separate read model, no OLTP impact.`}></code></pre>
         <div class="scaling-card">
           <h3>Horizontal Scaling</h3>
           <p>Application is stateless, scales horizontally:</p>
-          <pre><code set:html={`Request Load Balancer
+          <Code lang="python" theme="github-light" code={`Request Load Balancer
   ├─ App 1
   ├─ App 2
   ├─ App 3
@@ -182,13 +183,13 @@ Separate read model, no OLTP impact.`}></code></pre>
 
 Any app can handle any request.
 No shared state between apps.
-Add/remove apps at will.`}></code></pre>
+Add/remove apps at will.`} />
         </div>
 
         <div class="scaling-card">
           <h3>Read Scaling (Replicas)</h3>
           <p>Reads scale independently from writes:</p>
-          <pre><code set:html={`Primary Database (writes)
+          <Code lang="python" theme="github-light" code={`Primary Database (writes)
     ↓
 Read Replica 1 (reads)
 Read Replica 2 (reads)
@@ -196,7 +197,7 @@ Read Replica 3 (reads)
 
 Views work on replicas.
 Queries automatically distributed.
-Writes go to primary.`}></code></pre>
+Writes go to primary.`} />
         </div>
 
         <div class="scaling-card">
@@ -271,9 +272,9 @@ Writes go to primary.`}></code></pre>
         <div class="reliability-card">
           <h3>Circuit Breaker Pattern</h3>
           <p>Implement at application level (not inside framework):</p>
-          <pre><code set:html={`@fraiseql.query(sql_source="v_expensive")
+          <Code lang="python" theme="github-light" code={`@fraiseql.query(sql_source="v_expensive")
 def expensive() -> list[Data]:
-  pass  # Backed by v_expensive view`}></code></pre>
+  pass  # Backed by v_expensive view`} />
         </div>
 
       </section>
@@ -284,14 +285,14 @@ def expensive() -> list[Data]:
         <div class="integration-card">
           <h3>Microservices</h3>
           <p>Each service has its own database and GraphQL API:</p>
-          <pre><code set:html={`User Service      Order Service     Product Service
+          <Code lang="python" theme="github-light" code={`User Service      Order Service     Product Service
     ↓                  ↓                  ↓
 v_user           v_order              v_product
     ↓                  ↓                  ↓
 GraphQL API      GraphQL API          GraphQL API
 
 Federation / Apollo can compose across services.
-Each service owns its data and views.`}></code></pre>
+Each service owns its data and views.`} />
         </div>
 
         <div class="integration-card">
@@ -308,7 +309,7 @@ Each service owns its data and views.`}></code></pre>
         <div class="integration-card">
           <h3>Data Warehouse Integration</h3>
           <p>Two databases, different purposes:</p>
-          <pre><code set:html={`OLTP DB (production, FraiseQL)
+          <Code lang="python" theme="github-light" code={`OLTP DB (production, FraiseQL)
   ↓
 ETL / Stream
   ↓
@@ -317,7 +318,7 @@ Data Warehouse (analytics, big queries)
 BI Tools, Dashboards
 
 FraiseQL handles operational queries (fast, small).
-Data warehouse handles analytical queries (slow, big).`}></code></pre>
+Data warehouse handles analytical queries (slow, big).`} />
         </div>
 
       </section>
@@ -396,7 +397,7 @@ Data warehouse handles analytical queries (slow, big).`}></code></pre>
       <section class="next-section">
         <h2>Design with Confidence</h2>
         <div class="cta-buttons">
-          <a href="/docs/concepts/how-it-works/" class="btn btn-primary">Philosophy</a>
+          <a href="/concepts/how-it-works/" class="btn btn-primary">Philosophy</a>
           <a href="/how-it-works/" class="btn btn-secondary">Architecture</a>
         </div>
       </section>

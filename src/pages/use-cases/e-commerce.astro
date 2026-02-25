@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "E-Commerce with FraiseQL";
 const description = "Build product catalogs, inventory systems, and recommendation engines. Compose complex relationships at the database level.";
@@ -35,7 +36,7 @@ const description = "Build product catalogs, inventory systems, and recommendati
         <div class="solution-step">
           <h3>Complete Product View</h3>
           <p>Compose the entire product entity in one view:</p>
-          <pre><code set:html={`CREATE VIEW v_product_complete AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_product_complete AS
 SELECT
   jsonb_build_object(
     'id', p.id::text,
@@ -96,12 +97,12 @@ SELECT
     )
   ) AS data
 FROM tb_product p
-LEFT JOIN tb_category c ON p.category_id = c.id;`}></code></pre>
+LEFT JOIN tb_category c ON p.category_id = c.id;`} />
         </div>
 
         <div class="solution-step">
           <h3>Inventory & Pricing</h3>
-          <pre><code set:html={`CREATE VIEW v_variant_with_inventory AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_variant_with_inventory AS
 SELECT
   jsonb_build_object(
     'variant_id', v.id::text,
@@ -140,21 +141,19 @@ SELECT
     )
   ) AS data
 FROM tb_variant v
-GROUP BY v.id, v.sku, v.price;`}></code></pre>
+GROUP BY v.id, v.sku, v.price;`} />
         </div>
 
         <div class="solution-step">
           <h3>Python Types</h3>
-          <pre><code set:html={`from uuid import UUID
-
-@fraiseql.type
+          <Code lang="python" theme="github-light" code={`@fraiseql.type
 class Category:
-  id: UUID
+  id: ID
   name: str
 
 @fraiseql.type
 class Variant:
-  id: UUID
+  id: ID
   sku: str
   color: str
   size: str
@@ -176,13 +175,13 @@ class Review:
 
 @fraiseql.type
 class Product:
-  id: UUID
+  id: ID
   name: str
   description: str
   category: Category
   variants: list[Variant]
   images: list[Image]
-  reviews: ReviewSummary`}></code></pre>
+  reviews: ReviewSummary`} />
         </div>
       </section>
 
@@ -194,8 +193,8 @@ class Product:
           <p>Mobile app requests product page data (web/iOS/Android all use same API)</p>
 
           <h3>Single Query Response:</h3>
-          <pre><code set:html={`@fraiseql.query(sql_source="v_product_complete")
-def product(product_id: UUID) -> Product:
+          <Code lang="python" theme="github-light" code={`@fraiseql.query(sql_source="v_product_complete")
+def product(product_id: ID) -> Product:
   pass
 
 # Returns:
@@ -213,7 +212,7 @@ def product(product_id: UUID) -> Product:
 #     "items": [...]
 #   },
 #   "related_products": [...]
-# }`}></code></pre>
+# }`} />
 
           <p><strong>Result:</strong> One database query. Complete product data for all clients (web, mobile, internal dashboards).</p>
         </div>
@@ -254,7 +253,7 @@ def product(product_id: UUID) -> Product:
 
         <div class="pattern-box">
           <h3>Personalized Product Feed</h3>
-          <pre><code set:html={`CREATE VIEW v_personalized_products AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_personalized_products AS
 SELECT
   jsonb_build_object(
     'product_id', p.id::text,
@@ -272,12 +271,12 @@ SELECT
 FROM tb_product p
 JOIN tb_variant v ON p.id = v.product_id
 GROUP BY p.id
-ORDER BY relevance_score DESC;`}></code></pre>
+ORDER BY relevance_score DESC;`} />
         </div>
 
         <div class="pattern-box">
           <h3>Cross-Sell Recommendations</h3>
-          <pre><code set:html={`CREATE VIEW v_often_bought_together AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_often_bought_together AS
 SELECT
   p1.id::text AS product_id,
   jsonb_build_object(
@@ -298,7 +297,7 @@ SELECT
       LIMIT 5
     )
   ) AS data
-FROM tb_product p1;`}></code></pre>
+FROM tb_product p1;`} />
         </div>
       </section>
 
@@ -327,7 +326,7 @@ FROM tb_product p1;`}></code></pre>
         <h2>Ready to Build Your Store?</h2>
         <p>Start building scalable e-commerce APIs with FraiseQL today.</p>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
         </div>
       </section>
@@ -409,7 +408,6 @@ FROM tb_product p1;`}></code></pre>
   }
 
   .solution-step pre {
-    background: white;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -437,7 +435,6 @@ FROM tb_product p1;`}></code></pre>
   }
 
   .example-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -486,7 +483,6 @@ FROM tb_product p1;`}></code></pre>
   }
 
   .pattern-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);

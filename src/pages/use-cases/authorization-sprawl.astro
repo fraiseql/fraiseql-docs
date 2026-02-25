@@ -1,15 +1,16 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "Authorization Sprawl with FraiseQL";
-const description = "Consolidate authorization logic at the database level. Stop scattering RBAC across resolvers.";
+const description = "Three coordinated layers eliminate authorization sprawl: view-based row filtering, application-layer RLS policies, and field-level RBAC.";
 ---
 
 <MarketingLayout title={title} description={description}>
   <section class="use-case-hero">
     <div class="container">
-      <h1>Authorization: One Source of Truth</h1>
-      <p>Stop scattering RBAC across 47 field resolvers. Move authorization to the database.</p>
+      <h1>Authorization Without Sprawl</h1>
+      <p>Three coordinated layers. No scattered checks. No forgotten guards. No data leaks.</p>
     </div>
   </section>
 
@@ -23,7 +24,7 @@ const description = "Consolidate authorization logic at the database level. Stop
 
         <div class="problem-example">
           <h3>Typical Authorization Mess</h3>
-          <pre><code set:html={`# Authorization in resolver 1
+          <Code lang="python" theme="github-light" code={`# Authorization in resolver 1
 @resolver
 async def user(info, id: str) -> User:
   if not info.context["user"].can_view(id):  # Check 1
@@ -46,7 +47,7 @@ async def comments(parent: Post, info) -> list[Comment]:
 
 # By resolver 47, you've written 47 different authorization checks
 # Some check roles, some check ownership, some check teams
-# Consistency: ❌ ZERO`}></code></pre>
+# Consistency: ❌ ZERO`} />
         </div>
 
         <div class="risk-grid">
@@ -70,14 +71,43 @@ async def comments(parent: Post, info) -> list[Comment]:
       </section>
 
       <section class="solution-section">
-        <h2>FraiseQL Solution: Database-Level Authorization</h2>
+        <h2>FraiseQL Solution: Three Coordinated Layers</h2>
 
-        <p>Define authorization once in SQL views. Every query respects it automatically.</p>
+        <p>FraiseQL replaces scattered resolver checks with three complementary authorization layers that work together automatically.</p>
+
+        <div class="layers-overview">
+          <div class="layer-card">
+            <div class="layer-number">1</div>
+            <div class="layer-content">
+              <h3>Row Visibility</h3>
+              <p>SQL views filter which rows exist. Unauthorized data is never returned — not filtered client-side, not returned and discarded. It simply doesn't exist from the query's perspective.</p>
+            </div>
+          </div>
+          <div class="layer-card">
+            <div class="layer-number">2</div>
+            <div class="layer-content">
+              <h3>RLS Policies</h3>
+              <p>Application-layer Row-Level Security policies compose WHERE clauses before execution. Built-in policies handle tenant isolation and ownership. Custom policies handle complex rules.</p>
+            </div>
+          </div>
+          <div class="layer-card">
+            <div class="layer-number">3</div>
+            <div class="layer-content">
+              <h3>Field-Level RBAC</h3>
+              <p>Individual fields require OAuth-style scopes. Roles are defined once in configuration and map to granular permissions. Sensitive fields are invisible to unauthorized roles.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="layer-detail-section">
+        <h2>Layer 1: Row Visibility via SQL Views</h2>
+
+        <p>Authorization is a data visibility problem, not an application logic problem. SQL views encode who can see what — the database enforces it on every query.</p>
 
         <div class="solution-step">
-          <h3>Step 1: Consolidate Authorization in Views</h3>
-          <pre><code set:html={`-- Single source of truth for all authorization
-CREATE VIEW v_user_visible_posts AS
+          <h3>Define visibility rules in SQL</h3>
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_user_visible_posts AS
 SELECT
   jsonb_build_object(
     'id', p.id::text,
@@ -88,160 +118,268 @@ SELECT
   ) AS data
 FROM tb_post p
 WHERE
-  -- Public posts anyone can see
   p.is_public = true
-  OR
-  -- Posts user authored
-  p.author_id = current_setting('app.user_id')::uuid
-  OR
-  -- Posts in teams user belongs to
-  EXISTS (
+  OR p.author_id = current_setting('app.user_id')::uuid
+  OR EXISTS (
     SELECT 1 FROM tb_team_member tm
     WHERE tm.team_id = p.team_id
       AND tm.user_id = current_setting('app.user_id')::uuid
-  );`}></code></pre>
+  );`} />
         </div>
 
         <div class="solution-step">
-          <h3>Step 2: Set Context Once</h3>
-          <pre><code set:html={`# Single authorization check at the API level
+          <h3>Bind once, enforce everywhere</h3>
+          <Code lang="python" theme="github-light" code={`# The Rust runtime sets user context from the JWT before every query.
+# No per-resolver checks. No forgotten guards.
 @fraiseql.query(sql_source="v_user_visible_posts")
 def posts() -> list[Post]:
-  # User context is set by the Rust runtime via fraiseql.toml
-  # All views respect this context automatically
-  pass`}></code></pre>
+  pass`} />
+        </div>
+
+        <div class="insight-box">
+          <p><strong>Key insight:</strong> If a row is not in the view, it cannot be returned — regardless of what the application layer does. The database enforces it unconditionally.</p>
+        </div>
+      </section>
+
+      <section class="layer-detail-section">
+        <h2>Layer 2: Application-Layer RLS Policies</h2>
+
+        <p>FraiseQL's built-in RLS policies compose WHERE clauses at the application layer before queries reach the database. This provides a second enforcement point with richer context from the authenticated user's JWT.</p>
+
+        <div class="solution-step">
+          <h3>Configure policies in fraiseql.toml</h3>
+          <Code lang="toml" theme="github-light" code={`[security]
+default_policy = "authenticated"
+
+# Built-in: multi-tenant isolation + owner filtering
+[security.rls]
+enable_tenant_isolation = true
+tenant_field = "tenant_id"
+owner_field = "author_id"
+
+# Custom rules for write operations
+[[security.rules]]
+name = "allow_account_owners"
+description = "Only account owners can modify account settings"
+rule = "mutation * Account"
+cacheable = false
+
+[[security.rules]]
+name = "allow_billing_admin"
+description = "Only billing admins can manage subscriptions"
+rule = "mutation * Subscription"
+cacheable = false`} />
         </div>
 
         <div class="solution-step">
-          <h3>Step 3: No Per-Field Checks Needed</h3>
-          <pre><code set:html={`@fraiseql.type
-class Post:
-  id: UUID
-  title: str
-  content: str
-  author_id: UUID
-  created_at: str
+          <h3>DefaultRLSPolicy: tenant isolation + ownership</h3>
+          <Code lang="python" theme="github-light" code={`# The DefaultRLSPolicy handles the most common cases automatically:
+# - Admin users bypass RLS (no filter applied)
+# - Non-admin users filtered by tenant_id (multi-tenant isolation)
+# - Owner-based filtering via author_id field
+#
+# No code required — configure in fraiseql.toml.
+# The Rust runtime composes the WHERE clause before every query.`} />
+        </div>
 
-# No resolver checks needed
-# The view already enforces authorization`}></code></pre>
+        <div class="solution-step">
+          <h3>CompiledRLSPolicy: expression-based rules</h3>
+          <Code lang="python" theme="github-light" code={`# For complex policies, use expression syntax:
+# "user.id == object.author_id"       → owner check
+# "user.roles includes 'admin'"       → role bypass
+# "user.tenant_id == object.tenant_id" → tenant isolation
+#
+# Expressions are compiled at startup, evaluated at runtime.
+# Results are cacheable with configurable TTL.`} />
+        </div>
+      </section>
+
+      <section class="layer-detail-section">
+        <h2>Layer 3: Field-Level RBAC</h2>
+
+        <p>Even within an authorized row, some fields should only be visible to specific roles. FraiseQL uses OAuth-inspired scopes for fine-grained field access control.</p>
+
+        <div class="solution-step">
+          <h3>Define roles and scopes in fraiseql.toml</h3>
+          <Code lang="toml" theme="github-light" code={`[[security.role_definitions]]
+name = "admin"
+description = "Full access"
+scopes = ["admin:*"]
+
+[[security.role_definitions]]
+name = "manager"
+description = "Read users, write team content"
+scopes = ["read:User.*", "read:Employee.*", "write:Post.content"]
+
+[[security.role_definitions]]
+name = "viewer"
+description = "Read-only access to public fields"
+scopes = ["read:Post.*", "read:User.name"]`} />
+        </div>
+
+        <div class="solution-step">
+          <h3>Protect fields with scope requirements</h3>
+          <Code lang="python" theme="github-light" code={`@fraiseql.type
+class Employee:
+  id: ID
+  name: str                   # Public — no scope required
+
+  @fraiseql.requires_scope("read:Employee.email")
+  email: str                  # Managers and above only
+
+  @fraiseql.requires_scope("admin:*")
+  salary: float               # Admins only
+
+  @fraiseql.requires_scope("read:Employee.*")
+  department: str             # Managers and above`} />
+        </div>
+
+        <div class="solution-step">
+          <h3>Role-based resolver guards</h3>
+          <Code lang="python" theme="github-light" code={`@fraiseql.type
+class OrgSettings:
+  id: ID
+
+  # Single role required
+  @fraiseql.role_required(roles="admin")
+  def system_config(self) -> str:
+    pass
+
+  # Any of multiple roles
+  @fraiseql.role_required(
+    roles=["manager", "hr", "admin"],
+    strategy=RoleMatchStrategy.ANY,
+  )
+  def headcount_report(self) -> int:
+    pass`} />
+        </div>
+
+        <div class="solution-step">
+          <h3>Policy-based authorization for complex rules</h3>
+          <Code lang="python" theme="github-light" code={`@fraiseql.authz_policy(
+  name="billingAdminOnly",
+  policy_type=AuthzPolicyType.RBAC,
+  rule="hasRole($context, 'billing_admin')",
+  audit_logging=True,   # Every access attempt is logged
+)
+class BillingPolicy:
+  pass
+
+@fraiseql.type
+class Subscription:
+  id: ID
+  plan: str
+
+  @fraiseql.authorize(policy="billingAdminOnly")
+  billing_details: BillingDetails`} />
+        </div>
+
+        <div class="insight-box">
+          <p><strong>Key insight:</strong> Fields without a scope requirement are always accessible. Fields with a scope requirement are silently omitted — returning <code>null</code> — for unauthorized roles. No error, no information leakage.</p>
         </div>
       </section>
 
       <section class="example-section">
         <h2>Real-World: Multi-Team SaaS</h2>
 
+        <p>All three layers work together. Each enforces a different dimension of authorization.</p>
+
         <div class="example-box">
           <h3>Authorization Rules:</h3>
           <ul>
-            <li>Users see only their own team's data</li>
-            <li>Admins see all data</li>
-            <li>Editors can modify posts, viewers are read-only</li>
-            <li>Team leads see their team + team leads' reports</li>
+            <li>Users see only their own team's posts (Layer 1 — SQL view)</li>
+            <li>Tenant data is always isolated (Layer 2 — RLS policy)</li>
+            <li>Salary and PII fields require explicit scopes (Layer 3 — RBAC)</li>
+            <li>Only billing admins can touch subscription mutations (Layer 2 — custom rule)</li>
           </ul>
 
-          <h3>FraiseQL Approach: Single View</h3>
-          <pre><code set:html={`CREATE VIEW v_accessible_posts AS
-SELECT
-  jsonb_build_object(
-    'id', p.id::text,
-    'title', p.title,
-    'can_edit', CASE
-      WHEN current_setting('app.user_role') = 'admin' THEN true
-      WHEN current_setting('app.user_role') = 'editor'
-        AND tm.user_id IS NOT NULL THEN true
-      ELSE false
-    END,
-    'team', jsonb_build_object(
-      'id', t.id::text,
-      'name', t.name
-    )
-  ) AS data
+          <h3>Layer 1: Row visibility</h3>
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_accessible_posts AS
+SELECT jsonb_build_object(
+  'id', p.id::text,
+  'title', p.title,
+  'can_edit', (current_setting('app.user_role') IN ('admin', 'editor')
+               AND tm.user_id IS NOT NULL),
+  'team', jsonb_build_object('id', t.id::text, 'name', t.name)
+) AS data
 FROM tb_post p
 JOIN tb_team t ON p.team_id = t.id
 LEFT JOIN tb_team_member tm ON (
-  t.id = tm.team_id
-  AND tm.user_id = current_setting('app.user_id')::uuid
+  t.id = tm.team_id AND tm.user_id = current_setting('app.user_id')::uuid
 )
-WHERE
-  -- Admins see everything
-  current_setting('app.user_role') = 'admin'
-  OR
-  -- Regular users see only their team
-  (
-    EXISTS (
-      SELECT 1 FROM tb_team_member
-      WHERE team_id = p.team_id
-        AND user_id = current_setting('app.user_id')::uuid
-    )
-  )
-  OR
-  -- Team leads see peer team leads
-  (
-    current_setting('app.user_role') = 'team_lead'
-    AND EXISTS (
-      SELECT 1 FROM tb_team_member tl
-      WHERE tl.user_id = current_setting('app.user_id')::uuid
-        AND tl.role = 'team_lead'
-        AND tl.team_id IN (
-          SELECT team_id FROM tb_team_member
-          WHERE user_id = p.author_id
-        )
-    )
-  );`}></code></pre>
+WHERE current_setting('app.user_role') = 'admin'
+   OR EXISTS (
+     SELECT 1 FROM tb_team_member
+     WHERE team_id = p.team_id
+       AND user_id = current_setting('app.user_id')::uuid
+   );`} />
 
-          <p><strong>Result:</strong> Authorization is tested once, applies everywhere.</p>
+          <h3>Layer 2: RLS policy (fraiseql.toml)</h3>
+          <Code lang="toml" theme="github-light" code={`[security.rls]
+enable_tenant_isolation = true   # Tenant WHERE clause added automatically
+tenant_field = "tenant_id"
+
+[[security.rules]]
+name = "billing_admin_only"
+rule = "mutation * Subscription"
+cacheable = false`} />
+
+          <h3>Layer 3: Field RBAC</h3>
+          <Code lang="python" theme="github-light" code={`@fraiseql.type
+class Post:
+  id: ID
+  title: str              # Public
+
+  @fraiseql.requires_scope("read:Post.content")
+  content: str            # Viewers and above
+
+  @fraiseql.requires_scope("write:Post.*")
+  edit_history: list[str] # Editors and admins only`} />
+
+          <p><strong>Result:</strong> Each layer catches what the others cannot. No single point of failure.</p>
         </div>
       </section>
 
-      <section class="patterns-section">
-        <h2>Authorization Patterns</h2>
+      <section class="writes-section">
+        <h2>Writes: Mutations and Authorization</h2>
+
+        <p>Read authorization is handled by views and RLS. Write authorization is handled by database functions with explicit guards — keeping the same principle of centralized, auditable rules.</p>
 
         <div class="pattern-box">
-          <h3>Pattern 1: Role-Based Access Control</h3>
-          <pre><code set:html={`CREATE VIEW v_rbac_posts AS
-SELECT ... FROM tb_post p
-WHERE (
-  current_setting('app.user_role') = 'admin'
-) OR (
-  current_setting('app.user_role') = 'editor'
-  AND p.author_id = current_setting('app.user_id')::uuid
-) OR (
-  current_setting('app.user_role') = 'viewer'
-  AND p.is_published = true
-);`}></code></pre>
+          <h3>Write guards in DB functions</h3>
+          <Code lang="sql" theme="github-light" code={`CREATE OR REPLACE FUNCTION fn_update_post(
+  p_post_id UUID,
+  p_title   TEXT,
+  p_content TEXT
+) RETURNS BOOLEAN AS $$
+DECLARE
+  v_author_id UUID;
+BEGIN
+  SELECT author_id INTO v_author_id FROM tb_post WHERE id = p_post_id;
+
+  -- Authorization guard: only author or admin can edit
+  IF v_author_id != current_setting('app.user_id')::uuid
+     AND current_setting('app.user_role') != 'admin' THEN
+    RAISE EXCEPTION 'Access denied';
+  END IF;
+
+  UPDATE tb_post SET title = p_title, content = p_content
+  WHERE id = p_post_id;
+
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;`} />
         </div>
 
         <div class="pattern-box">
-          <h3>Pattern 2: Ownership-Based</h3>
-          <pre><code set:html={`CREATE VIEW v_owned_resources AS
-SELECT ... FROM tb_resource r
-WHERE r.owner_id = current_setting('app.user_id')::uuid
-  OR r.org_id IN (
-    SELECT org_id FROM tb_org_member
-    WHERE user_id = current_setting('app.user_id')::uuid
-  );`}></code></pre>
-        </div>
-
-        <div class="pattern-box">
-          <h3>Pattern 3: Hierarchical Permissions</h3>
-          <pre><code set:html={`CREATE VIEW v_hierarchical_access AS
-SELECT ... FROM tb_resource r
-WHERE r.org_id = current_setting('app.org_id')::uuid
-  AND (
-    -- Can access own resources
-    r.created_by = current_setting('app.user_id')::uuid
-    OR
-    -- Can access team resources if team lead
-    (
-      r.team_id = current_setting('app.team_id')::uuid
-      AND current_setting('app.user_role') = 'team_lead'
-    )
-    OR
-    -- Can access org resources if admin
-    (
-      current_setting('app.user_role') = 'admin'
-    )
-  );`}></code></pre>
+          <h3>Bind to FraiseQL mutation</h3>
+          <Code lang="python" theme="github-light" code={`@fraiseql.mutation(sql_function="fn_update_post")
+@fraiseql.role_required(roles=["editor", "admin"])
+def update_post(post_id: ID, title: str, content: str) -> bool:
+  # Layer 3 (RBAC decorator) checks role before the call reaches the DB.
+  # Layer 2 (RLS rule) is enforced by fraiseql.toml config.
+  # The DB function enforces authorship — final line of defence.
+  pass`} />
         </div>
       </section>
 
@@ -249,23 +387,43 @@ WHERE r.org_id = current_setting('app.org_id')::uuid
         <h2>Testing Authorization</h2>
 
         <div class="testing-box">
-          <h3>Test Cases Are Simpler</h3>
-          <pre><code set:html={`# Test: User can't see other team's data
-def test_user_isolation():
-  # Set context for Team A user
-  db.execute("SET app.user_id = 'team-a-user'")
-  posts_team_a = db.find_many("v_accessible_posts")
+          <h3>Test row visibility directly in SQL</h3>
+          <Code lang="sql" theme="github-light" code={`-- Test: team isolation
+SET app.user_id = 'team-a-user-id';
+SET app.user_role = 'viewer';
+SELECT count(*) FROM v_accessible_posts;   -- Returns only Team A posts
 
-  # Set context for Team B user
-  db.execute("SET app.user_id = 'team-b-user'")
-  posts_team_b = db.find_many("v_accessible_posts")
+SET app.user_id = 'team-b-user-id';
+SELECT count(*) FROM v_accessible_posts;   -- Returns only Team B posts
 
-  # They see different data
-  assert posts_team_a[0]["team_id"] != posts_team_b[0]["team_id"]
+-- No mocking. No resolver simulation. Deterministic and close to the source.`} />
+        </div>
 
-# You're not testing resolver logic
-# You're testing the database view behavior
-# Much simpler and more reliable`}></code></pre>
+        <div class="testing-box">
+          <h3>Test field RBAC in Python</h3>
+          <Code lang="python" theme="github-light" code={`def test_salary_hidden_from_viewer():
+  context = SecurityContext.for_role("viewer")
+  employee = resolve_employee(id="emp-1", context=context)
+  assert employee.salary is None        # Field silently omitted
+
+def test_salary_visible_to_admin():
+  context = SecurityContext.for_role("admin")
+  employee = resolve_employee(id="emp-1", context=context)
+  assert employee.salary is not None    # Full access`} />
+        </div>
+
+        <div class="testing-box">
+          <h3>Test RLS policies in isolation</h3>
+          <Code lang="python" theme="github-light" code={`def test_tenant_isolation():
+  tenant_a_ctx = SecurityContext(user_id="u1", tenant_id="tenant-a")
+  tenant_b_ctx = SecurityContext(user_id="u2", tenant_id="tenant-b")
+
+  posts_a = resolve_posts(context=tenant_a_ctx)
+  posts_b = resolve_posts(context=tenant_b_ctx)
+
+  # DefaultRLSPolicy guarantees no cross-tenant leakage
+  assert all(p.tenant_id == "tenant-a" for p in posts_a)
+  assert all(p.tenant_id == "tenant-b" for p in posts_b)`} />
         </div>
       </section>
 
@@ -274,33 +432,33 @@ def test_user_isolation():
 
         <div class="benefit-grid">
           <div class="benefit-card">
-            <h3>✅ Single Source of Truth</h3>
-            <p>One place to define and audit authorization.</p>
+            <h3>✅ Defense in Depth</h3>
+            <p>Three independent layers. A bug in one doesn't expose data — the others hold.</p>
           </div>
 
           <div class="benefit-card">
             <h3>✅ No Bypass Possible</h3>
-            <p>Database enforces rules for every query, automatically.</p>
+            <p>Views filter at the database. RLS policies add WHERE clauses. Neither can be skipped by application code.</p>
           </div>
 
           <div class="benefit-card">
             <h3>✅ Easy to Audit</h3>
-            <p>SQL views are readable. Compliance teams understand them.</p>
+            <p>SQL views and fraiseql.toml are readable. Compliance teams can verify rules without reading resolver code.</p>
           </div>
 
           <div class="benefit-card">
             <h3>✅ Change Once, Apply Everywhere</h3>
-            <p>Update the view, all queries respect new rules.</p>
+            <p>Update a view or role definition — every query that uses it picks up the change automatically.</p>
           </div>
 
           <div class="benefit-card">
-            <h3>✅ Testable Rules</h3>
-            <p>Test authorization logic like SQL, not resolver mocking.</p>
+            <h3>✅ Granular Field Control</h3>
+            <p>Sensitive fields (salary, PII, billing) are invisible to unauthorized roles — not hidden client-side, absent at the API layer.</p>
           </div>
 
           <div class="benefit-card">
-            <h3>✅ Performance</h3>
-            <p>Database optimizes authorization filters.</p>
+            <h3>✅ Writes Are Covered Too</h3>
+            <p>DB functions + role guards + RLS rules handle mutation authorization with the same clarity as reads.</p>
           </div>
         </div>
       </section>
@@ -310,27 +468,27 @@ def test_user_isolation():
         <div class="related-grid">
           <div class="related-box">
             <h3>⚖️ Regulated Industries</h3>
-            <p>Authorization + compliance in one place.</p>
+            <p>Authorization + compliance audit trails in one place.</p>
             <a href="/use-cases/regulated-industries/" class="link">Read →</a>
           </div>
           <div class="related-box">
             <h3>🏢 Enterprise SaaS</h3>
-            <p>Multi-tenant isolation with database-level RBAC.</p>
+            <p>Multi-tenant isolation with RLS and role-based scopes.</p>
             <a href="/use-cases/enterprise-saas/" class="link">Read →</a>
           </div>
           <div class="related-box">
             <h3>🔒 SQL Ownership</h3>
-            <p>Own your queries, own your security.</p>
-            <a href="/docs/concepts/how-it-works/" class="link">Read →</a>
+            <p>Own your queries, own your security model.</p>
+            <a href="/concepts/how-it-works/" class="link">Read →</a>
           </div>
         </div>
       </section>
 
       <section class="cta-section">
         <h2>Eliminate Authorization Sprawl</h2>
-        <p>Build secure systems with clear, auditable authorization logic.</p>
+        <p>Three layers. Zero scattered checks. Clear, auditable, testable authorization.</p>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
         </div>
       </section>
@@ -400,8 +558,8 @@ def test_user_isolation():
     margin-bottom: var(--spacing-6);
   }
 
-  .problem-example pre {
-    background: white;
+  .problem-example pre,
+  .problem-example pre.astro-code {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -413,7 +571,6 @@ def test_user_isolation():
     font-family: var(--font-mono);
     font-size: 0.75rem;
     line-height: var(--leading-normal);
-    color: var(--color-text);
   }
 
   .risk-grid {
@@ -441,6 +598,89 @@ def test_user_isolation():
     color: var(--color-text-muted);
   }
 
+  .layers-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--spacing-6);
+    margin-bottom: var(--spacing-8);
+  }
+
+  .layer-card {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-top: 3px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-6);
+    display: flex;
+    gap: var(--spacing-4);
+    align-items: flex-start;
+  }
+
+  .layer-number {
+    background: var(--fraise-500);
+    color: white;
+    font-weight: 700;
+    font-size: 1.125rem;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .layer-content h3 {
+    margin: 0 0 var(--spacing-2) 0;
+    font-size: 1rem;
+  }
+
+  .layer-content p {
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .layer-detail-section {
+    margin-bottom: var(--spacing-16);
+  }
+
+  .layer-detail-section h2 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-4);
+    color: var(--color-text);
+  }
+
+  .insight-box {
+    background: var(--fraise-50);
+    border-left: 4px solid var(--fraise-500);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-4) var(--spacing-6);
+    margin-top: var(--spacing-4);
+  }
+
+  .insight-box p {
+    margin: 0;
+    color: var(--color-text);
+  }
+
+  .insight-box code {
+    background: var(--fraise-100);
+    padding: 0.1rem 0.3rem;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+  }
+
+  .writes-section {
+    margin-bottom: var(--spacing-16);
+  }
+
+  .writes-section h2 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-4);
+    color: var(--color-text);
+  }
+
   .solution-step {
     background: white;
     border: 1px solid var(--color-border);
@@ -450,8 +690,8 @@ def test_user_isolation():
     margin-bottom: var(--spacing-6);
   }
 
-  .solution-step pre {
-    background: var(--color-surface);
+  .solution-step pre,
+  .solution-step pre.astro-code {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -463,7 +703,6 @@ def test_user_isolation():
     font-family: var(--font-mono);
     font-size: 0.7rem;
     line-height: var(--leading-normal);
-    color: var(--color-text);
   }
 
   .example-box {
@@ -490,8 +729,8 @@ def test_user_isolation():
     color: var(--color-text-muted);
   }
 
-  .example-box pre {
-    background: var(--color-surface);
+  .example-box pre,
+  .example-box pre.astro-code {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -503,7 +742,6 @@ def test_user_isolation():
     font-family: var(--font-mono);
     font-size: 0.65rem;
     line-height: var(--leading-normal);
-    color: var(--color-text);
   }
 
   .pattern-box {
@@ -514,8 +752,8 @@ def test_user_isolation():
     margin-bottom: var(--spacing-6);
   }
 
-  .pattern-box pre {
-    background: var(--color-surface);
+  .pattern-box pre,
+  .pattern-box pre.astro-code {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -527,7 +765,6 @@ def test_user_isolation():
     font-family: var(--font-mono);
     font-size: 0.7rem;
     line-height: var(--leading-normal);
-    color: var(--color-text);
   }
 
   .testing-box {
@@ -538,8 +775,8 @@ def test_user_isolation():
     margin-bottom: var(--spacing-6);
   }
 
-  .testing-box pre {
-    background: var(--color-surface);
+  .testing-box pre,
+  .testing-box pre.astro-code {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -551,7 +788,6 @@ def test_user_isolation():
     font-family: var(--font-mono);
     font-size: 0.7rem;
     line-height: var(--leading-normal);
-    color: var(--color-text);
   }
 
   .benefit-grid {

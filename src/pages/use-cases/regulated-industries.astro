@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "Regulated Industries with FraiseQL";
 const description = "Healthcare, Finance, Compliance. Deterministic queries, audit trails, and SQL ownership for regulated data access.";
@@ -36,7 +37,7 @@ const description = "Healthcare, Finance, Compliance. Deterministic queries, aud
         <div class="solution-step">
           <h3>1. SQL Views = Explicit Data Access</h3>
           <p>Every data query is a readable SQL statement. Auditors can review the exact query.</p>
-          <pre><code set:html={`-- Healthcare: HIPAA-compliant patient view
+          <Code lang="sql" theme="github-light" code={`-- Healthcare: HIPAA-compliant patient view
 CREATE VIEW v_patient_record AS
 SELECT
   jsonb_build_object(
@@ -56,13 +57,13 @@ SELECT
     )
   ) AS data
 FROM tb_patient p
-WHERE p.practice_id = current_setting('app.practice_id')::uuid;`}></code></pre>
+WHERE p.practice_id = current_setting('app.practice_id')::uuid;`} />
         </div>
 
         <div class="solution-step">
           <h3>2. Automatic Audit Logging</h3>
           <p>Use PostgreSQL triggers to log every data access:</p>
-          <pre><code set:html={`-- Create immutable audit log
+          <Code lang="sql" theme="github-light" code={`-- Create immutable audit log
 CREATE TABLE tb_audit_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -93,12 +94,12 @@ BEGIN
   );
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;`}></code></pre>
+$$ LANGUAGE plpgsql;`} />
         </div>
 
         <div class="solution-step">
           <h3>3. Role-Based Access at Database Level</h3>
-          <pre><code set:html={`-- Finance: Account access by role
+          <Code lang="sql" theme="github-light" code={`-- Finance: Account access by role
 CREATE VIEW v_account_transactions AS
 SELECT
   jsonb_build_object(
@@ -121,7 +122,7 @@ SELECT
     END
   ) AS data
 FROM tb_account a
-WHERE a.institution_id = current_setting('app.institution_id')::uuid;`}></code></pre>
+WHERE a.institution_id = current_setting('app.institution_id')::uuid;`} />
         </div>
       </section>
 
@@ -139,7 +140,7 @@ WHERE a.institution_id = current_setting('app.institution_id')::uuid;`}></code><
           </ul>
 
           <h3>FraiseQL Approach:</h3>
-          <pre><code set:html={`-- Single view enforces all rules
+          <Code lang="sql" theme="github-light" code={`-- Single view enforces all rules
 CREATE VIEW v_nurse_accessible_patients AS
 SELECT
   p.id::text AS patient_id,
@@ -173,7 +174,7 @@ WHERE p.clinic_id = current_setting('app.clinic_id')::uuid
     SELECT 1 FROM tb_patient_assignment
     WHERE patient_id = p.id
       AND provider_id = current_setting('app.user_id')::uuid
-  );`}></code></pre>
+  );`} />
 
           <p><strong>Automatic audit trail:</strong> Every SELECT on this view triggers a log entry.</p>
         </div>
@@ -185,17 +186,17 @@ WHERE p.clinic_id = current_setting('app.clinic_id')::uuid
         <div class="practice-box">
           <h3>1. Immutable Audit Logs</h3>
           <p>Use PostgreSQL's built-in features:</p>
-          <pre><code set:html={`-- Make audit table append-only
+          <Code lang="sql" theme="github-light" code={`-- Make audit table append-only
 ALTER TABLE tb_audit_log DISABLE TRIGGER ALL;
 -- User cannot modify audit logs
 REVOKE UPDATE, DELETE ON tb_audit_log FROM app_user;
-GRANT SELECT ON tb_audit_log TO app_user;`}></code></pre>
+GRANT SELECT ON tb_audit_log TO app_user;`} />
         </div>
 
         <div class="practice-box">
           <h3>2. Encryption at Rest</h3>
           <p>PostgreSQL Transparent Data Encryption (TDE) or column encryption:</p>
-          <pre><code set:html={`-- Encrypt sensitive columns
+          <Code lang="sql" theme="github-light" code={`-- Encrypt sensitive columns
 CREATE TABLE tb_patient (
   id UUID PRIMARY KEY,
   ssn TEXT ENCRYPTED WITH (algorithm = 'aes-256'),
@@ -205,13 +206,13 @@ CREATE TABLE tb_patient (
 -- Only admins can decrypt
 ALTER TABLE tb_patient ENABLE ROW LEVEL SECURITY;
 CREATE POLICY admin_only ON tb_patient
-  USING (current_setting('app.user_role') = 'admin');`}></code></pre>
+  USING (current_setting('app.user_role') = 'admin');`} />
         </div>
 
         <div class="practice-box">
           <h3>3. Data Retention Policies</h3>
           <p>Enforce retention automatically:</p>
-          <pre><code set:html={`-- Archive old records
+          <Code lang="sql" theme="github-light" code={`-- Archive old records
 CREATE FUNCTION archive_old_records()
 RETURNS void AS $$
 BEGIN
@@ -225,7 +226,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Run daily
-SELECT cron.schedule('archive-medical-records', '0 2 * * *', 'SELECT archive_old_records()');`}></code></pre>
+SELECT cron.schedule('archive-medical-records', '0 2 * * *', 'SELECT archive_old_records()');`} />
         </div>
       </section>
 
@@ -279,7 +280,7 @@ SELECT cron.schedule('archive-medical-records', '0 2 * * *', 'SELECT archive_old
           <div class="resource-box">
             <h3>💻 SQL Ownership</h3>
             <p>Own your queries, own your compliance story.</p>
-            <a href="/docs/concepts/how-it-works/" class="link">Read →</a>
+            <a href="/concepts/how-it-works/" class="link">Read →</a>
           </div>
         </div>
       </section>
@@ -288,7 +289,7 @@ SELECT cron.schedule('archive-medical-records', '0 2 * * *', 'SELECT archive_old
         <h2>Build Compliant Systems</h2>
         <p>FraiseQL makes regulatory compliance part of your architecture, not an afterthought.</p>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
         </div>
       </section>
@@ -374,7 +375,6 @@ SELECT cron.schedule('archive-medical-records', '0 2 * * *', 'SELECT archive_old
   }
 
   .solution-step pre {
-    background: white;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -414,7 +414,6 @@ SELECT cron.schedule('archive-medical-records', '0 2 * * *', 'SELECT archive_old
   }
 
   .example-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -438,7 +437,6 @@ SELECT cron.schedule('archive-medical-records', '0 2 * * *', 'SELECT archive_old
   }
 
   .practice-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);

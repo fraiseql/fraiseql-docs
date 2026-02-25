@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "FraiseQL for AI Engineers";
 const description = "Framework optimized for AI code generation. Consistent patterns. Deterministic behavior. Minimal token overhead. Perfect for LLM-assisted development.";
@@ -49,7 +50,7 @@ const description = "Framework optimized for AI code generation. Consistent patt
           <div class="comparison-box">
             <div class="comp-item traditional">
               <strong>Traditional GraphQL</strong>
-              <pre><code set:html={`# Generate resolvers + ORMs + types + validation
+              <Code lang="python" theme="github-light" code={`# Generate resolvers + ORMs + types + validation
 @resolver
 async def user(info, id):
   user = db.query(...)
@@ -64,26 +65,26 @@ async def user_posts(parent, info):
 # + Cache invalidation
 # + Error handling
 
-~80 lines of generated code per type`}></code></pre>
+~80 lines of generated code per type`} />
             </div>
             <div class="comp-item fraiseql">
               <strong>FraiseQL</strong>
-              <pre><code set:html={`# SQL view (human-written once)
+              <Code lang="python" theme="github-light" code={`# SQL view (human-written once)
 CREATE VIEW v_user_with_posts AS ...
 
 # Type definition
 @fraiseql.type
 class User:
-  id: UUID
+  id: ID
   name: str
   posts: list[Post]
 
 # Query resolver
 @fraiseql.query(sql_source="v_user_with_posts")
-def user(id: UUID) -> User:
+def user(id: ID) -> User:
   pass
 
-~15 lines of generated code per type`}></code></pre>
+~15 lines of generated code per type`} />
             </div>
           </div>
           <p class="impact"><strong>Impact:</strong> 5x less code to generate = 5x fewer tokens = faster, cheaper generations.</p>
@@ -92,7 +93,7 @@ def user(id: UUID) -> User:
         <div class="optimization-card">
           <h3>3. Deterministic Verification</h3>
           <p>LLMs can verify correctness through compilation:</p>
-          <pre><code set:html={`# LLM generates code
+          <Code lang="python" theme="github-light" code={`# LLM generates code
 # System compiles with: fraiseql build
 
 # If any patterns wrong:
@@ -100,7 +101,7 @@ ERROR: Table 'tb_user' has id field as STRING
 Expected: UUID
 
 # LLM sees error, fixes, regenerates
-# ✓ Loop terminates quickly with correct code`}></code></pre>
+# ✓ Loop terminates quickly with correct code`} />
           <p class="impact"><strong>Impact:</strong> No guessing. Compile-time feedback = faster iteration.</p>
         </div>
 
@@ -120,7 +121,7 @@ Expected: UUID
           <h3>5. Small API Surface</h3>
           <p>FraiseQL handles only one thing: map views to types.</p>
           <p>Everything else is standard tools (auth, caching, databases).</p>
-          <pre><code set:html={`# What LLMs need to know:
+          <Code lang="python" theme="github-light" code={`# What LLMs need to know:
 ✓ SQL: Create views with JSONB composition
 ✓ Types: Define schema types matching views
 ✓ Queries: Declare sql_source="v_name"
@@ -131,7 +132,7 @@ Expected: UUID
 ✗ DataLoader configuration (not needed)
 ✗ N+1 prevention strategies (built-in)
 ✗ Cache invalidation (optional, standard Redis)
-✗ Query batching (happens at DB level)`}></code></pre>
+✗ Query batching (happens at DB level)`} />
           <p class="impact"><strong>Impact:</strong> Smaller knowledge base = fewer tokens + fewer hallucinations.</p>
         </div>
 
@@ -213,11 +214,11 @@ Generate SQL views and Python types for a GraphQL API."</code></pre>
           <div class="step-number">3</div>
           <h3>Compile & Verify</h3>
           <p>Run build pipeline:</p>
-          <pre><code set:html={`fraiseql build
+          <Code lang="python" theme="github-light" code={`fraiseql build
 
 # Either:
 ✓ All patterns valid → code is ready
-✗ Pattern mismatch → clear error message`}></code></pre>
+✗ Pattern mismatch → clear error message`} />
         </div>
 
         <div class="workflow-step">
@@ -385,8 +386,8 @@ IDs: UUID type always
       <section class="next-section">
         <h2>Ready to Generate Better APIs?</h2>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
-          <a href="/docs/concepts/how-it-works/" class="btn btn-secondary">Learn Philosophy</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/concepts/how-it-works/" class="btn btn-secondary">Learn Philosophy</a>
         </div>
       </section>
 
@@ -530,7 +531,6 @@ IDs: UUID type always
   }
 
   .comp-item pre {
-    background: white;
     border: 1px solid #ccc;
     border-radius: 0.375rem;
     padding: 0.75rem;

@@ -142,11 +142,9 @@ class User:
 ```python
 from datetime import datetime
 from decimal import Decimal
-from uuid import UUID
-
 @fraiseql.type
 class Order:
-    id: UUID
+    id: ID
     total: Decimal
     created_at: datetime
 ```

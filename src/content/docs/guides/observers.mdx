@@ -1,0 +1,585 @@
+---
+title: Observers
+description: Trigger side effects after mutations — send emails, update projections, publish events
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Observers are functions that run after a mutation completes successfully. The mutation commits to the database first, then your observers fire. This means observers cannot roll back the write — they are for side effects: sending emails, updating projection tables, publishing events, calling webhooks, writing audit logs.
+
+This guide builds directly on the blog API from [Your First API](/getting-started/first-api) — users, posts, and comments.
+
+## How Observers Fit In
+
+When a `createUser` mutation runs:
+
+1. FraiseQL executes your SQL function inside a transaction
+2. The transaction commits
+3. The result (a `User` object) is passed to every registered observer for `createUser`
+4. The GraphQL response returns to the client — it does not wait for observers to finish
+
+Observers receive the same object returned to the client. They have access to the request context, which carries your database connection, auth token, and any injected services.
+
+## Step 1: Your First Observer — Welcome Email on createUser
+
+Register an observer that sends a welcome email after a user account is created.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="observers.py"
+    import fraiseql
+    from fraiseql import Context
+    from schema import User
+
+    @fraiseql.observer("createUser")
+    async def send_welcome_email(result: User, context: Context) -> None:
+        await context.email_client.send(
+            to=result.email,
+            subject="Welcome to the blog",
+            body=f"Hi {result.username}, your account is ready.",
+        )
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="observers.ts"
+    import fraiseql, { type Context } from 'fraiseql';
+    import { type User } from './schema';
+
+    fraiseql.observe('createUser', async (result: User, context: Context) => {
+      await context.emailClient.send({
+        to: result.email,
+        subject: 'Welcome to the blog',
+        body: `Hi ${result.username}, your account is ready.`,
+      });
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="observers.go"
+    package observers
+
+    import (
+        "context"
+        "fmt"
+
+        "github.com/fraiseql/fraiseql-go"
+        "your-module/schema"
+        "your-module/email"
+    )
+
+    func Register(app *fraiseql.App) {
+        fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
+            return email.Send(ctx, email.Message{
+                To:      result.Email,
+                Subject: "Welcome to the blog",
+                Body:    fmt.Sprintf("Hi %s, your account is ready.", result.Username),
+            })
+        })
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+Register your observers at startup, after the app is configured:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="main.py"
+    import fraiseql
+    import observers  # registers all observers on import
+
+    app = fraiseql.create_app(config="fraiseql.toml")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="main.ts"
+    import fraiseql from 'fraiseql';
+    import './observers'; // registers all observers on import
+
+    const app = fraiseql.createApp({ config: 'fraiseql.toml' });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="main.go"
+    package main
+
+    import (
+        "github.com/fraiseql/fraiseql-go"
+        "your-module/observers"
+    )
+
+    func main() {
+        app := fraiseql.NewApp("fraiseql.toml")
+        observers.Register(app)
+        app.Serve()
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 2: Observer on createComment — Notify the Post Author
+
+When someone comments on a post, the post author should receive a notification. The observer receives the new `Comment` — it can use the context to look up the post author.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="observers.py"
+    @fraiseql.observer("createComment")
+    async def notify_post_author(result: Comment, context: Context) -> None:
+        # The comment result embeds the post and its author
+        # (as shaped by v_comment joining v_post and v_user)
+        post_author = result.post.author
+
+        # Don't notify if the commenter is the post author
+        if post_author.id == result.author.id:
+            return
+
+        await context.email_client.send(
+            to=post_author.email,
+            subject=f"New comment on \"{result.post.title}\"",
+            body=(
+                f"{result.author.username} commented: "
+                f"\"{result.content[:100]}\""
+            ),
+        )
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="observers.ts"
+    fraiseql.observe('createComment', async (result: Comment, context: Context) => {
+      // The comment result embeds the post and its author
+      const postAuthor = result.post.author;
+
+      // Don't notify if the commenter is the post author
+      if (postAuthor.id === result.author.id) return;
+
+      await context.emailClient.send({
+        to: postAuthor.email,
+        subject: `New comment on "${result.post.title}"`,
+        body: `${result.author.username} commented: "${result.content.slice(0, 100)}"`,
+      });
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="observers.go"
+    fraiseql.Observe(app, "createComment", func(ctx context.Context, result schema.Comment) error {
+        // The comment result embeds the post and its author
+        postAuthor := result.Post.Author
+
+        // Don't notify if the commenter is the post author
+        if postAuthor.ID == result.Author.ID {
+            return nil
+        }
+
+        return emailClient.Send(ctx, email.Message{
+            To:      postAuthor.Email,
+            Subject: fmt.Sprintf("New comment on %q", result.Post.Title),
+            Body: fmt.Sprintf(
+                "%s commented: %q",
+                result.Author.Username,
+                truncate(result.Content, 100),
+            ),
+        })
+    })
+    ```
+  </TabItem>
+</Tabs>
+
+The observer uses data already present on the result object — no extra database query needed, because `v_comment` joins through to `v_post` and `v_user`.
+
+If you need data that is not on the result, the context provides a database connection:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="observers.py"
+    @fraiseql.observer("createComment")
+    async def notify_post_author(result: Comment, context: Context) -> None:
+        # Fetch additional data via the context db connection
+        row = await context.db.fetchrow(
+            "SELECT email FROM tb_user WHERE pk_user = $1",
+            result.post.fk_author,
+        )
+        await context.email_client.send(to=row["email"], ...)
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="observers.ts"
+    fraiseql.observe('createComment', async (result: Comment, context: Context) => {
+      const row = await context.db.queryOne(
+        'SELECT email FROM tb_user WHERE pk_user = $1',
+        [result.post.fkAuthor],
+      );
+      await context.emailClient.send({ to: row.email, ... });
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="observers.go"
+    fraiseql.Observe(app, "createComment", func(ctx context.Context, result schema.Comment) error {
+        var authorEmail string
+        err := db.QueryRowContext(ctx,
+            "SELECT email FROM tb_user WHERE pk_user = $1",
+            result.Post.FkAuthor,
+        ).Scan(&authorEmail)
+        if err != nil {
+            return err
+        }
+        return emailClient.Send(ctx, email.Message{To: authorEmail})
+    })
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 3: Observer on publishPost — Update a Projection Table
+
+Observers are the natural place to keep projection tables in sync. The [Projection Tables](/guides/projection-tables) guide introduces `tv_post_stats`. When a post is published, you can update its `published_at` timestamp from an observer.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="observers.py"
+    from datetime import datetime, timezone
+
+    @fraiseql.observer("publishPost")
+    async def update_post_stats_on_publish(result: Post, context: Context) -> None:
+        await context.db.execute(
+            """
+            UPDATE tv_post_stats
+            SET published_at = $1
+            WHERE post_id = $2
+            """,
+            datetime.now(timezone.utc),
+            result.id,
+        )
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="observers.ts"
+    fraiseql.observe('publishPost', async (result: Post, context: Context) => {
+      await context.db.query(
+        `UPDATE tv_post_stats
+         SET published_at = $1
+         WHERE post_id = $2`,
+        [new Date(), result.id],
+      );
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="observers.go"
+    fraiseql.Observe(app, "publishPost", func(ctx context.Context, result schema.Post) error {
+        _, err := db.ExecContext(ctx,
+            `UPDATE tv_post_stats
+             SET published_at = $1
+             WHERE post_id = $2`,
+            time.Now().UTC(),
+            result.ID,
+        )
+        return err
+    })
+    ```
+  </TabItem>
+</Tabs>
+
+This is the connection between observers and projection tables: mutations write to the canonical tables, observers keep your read models current.
+
+## Step 4: Error Handling in Observers
+
+An observer failure does not roll back the mutation. The write has already committed. Your observer must handle its own errors — failing silently is worse than failing loudly.
+
+### Log errors, do not re-raise
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="observers.py"
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    @fraiseql.observer("createUser")
+    async def send_welcome_email(result: User, context: Context) -> None:
+        try:
+            await context.email_client.send(
+                to=result.email,
+                subject="Welcome to the blog",
+                body=f"Hi {result.username}, your account is ready.",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to send welcome email to user %s", result.id
+            )
+            # Do not re-raise — observer failure must not affect the mutation response
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="observers.ts"
+    fraiseql.observe('createUser', async (result: User, context: Context) => {
+      try {
+        await context.emailClient.send({
+          to: result.email,
+          subject: 'Welcome to the blog',
+          body: `Hi ${result.username}, your account is ready.`,
+        });
+      } catch (err) {
+        context.logger.error('Failed to send welcome email', {
+          userId: result.id,
+          error: err,
+        });
+        // Do not re-throw — observer failure must not affect the mutation response
+      }
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="observers.go"
+    fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
+        err := emailClient.Send(ctx, email.Message{
+            To:      result.Email,
+            Subject: "Welcome to the blog",
+            Body:    fmt.Sprintf("Hi %s, your account is ready.", result.Username),
+        })
+        if err != nil {
+            // Log and return nil — observer error must not surface to the client
+            slog.ErrorContext(ctx, "failed to send welcome email",
+                "user_id", result.ID,
+                "error", err,
+            )
+            return nil
+        }
+        return nil
+    })
+    ```
+  </TabItem>
+</Tabs>
+
+### Dead-letter queue for critical observers
+
+For observers that must not lose events (billing, compliance, audit), push failures to a dead-letter queue rather than discarding them:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="observers.py"
+    @fraiseql.observer("createUser")
+    async def record_signup_event(result: User, context: Context) -> None:
+        try:
+            await context.event_bus.publish("user.created", {
+                "user_id": result.id,
+                "email": result.email,
+                "created_at": result.created_at.isoformat(),
+            })
+        except Exception:
+            logger.exception("Failed to publish user.created event for %s", result.id)
+            # Push to dead-letter queue for later replay
+            await context.dlq.enqueue("user.created", {
+                "user_id": result.id,
+                "email": result.email,
+            })
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="observers.ts"
+    fraiseql.observe('createUser', async (result: User, context: Context) => {
+      try {
+        await context.eventBus.publish('user.created', {
+          userId: result.id,
+          email: result.email,
+          createdAt: result.createdAt,
+        });
+      } catch (err) {
+        context.logger.error('Failed to publish user.created', { userId: result.id, err });
+        // Push to dead-letter queue for later replay
+        await context.dlq.enqueue('user.created', {
+          userId: result.id,
+          email: result.email,
+        });
+      }
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="observers.go"
+    fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
+        err := eventBus.Publish(ctx, "user.created", map[string]any{
+            "user_id":    result.ID,
+            "email":      result.Email,
+            "created_at": result.CreatedAt,
+        })
+        if err != nil {
+            slog.ErrorContext(ctx, "failed to publish user.created",
+                "user_id", result.ID, "error", err)
+            // Push to dead-letter queue for later replay
+            _ = dlq.Enqueue(ctx, "user.created", result.ID)
+        }
+        return nil
+    })
+    ```
+  </TabItem>
+</Tabs>
+
+### Retry configuration
+
+FraiseQL supports configuring retries on observers for transient failures:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="observers.py"
+    from fraiseql import RetryConfig
+
+    @fraiseql.observer(
+        "createUser",
+        retry=RetryConfig(
+            max_attempts=3,
+            backoff_strategy="exponential",
+            initial_delay_ms=200,
+        ),
+    )
+    async def send_welcome_email(result: User, context: Context) -> None:
+        await context.email_client.send(
+            to=result.email,
+            subject="Welcome to the blog",
+            body=f"Hi {result.username}, your account is ready.",
+        )
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="observers.ts"
+    fraiseql.observe(
+      'createUser',
+      async (result: User, context: Context) => {
+        await context.emailClient.send({
+          to: result.email,
+          subject: 'Welcome to the blog',
+          body: `Hi ${result.username}, your account is ready.`,
+        });
+      },
+      {
+        retry: {
+          maxAttempts: 3,
+          backoffStrategy: 'exponential',
+          initialDelayMs: 200,
+        },
+      },
+    );
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="observers.go"
+    fraiseql.Observe(app, "createUser", sendWelcomeEmail,
+        fraiseql.WithRetry(fraiseql.RetryConfig{
+            MaxAttempts:      3,
+            BackoffStrategy:  fraiseql.BackoffExponential,
+            InitialDelayMs:   200,
+        }),
+    )
+    ```
+  </TabItem>
+</Tabs>
+
+Retries are appropriate for idempotent observers — sending the same welcome email twice is acceptable. For non-idempotent actions (e.g. charging a card), set `max_attempts=1` or handle idempotency in the action itself.
+
+## Step 5: Multiple Observers on One Mutation
+
+You can register multiple observers on the same mutation. They run sequentially in registration order.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="observers.py"
+    # Observer 1 — runs first
+    @fraiseql.observer("createUser")
+    async def send_welcome_email(result: User, context: Context) -> None:
+        try:
+            await context.email_client.send(
+                to=result.email,
+                subject="Welcome to the blog",
+                body=f"Hi {result.username}, your account is ready.",
+            )
+        except Exception:
+            logger.exception("Failed to send welcome email to %s", result.id)
+
+    # Observer 2 — runs second
+    @fraiseql.observer("createUser")
+    async def record_signup_event(result: User, context: Context) -> None:
+        try:
+            await context.event_bus.publish("user.created", {
+                "user_id": result.id,
+                "username": result.username,
+            })
+        except Exception:
+            logger.exception("Failed to publish user.created for %s", result.id)
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript title="observers.ts"
+    // Observer 1 — runs first
+    fraiseql.observe('createUser', async (result: User, context: Context) => {
+      try {
+        await context.emailClient.send({
+          to: result.email,
+          subject: 'Welcome to the blog',
+          body: `Hi ${result.username}, your account is ready.`,
+        });
+      } catch (err) {
+        context.logger.error('Failed to send welcome email', { userId: result.id, err });
+      }
+    });
+
+    // Observer 2 — runs second
+    fraiseql.observe('createUser', async (result: User, context: Context) => {
+      try {
+        await context.eventBus.publish('user.created', {
+          userId: result.id,
+          username: result.username,
+        });
+      } catch (err) {
+        context.logger.error('Failed to publish user.created', { userId: result.id, err });
+      }
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="observers.go"
+    func Register(app *fraiseql.App) {
+        // Observer 1 — runs first
+        fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
+            if err := sendWelcomeEmail(ctx, result); err != nil {
+                slog.ErrorContext(ctx, "welcome email failed", "user_id", result.ID, "error", err)
+            }
+            return nil
+        })
+
+        // Observer 2 — runs second
+        fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
+            if err := publishSignupEvent(ctx, result); err != nil {
+                slog.ErrorContext(ctx, "signup event failed", "user_id", result.ID, "error", err)
+            }
+            return nil
+        })
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+Each observer catches its own errors independently. A failure in observer 1 does not prevent observer 2 from running.
+
+## Observers vs Database Triggers
+
+Both observers and database triggers react to data changes. They serve different purposes:
+
+| | Observer | DB Trigger |
+|---|---|---|
+| Runs | After commit, outside transaction | Inside transaction |
+| Can call external services | Yes | No |
+| Rolls back on failure | No | Yes |
+| Access to context / auth | Yes | No |
+| Can read application state | Yes | No |
+| Visible in application code | Yes | Only as SQL |
+
+**Use a database trigger when** the action must be atomic with the write — for example, enforcing a derived column or maintaining a denormalized counter that must never be out of sync.
+
+**Use an observer when** the action involves the outside world — sending an email, calling a webhook, updating a projection table, publishing an event. These actions cannot participate in the database transaction anyway, so placing them in observers keeps responsibility clear.
+
+## What's Next
+
+- [Projection Tables](/guides/projection-tables) — Keep read models up to date
+- [Advanced Patterns](/guides/advanced-patterns) — Audit trails, versioning, soft deletes
+- [Webhooks](/features/webhooks) — Push events to external systems

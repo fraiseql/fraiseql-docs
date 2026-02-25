@@ -1,0 +1,783 @@
+---
+title: Threaded Comments
+description: Add nested comment threads to your blog API using recursive CTEs and FraiseQL's self-referential types
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide picks up where [Your First API](/getting-started/first-api) left off. The blog API has a flat `tb_comment` table where every comment belongs directly to a post. This guide adds **threading**: comments can reply to other comments, producing a tree. A single recursive CTE view exposes the full tree to FraiseQL, which reconstructs the nesting from the `parent_id` relationship.
+
+## What We're Building
+
+- A `parent_id` self-reference on `tb_comment`
+- A recursive CTE view that exposes each comment's depth and ancestors
+- A self-referential `Comment` type with a `children` field
+- A `createComment` mutation that accepts an optional `parent_id`
+
+## Step 1: Update the Comments Table
+
+Add a nullable `parent_id` column that references `tb_comment` itself. Top-level comments leave it `NULL`; replies point to their parent.
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/01_write/tb_comment_thread.sql"
+    ALTER TABLE tb_comment
+        ADD COLUMN fk_parent_comment BIGINT
+            REFERENCES tb_comment(pk_comment)
+            ON DELETE CASCADE,
+        ADD COLUMN parent_id UUID
+            REFERENCES tb_comment(id)
+            ON DELETE CASCADE;
+
+    /*index so "fetch children of comment X" is a seek, not a scan*/
+    CREATE INDEX ix_tb_comment_fk_parent ON tb_comment(fk_parent_comment)
+        WHERE fk_parent_comment IS NOT NULL;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/01_write/tb_comment_thread.sql"
+    ALTER TABLE tb_comment
+        ADD COLUMN fk_parent_comment BIGINT NULL,
+        ADD COLUMN parent_id CHAR(36) NULL,
+        ADD CONSTRAINT FK_tb_comment_parent
+            FOREIGN KEY (fk_parent_comment)
+            REFERENCES tb_comment(pk_comment)
+            ON DELETE CASCADE;
+
+    /*index for child lookups*/
+    CREATE INDEX ix_tb_comment_fk_parent
+        ON tb_comment(fk_parent_comment);
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    SQLite does not support `ADD CONSTRAINT` in `ALTER TABLE`. Recreate the table with the self-reference:
+
+    ```sql title="db/schema/01_write/tb_comment.sql"
+    /*replace the original tb_comment definition*/
+    CREATE TABLE tb_comment (
+        /*keys*/
+        pk_comment INTEGER PRIMARY KEY,
+        id TEXT NOT NULL,
+        identifier TEXT NOT NULL,
+        fk_user INTEGER NOT NULL,
+        fk_post INTEGER NOT NULL,
+        fk_parent_comment INTEGER NULL,
+        parent_id TEXT NULL,
+
+        /*business fields*/
+        content TEXT NOT NULL,
+
+        /*audit fields*/
+        created_at TEXT NOT NULL
+            DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
+
+        /*constraints*/
+        CONSTRAINT uq_tb_comment_id UNIQUE (id),
+        CONSTRAINT uq_tb_comment_identifier UNIQUE (identifier),
+        CONSTRAINT fk_tb_comment_user
+            FOREIGN KEY (fk_user)
+            REFERENCES tb_user(pk_user)
+            ON DELETE RESTRICT,
+        CONSTRAINT fk_tb_comment_post
+            FOREIGN KEY (fk_post)
+            REFERENCES tb_post(pk_post)
+            ON DELETE RESTRICT,
+        CONSTRAINT fk_tb_comment_parent
+            FOREIGN KEY (fk_parent_comment)
+            REFERENCES tb_comment(pk_comment)
+            ON DELETE CASCADE
+    );
+
+    CREATE INDEX ix_tb_comment_fk_user ON tb_comment(fk_user);
+    CREATE INDEX ix_tb_comment_fk_post ON tb_comment(fk_post);
+    CREATE INDEX ix_tb_comment_fk_parent ON tb_comment(fk_parent_comment);
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/01_write/tb_comment_thread.sql"
+    ALTER TABLE dbo.tb_comment
+        ADD fk_parent_comment BIGINT NULL,
+            parent_id UNIQUEIDENTIFIER NULL;
+
+    ALTER TABLE dbo.tb_comment
+        ADD CONSTRAINT FK_tb_comment_parent
+            FOREIGN KEY (fk_parent_comment)
+            REFERENCES dbo.tb_comment(pk_comment)
+            ON DELETE NO ACTION;
+
+    /*index for child lookups*/
+    CREATE INDEX IX_tb_comment_fk_parent
+        ON dbo.tb_comment(fk_parent_comment)
+        WHERE fk_parent_comment IS NOT NULL;
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 2: Replace the Flat View with a Recursive CTE View
+
+The original `v_comment` was a simple join. Replace it with a view that uses a recursive CTE to walk the tree. Each row exposes `depth` (0 = top-level) and `ancestors` (an ordered array of ancestor IDs for breadcrumb display).
+
+FraiseQL reads this view as a flat result set. It reconstructs the tree by following the `parent_id` relationship declared in the schema — the view's job is only to expose the right columns cleanly.
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/02_read/v_comment.sql"
+    CREATE OR REPLACE VIEW v_comment AS
+    WITH RECURSIVE comment_tree AS (
+        /*base case: top-level comments*/
+        SELECT
+            c.pk_comment,
+            c.id,
+            c.fk_post,
+            c.fk_parent_comment,
+            c.parent_id,
+            c.content,
+            c.fk_user,
+            c.created_at,
+            0                           AS depth,
+            ARRAY[]::uuid[]             AS ancestors
+        FROM tb_comment c
+        WHERE c.fk_parent_comment IS NULL
+
+        UNION ALL
+
+        /*recursive case: replies*/
+        SELECT
+            child.pk_comment,
+            child.id,
+            child.fk_post,
+            child.fk_parent_comment,
+            child.parent_id,
+            child.content,
+            child.fk_user,
+            child.created_at,
+            parent.depth + 1            AS depth,
+            parent.ancestors || parent.id AS ancestors
+        FROM tb_comment child
+        JOIN comment_tree parent
+            ON child.fk_parent_comment = parent.pk_comment
+        WHERE parent.depth < 10         /*guard against runaway recursion*/
+    )
+    SELECT
+        ct.id,
+        ct.parent_id,
+        ct.fk_post,
+        jsonb_build_object(
+            'id',         ct.id::text,
+            'parent_id',  ct.parent_id::text,
+            'content',    ct.content,
+            'depth',      ct.depth,
+            'ancestors',  ct.ancestors,
+            'created_at', ct.created_at,
+            'author',     vu.data
+        ) AS data
+    FROM comment_tree ct
+    JOIN tb_user u  ON u.pk_user = ct.fk_user
+    JOIN v_user vu  ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/02_read/v_comment.sql"
+    CREATE OR REPLACE VIEW v_comment AS
+    WITH RECURSIVE comment_tree AS (
+        /*base case: top-level comments*/
+        SELECT
+            c.pk_comment,
+            c.id,
+            c.fk_post,
+            c.fk_parent_comment,
+            c.parent_id,
+            c.content,
+            c.fk_user,
+            c.created_at,
+            0           AS depth,
+            CAST('' AS CHAR(4000)) AS ancestors
+        FROM tb_comment c
+        WHERE c.fk_parent_comment IS NULL
+
+        UNION ALL
+
+        SELECT
+            child.pk_comment,
+            child.id,
+            child.fk_post,
+            child.fk_parent_comment,
+            child.parent_id,
+            child.content,
+            child.fk_user,
+            child.created_at,
+            parent.depth + 1 AS depth,
+            CASE
+                WHEN parent.ancestors = '' THEN parent.id
+                ELSE CONCAT(parent.ancestors, ',', parent.id)
+            END AS ancestors
+        FROM tb_comment child
+        JOIN comment_tree parent
+            ON child.fk_parent_comment = parent.pk_comment
+        WHERE parent.depth < 10
+    )
+    SELECT
+        ct.id,
+        ct.parent_id,
+        ct.fk_post,
+        JSON_OBJECT(
+            'id',         ct.id,
+            'parent_id',  ct.parent_id,
+            'content',    ct.content,
+            'depth',      ct.depth,
+            'ancestors',  ct.ancestors,
+            'created_at', ct.created_at,
+            'author',     JSON_QUERY(vu.data, '$')
+        ) AS data
+    FROM comment_tree ct
+    JOIN tb_user u  ON u.pk_user = ct.fk_user
+    JOIN v_user vu  ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/02_read/v_comment.sql"
+    CREATE VIEW v_comment AS
+    WITH RECURSIVE comment_tree AS (
+        /*base case: top-level comments*/
+        SELECT
+            c.pk_comment,
+            c.id,
+            c.fk_post,
+            c.fk_parent_comment,
+            c.parent_id,
+            c.content,
+            c.fk_user,
+            c.created_at,
+            0    AS depth,
+            ''   AS ancestors
+        FROM tb_comment c
+        WHERE c.fk_parent_comment IS NULL
+
+        UNION ALL
+
+        SELECT
+            child.pk_comment,
+            child.id,
+            child.fk_post,
+            child.fk_parent_comment,
+            child.parent_id,
+            child.content,
+            child.fk_user,
+            child.created_at,
+            parent.depth + 1 AS depth,
+            CASE
+                WHEN parent.ancestors = '' THEN parent.id
+                ELSE parent.ancestors || ',' || parent.id
+            END AS ancestors
+        FROM tb_comment child
+        JOIN comment_tree parent
+            ON child.fk_parent_comment = parent.pk_comment
+        WHERE parent.depth < 10
+    )
+    SELECT
+        ct.id,
+        ct.parent_id,
+        ct.fk_post,
+        json_object(
+            'id',         ct.id,
+            'parent_id',  ct.parent_id,
+            'content',    ct.content,
+            'depth',      ct.depth,
+            'ancestors',  ct.ancestors,
+            'created_at', ct.created_at,
+            'author',     json(vu.data)
+        ) AS data
+    FROM comment_tree ct
+    JOIN tb_user u  ON u.pk_user = ct.fk_user
+    JOIN v_user vu  ON vu.id = u.id;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/02_read/v_comment.sql"
+    CREATE OR ALTER VIEW dbo.v_comment AS
+    WITH comment_tree AS (
+        /*base case: top-level comments*/
+        SELECT
+            c.pk_comment,
+            c.id,
+            c.fk_post,
+            c.fk_parent_comment,
+            c.parent_id,
+            c.content,
+            c.fk_user,
+            c.created_at,
+            0                               AS depth,
+            CAST('' AS NVARCHAR(MAX))       AS ancestors
+        FROM dbo.tb_comment c
+        WHERE c.fk_parent_comment IS NULL
+
+        UNION ALL
+
+        SELECT
+            child.pk_comment,
+            child.id,
+            child.fk_post,
+            child.fk_parent_comment,
+            child.parent_id,
+            child.content,
+            child.fk_user,
+            child.created_at,
+            parent.depth + 1 AS depth,
+            CASE
+                WHEN parent.ancestors = '' THEN CAST(parent.id AS NVARCHAR(MAX))
+                ELSE parent.ancestors + N',' + CAST(parent.id AS NVARCHAR(MAX))
+            END AS ancestors
+        FROM dbo.tb_comment child
+        JOIN comment_tree parent
+            ON child.fk_parent_comment = parent.pk_comment
+        WHERE parent.depth < 10
+    )
+    SELECT
+        ct.id,
+        ct.parent_id,
+        ct.fk_post,
+        (
+            SELECT
+                ct.id,
+                ct.parent_id,
+                ct.content,
+                ct.depth,
+                ct.ancestors,
+                ct.created_at,
+                JSON_QUERY(vu.data) AS author
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM comment_tree ct
+    JOIN dbo.tb_user u  ON u.pk_user = ct.fk_user
+    JOIN dbo.v_user vu  ON vu.id = u.id;
+    ```
+  </TabItem>
+</Tabs>
+
+The `depth < 10` guard in each CTE prevents runaway recursion on malformed or adversarial data. Adjust the limit for your domain — most blog comment trees stay under five levels in practice.
+
+## Step 3: Update the Comment Type
+
+Add a `children` field to `Comment`. This is a self-referential list: FraiseQL resolves it by querying `v_comment` filtered to rows where `parent_id` matches the current comment's `id`.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    from __future__ import annotations
+    import fraiseql
+    from fraiseql.scalars import ID, DateTime
+
+    @fraiseql.type
+    class Comment:
+        """A comment on a post, optionally nested under another comment."""
+        id: ID
+        parent_id: ID | None
+        content: str
+        depth: int
+        ancestors: list[ID]
+        created_at: DateTime
+        author: 'User'
+        children: list['Comment']
+    ```
+
+    FraiseQL resolves `children` by selecting from `v_comment` where `parent_id = <this comment's id>`. No custom resolver needed.
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    import { type } from 'fraiseql';
+    import { ID, DateTime } from 'fraiseql/scalars';
+
+    @type()
+    class Comment {
+      /** A comment on a post, optionally nested under another comment. */
+      id: ID;
+      parentId: ID | null;
+      content: string;
+      depth: number;
+      ancestors: ID[];
+      createdAt: DateTime;
+      author: User;
+      children: Comment[];
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go title="schema.go"
+    // Comment represents a comment on a post, optionally nested.
+    type Comment struct {
+        ID        scalars.ID       `fraiseql:"type"`
+        ParentID  *scalars.ID
+        Content   string
+        Depth     int
+        Ancestors []scalars.ID
+        CreatedAt scalars.DateTime
+        Author    User
+        Children  []Comment
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 4: Add the createComment Mutation
+
+The new mutation accepts an optional `parent_id`. The database function validates that, when provided, the parent comment belongs to the same post — preventing cross-post threading.
+
+### Database Function
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/03_mutations/fn_create_comment.sql"
+    CREATE OR REPLACE FUNCTION fn_create_comment(
+        p_content   TEXT,
+        p_post_id   UUID,
+        p_author_id UUID,
+        p_parent_id UUID DEFAULT NULL
+    ) RETURNS UUID LANGUAGE plpgsql AS $$
+    DECLARE
+        v_fk_user    BIGINT;
+        v_fk_post    BIGINT;
+        v_fk_parent  BIGINT;
+        v_id         UUID;
+    BEGIN
+        /*validate: author exists*/
+        SELECT pk_user INTO v_fk_user FROM tb_user WHERE id = p_author_id;
+        IF v_fk_user IS NULL THEN
+            RAISE EXCEPTION 'author not found: %', p_author_id;
+        END IF;
+
+        /*validate: post exists*/
+        SELECT pk_post INTO v_fk_post FROM tb_post WHERE id = p_post_id;
+        IF v_fk_post IS NULL THEN
+            RAISE EXCEPTION 'post not found: %', p_post_id;
+        END IF;
+
+        /*validate: parent belongs to the same post*/
+        IF p_parent_id IS NOT NULL THEN
+            SELECT pk_comment INTO v_fk_parent
+            FROM tb_comment
+            WHERE id = p_parent_id AND fk_post = v_fk_post;
+
+            IF v_fk_parent IS NULL THEN
+                RAISE EXCEPTION
+                    'parent comment % not found on post %', p_parent_id, p_post_id;
+            END IF;
+        END IF;
+
+        INSERT INTO tb_comment (
+            identifier, fk_user, fk_post, fk_parent_comment, parent_id, content
+        )
+        VALUES (
+            'cmt_' || gen_random_uuid()::text,
+            v_fk_user, v_fk_post, v_fk_parent, p_parent_id, p_content
+        )
+        RETURNING id INTO v_id;
+
+        RETURN v_id;
+    END; $$;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/03_mutations/fn_create_comment.sql"
+    DELIMITER $$
+    CREATE FUNCTION fn_create_comment(
+        p_content   TEXT,
+        p_post_id   CHAR(36),
+        p_author_id CHAR(36),
+        p_parent_id CHAR(36)
+    ) RETURNS CHAR(36) NOT DETERMINISTIC
+    BEGIN
+        DECLARE v_fk_user   BIGINT;
+        DECLARE v_fk_post   BIGINT;
+        DECLARE v_fk_parent BIGINT;
+        DECLARE v_id        CHAR(36);
+
+        /*validate: author exists*/
+        SELECT pk_user INTO v_fk_user FROM tb_user WHERE id = p_author_id LIMIT 1;
+        IF v_fk_user IS NULL THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'author not found';
+        END IF;
+
+        /*validate: post exists*/
+        SELECT pk_post INTO v_fk_post FROM tb_post WHERE id = p_post_id LIMIT 1;
+        IF v_fk_post IS NULL THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'post not found';
+        END IF;
+
+        /*validate: parent belongs to the same post*/
+        IF p_parent_id IS NOT NULL THEN
+            SELECT pk_comment INTO v_fk_parent
+            FROM tb_comment
+            WHERE id = p_parent_id AND fk_post = v_fk_post
+            LIMIT 1;
+
+            IF v_fk_parent IS NULL THEN
+                SIGNAL SQLSTATE '45000'
+                    SET MESSAGE_TEXT = 'parent comment not on this post';
+            END IF;
+        END IF;
+
+        SET v_id = UUID();
+        INSERT INTO tb_comment (
+            id, identifier, fk_user, fk_post,
+            fk_parent_comment, parent_id, content
+        )
+        VALUES (
+            v_id, CONCAT('cmt_', REPLACE(UUID(), '-', '')),
+            v_fk_user, v_fk_post, v_fk_parent, p_parent_id, p_content
+        );
+        RETURN v_id;
+    END$$
+    DELIMITER ;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    SQLite does not support stored procedures. Use `operation="create"` and let FraiseQL generate the `INSERT`. Parent validation must be handled by a `BEFORE INSERT` trigger or in application middleware.
+
+    ```sql title="db/schema/03_mutations/tr_validate_comment_parent.sql"
+    /*trigger to enforce cross-post parent validation*/
+    CREATE TRIGGER tr_comment_parent_same_post
+    BEFORE INSERT ON tb_comment
+    FOR EACH ROW
+    WHEN NEW.fk_parent_comment IS NOT NULL
+    BEGIN
+        SELECT RAISE(ABORT, 'parent comment not on this post')
+        WHERE NOT EXISTS (
+            SELECT 1 FROM tb_comment
+            WHERE pk_comment = NEW.fk_parent_comment
+              AND fk_post    = NEW.fk_post
+        );
+    END;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/03_mutations/fn_create_comment.sql"
+    CREATE OR ALTER PROCEDURE dbo.fn_create_comment
+        @p_content   NVARCHAR(MAX),
+        @p_post_id   UNIQUEIDENTIFIER,
+        @p_author_id UNIQUEIDENTIFIER,
+        @p_parent_id UNIQUEIDENTIFIER = NULL
+    AS BEGIN
+        SET NOCOUNT ON;
+
+        DECLARE @v_fk_user   BIGINT;
+        DECLARE @v_fk_post   BIGINT;
+        DECLARE @v_fk_parent BIGINT;
+        DECLARE @v_id        UNIQUEIDENTIFIER = NEWSEQUENTIALID();
+
+        /*validate: author exists*/
+        SELECT @v_fk_user = pk_user FROM dbo.tb_user WHERE id = @p_author_id;
+        IF @v_fk_user IS NULL THROW 50010, 'author not found', 1;
+
+        /*validate: post exists*/
+        SELECT @v_fk_post = pk_post FROM dbo.tb_post WHERE id = @p_post_id;
+        IF @v_fk_post IS NULL THROW 50011, 'post not found', 1;
+
+        /*validate: parent belongs to the same post*/
+        IF @p_parent_id IS NOT NULL
+        BEGIN
+            SELECT @v_fk_parent = pk_comment
+            FROM dbo.tb_comment
+            WHERE id = @p_parent_id AND fk_post = @v_fk_post;
+
+            IF @v_fk_parent IS NULL
+                THROW 50012, 'parent comment not on this post', 1;
+        END
+
+        INSERT INTO dbo.tb_comment (
+            id, identifier, fk_user, fk_post,
+            fk_parent_comment, parent_id, content
+        )
+        VALUES (
+            @v_id, N'cmt_' + LOWER(REPLACE(CAST(NEWID() AS NVARCHAR(36)), '-', '')),
+            @v_fk_user, @v_fk_post, @v_fk_parent, @p_parent_id, @p_content
+        );
+
+        SELECT CAST(@v_id AS NVARCHAR(36)) AS id;
+    END;
+    ```
+  </TabItem>
+</Tabs>
+
+### Schema Declaration
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    @fraiseql.input
+    class CreateCommentInput:
+        content:   str
+        post_id:   ID
+        author_id: ID
+        parent_id: ID | None = None
+
+    @fraiseql.mutation(sql_source="fn_create_comment", operation="custom")
+    def create_comment(input: CreateCommentInput) -> Comment:
+        """Create a top-level comment or a reply to an existing comment."""
+        pass
+    ```
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    import { registerMutation } from 'fraiseql';
+
+    registerMutation('createComment', 'Comment', false, false, [
+      { name: 'content',  type: 'String', nullable: false },
+      { name: 'postId',   type: 'ID',     nullable: false },
+      { name: 'authorId', type: 'ID',     nullable: false },
+      { name: 'parentId', type: 'ID',     nullable: true  },
+    ], 'Create a comment or a reply', {
+      sql_source: 'fn_create_comment',
+      operation:  'custom',
+    });
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go title="schema.go"
+    func init() {
+        fraiseql.NewMutation("createComment").
+            ReturnType("Comment").
+            Config(map[string]interface{}{
+                "sql_source": "fn_create_comment",
+                "operation":  "custom",
+            }).
+            Arg("content",  "String", nil).
+            Arg("postId",   "ID",     nil).
+            Arg("authorId", "ID",     nil).
+            Arg("parentId", "ID",     nil, true).
+            Register()
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Rebuild and Test
+
+Apply the schema changes and restart:
+
+```bash
+confiture build --env local
+fraiseql compile
+fraiseql serve
+```
+
+### Create a Thread
+
+```graphql
+# Top-level comment
+mutation {
+  createComment(input: {
+    content:  "Great post!"
+    postId:   "550e8400-e29b-41d4-a716-446655440000"
+    authorId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+  }) {
+    id
+    content
+    depth
+  }
+}
+```
+
+```graphql
+# Reply to the comment above
+mutation {
+  createComment(input: {
+    content:  "Thanks, glad you liked it."
+    postId:   "550e8400-e29b-41d4-a716-446655440000"
+    authorId: "6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+    parentId: "a3f1c924-1234-5678-abcd-ef0123456789"
+  }) {
+    id
+    content
+    depth
+    ancestors
+  }
+}
+```
+
+### Query the Full Thread
+
+Fetch a post with its complete comment tree. Pass `parentId: null` to the `comments` field to get only top-level comments; each level's `children` field recurses from there.
+
+```graphql
+query {
+  post(id: "550e8400-e29b-41d4-a716-446655440000") {
+    title
+    comments(parentId: null) {
+      id
+      content
+      depth
+      author { username }
+      children {
+        id
+        content
+        depth
+        author { username }
+        children {
+          id
+          content
+        }
+      }
+    }
+  }
+}
+```
+
+Response shape:
+
+```json
+{
+  "data": {
+    "post": {
+      "title": "Hello World",
+      "comments": [
+        {
+          "id": "a3f1c924-...",
+          "content": "Great post!",
+          "depth": 0,
+          "author": { "username": "alice" },
+          "children": [
+            {
+              "id": "b7e2d035-...",
+              "content": "Thanks, glad you liked it.",
+              "depth": 1,
+              "author": { "username": "bob" },
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+FraiseQL issues one query against `v_comment` for the post's comments, then resolves each `children` field from the same flat result set — no additional round trips per level.
+
+## Performance Considerations
+
+Recursive CTEs scan the full subtree on every query. For most blog workloads this is fine, but there are two things worth doing from the start:
+
+**Index `fk_parent_comment`.** The CTE join condition is `child.fk_parent_comment = parent.pk_comment`. Without an index on `fk_parent_comment`, this becomes a sequential scan of the whole table for every recursion level. The `CREATE INDEX` statements in Step 1 cover this.
+
+**Cap recursion depth in the CTE.** The `WHERE parent.depth < 10` guard prevents the CTE from walking arbitrarily deep trees. Choose a limit that matches your domain. A `depth` column on the table — maintained by the function — lets you enforce the limit at write time instead of at query time.
+
+**Avoid aggregating the full tree into the post view.** The original `v_post` view aggregated all `v_comment` rows with `jsonb_agg`. With threading, this would recurse the entire tree every time a post is loaded, regardless of whether the client requested comments. Instead, keep comments as a separate field resolved on demand from `v_comment` — this is the default FraiseQL behavior when `children` is declared on the `Comment` type.
+
+## What's Next
+
+- [Projection Tables](/guides/projection-tables) — Maintain a `comment_count` column on `tb_post` using CQRS read models, so post listings never aggregate comments
+- [Observers](/guides/observers) — Notify a post author when a reply arrives, triggered from the database without polling
+- [Custom Queries](/guides/custom-queries) — Add pagination and depth-limited filters to comment queries

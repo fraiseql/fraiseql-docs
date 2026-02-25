@@ -1,0 +1,799 @@
+---
+title: Projection Tables
+description: Build materialised read models with tv_* projection tables to eliminate expensive aggregates from hot query paths
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+In FraiseQL's CQRS pattern, `tb_*` tables handle writes and `v_*` views handle reads. **Projection tables** sit between the two: they are regular tables (prefixed `tv_*` by convention) that store pre-computed aggregates, updated by database triggers or observers when the write side changes, and joined into your `v_*` views at read time.
+
+This guide adds `tv_post_stats` to the blog API from [Your First API](/getting-started/first-api). By the end, every post query will return `commentCount`, `viewCount`, and `lastActivity` without a single `COUNT(*)` subquery at read time.
+
+## The Problem
+
+The `v_post` view from the getting-started guide aggregates comments with `jsonb_agg`. That works for fetching comment content, but as your blog grows, every request to list posts runs a `COUNT` across the entire `tb_comment` table. When a post has 50,000 comments and you are listing 20 posts, you pay for that aggregation on every read.
+
+Projection tables solve this by moving the aggregation cost to write time. Comment inserted? Increment the counter. Comment deleted? Decrement it. The read path becomes a simple JOIN.
+
+## Step 1: Create the Projection Table
+
+Projection tables live alongside your write tables in `db/schema/01_write/`. The `tv_*` prefix distinguishes them from base tables (`tb_*`) and views (`v_*`).
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/01_write/tv_post_stats.sql"
+    CREATE TABLE tv_post_stats (
+        fk_post       BIGINT PRIMARY KEY
+                          REFERENCES tb_post(pk_post)
+                          ON DELETE CASCADE,
+        comment_count INT NOT NULL DEFAULT 0,
+        view_count    BIGINT NOT NULL DEFAULT 0,
+        last_activity TIMESTAMPTZ
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/01_write/tv_post_stats.sql"
+    CREATE TABLE tv_post_stats (
+        fk_post       BIGINT NOT NULL,
+        comment_count INT NOT NULL DEFAULT 0,
+        view_count    BIGINT NOT NULL DEFAULT 0,
+        last_activity TIMESTAMP NULL,
+
+        CONSTRAINT PK_tv_post_stats
+            PRIMARY KEY (fk_post),
+        CONSTRAINT FK_tv_post_stats_post
+            FOREIGN KEY (fk_post)
+            REFERENCES tb_post(pk_post)
+            ON DELETE CASCADE
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/01_write/tv_post_stats.sql"
+    CREATE TABLE tv_post_stats (
+        fk_post       INTEGER NOT NULL,
+        comment_count INTEGER NOT NULL DEFAULT 0,
+        view_count    INTEGER NOT NULL DEFAULT 0,
+        last_activity TEXT,
+
+        CONSTRAINT pk_tv_post_stats
+            PRIMARY KEY (fk_post),
+        CONSTRAINT fk_tv_post_stats_post
+            FOREIGN KEY (fk_post)
+            REFERENCES tb_post(pk_post)
+            ON DELETE CASCADE
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/01_write/tv_post_stats.sql"
+    CREATE TABLE dbo.tv_post_stats (
+        fk_post       BIGINT NOT NULL,
+        comment_count INT NOT NULL DEFAULT 0,
+        view_count    BIGINT NOT NULL DEFAULT 0,
+        last_activity DATETIMEOFFSET(3) NULL,
+
+        CONSTRAINT PK_tv_post_stats
+            PRIMARY KEY CLUSTERED (fk_post),
+        CONSTRAINT FK_tv_post_stats_post
+            FOREIGN KEY (fk_post)
+            REFERENCES dbo.tb_post(pk_post)
+            ON DELETE CASCADE
+    );
+    ```
+  </TabItem>
+</Tabs>
+
+`ON DELETE CASCADE` means that when a post is deleted, its stats row is automatically removed — no orphan cleanup required.
+
+## Step 2: Initialise the Projection
+
+When you add `tv_post_stats` to an existing blog, you need a row for every post that already exists. This seed script runs once, typically as part of a migration.
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/03_seed/seed_tv_post_stats.sql"
+    INSERT INTO tv_post_stats (fk_post, comment_count, last_activity)
+    SELECT
+        p.pk_post,
+        COUNT(c.pk_comment),
+        MAX(c.created_at)
+    FROM tb_post p
+    LEFT JOIN tb_comment c ON c.fk_post = p.pk_post
+    GROUP BY p.pk_post
+    ON CONFLICT (fk_post) DO NOTHING;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/03_seed/seed_tv_post_stats.sql"
+    INSERT INTO tv_post_stats (fk_post, comment_count, last_activity)
+    SELECT
+        p.pk_post,
+        COUNT(c.pk_comment),
+        MAX(c.created_at)
+    FROM tb_post p
+    LEFT JOIN tb_comment c ON c.fk_post = p.pk_post
+    GROUP BY p.pk_post
+    ON DUPLICATE KEY UPDATE fk_post = fk_post;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/03_seed/seed_tv_post_stats.sql"
+    INSERT OR IGNORE INTO tv_post_stats (fk_post, comment_count, last_activity)
+    SELECT
+        p.pk_post,
+        COUNT(c.pk_comment),
+        MAX(c.created_at)
+    FROM tb_post p
+    LEFT JOIN tb_comment c ON c.fk_post = p.pk_post
+    GROUP BY p.pk_post;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/03_seed/seed_tv_post_stats.sql"
+    INSERT INTO dbo.tv_post_stats (fk_post, comment_count, last_activity)
+    SELECT
+        p.pk_post,
+        COUNT(c.pk_comment),
+        MAX(c.created_at)
+    FROM dbo.tb_post p
+    LEFT JOIN dbo.tb_comment c ON c.fk_post = p.pk_post
+    GROUP BY p.pk_post
+    HAVING NOT EXISTS (
+        SELECT 1 FROM dbo.tv_post_stats s
+        WHERE s.fk_post = p.pk_post
+    );
+    ```
+  </TabItem>
+</Tabs>
+
+For a brand-new blog with no data, you can skip this step — rows are created on first comment insert by the triggers below.
+
+## Step 3: Keep It Up to Date with Triggers
+
+Triggers maintain `tv_post_stats` automatically. Every time a comment is inserted or deleted, the corresponding post's counters are updated atomically within the same transaction.
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/01_write/triggers_tv_post_stats.sql"
+    -- Trigger function shared by insert and delete triggers
+    CREATE OR REPLACE FUNCTION fn_update_post_stats()
+    RETURNS TRIGGER LANGUAGE plpgsql AS $$
+    BEGIN
+        IF TG_OP = 'INSERT' THEN
+            INSERT INTO tv_post_stats (fk_post, comment_count, last_activity)
+            VALUES (NEW.fk_post, 1, NEW.created_at)
+            ON CONFLICT (fk_post) DO UPDATE
+                SET comment_count = tv_post_stats.comment_count + 1,
+                    last_activity = GREATEST(
+                        tv_post_stats.last_activity,
+                        NEW.created_at
+                    );
+        ELSIF TG_OP = 'DELETE' THEN
+            UPDATE tv_post_stats
+            SET
+                comment_count = GREATEST(0, comment_count - 1),
+                last_activity = (
+                    SELECT MAX(created_at)
+                    FROM tb_comment
+                    WHERE fk_post = OLD.fk_post
+                      AND pk_comment <> OLD.pk_comment
+                )
+            WHERE fk_post = OLD.fk_post;
+        END IF;
+        RETURN NULL;
+    END;
+    $$;
+
+    CREATE TRIGGER trg_comment_insert_stats
+    AFTER INSERT ON tb_comment
+    FOR EACH ROW EXECUTE FUNCTION fn_update_post_stats();
+
+    CREATE TRIGGER trg_comment_delete_stats
+    AFTER DELETE ON tb_comment
+    FOR EACH ROW EXECUTE FUNCTION fn_update_post_stats();
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/01_write/triggers_tv_post_stats.sql"
+    DELIMITER $$
+
+    CREATE TRIGGER trg_comment_insert_stats
+    AFTER INSERT ON tb_comment
+    FOR EACH ROW
+    BEGIN
+        INSERT INTO tv_post_stats (fk_post, comment_count, last_activity)
+        VALUES (NEW.fk_post, 1, NEW.created_at)
+        ON DUPLICATE KEY UPDATE
+            comment_count = comment_count + 1,
+            last_activity = GREATEST(
+                COALESCE(last_activity, NEW.created_at),
+                NEW.created_at
+            );
+    END$$
+
+    CREATE TRIGGER trg_comment_delete_stats
+    AFTER DELETE ON tb_comment
+    FOR EACH ROW
+    BEGIN
+        UPDATE tv_post_stats
+        SET
+            comment_count = GREATEST(0, comment_count - 1),
+            last_activity = (
+                SELECT MAX(created_at)
+                FROM tb_comment
+                WHERE fk_post = OLD.fk_post
+                  AND pk_comment <> OLD.pk_comment
+            )
+        WHERE fk_post = OLD.fk_post;
+    END$$
+
+    DELIMITER ;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/01_write/triggers_tv_post_stats.sql"
+    CREATE TRIGGER trg_comment_insert_stats
+    AFTER INSERT ON tb_comment
+    FOR EACH ROW
+    BEGIN
+        INSERT INTO tv_post_stats (fk_post, comment_count, last_activity)
+        VALUES (NEW.fk_post, 1, NEW.created_at)
+        ON CONFLICT (fk_post) DO UPDATE
+            SET comment_count = comment_count + 1,
+                last_activity = MAX(
+                    COALESCE(last_activity, NEW.created_at),
+                    NEW.created_at
+                );
+    END;
+
+    CREATE TRIGGER trg_comment_delete_stats
+    AFTER DELETE ON tb_comment
+    FOR EACH ROW
+    BEGIN
+        UPDATE tv_post_stats
+        SET
+            comment_count = MAX(0, comment_count - 1),
+            last_activity = (
+                SELECT MAX(created_at)
+                FROM tb_comment
+                WHERE fk_post = OLD.fk_post
+                  AND pk_comment <> OLD.pk_comment
+            )
+        WHERE fk_post = OLD.fk_post;
+    END;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/01_write/triggers_tv_post_stats.sql"
+    CREATE OR ALTER TRIGGER dbo.trg_comment_insert_stats
+    ON dbo.tb_comment
+    AFTER INSERT
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+
+        MERGE dbo.tv_post_stats AS target
+        USING (
+            SELECT fk_post, COUNT(*) AS cnt, MAX(created_at) AS last_act
+            FROM inserted
+            GROUP BY fk_post
+        ) AS src ON target.fk_post = src.fk_post
+        WHEN MATCHED THEN
+            UPDATE SET
+                comment_count = target.comment_count + src.cnt,
+                last_activity = CASE
+                    WHEN target.last_activity > src.last_act
+                    THEN target.last_activity
+                    ELSE src.last_act
+                END
+        WHEN NOT MATCHED THEN
+            INSERT (fk_post, comment_count, last_activity)
+            VALUES (src.fk_post, src.cnt, src.last_act);
+    END;
+    GO
+
+    CREATE OR ALTER TRIGGER dbo.trg_comment_delete_stats
+    ON dbo.tb_comment
+    AFTER DELETE
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+
+        UPDATE s
+        SET
+            comment_count = CASE
+                WHEN s.comment_count - d.cnt < 0 THEN 0
+                ELSE s.comment_count - d.cnt
+            END,
+            last_activity = (
+                SELECT MAX(c.created_at)
+                FROM dbo.tb_comment c
+                WHERE c.fk_post = s.fk_post
+            )
+        FROM dbo.tv_post_stats s
+        JOIN (
+            SELECT fk_post, COUNT(*) AS cnt
+            FROM deleted
+            GROUP BY fk_post
+        ) d ON d.fk_post = s.fk_post;
+    END;
+    GO
+    ```
+  </TabItem>
+</Tabs>
+
+The insert trigger uses an upsert so that the first comment on a post creates the stats row automatically, even if `seed_tv_post_stats.sql` was not run.
+
+## Step 4: Expose Stats in the View
+
+Update `v_post` to JOIN `tv_post_stats` and include the three new fields in the JSON object. Replace the existing `v_post` file entirely.
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        jsonb_build_object(
+            /*keys*/
+            'id', p.id::text,
+
+            /*scalar fields*/
+            'title', p.title,
+            'slug', p.slug,
+            'content', p.content,
+            'is_published', p.is_published,
+            'created_at', p.created_at,
+            'updated_at', p.updated_at,
+
+            /*projection fields*/
+            'comment_count', COALESCE(s.comment_count, 0),
+            'view_count', COALESCE(s.view_count, 0),
+            'last_activity', s.last_activity,
+
+            /*relationships*/
+            'author', vu.data,
+            'comments', COALESCE(
+                jsonb_agg(vc.data) FILTER (WHERE vc.id IS NOT NULL),
+                '[]'::jsonb
+            )
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id
+    LEFT JOIN tv_post_stats s ON s.fk_post = p.pk_post
+    LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
+    GROUP BY p.pk_post, vu.data, s.comment_count, s.view_count, s.last_activity;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        JSON_OBJECT(
+            /*keys*/
+            'id', p.id,
+
+            /*scalar fields*/
+            'title', p.title,
+            'slug', p.slug,
+            'content', p.content,
+            'is_published', p.is_published,
+            'created_at', p.created_at,
+            'updated_at', p.updated_at,
+
+            /*projection fields*/
+            'comment_count', COALESCE(s.comment_count, 0),
+            'view_count', COALESCE(s.view_count, 0),
+            'last_activity', s.last_activity,
+
+            /*relationships*/
+            'author', vu.data,
+            'comments', COALESCE(
+                JSON_ARRAYAGG(vc.data),
+                JSON_ARRAY()
+            )
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id
+    LEFT JOIN tv_post_stats s ON s.fk_post = p.pk_post
+    LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
+    GROUP BY p.pk_post, vu.data, s.comment_count, s.view_count, s.last_activity;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW v_post AS
+    SELECT
+        p.id,
+        json_object(
+            /*keys*/
+            'id', p.id,
+
+            /*scalar fields*/
+            'title', p.title,
+            'slug', p.slug,
+            'content', p.content,
+            'is_published', p.is_published,
+            'created_at', p.created_at,
+            'updated_at', p.updated_at,
+
+            /*projection fields*/
+            'comment_count', COALESCE(s.comment_count, 0),
+            'view_count', COALESCE(s.view_count, 0),
+            'last_activity', s.last_activity,
+
+            /*relationships*/
+            'author', vu.data,
+            'comments', COALESCE(
+                (SELECT json_group_array(vc.data)
+                 FROM v_comment vc
+                 WHERE vc.fk_post = p.pk_post),
+                json_array()
+            )
+        ) AS data
+    FROM tb_post p
+    JOIN tb_user u ON u.pk_user = p.fk_user
+    JOIN v_user vu ON vu.id = u.id
+    LEFT JOIN tv_post_stats s ON s.fk_post = p.pk_post;
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/02_read/v_post.sql"
+    CREATE VIEW dbo.v_post AS
+    SELECT
+        p.id,
+        (
+            SELECT
+                /*keys*/
+                p.id,
+
+                /*scalar fields*/
+                p.title, p.slug, p.content, p.is_published,
+                p.created_at, p.updated_at,
+
+                /*projection fields*/
+                COALESCE(s.comment_count, 0) AS comment_count,
+                COALESCE(s.view_count, 0) AS view_count,
+                s.last_activity,
+
+                /*relationships*/
+                JSON_QUERY(vu.data) AS author,
+                JSON_QUERY(COALESCE(
+                    (SELECT '[' + STRING_AGG(vc.data, ',') + ']'
+                     FROM dbo.v_comment vc
+                     WHERE vc.fk_post = p.pk_post),
+                    '[]'
+                )) AS comments
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        ) AS data
+    FROM dbo.tb_post p
+    JOIN dbo.tb_user u ON u.pk_user = p.fk_user
+    JOIN dbo.v_user vu ON vu.id = u.id
+    LEFT JOIN dbo.tv_post_stats s ON s.fk_post = p.pk_post;
+    ```
+  </TabItem>
+</Tabs>
+
+The projection join is a `LEFT JOIN` — posts without a stats row (no comments yet) still appear, with `COALESCE` returning `0` for the counters and `NULL` for `last_activity`.
+
+## Step 5: Update the Post Type
+
+Add the three new fields to your `Post` type. FraiseQL maps JSON object keys from the view directly to type fields.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    from datetime import datetime
+
+    @fraiseql.type
+    class Post:
+        """A blog post."""
+        id: ID
+        title: str
+        slug: Slug
+        content: str
+        is_published: bool
+        created_at: DateTime
+        updated_at: DateTime
+        author: User
+        comments: list['Comment']
+
+        # Projection fields from tv_post_stats
+        comment_count: int
+        view_count: int
+        last_activity: datetime | None
+    ```
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    @type()
+    class Post {
+      /** A blog post. */
+      id: ID;
+      title: string;
+      slug: Slug;
+      content: string;
+      isPublished: boolean;
+      createdAt: DateTime;
+      updatedAt: DateTime;
+      author: User;
+      comments: Comment[];
+
+      // Projection fields from tv_post_stats
+      commentCount: number;
+      viewCount: number;
+      lastActivity: DateTime | null;
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go title="schema.go"
+    // Post represents a blog post.
+    type Post struct {
+        ID          scalars.ID       `fraiseql:"type"`
+        Title       string
+        Slug        scalars.Slug
+        Content     string
+        IsPublished bool
+        CreatedAt   scalars.DateTime
+        UpdatedAt   scalars.DateTime
+        Author      User
+        Comments    []Comment
+
+        // Projection fields from tv_post_stats
+        CommentCount int
+        ViewCount    int64
+        LastActivity *scalars.DateTime
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+The field names follow each language's conventions. FraiseQL maps `comment_count` (snake_case in JSON) to `commentCount` (camelCase in GraphQL and TypeScript/Go) automatically.
+
+## Step 6: Increment the View Count
+
+Unlike comment count, view count is not driven by a structural database event — it is driven by user behaviour. You have two options.
+
+### Option A: Custom Mutation
+
+Add a `recordView` mutation that calls a database function to increment `view_count`. This is the simplest approach and gives you full control over when a view is counted.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    @fraiseql.input
+    class RecordViewInput:
+        post_id: ID
+
+    @fraiseql.mutation(operation="custom", sql_function="fn_record_post_view")
+    def record_view(input: RecordViewInput) -> bool:
+        """Increment view count for a post."""
+        pass
+    ```
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    @input()
+    class RecordViewInput {
+      postId: ID;
+    }
+
+    @mutation({ operation: 'custom', sqlFunction: 'fn_record_post_view' })
+    async function recordView(input: RecordViewInput): Promise<boolean> {
+      // Increment view count for a post
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go title="schema.go"
+    // RecordViewInput is the input for recording a post view.
+    type RecordViewInput struct {
+        PostID scalars.ID `fraiseql:"input"`
+    }
+
+    // RecordView increments the view count for a post.
+    // Maps to fn_record_post_view database function, operation=custom.
+    func RecordView(ctx context.Context, input RecordViewInput) (bool, error) {
+        return false, nil
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+Then write the backing function:
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/01_write/fn_record_post_view.sql"
+    CREATE OR REPLACE FUNCTION fn_record_post_view(p_post_id UUID)
+    RETURNS BOOLEAN LANGUAGE plpgsql AS $$
+    DECLARE
+        v_pk BIGINT;
+    BEGIN
+        SELECT pk_post INTO v_pk
+        FROM tb_post
+        WHERE id = p_post_id;
+
+        IF v_pk IS NULL THEN
+            RETURN FALSE;
+        END IF;
+
+        INSERT INTO tv_post_stats (fk_post, view_count)
+        VALUES (v_pk, 1)
+        ON CONFLICT (fk_post) DO UPDATE
+            SET view_count = tv_post_stats.view_count + 1;
+
+        RETURN TRUE;
+    END;
+    $$;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/01_write/fn_record_post_view.sql"
+    CREATE PROCEDURE fn_record_post_view(IN p_post_id CHAR(36))
+    BEGIN
+        DECLARE v_pk BIGINT;
+
+        SELECT pk_post INTO v_pk
+        FROM tb_post
+        WHERE id = p_post_id
+        LIMIT 1;
+
+        IF v_pk IS NOT NULL THEN
+            INSERT INTO tv_post_stats (fk_post, view_count)
+            VALUES (v_pk, 1)
+            ON DUPLICATE KEY UPDATE
+                view_count = view_count + 1;
+        END IF;
+    END;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    ```sql title="db/schema/01_write/triggers_view_count.sql"
+    -- SQLite has no stored procedures; use application-level SQL instead.
+    -- Your FraiseQL custom mutation executes this statement directly:
+    --
+    --   INSERT INTO tv_post_stats (fk_post, view_count)
+    --   SELECT pk_post, 1 FROM tb_post WHERE id = ?
+    --   ON CONFLICT (fk_post) DO UPDATE SET view_count = view_count + 1;
+    --
+    -- Map the mutation to operation="custom" and provide the SQL inline
+    -- in your fraiseql.toml or via a named statement file.
+    ```
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/01_write/fn_record_post_view.sql"
+    CREATE OR ALTER PROCEDURE dbo.fn_record_post_view
+        @p_post_id UNIQUEIDENTIFIER
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+
+        DECLARE @v_pk BIGINT;
+
+        SELECT @v_pk = pk_post
+        FROM dbo.tb_post
+        WHERE id = @p_post_id;
+
+        IF @v_pk IS NOT NULL
+        BEGIN
+            MERGE dbo.tv_post_stats AS target
+            USING (SELECT @v_pk AS fk_post) AS src
+                ON target.fk_post = src.fk_post
+            WHEN MATCHED THEN
+                UPDATE SET view_count = target.view_count + 1
+            WHEN NOT MATCHED THEN
+                INSERT (fk_post, view_count) VALUES (src.fk_post, 1);
+        END
+    END;
+    ```
+  </TabItem>
+</Tabs>
+
+Your client fires this mutation immediately after displaying a post:
+
+```graphql
+mutation {
+  recordView(input: { postId: "pst_01HZ4M" })
+}
+```
+
+### Option B: Observer (Recommended for High Traffic)
+
+For APIs where every post query should trigger a view increment, use an [observer](/guides/observers) that reacts to `v_post` reads and calls `fn_record_post_view` asynchronously. This keeps the read path fast by decoupling the increment from the query response.
+
+See the [Observers guide](/guides/observers) for the full setup.
+
+## Test the Query
+
+Rebuild the database to apply the new table, triggers, and view:
+
+```bash
+confiture build --env local
+fraiseql compile
+fraiseql serve
+```
+
+Then run a query that uses the projected fields:
+
+```graphql
+query {
+  posts(isPublished: true, orderBy: LAST_ACTIVITY_DESC) {
+    title
+    commentCount
+    viewCount
+    lastActivity
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "posts": [
+      {
+        "title": "Scaling PostgreSQL with FraiseQL",
+        "commentCount": 42,
+        "viewCount": 1893,
+        "lastActivity": "2026-02-20T14:33:07Z"
+      },
+      {
+        "title": "Hello World",
+        "commentCount": 3,
+        "viewCount": 210,
+        "lastActivity": "2026-02-18T09:11:52Z"
+      }
+    ]
+  }
+}
+```
+
+Notice that `orderBy: LAST_ACTIVITY_DESC` works without any application-level sorting — the value is stored in `tv_post_stats`, JOINed into `v_post`, and the FraiseQL query layer sorts on it directly.
+
+## When to Use Projection Tables
+
+Projection tables are the right tool when:
+
+- **Aggregates appear on hot read paths.** If `COUNT(*)`, `SUM()`, or `MAX()` appear in a view that is queried frequently, pre-compute the value in a `tv_*` table and update it at write time.
+- **You need to sort or filter on a derived value.** `ORDER BY comment_count DESC` requires the value to be a real column. A subquery in `ORDER BY` forces a full scan; a projection column uses an index.
+- **A query joins more than two tables.** Views that chain three or more joins benefit from flattening some of those relationships into a projection row.
+- **Aggregate staleness is acceptable.** Triggers are synchronous — your projection is always consistent. If you use observers for async updates, accept that counts may lag by milliseconds.
+
+Avoid projection tables for:
+
+- **Infrequently queried aggregates.** If a report runs once a day, a `COUNT(*)` subquery is fine.
+- **Rapidly changing data with low read volume.** The trigger overhead exceeds the read savings.
+- **Data that must be perfectly consistent with complex business rules.** Triggers are powerful but hard to test in isolation; complex logic belongs in application-layer observers instead.
+
+## What's Next
+
+- [Observers](/guides/observers) — Trigger side effects that update projections asynchronously
+- [Custom Queries](/guides/custom-queries) — Filter and sort using projected columns with FraiseQL's query DSL
+- [Threaded Comments](/guides/threaded-comments) — Another use case for projections, tracking comment depth and reply counts

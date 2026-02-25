@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "Analytics & BI with FraiseQL";
 const description = "Build real-time dashboards and OLAP analytics. Pre-compute metrics in SQL views. Stream columnar data over Arrow Flight. One schema, two planes.";
@@ -52,7 +53,7 @@ const description = "Build real-time dashboards and OLAP analytics. Pre-compute 
         <div class="solution-step">
           <h3>Strategy: SQL Aggregation, GraphQL Delivery</h3>
           <p>Pre-compose metrics in views instead of calculating them in dashboard code:</p>
-          <pre><code set:html={`-- Daily sales metrics (v_* JSON plane)
+          <Code lang="sql" theme="github-light" code={`-- Daily sales metrics (v_* JSON plane)
 CREATE VIEW v_daily_sales_metrics AS
 SELECT
   date_trunc('day', created_at)::date AS date,
@@ -63,12 +64,12 @@ SELECT
     'average_order_value', avg(amount)::numeric
   ) AS data
 FROM tb_order
-GROUP BY date_trunc('day', created_at);`}></code></pre>
+GROUP BY date_trunc('day', created_at);`} />
         </div>
 
         <div class="solution-step">
           <h3>Define Types and Query</h3>
-          <pre><code set:html={`@fraiseql.type
+          <Code lang="python" theme="github-light" code={`@fraiseql.type
 class DailySalesMetrics:
   date: str
   total_revenue: float
@@ -80,13 +81,13 @@ def daily_sales(
   from_date: str,
   to_date: str
 ) -> list[DailySalesMetrics]:
-  pass`}></code></pre>
+  pass`} />
         </div>
 
         <div class="solution-step">
           <h3>Advanced JSON Patterns</h3>
           <p>Window functions, CTEs, and multi-table aggregations all work inside <code>v_*</code> views:</p>
-          <pre><code set:html={`-- 30-day rolling average
+          <Code lang="sql" theme="github-light" code={`-- 30-day rolling average
 CREATE VIEW v_rolling_metrics AS
 SELECT
   date,
@@ -104,7 +105,7 @@ FROM (
   SELECT date_trunc('day', created_at)::date AS date, sum(amount) AS amount
   FROM tb_order
   GROUP BY date_trunc('day', created_at)
-) daily_sales;`}></code></pre>
+) daily_sales;`} />
         </div>
       </section>
 
@@ -115,7 +116,7 @@ FROM (
 
         <div class="solution-step">
           <h3>Fact Table Structure</h3>
-          <pre><code set:html={`-- tf_* fact table: denormalized for OLAP
+          <Code lang="sql" theme="github-light" code={`-- tf_* fact table: denormalized for OLAP
 CREATE TABLE tf_sales (
   id           UUID DEFAULT gen_random_uuid(),
   occurred_at  TIMESTAMPTZ NOT NULL,   -- temporal bucket source
@@ -130,12 +131,12 @@ CREATE TABLE tf_sales (
   -- Dimensions (flexible JSONB grouping attributes)
   data         JSONB NOT NULL DEFAULT '{}'
   -- data: { "region": "eu", "channel": "web", "plan": "pro" }
-);`}></code></pre>
+);`} />
         </div>
 
         <div class="solution-step">
           <h3>Declare with Python Decorators</h3>
-          <pre><code set:html={`@fraiseql.fact_table(
+          <Code lang="python" theme="github-light" code={`@fraiseql.fact_table(
     table_name="tf_sales",
     measures=["revenue", "quantity", "discount"],
     dimension_paths=["data.region", "data.channel", "data.plan"],
@@ -156,7 +157,7 @@ def sales_aggregates(
     region: str | None = None,
     bucket: str = "day",   # hour | day | week | month | quarter
 ) -> list[SalesAggregate]:
-    pass`}></code></pre>
+    pass`} />
           <p>The Rust engine compiles this into an optimized SQL query with <code>GROUP BY</code>, partial-index-aware <code>WHERE</code> clauses, and temporal bucket expressions. No runtime interpretation.</p>
         </div>
       </section>
@@ -168,7 +169,7 @@ def sales_aggregates(
 
         <div class="solution-step">
           <h3>Zero-Copy Analytics with Polars</h3>
-          <pre><code set:html={`from pyarrow import flight
+          <Code lang="python" theme="github-light" code={`from pyarrow import flight
 import polars as pl
 
 client = flight.connect("grpc://localhost:50051")
@@ -178,12 +179,12 @@ ticket = flight.Ticket(b'{"type":"OptimizedView","table":"ta_events","from_date"
 df = pl.from_arrow(client.do_get(ticket).read_all())
 
 # Native Polars operations on columnar data — no JSON overhead
-print(df.group_by("event_type").agg(pl.col("value").sum()))`}></code></pre>
+print(df.group_by("event_type").agg(pl.col("value").sum()))`} />
         </div>
 
         <div class="solution-step">
           <h3>DuckDB In-Process Analytics</h3>
-          <pre><code set:html={`import duckdb
+          <Code lang="sql" theme="github-light" code={`import duckdb
 from pyarrow import flight
 
 client = flight.connect("grpc://localhost:50051")
@@ -193,7 +194,7 @@ arrow_table = client.do_get(ticket).read_all()
 # DuckDB operates directly on Arrow memory — no deserialization
 result = duckdb.execute(
   "SELECT region, SUM(revenue), COUNT(*) FROM arrow_table GROUP BY region"
-).df()`}></code></pre>
+).df()`} />
         </div>
 
         <div class="benefit-grid">
@@ -230,7 +231,7 @@ result = duckdb.execute(
           </ul>
 
           <h3>FraiseQL Approach:</h3>
-          <pre><code set:html={`-- MRR + churn in one v_* view (JSON plane → dashboard charts)
+          <Code lang="sql" theme="github-light" code={`-- MRR + churn in one v_* view (JSON plane → dashboard charts)
 CREATE VIEW v_saas_metrics AS
 SELECT
   date_trunc('month', created_at)::date AS period,
@@ -257,7 +258,7 @@ CREATE TABLE ta_retention_cohorts (
   activity_month DATE NOT NULL,
   user_id        UUID NOT NULL,
   events_count   INTEGER
-);`}></code></pre>
+);`} />
 
           <p><strong>Result:</strong> Dashboard charts use GraphQL with the JSON plane. The cohort heatmap uses Arrow Flight to pull a Polars DataFrame. One schema handles both.</p>
         </div>
@@ -290,7 +291,7 @@ CREATE TABLE ta_retention_cohorts (
         <h2>Build Your Analytics Platform</h2>
         <p>Get started with FraiseQL analytics patterns today.</p>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
         </div>
       </section>
@@ -418,7 +419,6 @@ CREATE TABLE ta_retention_cohorts (
   }
 
   .solution-step pre {
-    background: white;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -487,7 +487,6 @@ CREATE TABLE ta_retention_cohorts (
   }
 
   .example-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);

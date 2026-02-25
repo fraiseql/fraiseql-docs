@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "FraiseQL for DevOps & SRE";
 const description = "Simpler deployments. Fewer moving parts. Better observability. Database-first architecture means less infrastructure complexity.";
@@ -67,13 +68,13 @@ const description = "Simpler deployments. Fewer moving parts. Better observabili
         <div class="value-card">
           <h3>✅ Simpler Scaling</h3>
           <p>Scale what actually needs scaling:</p>
-          <pre><code set:html={`# Traditional: Everything tied together
+          <Code lang="python" theme="github-light" code={`# Traditional: Everything tied together
 Slow query? → Add cache → Add connection pool → Add servers
 
 # FraiseQL: Everything is independent
 Slow query? → Optimize the view (SQL)
 More users? → Add application servers (stateless)
-Large DB? → Scale database (independent)`}></code></pre>
+Large DB? → Scale database (independent)`} />
           <p class="impact"><strong>Impact:</strong> Horizontal scaling is simple (stateless app servers)</p>
         </div>
 
@@ -96,7 +97,7 @@ Large DB? → Scale database (independent)`}></code></pre>
         <div class="deployment-card">
           <h3>Build Pipeline</h3>
           <p>Deploy-time validation means errors caught before production:</p>
-          <pre><code set:html={`# Your CI/CD pipeline
+          <Code lang="python" theme="github-light" code={`# Your CI/CD pipeline
 1. Code pushed
 2. fraiseql build          # Validates views & schema
 3. Run tests
@@ -105,13 +106,13 @@ Large DB? → Scale database (independent)`}></code></pre>
 6. Deploy to production
 
 If fraiseql build fails, deployment stops.
-No bad code reaches production.`}></code></pre>
+No bad code reaches production.`} />
         </div>
 
         <div class="deployment-card">
           <h3>Database Migrations</h3>
           <p>Views are cheap to update. Schema changes are simple:</p>
-          <pre><code set:html={`# Add a field
+          <Code lang="python" theme="github-light" code={`# Add a field
 1. Update SQL view (adds new field to JSONB)
 2. Update Python/TS schema type
 3. fraiseql build (validates match)
@@ -120,7 +121,7 @@ No bad code reaches production.`}></code></pre>
 
 No resolver updates needed.
 No cache invalidation needed.
-One atomic change.`}></code></pre>
+One atomic change.`} />
         </div>
 
         <div class="deployment-card">
@@ -202,7 +203,7 @@ One atomic change.`}></code></pre>
         <div class="scaling-card">
           <h3>Horizontal Scaling</h3>
           <p>Application servers are stateless:</p>
-          <pre><code set:html={`# Add capacity: Just add more servers
+          <Code lang="python" theme="github-light" code={`# Add capacity: Just add more servers
 Load Balancer
   ├─ App Server 1 (stateless)
   ├─ App Server 2 (stateless)
@@ -213,7 +214,7 @@ Load Balancer
 
 No session state to manage.
 No cache coherence problems.
-No sticky sessions needed.`}></code></pre>
+No sticky sessions needed.`} />
         </div>
 
         <div class="scaling-card">
@@ -283,14 +284,14 @@ No sticky sessions needed.`}></code></pre>
         <div class="reliability-card">
           <h3>High Availability</h3>
           <p>Simple HA setup:</p>
-          <pre><code set:html={`# Typical HA configuration
+          <Code lang="python" theme="github-light" code={`# Typical HA configuration
 Load Balancer → App Server Pool (autoscale)
               ↓
          Database (with replicas)
 
 Everything is standard infrastructure.
 No custom sharding logic.
-No complex cache coherence.`}></code></pre>
+No complex cache coherence.`} />
         </div>
 
       </section>
@@ -390,7 +391,7 @@ No complex cache coherence.`}></code></pre>
       <section class="next-section">
         <h2>Ready to Simplify?</h2>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/how-it-works/" class="btn btn-secondary">Architecture</a>
         </div>
       </section>

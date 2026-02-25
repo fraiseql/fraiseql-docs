@@ -1,0 +1,403 @@
+---
+title: Adding Mutations
+description: Add the write path to your blog API — database functions, GraphQL mutations, and testing
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide picks up where [Your First API](/getting-started/first-api) left off. You have a working blog API with queries. Now you add the **write path**: database functions that validate and persist data, and GraphQL mutations that call them.
+
+## How Mutations Work in FraiseQL
+
+Each mutation follows the same path:
+
+1. **GraphQL** receives the mutation and validates the input type
+2. **FraiseQL** calls the mapped database function with the input values
+3. **The DB function** validates, inserts or updates, and returns the row's `id`
+4. **FraiseQL** queries the view by that `id` and returns the shaped response
+
+Your schema file defines *what* the mutation accepts. The SQL function enforces *invariants*. The view resolves *the response*.
+
+## Step 1: Write the Database Functions
+
+Create mutation functions in `db/schema/03_mutations/`. Each function validates its inputs, performs the write, and returns the `id` so FraiseQL can resolve the response through the existing view.
+
+<Tabs syncKey="db">
+  <TabItem label="PostgreSQL">
+    ```sql title="db/schema/03_mutations/fn_create_user.sql"
+    CREATE OR REPLACE FUNCTION fn_create_user(
+        p_username TEXT, p_email TEXT, p_bio TEXT DEFAULT NULL
+    ) RETURNS UUID LANGUAGE plpgsql AS $$
+    DECLARE v_id UUID;
+    BEGIN
+        /*validate: no duplicate email*/
+        IF EXISTS (SELECT 1 FROM tb_user WHERE email = p_email) THEN
+            RAISE EXCEPTION 'email already registered: %', p_email;
+        END IF;
+        INSERT INTO tb_user (identifier, username, email, bio)
+        VALUES ('usr_' || lower(regexp_replace(p_username, '[^a-z0-9]', '_', 'gi')),
+                p_username, p_email, p_bio)
+        RETURNING id INTO v_id;
+        RETURN v_id;
+    END; $$;
+    ```
+
+    ```sql title="db/schema/03_mutations/fn_create_post.sql"
+    CREATE OR REPLACE FUNCTION fn_create_post(
+        p_title TEXT, p_content TEXT, p_author_id UUID
+    ) RETURNS UUID LANGUAGE plpgsql AS $$
+    DECLARE v_fk_user BIGINT; v_slug TEXT; v_id UUID;
+    BEGIN
+        /*validate: author exists*/
+        SELECT pk_user INTO v_fk_user FROM tb_user WHERE id = p_author_id;
+        IF v_fk_user IS NULL THEN
+            RAISE EXCEPTION 'author not found: %', p_author_id;
+        END IF;
+        v_slug := lower(trim(both '-' FROM regexp_replace(p_title, '[^a-zA-Z0-9]+', '-', 'g')));
+        INSERT INTO tb_post (identifier, fk_user, title, slug, content)
+        VALUES ('pst_' || v_slug, v_fk_user, p_title, v_slug, p_content)
+        RETURNING id INTO v_id;
+        RETURN v_id;
+    END; $$;
+    ```
+
+    ```sql title="db/schema/03_mutations/fn_publish_post.sql"
+    CREATE OR REPLACE FUNCTION fn_publish_post(p_post_id UUID)
+    RETURNS UUID LANGUAGE plpgsql AS $$
+    DECLARE v_id UUID;
+    BEGIN
+        UPDATE tb_post
+        SET is_published = true, updated_at = NOW()
+        WHERE id = p_post_id
+        RETURNING id INTO v_id;
+        IF v_id IS NULL THEN
+            RAISE EXCEPTION 'post not found: %', p_post_id;
+        END IF;
+        RETURN v_id;
+    END; $$;
+    ```
+  </TabItem>
+
+  <TabItem label="MySQL">
+    ```sql title="db/schema/03_mutations/fn_create_user.sql"
+    DELIMITER $$
+    CREATE FUNCTION fn_create_user(
+        p_username VARCHAR(255), p_email VARCHAR(255), p_bio TEXT
+    ) RETURNS CHAR(36) NOT DETERMINISTIC
+    BEGIN
+        DECLARE v_id CHAR(36);
+        /*validate: no duplicate email*/
+        IF EXISTS (SELECT 1 FROM tb_user WHERE email = p_email) THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'email already registered';
+        END IF;
+        SET v_id = UUID();
+        INSERT INTO tb_user (id, identifier, username, email, bio)
+        VALUES (v_id, CONCAT('usr_', LOWER(REPLACE(p_username, ' ', '_'))),
+                p_username, p_email, p_bio);
+        RETURN v_id;
+    END$$
+    DELIMITER ;
+    ```
+
+    ```sql title="db/schema/03_mutations/fn_create_post.sql"
+    DELIMITER $$
+    CREATE FUNCTION fn_create_post(
+        p_title TEXT, p_content LONGTEXT, p_author_id CHAR(36)
+    ) RETURNS CHAR(36) NOT DETERMINISTIC
+    BEGIN
+        DECLARE v_fk_user BIGINT;
+        DECLARE v_slug VARCHAR(255);
+        DECLARE v_id CHAR(36);
+        /*validate: author exists*/
+        SELECT pk_user INTO v_fk_user FROM tb_user WHERE id = p_author_id LIMIT 1;
+        IF v_fk_user IS NULL THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'author not found';
+        END IF;
+        SET v_slug = LOWER(REPLACE(p_title, ' ', '-'));
+        SET v_id = UUID();
+        INSERT INTO tb_post (id, identifier, fk_user, title, slug, content)
+        VALUES (v_id, CONCAT('pst_', v_slug), v_fk_user, p_title, v_slug, p_content);
+        RETURN v_id;
+    END$$
+    DELIMITER ;
+    ```
+
+    ```sql title="db/schema/03_mutations/fn_publish_post.sql"
+    DELIMITER $$
+    CREATE FUNCTION fn_publish_post(p_post_id CHAR(36))
+    RETURNS CHAR(36) NOT DETERMINISTIC
+    BEGIN
+        /*MySQL updates updated_at automatically via ON UPDATE CURRENT_TIMESTAMP*/
+        UPDATE tb_post SET is_published = true WHERE id = p_post_id;
+        IF ROW_COUNT() = 0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'post not found';
+        END IF;
+        RETURN p_post_id;
+    END$$
+    DELIMITER ;
+    ```
+  </TabItem>
+
+  <TabItem label="SQLite">
+    SQLite has no stored procedures, so no function files are needed. Use `operation="create"` or `operation="update"` in Step 2 and FraiseQL generates the `INSERT` or `UPDATE` SQL automatically from the input type fields. The target table is the return type lowercased — `User` → `user`. Pass `sql_source="your_table"` to override this if your table name differs.
+  </TabItem>
+
+  <TabItem label="SQL Server">
+    ```sql title="db/schema/03_mutations/fn_create_user.sql"
+    CREATE OR ALTER PROCEDURE dbo.fn_create_user
+        @p_username NVARCHAR(255), @p_email NVARCHAR(255),
+        @p_bio NVARCHAR(MAX) = NULL
+    AS BEGIN
+        SET NOCOUNT ON;
+        /*validate: no duplicate email*/
+        IF EXISTS (SELECT 1 FROM dbo.tb_user WHERE email = @p_email)
+            THROW 50001, 'email already registered', 1;
+        DECLARE @v_id UNIQUEIDENTIFIER = NEWSEQUENTIALID();
+        INSERT INTO dbo.tb_user (id, identifier, username, email, bio)
+        VALUES (@v_id, 'usr_' + LOWER(REPLACE(@p_username, ' ', '_')),
+                @p_username, @p_email, @p_bio);
+        SELECT CAST(@v_id AS NVARCHAR(36)) AS id;
+    END;
+    ```
+
+    ```sql title="db/schema/03_mutations/fn_create_post.sql"
+    CREATE OR ALTER PROCEDURE dbo.fn_create_post
+        @p_title NVARCHAR(MAX), @p_content NVARCHAR(MAX),
+        @p_author_id UNIQUEIDENTIFIER
+    AS BEGIN
+        SET NOCOUNT ON;
+        DECLARE @v_fk_user BIGINT;
+        SELECT @v_fk_user = pk_user FROM dbo.tb_user WHERE id = @p_author_id;
+        /*validate: author exists*/
+        IF @v_fk_user IS NULL THROW 50002, 'author not found', 1;
+        DECLARE @v_slug NVARCHAR(255) = LOWER(REPLACE(@p_title, ' ', '-'));
+        DECLARE @v_id UNIQUEIDENTIFIER = NEWSEQUENTIALID();
+        INSERT INTO dbo.tb_post (id, identifier, fk_user, title, slug, content)
+        VALUES (@v_id, 'pst_' + @v_slug, @v_fk_user, @p_title, @v_slug, @p_content);
+        SELECT CAST(@v_id AS NVARCHAR(36)) AS id;
+    END;
+    ```
+
+    ```sql title="db/schema/03_mutations/fn_publish_post.sql"
+    CREATE OR ALTER PROCEDURE dbo.fn_publish_post
+        @p_post_id UNIQUEIDENTIFIER
+    AS BEGIN
+        SET NOCOUNT ON;
+        UPDATE dbo.tb_post
+        SET is_published = 1, updated_at = SYSDATETIMEOFFSET()
+        WHERE id = @p_post_id;
+        IF @@ROWCOUNT = 0 THROW 50003, 'post not found', 1;
+        SELECT CAST(@p_post_id AS NVARCHAR(36)) AS id;
+    END;
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 2: Map to GraphQL
+
+Add input types and mutation definitions to your schema file. For `"custom"` mutations, `sql_source` names the stored procedure. For auto-generated SQL (`"create"` / `"update"` / `"delete"`), `sql_source` sets the target table name — defaults to the return type lowercased if omitted. The return type always resolves through the existing view.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python title="schema.py"
+    # Add to schema.py — User and Post types are already defined
+
+    @fraiseql.input
+    class CreateUserInput:
+        username: str
+        email: Email
+        bio: str | None = None
+
+    @fraiseql.input
+    class CreatePostInput:
+        title: str
+        content: str
+        author_id: ID
+
+    @fraiseql.input
+    class PublishPostInput:
+        post_id: ID
+
+    @fraiseql.mutation(sql_source="fn_create_user", operation="custom")
+    def create_user(input: CreateUserInput) -> User:
+        """Create a new user."""
+        pass
+
+    @fraiseql.mutation(sql_source="fn_create_post", operation="custom")
+    def create_post(input: CreatePostInput) -> Post:
+        """Create a new post."""
+        pass
+
+    @fraiseql.mutation(sql_source="fn_publish_post", operation="custom")
+    def publish_post(input: PublishPostInput) -> Post:
+        """Publish a post."""
+        pass
+    ```
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```typescript title="schema.ts"
+    // Add to schema.ts — User and Post types are already defined
+    import { registerMutation } from 'fraiseql';
+
+    registerMutation('createUser', 'User', false, false, [
+      { name: 'username', type: 'String', nullable: false },
+      { name: 'email',    type: 'String', nullable: false },
+      { name: 'bio',      type: 'String', nullable: true  },
+    ], 'Create a new user', { sql_source: 'fn_create_user', operation: 'custom' });
+
+    registerMutation('createPost', 'Post', false, false, [
+      { name: 'title',    type: 'String', nullable: false },
+      { name: 'content',  type: 'String', nullable: false },
+      { name: 'authorId', type: 'ID',     nullable: false },
+    ], 'Create a new post', { sql_source: 'fn_create_post', operation: 'custom' });
+
+    registerMutation('publishPost', 'Post', false, false, [
+      { name: 'postId', type: 'ID', nullable: false },
+    ], 'Publish a post', { sql_source: 'fn_publish_post', operation: 'custom' });
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go title="schema.go"
+    // Add to schema.go — User and Post types are already defined
+
+    func init() {
+        fraiseql.NewMutation("createUser").
+            ReturnType("User").
+            Config(map[string]interface{}{
+                "sql_source": "fn_create_user",
+                "operation":  "custom",
+            }).
+            Arg("username", "String", nil).
+            Arg("email",    "String", nil).
+            Arg("bio",      "String", nil, true).
+            Register()
+
+        fraiseql.NewMutation("createPost").
+            ReturnType("Post").
+            Config(map[string]interface{}{
+                "sql_source": "fn_create_post",
+                "operation":  "custom",
+            }).
+            Arg("title",    "String", nil).
+            Arg("content",  "String", nil).
+            Arg("authorId", "ID",     nil).
+            Register()
+
+        fraiseql.NewMutation("publishPost").
+            ReturnType("Post").
+            Config(map[string]interface{}{
+                "sql_source": "fn_publish_post",
+                "operation":  "custom",
+            }).
+            Arg("postId", "ID", nil).
+            Register()
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+:::note[SQLite]
+SQLite uses auto-generated SQL instead of stored procedures. Replace `operation="custom"` with `operation="create"` (for inserts) or `operation="update"` (for updates) — no Step 1 function files are needed. FraiseQL generates the SQL from the input type fields. The target table defaults to the return type lowercased (`User` → `user`); pass `sql_source="your_table"` to use a different name.
+:::
+
+## Step 3: Handle `updated_at`
+
+How `updated_at` is managed depends on which mutation style you use.
+
+**For stored-procedure (`"custom"`) mutations**, the function body controls the timestamp. Set it explicitly in any mutation that modifies a row:
+
+| Database | Expression |
+|---|---|
+| PostgreSQL | `updated_at = NOW()` |
+| MySQL | Handled automatically via `ON UPDATE CURRENT_TIMESTAMP` — no action needed |
+| SQL Server | `updated_at = SYSDATETIMEOFFSET()` |
+
+**For auto-generated SQL (`"create"` / `"update"`) mutations**, FraiseQL never writes `updated_at` automatically regardless of database. Your options are:
+
+- Add a database trigger on the table that sets `updated_at` on every write (recommended)
+- Include `updated_at` as a field in the input type and pass the value from the client
+
+## Step 4: Build and Test
+
+Rebuild to pick up the new function files:
+
+```bash
+confiture build --env local
+```
+
+```
+✓ Schema built successfully in 0.5s
+  → Created 3 tables, 3 views, 3 functions
+```
+
+Recompile and serve:
+
+```bash
+fraiseql compile && fraiseql serve
+```
+
+Open the GraphQL Playground at `http://localhost:8080/graphql`.
+
+### createUser
+
+```graphql
+mutation {
+  createUser(input: { username: "alice", email: "alice@example.com" }) {
+    id
+    username
+    email
+  }
+}
+```
+
+```json
+{ "data": { "createUser": { "id": "a1b2c3d4-0001-0001-0001-000000000001", "username": "alice", "email": "alice@example.com" } } }
+```
+
+### createPost
+
+```graphql
+mutation {
+  createPost(input: {
+    title: "Hello World"
+    content: "This is my first post."
+    authorId: "a1b2c3d4-0001-0001-0001-000000000001"
+  }) {
+    id
+    title
+    slug
+    author { username }
+  }
+}
+```
+
+```json
+{ "data": { "createPost": { "id": "b2c3d4e5-0002-0002-0002-000000000002", "title": "Hello World", "slug": "hello-world", "author": { "username": "alice" } } } }
+```
+
+### publishPost
+
+```graphql
+mutation {
+  publishPost(input: { postId: "b2c3d4e5-0002-0002-0002-000000000002" }) {
+    id
+    title
+    isPublished
+  }
+}
+```
+
+```json
+{ "data": { "publishPost": { "id": "b2c3d4e5-0002-0002-0002-000000000002", "title": "Hello World", "isPublished": true } } }
+```
+
+The response data comes from the view — `v_post` is queried by the `id` the function returns. The same view that serves read queries also serves mutation responses.
+
+## What's Next
+
+- [Custom Queries](/guides/custom-queries) — Views with filtering and pagination
+- [Threaded Comments](/guides/threaded-comments) — Recursive CTEs for nested data
+- [Projection Tables](/guides/projection-tables) — CQRS materialization with `tv_*` tables
+- [Observers](/guides/observers) — Trigger side effects after mutations

@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "FraiseQL for Compliance & Security";
 const description = "Data security by design. Audit-ready architecture. Compliance-first patterns. Transparent data access.";
@@ -35,7 +36,7 @@ const description = "Data security by design. Audit-ready architecture. Complian
         <div class="security-card">
           <h3>✅ Single Source of Truth: Views</h3>
           <p>All data access goes through defined views:</p>
-          <pre><code set:html={`Benefit:
+          <Code lang="sql" theme="github-light" code={`Benefit:
   - One place to enforce access control
   - Easy to audit: "which data does this view access?"
   - Row-level security: Built into the view
@@ -45,13 +46,13 @@ CREATE VIEW v_user_for_tenant AS
 SELECT * FROM tb_user
 WHERE tenant_id = current_tenant_id;
 
-No hidden queries. No bypasses. Just SQL.`}></code></pre>
+No hidden queries. No bypasses. Just SQL.`} />
         </div>
 
         <div class="security-card">
           <h3>✅ Row-Level Security (RLS)</h3>
           <p>Implement security at the database level:</p>
-          <pre><code set:html={`-- PostgreSQL RLS Example
+          <Code lang="graphql" theme="github-light" code={`-- PostgreSQL RLS Example
 ALTER TABLE tb_user ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON tb_user
@@ -61,7 +62,7 @@ Result:
   ✅ No query can read data from other tenants
   ✅ Security enforced at DB level (not app)
   ✅ Impossible to bypass from application
-  ✅ Auditable: All access logged by database`}></code></pre>
+  ✅ Auditable: All access logged by database`} />
         </div>
 
         <div class="security-card">
@@ -78,7 +79,7 @@ Result:
         <div class="security-card">
           <h3>✅ No Hidden Queries</h3>
           <p>Every query is explicit and auditable:</p>
-          <pre><code set:html={`Traditional GraphQL:
+          <Code lang="python" theme="github-light" code={`Traditional GraphQL:
   @resolver
   def user(parent):
     # Hidden query: db.find("SELECT * FROM users ...")
@@ -87,12 +88,12 @@ Result:
 
 FraiseQL:
   @fraiseql.query(sql_source="v_user")
-  def user(id: UUID) -> User:
+  def user(id: ID) -> User:
     # Compiled to a SQL template at build time
     # Rust executes it — no runtime query construction
     pass
 
-No hidden queries. Auditors see exactly what runs.`}></code></pre>
+No hidden queries. Auditors see exactly what runs.`} />
         </div>
 
       </section>
@@ -103,20 +104,20 @@ No hidden queries. Auditors see exactly what runs.`}></code></pre>
         <div class="audit-card">
           <h3>Query Audit Trail</h3>
           <p>Every query is traceable to its view:</p>
-          <pre><code set:html={`Database logs (enable query logging):
+          <Code lang="graphql" theme="github-light" code={`Database logs (enable query logging):
   - Which view was accessed (e.g., v_user_sensitive)
   - Who accessed it (authenticated user)
   - When it was accessed (timestamp)
   - From which application (connection info)
 
 Log every access automatically. No app-level logging needed.
-Database is the source of truth for who accessed what.`}></code></pre>
+Database is the source of truth for who accessed what.`} />
         </div>
 
         <div class="audit-card">
           <h3>Data Lineage</h3>
           <p>Easy to trace where data comes from:</p>
-          <pre><code set:html={`GraphQL Query Request
+          <Code lang="python" theme="github-light" code={`GraphQL Query Request
     ↓
   Application logs: which resolver called
     ↓
@@ -127,13 +128,13 @@ Database is the source of truth for who accessed what.`}></code></pre>
   Tables: tb_user, tb_post (source tables)
 
 Auditors can trace: "This data came from these tables, via this view."
-No mystery. All transparent.`}></code></pre>
+No mystery. All transparent.`} />
         </div>
 
         <div class="audit-card">
           <h3>Change Audit</h3>
           <p>Track all changes to views and schemas:</p>
-          <pre><code set:html={`Git + Code Review:
+          <Code lang="python" theme="github-light" code={`Git + Code Review:
   ✅ Every view change is in version control
   ✅ Every change has commit history
   ✅ Every change was reviewed (PR)
@@ -144,7 +145,7 @@ Deploy:
   ✅ Deployment logs what changed
   ✅ Rollback is clean and traceable
 
-Result: Complete audit trail of all data access changes.`}></code></pre>
+Result: Complete audit trail of all data access changes.`} />
         </div>
 
       </section>
@@ -206,21 +207,21 @@ Result: Complete audit trail of all data access changes.`}></code></pre>
           <h3>SQL Injection</h3>
           <p><strong>Traditional Risk:</strong> Dynamic SQL in resolvers can be vulnerable</p>
           <p><strong>FraiseQL Approach:</strong> Views are static SQL, parameterized queries</p>
-          <pre><code set:html={`-- View is static SQL (no user input)
+          <Code lang="sql" theme="github-light" code={`-- View is static SQL (no user input)
 CREATE VIEW v_user AS
 SELECT * FROM tb_user WHERE id = $1;
 
 -- Compiled SQL template uses $1 placeholder
 -- Rust runtime binds user_id at execution time
 
-Result: SQL injection impossible.`}></code></pre>
+Result: SQL injection impossible.`} />
         </div>
 
         <div class="threat-card">
           <h3>Unauthorized Data Access</h3>
           <p><strong>Traditional Risk:</strong> Resolver can bypass authorization</p>
           <p><strong>FraiseQL Approach:</strong> Authorization built into view</p>
-          <pre><code set:html={`-- View enforces authorization
+          <Code lang="sql" theme="github-light" code={`-- View enforces authorization
 CREATE VIEW v_user_data AS
 SELECT * FROM tb_user
 WHERE id IN (
@@ -230,14 +231,14 @@ WHERE id IN (
 );
 
 -- No way to access unauthorized data
--- Even if app logic fails, DB prevents it`}></code></pre>
+-- Even if app logic fails, DB prevents it`} />
         </div>
 
         <div class="threat-card">
           <h3>Information Disclosure</h3>
           <p><strong>Traditional Risk:</strong> Resolver returns too much data</p>
           <p><strong>FraiseQL Approach:</strong> Views define exactly what data is returned</p>
-          <pre><code set:html={`-- Public view (limited fields)
+          <Code lang="sql" theme="github-light" code={`-- Public view (limited fields)
 CREATE VIEW v_user_public AS
 SELECT id, name FROM tb_user;
 
@@ -246,14 +247,14 @@ CREATE VIEW v_user_internal AS
 SELECT * FROM tb_user;
 
 -- No accidental data leakage
--- Auditor can verify what's returned`}></code></pre>
+-- Auditor can verify what's returned`} />
         </div>
 
         <div class="threat-card">
           <h3>Privilege Escalation</h3>
           <p><strong>Traditional Risk:</strong> Resolver uses wrong credentials</p>
           <p><strong>FraiseQL Approach:</strong> Database connection uses service account</p>
-          <pre><code set:html={`-- Application runs as limited service account
+          <Code lang="python" theme="github-light" code={`-- Application runs as limited service account
 database_connection:
   user: fraiseql_app (limited permissions)
   password: *** (rotated regularly)
@@ -262,7 +263,7 @@ database_connection:
 -- Cannot access raw tables
 -- Cannot escalate privileges
 
-Result: Even if app is compromised, damage is limited.`}></code></pre>
+Result: Even if app is compromised, damage is limited.`} />
         </div>
 
       </section>
@@ -286,7 +287,7 @@ Result: Even if app is compromised, damage is limited.`}></code></pre>
         <div class="incident-card">
           <h3>Rapid Remediation</h3>
           <p>Fix security issues quickly:</p>
-          <pre><code set:html={`If a view exposes too much data:
+          <Code lang="python" theme="github-light" code={`If a view exposes too much data:
 1. Update the view (SQL change)
 2. Run fraiseql build (validate)
 3. Deploy (atomic)
@@ -295,7 +296,7 @@ Result: Even if app is compromised, damage is limited.`}></code></pre>
 
 No resolver code changes needed.
 No cache to clear.
-No complex rollback.`}></code></pre>
+No complex rollback.`} />
         </div>
 
       </section>
@@ -318,7 +319,7 @@ No complex rollback.`}></code></pre>
         <div class="documentation-card">
           <h3>Audit Report Generation</h3>
           <p>Views make it easy to generate compliance reports:</p>
-          <pre><code set:html={`SELECT
+          <Code lang="python" theme="github-light" code={`SELECT
   view_name,
   accessed_by,
   access_time,
@@ -328,7 +329,7 @@ WHERE access_time BETWEEN start_date AND end_date
 ORDER BY access_time;
 
 Single query. Complete audit trail.
-Export for compliance officer.`}></code></pre>
+Export for compliance officer.`} />
         </div>
 
       </section>
@@ -336,7 +337,7 @@ Export for compliance officer.`}></code></pre>
       <section class="certification-section">
         <h2>Ready for Certification</h2>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/trade-offs/" class="btn btn-secondary">Learn More</a>
         </div>
       </section>

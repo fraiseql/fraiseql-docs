@@ -765,19 +765,19 @@ fraiseql_saga_executions_total{
 
 Complete implementation with 4 databases, RBAC, and saga pattern for order creation.
 
-See: [Multi-Database SaaS Example](/examples/federation-multitenant/)
+See: [SaaS Federation with NATS](/examples/saas-federation-nats/)
 
 ### Example 2: Microservices Coordination
 
 Orchestra saga pattern across 5 microservices with event-driven fallback.
 
-See: [Microservices Federation](/examples/federation-microservices/)
+See: [Microservices Choreography](/examples/microservices-choreography/)
 
 ### Example 3: Legacy System Integration
 
 Safely integrate legacy systems while maintaining consistency.
 
-See: [Legacy Integration Guide](/guides/federation-legacy/)
+See: [Multi-Database Federation](/guides/federation-configuration/)
 
 ---
 
@@ -786,4 +786,4 @@ See: [Legacy Integration Guide](/guides/federation-legacy/)
 - [NATS for Federation Events](/guides/advanced-nats) — Real-time coordination
 - [Custom Resolvers](/guides/custom-resolvers) — Business logic hooks
 - [Performance Tuning](/guides/performance) — Optimization deep dive
-- [Testing Distributed Systems](/guides/testing-federation) — Test strategies
+- [Testing](/guides/testing) — Test strategies

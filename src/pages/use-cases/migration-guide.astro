@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "Migrating to FraiseQL";
 const description = "Move from traditional GraphQL, Hasura, or REST to FraiseQL. Incremental migration path. Keep your existing database.";
@@ -58,11 +59,11 @@ const description = "Move from traditional GraphQL, Hasura, or REST to FraiseQL.
             <div class="step-content">
               <h4>Define Python/TypeScript Types</h4>
               <p>Create type classes that match your Hasura schema.</p>
-              <pre><code set:html={`@fraiseql.type
+              <Code lang="python" theme="github-light" code={`@fraiseql.type
 class User:
-  id: UUID
+  id: ID
   name: str
-  email: str`}></code></pre>
+  email: str`} />
             </div>
           </div>
 
@@ -71,10 +72,10 @@ class User:
             <div class="step-content">
               <h4>Implement Resolvers</h4>
               <p>Convert Hasura GraphQL resolvers to FraiseQL query handlers.</p>
-              <pre><code set:html={`# Hasura-like query
+              <Code lang="python" theme="github-light" code={`# Hasura-like query
 @fraiseql.query(sql_source="v_users")
 def users(limit: int = 100) -> list[User]:
-  pass`}></code></pre>
+  pass`} />
             </div>
           </div>
 
@@ -106,10 +107,10 @@ def users(limit: int = 100) -> list[User]:
             <div class="step-content">
               <h4>Audit Resolver Patterns</h4>
               <p>Document your most common resolver patterns and N+1 hot spots.</p>
-              <pre><code set:html={`# Identify patterns like:
+              <Code lang="python" theme="github-light" code={`# Identify patterns like:
 # - @resolver that does db.find() + permission check
 # - @resolver that loads relationships
-# - @resolver with complex business logic`}></code></pre>
+# - @resolver with complex business logic`} />
             </div>
           </div>
 
@@ -118,7 +119,7 @@ def users(limit: int = 100) -> list[User]:
             <div class="step-content">
               <h4>Create FraiseQL Views</h4>
               <p>Translate your resolver logic into SQL views.</p>
-              <pre><code set:html={`# Traditional GraphQL resolver
+              <Code lang="sql" theme="github-light" code={`# Traditional GraphQL resolver
 @resolver
 async def user_with_posts(parent: User, info):
   return {
@@ -136,7 +137,7 @@ SELECT jsonb_build_object(
     WHERE user_id = u.id
   )
 ) AS data
-FROM tb_user u;`}></code></pre>
+FROM tb_user u;`} />
             </div>
           </div>
 
@@ -176,15 +177,15 @@ FROM tb_user u;`}></code></pre>
             <div class="step-content">
               <h4>Create FraiseQL Types</h4>
               <p>Each REST response becomes a FraiseQL type.</p>
-              <pre><code set:html={`# REST: GET /api/users/:id
+              <Code lang="python" theme="github-light" code={`# REST: GET /api/users/:id
 @fraiseql.query
-async def user(id: UUID) -> User:
+async def user(id: ID) -> User:
   ...
 
 # REST: GET /api/posts?user_id=:id
 @fraiseql.query
-async def posts(user_id: UUID) -> list[Post]:
-  ...`}></code></pre>
+async def posts(user_id: ID) -> list[Post]:
+  ...`} />
             </div>
           </div>
 
@@ -214,7 +215,7 @@ async def posts(user_id: UUID) -> list[Post]:
         <div class="practice-box">
           <h3>1. Migrate by Feature, Not by Table</h3>
           <p>Don't migrate entire tables. Migrate user-facing features:</p>
-          <pre><code set:html={`# Good approach:
+          <Code lang="python" theme="github-light" code={`# Good approach:
 # Week 1: User profile feature (types, views, queries)
 # Week 2: Post listing feature
 # Week 3: Comments feature
@@ -222,13 +223,13 @@ async def posts(user_id: UUID) -> list[Post]:
 # Bad approach:
 # Migrate all User table endpoints
 # Then Post table
-# Then Comment table`}></code></pre>
+# Then Comment table`} />
         </div>
 
         <div class="practice-box">
           <h3>2. Use Feature Flags</h3>
           <p>Route traffic gradually to FraiseQL:</p>
-          <pre><code set:html={`# Client routing logic
+          <Code lang="python" theme="github-light" code={`# Client routing logic
 if feature_flag("use_fraiseql_posts"):
   posts = fraiseql_client.posts()
 else:
@@ -238,13 +239,13 @@ else:
 # Day 1: 10% to FraiseQL
 # Day 2: 25% to FraiseQL
 # Day 3: 50% to FraiseQL
-# Day 4: 100% to FraiseQL`}></code></pre>
+# Day 4: 100% to FraiseQL`} />
         </div>
 
         <div class="practice-box">
           <h3>3. Validate Responses</h3>
           <p>Compare outputs from both systems during migration:</p>
-          <pre><code set:html={`# Parallel query execution
+          <Code lang="graphql" theme="github-light" code={`# Parallel query execution
 legacy_response = legacy_client.query(request)
 fraiseql_response = fraiseql_client.query(request)
 
@@ -254,13 +255,13 @@ if legacy_response != fraiseql_response:
   # Still return legacy response to user
   return legacy_response
 else:
-  return fraiseql_response`}></code></pre>
+  return fraiseql_response`} />
         </div>
 
         <div class="practice-box">
           <h3>4. Performance Testing</h3>
           <p>Validate performance improvements before full switch:</p>
-          <pre><code set:html={`# Load test both endpoints
+          <Code lang="python" theme="github-light" code={`# Load test both endpoints
 fraiseql_latency = load_test(fraiseql_endpoint, 1000_requests)
 legacy_latency = load_test(legacy_endpoint, 1000_requests)
 
@@ -269,18 +270,18 @@ assert fraiseql_latency < legacy_latency / 5
 
 # Only migrate if performance is better
 if fraiseql_latency < legacy_latency:
-  switch_to_fraiseql()`}></code></pre>
+  switch_to_fraiseql()`} />
         </div>
 
         <div class="practice-box">
           <h3>5. Database Indexes</h3>
           <p>Don't forget to create indexes for your new views:</p>
-          <pre><code set:html={`-- Before deploying FraiseQL views, create indexes
+          <Code lang="python" theme="github-light" code={`-- Before deploying FraiseQL views, create indexes
 CREATE INDEX idx_post_user_id ON tb_post(user_id);
 CREATE INDEX idx_post_created_at ON tb_post(created_at DESC);
 
 -- Deploy indexes with your FraiseQL code
--- EXPLAIN ANALYZE confirms they're used`}></code></pre>
+-- EXPLAIN ANALYZE confirms they're used`} />
         </div>
       </section>
 
@@ -290,7 +291,7 @@ CREATE INDEX idx_post_created_at ON tb_post(created_at DESC);
         <div class="rollback-box">
           <h3>Keep Legacy System Running</h3>
           <p>During migration, keep your old system available for quick rollback:</p>
-          <pre><code set:html={`# API Router
+          <Code lang="python" theme="github-light" code={`# API Router
 def route_request(endpoint, request):
   try:
     response = fraiseql_client.query(endpoint, request)
@@ -302,7 +303,7 @@ def route_request(endpoint, request):
     log("fraiseql_error", endpoint, e)
     return legacy_client.query(endpoint, request)
 
-# If FraiseQL causes issues, instant fallback`}></code></pre>
+# If FraiseQL causes issues, instant fallback`} />
 
           <p><strong>Timeline:</strong> Keep legacy for 1-2 weeks post-migration. Then decommission.</p>
         </div>
@@ -314,7 +315,7 @@ def route_request(endpoint, request):
           <div class="resource-box">
             <h3>📘 Getting Started</h3>
             <p>FraiseQL quickstart guide to understand the basics.</p>
-            <a href="/docs/getting-started/quickstart/" class="link">Read →</a>
+            <a href="/getting-started/quickstart/" class="link">Read →</a>
           </div>
           <div class="resource-box">
             <h3>💻 For Developers</h3>
@@ -338,7 +339,7 @@ def route_request(endpoint, request):
         <h2>Ready to Migrate?</h2>
         <p>Start your migration to FraiseQL today. Gradual, safe, and proven.</p>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
         </div>
       </section>
@@ -465,7 +466,6 @@ def route_request(endpoint, request):
   }
 
   .step-content pre {
-    background: white;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-3);
@@ -489,7 +489,6 @@ def route_request(endpoint, request):
   }
 
   .practice-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -512,7 +511,6 @@ def route_request(endpoint, request):
   }
 
   .rollback-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);

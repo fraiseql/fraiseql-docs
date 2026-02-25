@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "Enterprise SaaS with FraiseQL";
 const description = "Multi-tenant SaaS platforms with row-level isolation, RBAC, and 80% fewer LLM tokens. Scale predictably with database-first architecture.";
@@ -38,7 +39,7 @@ const description = "Multi-tenant SaaS platforms with row-level isolation, RBAC,
         <div class="solution-step">
           <h3>1. Define Tenant Context in Views</h3>
           <p>PostgreSQL views with tenant filtering:</p>
-          <pre><code set:html={`CREATE VIEW v_user_posts AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_user_posts AS
 SELECT
   jsonb_build_object(
     'id', p.id::text,
@@ -47,28 +48,28 @@ SELECT
     'created_at', p.created_at
   ) AS data
 FROM tb_post p
-WHERE p.tenant_id = current_setting('app.tenant_id')::uuid;`}></code></pre>
+WHERE p.tenant_id = current_setting('app.tenant_id')::uuid;`} />
         </div>
 
         <div class="solution-step">
           <h3>2. Set Tenant Context Once</h3>
           <p>Declare the query. The Rust runtime sets tenant context automatically:</p>
-          <pre><code set:html={`@fraiseql.query(sql_source="v_user_posts")
-def user_posts(user_id: UUID) -> list[UserPost]:
+          <Code lang="python" theme="github-light" code={`@fraiseql.query(sql_source="v_user_posts")
+def user_posts(user_id: ID) -> list[UserPost]:
   # Tenant context is set by the Rust runtime via fraiseql.toml
   # All views enforce it automatically via current_setting('app.tenant_id')
-  pass`}></code></pre>
+  pass`} />
         </div>
 
         <div class="solution-step">
           <h3>3. Define Python Types</h3>
           <p>Simple, repeatable schema:</p>
-          <pre><code set:html={`@fraiseql.type
+          <Code lang="python" theme="github-light" code={`@fraiseql.type
 class UserPost:
-  id: UUID
+  id: ID
   title: str
-  author_id: UUID
-  created_at: str`}></code></pre>
+  author_id: ID
+  created_at: str`} />
         </div>
 
         <p><strong>Result:</strong> Every resolver follows the same pattern. 4 core patterns instead of 47 custom ones. LLMs can generate your entire API.</p>
@@ -84,7 +85,7 @@ class UserPost:
           <p><strong>Traditional GraphQL problem:</strong> N+1 queries across 3 tables + authorization checks in each resolver</p>
 
           <h3>FraiseQL approach:</h3>
-          <pre><code set:html={`-- Single SQL view handles everything
+          <Code lang="sql" theme="github-light" code={`-- Single SQL view handles everything
 CREATE VIEW v_team_projects AS
 SELECT
   jsonb_build_object(
@@ -102,12 +103,12 @@ SELECT
     )
   ) AS data
 FROM tb_team t
-WHERE t.tenant_id = current_setting('app.tenant_id')::uuid;`}></code></pre>
+WHERE t.tenant_id = current_setting('app.tenant_id')::uuid;`} />
 
           <p><strong>One query. One resolver. Done.</strong></p>
-          <pre><code set:html={`@fraiseql.query(sql_source="v_team_projects")
-def team_with_projects(team_id: UUID) -> TeamProjects:
-  pass`}></code></pre>
+          <Code lang="python" theme="github-light" code={`@fraiseql.query(sql_source="v_team_projects")
+def team_with_projects(team_id: ID) -> TeamProjects:
+  pass`} />
         </div>
 
         <div class="metrics">
@@ -139,17 +140,17 @@ def team_with_projects(team_id: UUID) -> TeamProjects:
         <div class="pattern-box">
           <h3>Multi-Database Tenants</h3>
           <p>If you use database-per-tenant instead of schema-per-tenant:</p>
-          <pre><code set:html={`@fraiseql.query(sql_source="v_user")
-def user_by_tenant(user_id: UUID) -> User:
+          <Code lang="python" theme="github-light" code={`@fraiseql.query(sql_source="v_user")
+def user_by_tenant(user_id: ID) -> User:
   # Per-tenant database routing is configured in fraiseql.toml
   # The Rust runtime selects the correct connection pool
-  pass`}></code></pre>
+  pass`} />
         </div>
 
         <div class="pattern-box">
           <h3>Role-Based Access Control</h3>
           <p>Enforce in views with user role context:</p>
-          <pre><code set:html={`CREATE VIEW v_user_reports AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_user_reports AS
 SELECT
   jsonb_build_object(
     'id', r.id::text,
@@ -161,19 +162,19 @@ SELECT
     END
   ) AS data
 FROM tb_report r
-WHERE r.tenant_id = current_setting('app.tenant_id')::uuid;`}></code></pre>
+WHERE r.tenant_id = current_setting('app.tenant_id')::uuid;`} />
         </div>
 
         <div class="pattern-box">
           <h3>Audit Logging</h3>
           <p>Automatic audit trail of what data was accessed:</p>
-          <pre><code set:html={`CREATE TRIGGER audit_user_access AFTER SELECT ON v_user
+          <Code lang="sql" theme="github-light" code={`CREATE TRIGGER audit_user_access AFTER SELECT ON v_user
 FOR EACH ROW EXECUTE FUNCTION log_data_access(
   'user_view',
   NEW.id,
   current_setting('app.tenant_id'),
   current_setting('app.user_id')
-);`}></code></pre>
+);`} />
         </div>
       </section>
 
@@ -209,7 +210,7 @@ FOR EACH ROW EXECUTE FUNCTION log_data_access(
         <h2>Ready to Scale Your SaaS?</h2>
         <p>Get started with FraiseQL and build your next multi-tenant platform faster than ever.</p>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
         </div>
       </section>
@@ -297,7 +298,6 @@ FOR EACH ROW EXECUTE FUNCTION log_data_access(
   }
 
   .solution-step pre {
-    background: white;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -326,7 +326,6 @@ FOR EACH ROW EXECUTE FUNCTION log_data_access(
   }
 
   .example-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -399,7 +398,6 @@ FOR EACH ROW EXECUTE FUNCTION log_data_access(
   }
 
   .pattern-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);

@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "N+1 Query Elimination with FraiseQL";
 const description = "Stop fighting N+1 queries with DataLoaders. Compose relationships at the database level. One query. One network hop. Done.";
@@ -22,7 +23,7 @@ const description = "Stop fighting N+1 queries with DataLoaders. Compose relatio
 
         <div class="problem-example">
           <h3>Typical GraphQL Resolver Pattern</h3>
-          <pre><code set:html={`# Fetch user
+          <Code lang="python" theme="github-light" code={`# Fetch user
 @resolver
 async def user(info, id: str) -> User:
   return db.find_user(id)  # Query 1
@@ -32,7 +33,7 @@ async def user(info, id: str) -> User:
 async def posts(parent: User, info) -> list[Post]:
   return db.find_posts(user_id=parent.id)  # Query 2 per user!
 
-# Result: 1 user query + N posts queries = 1 + N queries`}></code></pre>
+# Result: 1 user query + N posts queries = 1 + N queries`} />
 
           <p><strong>Problem:</strong> Fetch 100 users and you get 101 database queries. DataLoaders help, but they add complexity and still require careful batching.</p>
         </div>
@@ -65,7 +66,7 @@ async def posts(parent: User, info) -> list[Post]:
         <div class="solution-steps">
           <div class="step">
             <h3>Step 1: SQL View Composes Everything</h3>
-            <pre><code set:html={`CREATE VIEW v_user_with_posts AS
+            <Code lang="sql" theme="github-light" code={`CREATE VIEW v_user_with_posts AS
 SELECT
   jsonb_build_object(
     'id', u.id::text,
@@ -81,31 +82,31 @@ SELECT
       WHERE p.user_id = u.id
     )
   ) AS data
-FROM tb_user u;`}></code></pre>
+FROM tb_user u;`} />
           </div>
 
           <div class="step">
             <h3>Step 2: Single Resolver Query</h3>
-            <pre><code set:html={`@fraiseql.query(sql_source="v_user_with_posts")
+            <Code lang="python" theme="github-light" code={`@fraiseql.query(sql_source="v_user_with_posts")
 def users(limit: int = 100) -> list[User]:
   # One query returns everything — pre-composed in the view
-  pass`}></code></pre>
+  pass`} />
           </div>
 
           <div class="step">
             <h3>Step 3: Python Type Matches View</h3>
-            <pre><code set:html={`@fraiseql.type
+            <Code lang="python" theme="github-light" code={`@fraiseql.type
 class UserPost:
-  id: UUID
+  id: ID
   title: str
   created_at: str
 
 @fraiseql.type
 class User:
-  id: UUID
+  id: ID
   name: str
   email: str
-  posts: list[UserPost]`}></code></pre>
+  posts: list[UserPost]`} />
           </div>
         </div>
 
@@ -153,7 +154,7 @@ class User:
 
         <div class="example-card">
           <h3>Posts with Comments and Likes</h3>
-          <pre><code set:html={`CREATE VIEW v_posts_full AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_posts_full AS
 SELECT
   jsonb_build_object(
     'id', p.id::text,
@@ -174,13 +175,13 @@ SELECT
     ),
     'like_count', (SELECT count(*) FROM tb_like WHERE post_id = p.id)
   ) AS data
-FROM tb_post p;`}></code></pre>
+FROM tb_post p;`} />
           <p><strong>Single query returns:</strong> Post → Comments → Comment Author + Comment Likes + Post Likes</p>
         </div>
 
         <div class="example-card">
           <h3>Nested E-Commerce Data</h3>
-          <pre><code set:html={`CREATE VIEW v_orders_with_details AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_orders_with_details AS
 SELECT
   jsonb_build_object(
     'id', o.id::text,
@@ -204,7 +205,7 @@ SELECT
     )
   ) AS data
 FROM tb_order o
-JOIN tb_address a ON o.address_id = a.id;`}></code></pre>
+JOIN tb_address a ON o.address_id = a.id;`} />
           <p><strong>Single query returns:</strong> Order → Items → Product Details → Shipping Address</p>
         </div>
       </section>
@@ -317,7 +318,7 @@ JOIN tb_address a ON o.address_id = a.id;`}></code></pre>
         <h2>Stop the N+1 Trap</h2>
         <p>Build APIs that scale naturally with database-first composition.</p>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
         </div>
       </section>
@@ -389,7 +390,6 @@ JOIN tb_address a ON o.address_id = a.id;`}></code></pre>
   }
 
   .problem-example pre {
-    background: white;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -452,7 +452,6 @@ JOIN tb_address a ON o.address_id = a.id;`}></code></pre>
   }
 
   .step pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -535,7 +534,6 @@ JOIN tb_address a ON o.address_id = a.id;`}></code></pre>
   }
 
   .example-card pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);

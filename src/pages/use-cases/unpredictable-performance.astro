@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "Unpredictable Performance: FraiseQL Solution";
 const description = "Eliminate surprise slow queries. Compile-time validation, execution plans, and deterministic performance.";
@@ -21,7 +22,7 @@ const description = "Eliminate surprise slow queries. Compile-time validation, e
 
         <div class="problem-example">
           <h3>Traditional GraphQL: Runtime Surprises</h3>
-          <pre><code set:html={`# Your code looks fine
+          <Code lang="python" theme="github-light" code={`# Your code looks fine
 @resolver
 async def posts(parent: User, info) -> list[Post]:
   return db.find_posts(user_id=parent.id)
@@ -33,7 +34,7 @@ async def users() -> list[User]:
   # ^ Each user loops through posts resolver = 1 + N queries
 
 # You only discover this in production
-# When your API slows to a crawl`}></code></pre>
+# When your API slows to a crawl`} />
         </div>
 
         <div class="problem-grid">
@@ -71,7 +72,7 @@ async def users() -> list[User]:
 
         <div class="solution-step">
           <h3>Step 1: Define View with Single Query</h3>
-          <pre><code set:html={`-- Compile once, never worry about N+1
+          <Code lang="sql" theme="github-light" code={`-- Compile once, never worry about N+1
 CREATE VIEW v_user_with_posts AS
 SELECT
   jsonb_build_object(
@@ -89,28 +90,28 @@ SELECT
 FROM tb_user u;
 
 -- At deploy time, the database creates an index plan for this query
--- EXPLAIN ANALYZE shows it's one query, ~100ms for 1000 users`}></code></pre>
+-- EXPLAIN ANALYZE shows it's one query, ~100ms for 1000 users`} />
         </div>
 
         <div class="solution-step">
           <h3>Step 2: Index for Performance</h3>
-          <pre><code set:html={`-- FraiseQL helps you identify the right indexes
+          <Code lang="python" theme="github-light" code={`-- FraiseQL helps you identify the right indexes
 CREATE INDEX idx_post_user_id ON tb_post(user_id);
 CREATE INDEX idx_post_created_at ON tb_post(created_at DESC);
 
 -- Deploy these with your view
--- Database optimizer uses them automatically`}></code></pre>
+-- Database optimizer uses them automatically`} />
         </div>
 
         <div class="solution-step">
           <h3>Step 3: Query with Confidence</h3>
-          <pre><code set:html={`@fraiseql.query(sql_source="v_user_with_posts")
+          <Code lang="python" theme="github-light" code={`@fraiseql.query(sql_source="v_user_with_posts")
 def users(limit: int = 100) -> list[User]:
   # This is always 1 query, always fast
   pass
 
 # Performance: Always ~100-200ms regardless of data size
-# (as long as indexes are in place)`}></code></pre>
+# (as long as indexes are in place)`} />
         </div>
       </section>
 
@@ -153,7 +154,7 @@ def users(limit: int = 100) -> list[User]:
 
         <div class="tool-box">
           <h3>1. EXPLAIN ANALYZE Integration</h3>
-          <pre><code set:html={`# FraiseQL CLI includes performance checker
+          <Code lang="bash" theme="github-light" code={`# FraiseQL CLI includes performance checker
 $ fraiseql explain views/v_user_with_posts.sql
 
 Query Plan:
@@ -164,27 +165,27 @@ Query Plan:
       Index Cond: (user_id = u.id)
 
 Execution time: ~150ms for 1000 users
-✅ PASS: Query is optimized`}></code></pre>
+✅ PASS: Query is optimized`} />
         </div>
 
         <div class="tool-box">
           <h3>2. Type Validation</h3>
-          <pre><code set:html={`# Your Python types must match your views
+          <Code lang="python" theme="github-light" code={`# Your Python types must match your views
 # Compile-time mismatch detection
 
 @fraiseql.type
 class Post:
-  id: UUID
+  id: ID
   title: str
   # Compiler checks this matches v_user_with_posts
 
 # If you change the view, you get a compile error
-# before deploying to production`}></code></pre>
+# before deploying to production`} />
         </div>
 
         <div class="tool-box">
           <h3>3. Query Logging</h3>
-          <pre><code set:html={`# Every query logged with timing
+          <Code lang="sql" theme="github-light" code={`# Every query logged with timing
 # Not hidden like field resolver cascades
 
 2024-01-15 10:23:45.123 [db] users() executed in 145ms
@@ -193,7 +194,7 @@ class Post:
 
 2024-01-15 10:23:46.234 [db] user(id=123) executed in 12ms
   Query: SELECT ... FROM v_user_with_posts WHERE id = $1
-  Rows: 1`}></code></pre>
+  Rows: 1`} />
         </div>
       </section>
 
@@ -202,19 +203,19 @@ class Post:
 
         <div class="practice-box">
           <h3>1. Create Appropriate Indexes</h3>
-          <pre><code set:html={`-- Index foreign keys
+          <Code lang="python" theme="github-light" code={`-- Index foreign keys
 CREATE INDEX idx_post_user_id ON tb_post(user_id);
 
 -- Index sorted queries
 CREATE INDEX idx_post_created_at ON tb_post(created_at DESC);
 
 -- Composite indexes for common filters
-CREATE INDEX idx_post_user_published ON tb_post(user_id, published_at);`}></code></pre>
+CREATE INDEX idx_post_user_published ON tb_post(user_id, published_at);`} />
         </div>
 
         <div class="practice-box">
           <h3>2. Limit Result Sets</h3>
-          <pre><code set:html={`-- Don't return 10,000 records by default
+          <Code lang="sql" theme="github-light" code={`-- Don't return 10,000 records by default
 CREATE VIEW v_recent_posts AS
 SELECT ... FROM tb_post
 ORDER BY created_at DESC
@@ -223,12 +224,12 @@ LIMIT 100;  -- Reasonable default
 -- Pagination for large result sets
 @fraiseql.query(sql_source="v_recent_posts")
 def posts(limit: int = 50, offset: int = 0) -> list[Post]:
-  pass`}></code></pre>
+  pass`} />
         </div>
 
         <div class="practice-box">
           <h3>3. Profile at Decode Time</h3>
-          <pre><code set:html={`-- Test with realistic data sizes
+          <Code lang="sql" theme="github-light" code={`-- Test with realistic data sizes
 CREATE VIEW v_product_recommendations AS
 SELECT ... FROM tb_product
 WHERE ...
@@ -239,12 +240,12 @@ EXPLAIN ANALYZE
 SELECT * FROM v_product_recommendations;
 
 -- FraiseQL alerts you if it's slow
--- Fix before deploying`}></code></pre>
+-- Fix before deploying`} />
         </div>
 
         <div class="practice-box">
           <h3>4. Monitor in Production</h3>
-          <pre><code set:html={`# FraiseQL includes performance monitoring
+          <Code lang="graphql" theme="github-light" code={`# FraiseQL includes performance monitoring
 # Slow queries trigger alerts
 
 fraiseql_config:
@@ -253,7 +254,7 @@ fraiseql_config:
     alert_on_slow: true
 
 # Dashboard shows query times and trends
-# Alerts fire before users complain`}></code></pre>
+# Alerts fire before users complain`} />
         </div>
       </section>
 
@@ -312,7 +313,7 @@ fraiseql_config:
         <h2>Build Predictable Systems</h2>
         <p>Stop chasing performance issues. Build it right from the start.</p>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started</a>
           <a href="/use-cases/" class="btn btn-secondary">← Back to Use Cases</a>
         </div>
       </section>
@@ -383,7 +384,6 @@ fraiseql_config:
   }
 
   .problem-example pre {
-    background: white;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -459,7 +459,6 @@ fraiseql_config:
   }
 
   .solution-step pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -533,7 +532,6 @@ fraiseql_config:
   }
 
   .tool-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);
@@ -557,7 +555,6 @@ fraiseql_config:
   }
 
   .practice-box pre {
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: var(--spacing-4);

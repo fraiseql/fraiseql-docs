@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "FraiseQL for Data Engineers";
 const description = "Two-plane architecture: JSON/GraphQL for transactional reads, Apache Arrow Flight for columnar analytics. Fact tables (tf_*), Arrow tables (ta_*), and zero-copy Pandas/Polars/DuckDB integration.";
@@ -48,7 +49,7 @@ const description = "Two-plane architecture: JSON/GraphQL for transactional read
         <div class="value-card">
           <h3>✅ JSON Plane — <code>v_*</code> views → GraphQL</h3>
           <p>Transactional reads and dashboard data. JSONB composition in the database. One SQL query per GraphQL field.</p>
-          <pre><code set:html={`-- v_* views return JSONB for the GraphQL layer
+          <Code lang="sql" theme="github-light" code={`-- v_* views return JSONB for the GraphQL layer
 CREATE VIEW v_daily_metrics AS
 SELECT
   date_trunc('day', created_at)::date AS date,
@@ -63,13 +64,13 @@ FROM tb_events
 GROUP BY date_trunc('day', created_at);
 
 -- Complex aggregations. Window functions. CTEs. All supported.
--- No magic. Just SQL.`}></code></pre>
+-- No magic. Just SQL.`} />
         </div>
 
         <div class="value-card value-card-arrow">
           <h3>✅ Arrow Plane — <code>ta_*</code> tables → Arrow Flight (port 50051)</h3>
           <p>Columnar bulk access for analytics pipelines. <code>ta_*</code> tables are exposed over Apache Arrow Flight — a gRPC protocol for zero-copy columnar transfer. No per-row serialization.</p>
-          <pre><code set:html={`-- ta_* tables: flat, wide schemas — columnar storage is the goal
+          <Code lang="graphql" theme="github-light" code={`-- ta_* tables: flat, wide schemas — columnar storage is the goal
 CREATE TABLE ta_events (
   event_id     UUID NOT NULL,
   occurred_at  TIMESTAMPTZ NOT NULL,
@@ -84,7 +85,7 @@ CREATE TABLE ta_events (
 -- Arrow Flight ticket types:
 --   OptimizedView  → query with filters, returns columnar Arrow
 --   BulkExport     → full table scan in Arrow record batches
---   BatchedQueries → multiple queries in one Flight call`}></code></pre>
+--   BatchedQueries → multiple queries in one Flight call`} />
         </div>
       </section>
 
@@ -94,7 +95,7 @@ CREATE TABLE ta_events (
 
         <div class="value-card">
           <h3>Structure</h3>
-          <pre><code set:html={`-- tf_* fact table: denormalized OLAP
+          <Code lang="sql" theme="github-light" code={`-- tf_* fact table: denormalized OLAP
 CREATE TABLE tf_sales (
   id           UUID DEFAULT gen_random_uuid(),
   occurred_at  TIMESTAMPTZ NOT NULL,   -- temporal column → auto-buckets
@@ -111,12 +112,12 @@ CREATE TABLE tf_sales (
   -- Dimensions (JSONB grouping attributes)
   data         JSONB NOT NULL DEFAULT '{}'
   -- data: { "region": "eu", "channel": "web", "plan": "pro" }
-);`}></code></pre>
+);`} />
         </div>
 
         <div class="value-card">
           <h3>Python Declaration</h3>
-          <pre><code set:html={`@fraiseql.fact_table(
+          <Code lang="python" theme="github-light" code={`@fraiseql.fact_table(
     table_name="tf_sales",
     measures=["revenue", "quantity", "discount"],
     dimension_paths=["data.region", "data.channel", "data.plan"],
@@ -137,7 +138,7 @@ def sales_aggregates(
     region: str | None = None,
     bucket: str = "day",    # hour | day | week | month | quarter
 ) -> list[SalesAggregate]:
-    pass`}></code></pre>
+    pass`} />
           <p>The Rust compiler generates optimized SQL with <code>GROUP BY</code>, partial-index-aware <code>WHERE</code>, and temporal bucket expressions. No runtime interpretation.</p>
         </div>
       </section>
@@ -167,7 +168,7 @@ def sales_aggregates(
 
         <div class="tool-card">
           <h3>Polars — Zero-Copy DataFrames</h3>
-          <pre><code set:html={`from pyarrow import flight
+          <Code lang="python" theme="github-light" code={`from pyarrow import flight
 import polars as pl
 
 client = flight.connect("grpc://localhost:50051")
@@ -177,12 +178,12 @@ ticket = flight.Ticket(b'{"type":"OptimizedView","table":"ta_events","from_date"
 df = pl.from_arrow(client.do_get(ticket).read_all())
 
 # Native Polars operations on columnar data
-print(df.group_by("event_type").agg(pl.col("value").sum()))`}></code></pre>
+print(df.group_by("event_type").agg(pl.col("value").sum()))`} />
         </div>
 
         <div class="tool-card">
           <h3>DuckDB — In-Process OLAP</h3>
-          <pre><code set:html={`from pyarrow import flight
+          <Code lang="sql" theme="github-light" code={`from pyarrow import flight
 import duckdb
 
 client = flight.connect("grpc://localhost:50051")
@@ -193,12 +194,12 @@ arrow_table = client.do_get(ticket).read_all()
 result = duckdb.execute(
   "SELECT data->>'channel' AS channel, SUM(revenue), COUNT(*) "
   "FROM arrow_table GROUP BY 1 ORDER BY 2 DESC"
-).df()`}></code></pre>
+).df()`} />
         </div>
 
         <div class="tool-card">
           <h3>Pandas — ML Feature Extraction</h3>
-          <pre><code set:html={`from pyarrow import flight
+          <Code lang="toml" theme="github-light" code={`from pyarrow import flight
 
 client = flight.connect("grpc://localhost:50051")
 ticket = flight.Ticket(b'{"type":"BulkExport","table":"ta_events"}')
@@ -207,7 +208,7 @@ ticket = flight.Ticket(b'{"type":"BulkExport","table":"ta_events"}')
 df = client.do_get(ticket).read_all().to_pandas()
 
 # Use directly for ML training
-model.fit(df[['feature_a', 'feature_b']], df['label'])`}></code></pre>
+model.fit(df[['feature_a', 'feature_b']], df['label'])`} />
         </div>
 
         <div class="tool-card">
@@ -227,7 +228,7 @@ model.fit(df[['feature_a', 'feature_b']], df['label'])`}></code></pre>
 
         <div class="pattern-card">
           <h3>Pattern 1: Rolling Windows</h3>
-          <pre><code set:html={`CREATE VIEW v_rolling_metrics AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_rolling_metrics AS
 SELECT
   date,
   jsonb_build_object(
@@ -239,12 +240,12 @@ SELECT
       ORDER BY date ROWS BETWEEN 7 PRECEDING AND CURRENT ROW
     )
   ) AS data
-FROM tb_daily_metrics;`}></code></pre>
+FROM tb_daily_metrics;`} />
         </div>
 
         <div class="pattern-card">
           <h3>Pattern 2: Retention Cohorts (Arrow Export)</h3>
-          <pre><code set:html={`-- ta_* for Arrow Flight bulk export to Polars heatmap
+          <Code lang="sql" theme="github-light" code={`-- ta_* for Arrow Flight bulk export to Polars heatmap
 CREATE TABLE ta_retention_cohorts AS
 SELECT
   date_trunc('month', u.created_at)::date AS cohort_month,
@@ -257,12 +258,12 @@ GROUP BY 1, 2, u.user_id;
 
 -- Polars builds the heatmap from Arrow Flight:
 # df = pl.from_arrow(client.do_get(retention_ticket).read_all())
-# cohort_matrix = df.pivot(values="event_count", index="cohort_month", columns="activity_month")`}></code></pre>
+# cohort_matrix = df.pivot(values="event_count", index="cohort_month", columns="activity_month")`} />
         </div>
 
         <div class="pattern-card">
           <h3>Pattern 3: Funnel Analysis</h3>
-          <pre><code set:html={`CREATE VIEW v_conversion_funnel AS
+          <Code lang="sql" theme="github-light" code={`CREATE VIEW v_conversion_funnel AS
 SELECT
   date_trunc('day', created_at)::date AS day,
   jsonb_build_object(
@@ -273,12 +274,12 @@ SELECT
     'churned',  COUNT(DISTINCT CASE WHEN event = 'churn' THEN user_id END)
   ) AS data
 FROM tb_events
-GROUP BY date_trunc('day', created_at);`}></code></pre>
+GROUP BY date_trunc('day', created_at);`} />
         </div>
 
         <div class="pattern-card">
           <h3>Pattern 4: dbt + FraiseQL</h3>
-          <pre><code set:html={`-- dbt manages view definitions; FraiseQL exposes them as GraphQL
+          <Code lang="python" theme="github-light" code={`-- dbt manages view definitions; FraiseQL exposes them as GraphQL
 models/
   ├── staging/
   │   └── stg_events.sql
@@ -289,7 +290,7 @@ models/
 
 -- dbt generates + maintains the SQL
 -- FraiseQL compiles types + exposes both planes
--- Both use the database as source of truth`}></code></pre>
+-- Both use the database as source of truth`} />
         </div>
       </section>
 
@@ -298,7 +299,7 @@ models/
 
         <div class="performance-card">
           <h3>Indexing for Dimension Queries</h3>
-          <pre><code set:html={`-- Partial index on tf_* dimension for fast GROUP BY
+          <Code lang="python" theme="github-light" code={`-- Partial index on tf_* dimension for fast GROUP BY
 CREATE INDEX idx_tf_sales_region
   ON tf_sales ((data->>'region'))
   WHERE data->>'region' IS NOT NULL;
@@ -310,12 +311,12 @@ CREATE INDEX idx_tf_sales_occurred
 -- Partial index for frequent time ranges
 CREATE INDEX idx_ta_events_recent
   ON ta_events(occurred_at)
-  WHERE occurred_at > NOW() - INTERVAL '90 days';`}></code></pre>
+  WHERE occurred_at > NOW() - INTERVAL '90 days';`} />
         </div>
 
         <div class="performance-card">
           <h3>Materialized Views for Expensive Aggregations</h3>
-          <pre><code set:html={`-- Pre-compute expensive aggregation once per hour
+          <Code lang="sql" theme="github-light" code={`-- Pre-compute expensive aggregation once per hour
 CREATE MATERIALIZED VIEW tv_user_cohorts AS
 SELECT
   date_trunc('month', created_at)::date AS cohort_date,
@@ -325,7 +326,7 @@ FROM tb_events
 GROUP BY date_trunc('month', created_at);
 
 -- Refresh on a schedule via pg_cron or your orchestrator
-SELECT cron.schedule('0 * * * *', 'REFRESH MATERIALIZED VIEW tv_user_cohorts');`}></code></pre>
+SELECT cron.schedule('0 * * * *', 'REFRESH MATERIALIZED VIEW tv_user_cohorts');`} />
         </div>
       </section>
 
@@ -334,7 +335,7 @@ SELECT cron.schedule('0 * * * *', 'REFRESH MATERIALIZED VIEW tv_user_cohorts');`
         <p>Learn more about the full analytics dataplane architecture, including all naming conventions and Arrow Flight ticket types.</p>
         <div class="cta-buttons">
           <a href="/why/analytics-dataplane/" class="btn btn-primary">Analytics Dataplane →</a>
-          <a href="/docs/getting-started/quickstart/" class="btn btn-secondary">Get Started</a>
+          <a href="/getting-started/quickstart/" class="btn btn-secondary">Get Started</a>
         </div>
       </section>
 

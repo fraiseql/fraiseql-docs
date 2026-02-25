@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../../components/marketing/MarketingLayout.astro";
+import { Code } from 'astro:components';
 
 const title = "FraiseQL for Developers";
 const description = "Build faster APIs with less complexity. Write SQL, map to types, serve GraphQL. No resolvers. No N+1.";
@@ -40,23 +41,21 @@ const description = "Build faster APIs with less complexity. Write SQL, map to t
         <div class="value-card">
           <h3>✅ Map to Types</h3>
           <p>Define types in your language. FraiseQL validates that types match views.</p>
-          <pre><code set:html={`# Your schema matches your database
-from uuid import UUID
-
+          <Code lang="python" theme="github-light" code={`# Your schema matches your database
 @fraiseql.type
 class User:
-  id: UUID
+  id: ID
   name: str
-  email: str`}></code></pre>
+  email: str`} />
         </div>
 
         <div class="value-card">
           <h3>✅ No Field Resolvers</h3>
           <p>No per-field queries. No N+1 prevention logic. Just queries and mutations.</p>
-          <pre><code set:html={`# One query. One database hit. Done.
+          <Code lang="python" theme="github-light" code={`# One query. One database hit. Done.
 @fraiseql.query(sql_source="v_user")
-def user(id: UUID) -> User:
-  pass`}></code></pre>
+def user(id: ID) -> User:
+  pass`} />
         </div>
 
         <div class="value-card">
@@ -72,7 +71,7 @@ def user(id: UUID) -> User:
 
         <div class="comparison-item">
           <h3>❌ Traditional GraphQL</h3>
-          <pre><code set:html={`# Fetch user
+          <Code lang="python" theme="github-light" code={`# Fetch user
 @resolver
 async def user(info, id) -> User:
   return db.find_user(id)
@@ -84,12 +83,12 @@ async def posts(parent, info) -> List[Post]:
   return posts
 
 # Result: N+1 problem
-# 1 user query + 1 posts query per user = 1 + N queries`}></code></pre>
+# 1 user query + 1 posts query per user = 1 + N queries`} />
         </div>
 
         <div class="comparison-item">
           <h3>✅ FraiseQL</h3>
-          <pre><code set:html={`# SQL view pre-composes everything
+          <Code lang="sql" theme="github-light" code={`# SQL view pre-composes everything
 CREATE VIEW v_user_with_posts AS
 SELECT id, jsonb_build_object(
   'name', name,
@@ -99,10 +98,10 @@ FROM tb_user;
 
 # Single resolver
 @fraiseql.query(sql_source="v_user_with_posts")
-def user(id: UUID) -> User:
+def user(id: ID) -> User:
   pass
 
-# Result: 1 query for user + posts`}></code></pre>
+# Result: 1 query for user + posts`} />
         </div>
       </section>
 
@@ -113,7 +112,7 @@ def user(id: UUID) -> User:
           <div class="step-number">1</div>
           <h3>Start: 10 minutes</h3>
           <p>Read the Getting Started guide. Write your first view and schema.</p>
-          <a href="/docs/getting-started/quickstart/" class="link">Get Started →</a>
+          <a href="/getting-started/quickstart/" class="link">Get Started →</a>
         </div>
 
         <div class="path-step">
@@ -127,7 +126,7 @@ def user(id: UUID) -> User:
           <div class="step-number">3</div>
           <h3>Think: 30 minutes</h3>
           <p>Explore the philosophy. Why database-first? Why CQRS? Why compilation?</p>
-          <a href="/docs/concepts/how-it-works/" class="link">Philosophy →</a>
+          <a href="/concepts/how-it-works/" class="link">Philosophy →</a>
         </div>
 
         <div class="path-step">
@@ -188,35 +187,35 @@ def user(id: UUID) -> User:
           <div class="sdk-card">
             <h3>Python</h3>
             <p>Most popular for data work</p>
-            <pre><code set:html={`@fraiseql.query(sql_source="v_users")
+            <Code lang="python" theme="github-light" code={`@fraiseql.query(sql_source="v_users")
 def users(limit: int = 100) -> list[User]:
-  pass`}></code></pre>
+  pass`} />
           </div>
 
           <div class="sdk-card">
             <h3>TypeScript</h3>
             <p>Full type safety in Node</p>
-            <pre><code set:html={`@fraiseqlQuery({ sqlSource: "v_users" })
+            <Code lang="python" theme="github-light" code={`@fraiseqlQuery({ sqlSource: "v_users" })
 function users(limit: number = 100): User[] {
   // authoring only
-}`}></code></pre>
+}`} />
           </div>
 
           <div class="sdk-card">
             <h3>Go</h3>
             <p>Performance and simplicity</p>
-            <pre><code set:html={`func (r *Query) Users(ctx context.Context) ([]*User, error) {
+            <Code lang="python" theme="github-light" code={`func (r *Query) Users(ctx context.Context) ([]*User, error) {
   // authoring only
-}`}></code></pre>
+}`} />
           </div>
 
           <div class="sdk-card">
             <h3>PHP</h3>
             <p>For existing PHP backends</p>
-            <pre><code set:html={`#[FraiseQLQuery(sqlSource: "v_users")]
+            <Code lang="python" theme="github-light" code={`#[FraiseQLQuery(sqlSource: "v_users")]
 function users(int $limit = 100): array {
   // authoring only
-}`}></code></pre>
+}`} />
           </div>
         </div>
       </section>
@@ -299,7 +298,7 @@ function users(int $limit = 100): array {
       <section class="next-section">
         <h2>Ready to Start?</h2>
         <div class="cta-buttons">
-          <a href="/docs/getting-started/quickstart/" class="btn btn-primary">Get Started Now</a>
+          <a href="/getting-started/quickstart/" class="btn btn-primary">Get Started Now</a>
           <a href="/examples/" class="btn btn-secondary">See Examples</a>
         </div>
       </section>
