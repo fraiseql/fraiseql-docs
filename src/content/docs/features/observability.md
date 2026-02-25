@@ -422,5 +422,3 @@ group_by_type = true
 - [Deployment](/guides/deployment) - Production monitoring setup
 - [Performance](/guides/performance) - Using metrics to optimize
 - [Troubleshooting](/guides/troubleshooting) - Debugging with logs and traces
-`3
-`3

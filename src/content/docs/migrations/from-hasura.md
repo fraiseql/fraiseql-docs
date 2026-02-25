@@ -281,5 +281,3 @@ FraiseQL query (10 users with posts):
 - [Apollo Migration](/migrations/from-apollo)
 - [REST Migration](/migrations/from-rest)
 - [API Reference](/reference/graphql-api)
-`3
-`3

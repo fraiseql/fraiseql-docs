@@ -626,5 +626,3 @@ az acr repository show-tags \
 - **Monitoring**: Create custom dashboards in Azure Monitor
 - **Security**: Configure Azure Security Center recommendations
 - **Multi-region**: Set up traffic manager for global distribution
-`3
-`3

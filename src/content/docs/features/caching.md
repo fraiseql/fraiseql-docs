@@ -422,5 +422,3 @@ rate(fraiseql_cache_invalidations_total[5m]) / rate(fraiseql_cache_hits_total[5m
 - [APQ](/features/apq) — Reduce query overhead
 - [Performance](/guides/performance) — Overall optimization
 - [Deployment](/guides/deployment) — Production cache setup
-`3
-`3

@@ -415,5 +415,3 @@ fraiseql_nats_consumer_lag{consumer="analytics_sync"}
 - [Advanced Federation](/guides/advanced-federation) — Deep dive on federation patterns
 - [Advanced NATS](/guides/advanced-nats) — Event streaming advanced patterns
 - [Custom Resolvers](/guides/custom-resolvers) — Business logic integration
-`3
-`3

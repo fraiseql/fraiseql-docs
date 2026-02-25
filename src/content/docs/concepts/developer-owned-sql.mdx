@@ -232,7 +232,7 @@ To embed related data, reference another view's `.data` column:
         (
             SELECT u.id, u.name,
                 (
-                    SELECT json_group_array(vp.data)
+                    JSON_QUERY(COALESCE('[' + (SELECT STRING_AGG(vp.data, ',') FROM dbo.v_post vp WHERE vp.fk_user = u.pk_user) + ']', '[]'))
                     FROM dbo.tb_post p
                     JOIN dbo.v_post vp ON vp.id = p.id
                     WHERE p.fk_user = u.pk_user
@@ -348,7 +348,7 @@ The output is predictable:
             'total', o.total,
             'status', o.status,
             'created_at', o.created_at,
-            'customer', JSON_PARSE(vu.data)
+            'customer', vu.data
         ) AS data
     FROM tb_order o
     JOIN tb_user u ON u.pk_user = o.fk_user

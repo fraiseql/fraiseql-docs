@@ -427,5 +427,3 @@ View all [17 supported language SDKs](/sdk/).
 - [Express Integration](/deployment) - Build with Express
 - [API Reference](/reference/graphql-api) - Complete GraphQL API
 - [Error Handling](/guides/error-handling) - Advanced patterns
-`3
-`3

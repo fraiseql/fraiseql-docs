@@ -207,5 +207,3 @@ $users = $client->query($query, User::class, cache: 300); // 5 min cache
 - **Memory**: Use streaming for large result sets
 
 See also: [Laravel Integration](/deployment), [Symfony Integration](/deployment)
-`3
-`3

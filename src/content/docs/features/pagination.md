@@ -572,5 +572,3 @@ WHERE relname = 'tb_post';
 - [Automatic Where](/features/automatic-where) — Filtering
 - [Operators](/reference/operators) — Sort and filter operators
 - [Performance](/guides/performance) — Query optimization
-`3
-`3

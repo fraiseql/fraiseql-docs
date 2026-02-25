@@ -521,4 +521,3 @@ If you can't resolve an issue:
 - [Performance](/guides/performance) — Optimize slow queries
 - [Testing](/guides/testing) — Test to prevent issues
 - [Deployment](/guides/deployment) — Production configuration
-`3

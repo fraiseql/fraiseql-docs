@@ -1,0 +1,283 @@
+---
+title: Installation
+description: Install FraiseQL and set up your development environment
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL is distributed as a **pre-compiled Rust binary** — no runtime, no dependencies. Download and run.
+
+## Requirements
+
+- **Database**: PostgreSQL (recommended), MySQL, SQLite, or SQL Server
+- **Schema SDK** (optional): Python 3.10+, Node.js 18+, Go 1.21+, or others
+
+## Install FraiseQL
+
+<Tabs>
+  <TabItem label="curl (macOS / Linux)">
+
+```bash
+curl -fsSL https://fraiseql.dev/install.sh | sh
+```
+
+This installs the latest binary to `~/.local/bin/fraiseql`.
+
+  </TabItem>
+  <TabItem label="Homebrew (macOS)">
+
+```bash
+brew install fraiseql
+```
+
+  </TabItem>
+  <TabItem label="Cargo (Rust)">
+
+```bash
+cargo install fraiseql
+```
+
+Requires a Rust toolchain (`rustup` recommended).
+
+  </TabItem>
+  <TabItem label="Binary Download">
+
+Download from [GitHub Releases](https://github.com/fraiseql/fraiseql/releases):
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `fraiseql-aarch64-apple-darwin.tar.gz` |
+| macOS (Intel) | `fraiseql-x86_64-apple-darwin.tar.gz` |
+| Linux x86\_64 | `fraiseql-x86_64-unknown-linux-musl.tar.gz` |
+| Windows | `fraiseql-x86_64-pc-windows-msvc.zip` |
+
+  </TabItem>
+</Tabs>
+
+## Install the Schema SDK
+
+The schema SDK lets you define GraphQL types in your preferred language. This step is optional — you can write schema directly in TOML.
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```bash
+# uv (recommended)
+uv add fraiseql
+
+# pip
+pip install fraiseql
+```
+
+Requires Python 3.10+.
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```bash
+npm install fraiseql
+# or
+pnpm add fraiseql
+```
+
+Requires Node.js 18+.
+
+  </TabItem>
+  <TabItem label="Go">
+
+```bash
+go get github.com/fraiseql/fraiseql-go
+```
+
+Requires Go 1.21+.
+
+  </TabItem>
+</Tabs>
+
+## Verify Installation
+
+```bash
+fraiseql --version
+```
+
+Expected output:
+
+```
+fraiseql 2.0.0
+```
+
+## Set Up Your Database
+
+<Tabs syncKey="database">
+  <TabItem label="PostgreSQL (Recommended)">
+
+```bash
+# Create a database
+createdb myapp
+
+# Set the connection string
+export DATABASE_URL="postgresql://localhost:5432/myapp"
+```
+
+PostgreSQL gives you the best JSON support and is the recommended database for new projects.
+
+  </TabItem>
+  <TabItem label="MySQL">
+
+```bash
+# Create a database
+mysql -e "CREATE DATABASE myapp CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+
+# Set the connection string
+export DATABASE_URL="mysql://root@localhost:3306/myapp"
+```
+
+  </TabItem>
+  <TabItem label="SQLite">
+
+```bash
+# SQLite creates the file automatically — no setup needed
+export DATABASE_URL="sqlite:///./myapp.db"
+```
+
+SQLite is ideal for local development and testing.
+
+  </TabItem>
+  <TabItem label="SQL Server">
+
+```bash
+# Set the connection string
+export DATABASE_URL="sqlserver://localhost:1433;database=myapp;user=sa;password=YourPassword123"
+```
+
+  </TabItem>
+</Tabs>
+
+## Initialize a Project
+
+<Steps>
+
+1. Create a new project:
+
+   ```bash
+   fraiseql init my-api
+   cd my-api
+   ```
+
+2. Review the generated structure:
+
+   ```
+   my-api/
+   ├── fraiseql.toml      # Project configuration
+   ├── schema/
+   │   └── schema.py      # Schema definition (or .ts / .go)
+   └── sql/
+       ├── tables/        # Table DDL
+       └── views/         # View definitions
+   ```
+
+3. Set your database URL and verify the connection:
+
+   ```bash
+   export DATABASE_URL="postgresql://localhost:5432/myapp"
+   fraiseql db check
+   ```
+
+   Expected output:
+
+   ```
+   ✓ Connected to PostgreSQL 16.1
+   ✓ Database "myapp" accessible
+   ```
+
+</Steps>
+
+## IDE Setup
+
+### VS Code
+
+```json title=".vscode/extensions.json"
+{
+  "recommendations": [
+    "ms-python.python",
+    "tamasfe.even-better-toml",
+    "graphql.vscode-graphql"
+  ]
+}
+```
+
+### PyCharm / IntelliJ
+
+FraiseQL works out of the box with PyCharm's Python support. Install the **TOML** plugin for `fraiseql.toml` syntax highlighting.
+
+## Docker
+
+<Tabs>
+  <TabItem label="Debian / Ubuntu">
+
+```dockerfile title="Dockerfile"
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://fraiseql.dev/install.sh | sh && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY . /app
+WORKDIR /app
+
+RUN fraiseql build
+CMD ["fraiseql", "serve", "--host", "0.0.0.0"]
+```
+
+  </TabItem>
+  <TabItem label="Alpine">
+
+```dockerfile title="Dockerfile"
+FROM alpine:3.19
+
+RUN apk add --no-cache curl && \
+    curl -fsSL https://fraiseql.dev/install.sh | sh
+
+COPY . /app
+WORKDIR /app
+
+RUN fraiseql build
+CMD ["fraiseql", "serve", "--host", "0.0.0.0"]
+```
+
+  </TabItem>
+</Tabs>
+
+## Troubleshooting
+
+**"command not found: fraiseql"** — Add `~/.local/bin` to your `PATH`:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
+
+**"database connection refused"** — Verify your database is running and check `DATABASE_URL`:
+
+```bash
+fraiseql db check
+```
+
+**Permission errors on Linux** — Make the binary executable:
+
+```bash
+chmod +x ~/.local/bin/fraiseql
+```
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Quick Start" icon="rocket">
+    [Build your first API in 5 minutes](/getting-started/quickstart)
+  </Card>
+  <Card title="Full Tutorial" icon="open-book">
+    [Complete step-by-step blog API tutorial](/getting-started/first-api)
+  </Card>
+  <Card title="Configuration" icon="setting">
+    [All TOML configuration options](/concepts/configuration)
+  </Card>
+</CardGrid>

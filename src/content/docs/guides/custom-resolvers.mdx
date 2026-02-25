@@ -1,0 +1,427 @@
+---
+title: Custom Business Logic
+description: Add business logic to FraiseQL using mutations, middleware, PostgreSQL functions, and computed SQL fields
+---
+
+import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL replaces resolver functions with SQL views — there is no resolver layer to write or maintain. Custom business logic lives in three places:
+
+| Where | What it's for |
+|-------|--------------|
+| **PostgreSQL functions** | Mutations — transactional writes, validation, side effects |
+| **Middleware** | Cross-cutting concerns — auth context, audit logging, rate limiting |
+| **SQL views** | Computed fields — derived values, aggregations, filtered relationships |
+
+<Aside type="note">
+FraiseQL does not have field resolvers in the traditional GraphQL sense. If a field is not in your SQL view's `.data` column, it is not in your API. This is intentional: predictability over flexibility.
+</Aside>
+
+---
+
+## Business Logic in Mutations
+
+Mutations are the primary place for custom business logic. Each `@fraiseql.mutation` maps to a PostgreSQL function that runs transactionally.
+
+### Simple Mutation
+
+```sql title="db/schema/03_functions/fn_publish_post.sql"
+CREATE OR REPLACE FUNCTION fn_publish_post(
+    p_post_id UUID,
+    p_user_id UUID
+)
+RETURNS SETOF v_post
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_post tb_post;
+BEGIN
+    -- Verify ownership
+    SELECT * INTO v_post FROM tb_post
+    WHERE id = p_post_id AND fk_user = (
+        SELECT pk_user FROM tb_user WHERE id = p_user_id
+    );
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Post not found or access denied';
+    END IF;
+
+    IF v_post.is_published THEN
+        RAISE EXCEPTION 'Post is already published';
+    END IF;
+
+    -- Publish
+    UPDATE tb_post
+    SET is_published = true, updated_at = now()
+    WHERE pk_post = v_post.pk_post;
+
+    RETURN QUERY SELECT * FROM v_post WHERE id = p_post_id;
+END;
+$$;
+```
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID
+from fraiseql.auth import authenticated, requires_scope
+
+@fraiseql.mutation
+@authenticated
+@requires_scope("write:posts")
+def publish_post(info, id: ID) -> "Post":
+    """Publish a draft post.
+
+    Calls fn_publish_post(p_post_id, p_user_id) which
+    verifies ownership and updates is_published = true.
+    """
+    pass
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript title="schema.ts"
+import { fraiseqlMutation, authenticated, requiresScope } from 'fraiseql';
+import { ID } from 'fraiseql/scalars';
+
+@fraiseqlMutation()
+@authenticated
+@requiresScope('write:posts')
+function publishPost(id: ID): Post {
+  /**
+   * Publish a draft post.
+   * Calls fn_publish_post which verifies ownership.
+   */
+}
+```
+
+  </TabItem>
+</Tabs>
+
+### Transactional Mutation
+
+PostgreSQL functions run in a transaction by default — if any step fails, everything rolls back automatically.
+
+```sql title="db/schema/03_functions/fn_transfer_credits.sql"
+CREATE OR REPLACE FUNCTION fn_transfer_credits(
+    p_from_user UUID,
+    p_to_user   UUID,
+    p_amount    INTEGER
+)
+RETURNS SETOF v_transfer_result
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Validate
+    IF p_amount <= 0 THEN
+        RAISE EXCEPTION 'Amount must be positive';
+    END IF;
+
+    -- Check balance
+    IF (SELECT credits FROM tb_user WHERE id = p_from_user) < p_amount THEN
+        RAISE EXCEPTION 'Insufficient credits';
+    END IF;
+
+    -- Debit
+    UPDATE tb_user SET credits = credits - p_amount WHERE id = p_from_user;
+
+    -- Credit
+    UPDATE tb_user SET credits = credits + p_amount WHERE id = p_to_user;
+
+    -- Audit
+    INSERT INTO tb_credit_transfer (from_user, to_user, amount, created_at)
+    VALUES (p_from_user, p_to_user, p_amount, now());
+
+    RETURN QUERY SELECT * FROM v_transfer_result WHERE from_user = p_from_user
+    ORDER BY created_at DESC LIMIT 1;
+END;
+$$;
+```
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID
+from fraiseql.auth import authenticated
+
+@fraiseql.input
+class TransferCreditsInput:
+    to_user_id: ID
+    amount: int
+
+@fraiseql.mutation
+@authenticated
+def transfer_credits(info, input: TransferCreditsInput) -> "TransferResult":
+    """Transfer credits between accounts.
+
+    Calls fn_transfer_credits — atomically debit/credit both accounts.
+    Rolls back automatically if either update fails.
+    """
+    pass
+```
+
+  </TabItem>
+</Tabs>
+
+### Calling External Services in Mutations
+
+When your mutation needs to call an external service (email, webhooks, etc.), the pattern is:
+
+1. Write to the database first (inside the PostgreSQL function)
+2. Trigger side effects after the transaction commits (in Python)
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python title="schema.py"
+import fraiseql
+import asyncio
+
+@fraiseql.mutation
+@authenticated
+async def create_user(info, input: "CreateUserInput") -> "User":
+    """Create a user account and send a welcome email.
+
+    The PostgreSQL function fn_create_user handles the database write.
+    Python handles the post-commit side effect (email).
+    """
+    user = await info.context["db"].call_function("fn_create_user", input)
+
+    # Fire-and-forget: don't block the response on email delivery
+    asyncio.create_task(send_welcome_email(user.email, user.username))
+
+    return user
+```
+
+  </TabItem>
+</Tabs>
+
+<Aside type="tip">
+For reliable delivery of side effects (emails, webhooks), write an event to a `tb_outbox` table inside the PostgreSQL function, then process the outbox asynchronously. This guarantees the event is recorded even if the external call fails.
+</Aside>
+
+---
+
+## Cross-Cutting Logic in Middleware
+
+Use `@fraiseql.middleware` for logic that applies across many queries and mutations: extracting context, audit logging, rate limiting.
+
+### Context Extraction
+
+```python title="schema.py"
+import fraiseql
+
+@fraiseql.middleware
+def extract_context(request, next):
+    """Make auth claims available to all queries and mutations."""
+    if request.auth:
+        request.context["current_user_id"] = request.auth.claims.get("sub")
+        request.context["user_scopes"] = request.auth.claims.get("scopes", [])
+        request.context["org_id"] = request.auth.claims.get("org_id")
+    return next(request)
+```
+
+Context values are available in:
+- `row_filter` expressions: `row_filter="org_id = {org_id}"`
+- Mutation `info.context` dict: `info.context["current_user_id"]`
+
+### Audit Logging
+
+```python title="schema.py"
+import fraiseql
+from datetime import datetime
+
+@fraiseql.middleware
+async def audit_mutations(request, next):
+    """Record all mutations to the audit log."""
+    result = await next(request)
+
+    if request.operation_type == "mutation":
+        await request.context["db"].execute(
+            """INSERT INTO tb_audit_log
+               (user_id, operation, ip_address, occurred_at)
+               VALUES ($1, $2, $3, $4)""",
+            request.context.get("current_user_id"),
+            request.operation_name,
+            request.client_ip,
+            datetime.utcnow(),
+        )
+
+    return result
+```
+
+### Request Tracing
+
+```python title="schema.py"
+import fraiseql
+import uuid
+
+@fraiseql.middleware
+def add_request_id(request, next):
+    """Attach a unique request ID for distributed tracing."""
+    request.context["request_id"] = (
+        request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    )
+    return next(request)
+```
+
+### Middleware Order
+
+Middleware runs in registration order. Define context-setting middleware before middleware that uses the context:
+
+```python title="schema.py"
+# 1. First: extract context from JWT
+@fraiseql.middleware
+def extract_context(request, next): ...
+
+# 2. Second: use context for tenant isolation
+@fraiseql.middleware
+async def validate_tenant(request, next): ...
+
+# 3. Third: audit (needs user_id from step 1)
+@fraiseql.middleware
+async def audit_mutations(request, next): ...
+```
+
+---
+
+## Computed Fields in SQL Views
+
+In FraiseQL, "computed fields" are columns in your SQL view — not Python code. This keeps computation close to the data and avoids extra round-trips.
+
+### Derived Scalar
+
+```sql title="db/schema/02_read/v_user.sql"
+CREATE VIEW v_user AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id',           u.id::text,
+        'username',     u.username,
+        'email',        u.email,
+        -- Computed: full display name
+        'display_name', u.first_name || ' ' || u.last_name,
+        -- Computed: account age in days
+        'account_age_days', EXTRACT(DAY FROM now() - u.created_at)::int,
+        -- Computed: subscription status
+        'is_premium',   u.subscription_expires_at > now()
+    ) AS data
+FROM tb_user u;
+```
+
+```python title="schema.py"
+@fraiseql.type
+class User:
+    id: ID
+    username: str
+    display_name: str       # Computed in SQL
+    account_age_days: int   # Computed in SQL
+    is_premium: bool        # Computed in SQL
+```
+
+### Aggregated Relationship
+
+```sql title="db/schema/02_read/v_post.sql"
+CREATE VIEW v_post AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id',            p.id::text,
+        'title',         p.title,
+        'comment_count', (
+            SELECT COUNT(*) FROM tb_comment c WHERE c.fk_post = p.pk_post
+        ),
+        'top_comments', (
+            SELECT jsonb_agg(vc.data ORDER BY vc.created_at DESC)
+            FROM v_comment vc
+            WHERE vc.fk_post = p.pk_post
+            LIMIT 3
+        )
+    ) AS data
+FROM tb_post p;
+```
+
+```python title="schema.py"
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    comment_count: int      # Aggregated in SQL
+    top_comments: list[Comment]  # Pre-joined in SQL
+```
+
+---
+
+## Error Handling
+
+Raise errors from PostgreSQL functions using `RAISE EXCEPTION`. FraiseQL maps these to GraphQL errors with structured extensions:
+
+```sql title="db/schema/03_functions/fn_create_post.sql"
+-- Raise with error code (optional but useful for clients)
+RAISE EXCEPTION 'Post title already exists'
+    USING ERRCODE = 'unique_violation',
+          DETAIL  = 'A post with this slug already exists',
+          HINT    = 'Choose a different title';
+```
+
+The GraphQL response will be:
+
+```json
+{
+  "errors": [{
+    "message": "Post title already exists",
+    "extensions": {
+      "code": "unique_violation",
+      "detail": "A post with this slug already exists"
+    }
+  }]
+}
+```
+
+For Python-level errors from middleware:
+
+```python
+@fraiseql.middleware
+def check_rate_limit(request, next):
+    if is_rate_limited(request.client_ip):
+        from fraiseql.errors import GraphQLError
+        raise GraphQLError(
+            "Rate limit exceeded",
+            extensions={"code": "RATE_LIMITED", "retry_after": 60},
+        )
+    return next(request)
+```
+
+---
+
+## When SQL Views Aren't Enough
+
+If your use case genuinely requires logic that cannot be expressed in SQL or PostgreSQL functions, consider:
+
+1. **A separate service** — FraiseQL handles your data API; a service handles complex business logic; connect them via a mutation that calls the service
+2. **A pre-processing step** — Transform data before it enters the database, then let FraiseQL serve it
+3. **PostgreSQL extensions** — `pg_jsonschema`, `pgvector`, `pg_cron`, etc. extend what you can do in SQL
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Custom Queries" icon="magnifier">
+    [Filtering, pagination, and full-text search](/guides/custom-queries)
+  </Card>
+  <Card title="Observers" icon="setting">
+    [React to data changes with PostgreSQL observers](/guides/observers)
+  </Card>
+  <Card title="Error Handling" icon="warning">
+    [Structured error patterns](/guides/error-handling)
+  </Card>
+  <Card title="Testing" icon="approve-check">
+    [Test mutations and middleware](/guides/testing)
+  </Card>
+</CardGrid>

@@ -1336,5 +1336,3 @@ def products(
 - [Operators](/reference/operators) — Filter operators for queries
 - [Naming Conventions](/reference/naming-conventions) — Column and table naming
 - [Type System](/concepts/type-system) — Complete type reference
-`3
-`3

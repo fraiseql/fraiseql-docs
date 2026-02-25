@@ -326,5 +326,3 @@ Use:
 - [Security](/features/security) - Authentication and RBAC
 - [Deployment](/guides/deployment) - Production key management
 - [Compliance](/features/security) - Regulatory requirements
-`3
-`3

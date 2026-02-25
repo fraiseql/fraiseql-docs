@@ -410,5 +410,3 @@ Single endpoint
 - [Hasura Migration](/migrations/from-hasura)
 - [API Reference](/reference/graphql-api)
 - [Getting Started](/getting-started/introduction)
-`3
-`3

@@ -312,4 +312,3 @@ def user_created() -> User:
 - [Hasura Migration](/migrations/from-hasura)
 - [NATS Integration](/features/nats) - For subscriptions
 - [API Reference](/reference/graphql-api)
-`3

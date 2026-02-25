@@ -1198,5 +1198,3 @@ Typical FraiseQL PostgreSQL workloads:
 - [MySQL Guide](/databases/mysql/)
 - [SQLite Guide](/databases/sqlite/)
 - [SQL Server Guide](/databases/sqlserver/)
-`3
-`3

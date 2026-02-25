@@ -1,0 +1,481 @@
+---
+title: Python SDK
+description: Define GraphQL schemas in Python using FraiseQL's type-safe schema authoring SDK
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+The FraiseQL Python SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations in Python, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+
+<Aside type="note">
+This is not a GraphQL client library. FraiseQL Python lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client.
+</Aside>
+
+## Installation
+
+```bash
+# uv (recommended)
+uv add fraiseql
+
+# pip
+pip install fraiseql
+```
+
+**Requirements:** Python 3.10+
+
+## Core Concepts
+
+FraiseQL Python provides four decorators that map your Python types to GraphQL schema constructs:
+
+| Decorator | GraphQL Equivalent | Purpose |
+|-----------|-------------------|---------|
+| `@fraiseql.type` | `type` | Define a GraphQL output type |
+| `@fraiseql.input` | `input` | Define a GraphQL input type |
+| `@fraiseql.query` | `Query` field | Wire a query to a SQL view |
+| `@fraiseql.mutation` | `Mutation` field | Define a mutation |
+
+---
+
+## Defining Types
+
+Use `@fraiseql.type` to define GraphQL output types. Fields map 1:1 to columns in your backing SQL view's `.data` JSONB object.
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID, Email, Slug, DateTime
+
+@fraiseql.type
+class User:
+    """A registered user."""
+    id: ID
+    username: str
+    email: Email
+    bio: str | None
+    created_at: DateTime
+
+@fraiseql.type
+class Post:
+    """A blog post."""
+    id: ID
+    title: str
+    slug: Slug
+    content: str
+    is_published: bool
+    created_at: DateTime
+    updated_at: DateTime
+    # Nested types are composed from views at compile time
+    author: User
+    comments: list['Comment']
+
+@fraiseql.type
+class Comment:
+    """A comment on a post."""
+    id: ID
+    content: str
+    created_at: DateTime
+    author: User
+```
+
+### Built-in Scalars
+
+FraiseQL provides semantic scalars that add validation and documentation:
+
+```python
+from fraiseql.scalars import (
+    ID,        # UUID, auto-serialized
+    Email,     # Validated email address
+    Slug,      # URL-safe slug
+    DateTime,  # ISO 8601 datetime
+    URL,       # Validated URL
+    PhoneNumber,  # E.164 phone number
+)
+```
+
+---
+
+## Defining Inputs
+
+Use `@fraiseql.input` to define GraphQL input types for mutations. Add validation with `fraiseql.validate()`:
+
+```python title="schema.py"
+from typing import Annotated
+import fraiseql
+from fraiseql.scalars import ID, Email
+
+@fraiseql.input
+class CreateUserInput:
+    username: Annotated[str, fraiseql.validate(
+        min_length=3,
+        max_length=50,
+        pattern=r'^[a-z0-9_]+$',
+        message="Username must be 3-50 lowercase alphanumeric characters or underscores"
+    )]
+    email: Annotated[Email, fraiseql.validate(
+        message="Must be a valid email address"
+    )]
+    bio: str | None = None
+
+@fraiseql.input
+class CreatePostInput:
+    title: Annotated[str, fraiseql.validate(min_length=1, max_length=200)]
+    content: str
+    author_id: ID
+    is_published: bool = False
+
+@fraiseql.input
+class UpdatePostInput:
+    id: ID
+    title: str | None = None
+    content: str | None = None
+    is_published: bool | None = None
+```
+
+Validation runs at compile time — invalid input structures cannot be deployed.
+
+---
+
+## Defining Queries
+
+Use `@fraiseql.query` to wire queries to SQL views. The `sql_source` argument names the view that backs this query:
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID
+
+# List query — maps to SELECT * FROM v_post WHERE <args>
+@fraiseql.query(sql_source="v_post")
+def posts(
+    is_published: bool | None = None,
+    author_id: ID | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[Post]:
+    """Fetch published posts, optionally filtered by author."""
+    pass
+
+# Single-item query — maps to SELECT * FROM v_post WHERE id = $1
+@fraiseql.query(sql_source="v_post", id_arg="id")
+def post(id: ID) -> Post | None:
+    """Fetch a single post by ID."""
+    pass
+
+# Query with explicit row filter
+@fraiseql.query(
+    sql_source="v_post",
+    row_filter="author_id = {current_user_id}"
+)
+def my_posts(limit: int = 20) -> list[Post]:
+    """Fetch the current user's posts."""
+    pass
+```
+
+### How Arguments Become WHERE Clauses
+
+FraiseQL's **automatic-where** feature maps query arguments to SQL filters automatically. Declare an argument whose name matches a column in the backing view, and FraiseQL appends it as a `WHERE` clause:
+
+```graphql
+query {
+  posts(is_published: true, author_id: "usr_01HZ3K") { ... }
+}
+```
+
+Becomes:
+
+```sql
+SELECT data FROM v_post
+WHERE is_published = true
+  AND author_id = 'usr_01HZ3K'
+LIMIT 20 OFFSET 0;
+```
+
+No resolver code required.
+
+---
+
+## Defining Mutations
+
+Use `@fraiseql.mutation` to define mutations that execute PostgreSQL functions:
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID
+
+@fraiseql.mutation
+def create_user(info, input: CreateUserInput) -> User:
+    """Create a new user account."""
+    # FraiseQL calls your PostgreSQL function:
+    # SELECT * FROM fn_create_user($1::jsonb)
+    pass
+
+@fraiseql.mutation
+def create_post(info, input: CreatePostInput) -> Post:
+    """Create a new blog post."""
+    pass
+
+@fraiseql.mutation
+def publish_post(info, id: ID) -> Post:
+    """Publish a draft post."""
+    pass
+
+@fraiseql.mutation
+def delete_post(info, id: ID) -> bool:
+    """Soft-delete a post."""
+    pass
+```
+
+Each mutation maps to a PostgreSQL function in `db/schema/03_functions/`. The Python definition is the schema; the SQL function is the implementation.
+
+---
+
+## Authorization
+
+Use `@fraiseql.authenticated` and `@requires_scope` to protect queries and mutations:
+
+```python title="schema.py"
+from fraiseql.auth import authenticated, requires_scope
+import fraiseql
+
+@fraiseql.query(sql_source="v_post")
+@authenticated
+def posts(limit: int = 20) -> list[Post]:
+    """Requires authentication."""
+    pass
+
+@fraiseql.mutation
+@authenticated
+@requires_scope("write:posts")
+def create_post(info, input: CreatePostInput) -> Post:
+    """Requires authentication and write:posts scope."""
+    pass
+
+@fraiseql.mutation
+@authenticated
+@requires_scope("admin:posts")
+def delete_post(info, id: ID) -> bool:
+    """Requires admin scope."""
+    pass
+```
+
+---
+
+## Middleware
+
+Use `@fraiseql.middleware` to intercept requests and set context:
+
+```python title="schema.py"
+import fraiseql
+
+@fraiseql.middleware
+def extract_user_context(request, next):
+    """Extract user ID and org from verified JWT."""
+    if request.auth:
+        request.context["current_user_id"] = request.auth.claims.get("sub")
+        request.context["current_org_id"] = request.auth.claims.get("org_id")
+    return next(request)
+
+@fraiseql.middleware
+async def audit_mutations(request, next):
+    """Log all mutations for compliance."""
+    result = await next(request)
+    if request.operation_type == "mutation":
+        await audit_log.record(
+            user_id=request.context.get("current_user_id"),
+            operation=request.operation_name,
+        )
+    return result
+```
+
+Values set on `request.context` are available in `row_filter` expressions and in mutation `info.context`.
+
+---
+
+## Complete Schema Example
+
+A full blog API schema:
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID, Email, Slug, DateTime
+from fraiseql.auth import authenticated, requires_scope
+from typing import Annotated
+
+# --- Types ---
+
+@fraiseql.type
+class User:
+    id: ID
+    username: str
+    email: Email
+    bio: str | None
+    created_at: DateTime
+
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    slug: Slug
+    content: str
+    is_published: bool
+    created_at: DateTime
+    updated_at: DateTime
+    author: User
+    comments: list['Comment']
+
+@fraiseql.type
+class Comment:
+    id: ID
+    content: str
+    created_at: DateTime
+    author: User
+
+# --- Inputs ---
+
+@fraiseql.input
+class CreatePostInput:
+    title: Annotated[str, fraiseql.validate(min_length=1, max_length=200)]
+    content: str
+    is_published: bool = False
+
+@fraiseql.input
+class CreateCommentInput:
+    post_id: ID
+    content: Annotated[str, fraiseql.validate(min_length=1, max_length=10_000)]
+
+# --- Queries ---
+
+@fraiseql.query(sql_source="v_post")
+def posts(is_published: bool | None = None, limit: int = 20) -> list[Post]:
+    pass
+
+@fraiseql.query(sql_source="v_post", id_arg="id")
+def post(id: ID) -> Post | None:
+    pass
+
+# --- Mutations ---
+
+@fraiseql.mutation
+@authenticated
+@requires_scope("write:posts")
+def create_post(info, input: CreatePostInput) -> Post:
+    pass
+
+@fraiseql.mutation
+@authenticated
+@requires_scope("write:comments")
+def create_comment(info, input: CreateCommentInput) -> Comment:
+    pass
+
+# --- Middleware ---
+
+@fraiseql.middleware
+def set_user_context(request, next):
+    if request.auth:
+        request.context["current_user_id"] = request.auth.claims.get("sub")
+    return next(request)
+```
+
+---
+
+## Build and Serve
+
+<Steps>
+
+1. Build the schema — compiles Python types to the FraiseQL IR:
+
+   ```bash
+   fraiseql build
+   ```
+
+   Expected output:
+
+   ```
+   ✓ Schema compiled: 3 types, 2 queries, 2 mutations
+   ✓ Views validated against database
+   ✓ Build complete: schema.json
+   ```
+
+2. Serve the API:
+
+   ```bash
+   fraiseql serve
+   ```
+
+   Expected output:
+
+   ```
+   ✓ FraiseQL 2.0.0 running on http://localhost:8080/graphql
+   ✓ GraphQL Playground at http://localhost:8080/graphql
+   ```
+
+</Steps>
+
+---
+
+## Testing
+
+FraiseQL provides a test client that compiles your schema and runs queries against a real database:
+
+```python title="tests/test_posts.py"
+import pytest
+from fraiseql.testing import TestClient
+
+@pytest.fixture
+def client(tmp_db):
+    return TestClient(schema_path="schema.py", database_url=tmp_db)
+
+def test_create_and_fetch_post(client):
+    # Create a post
+    result = client.mutate("""
+        mutation {
+            createPost(input: { title: "Hello", content: "World" }) {
+                id
+                title
+                isPublished
+            }
+        }
+    """)
+    assert result["createPost"]["title"] == "Hello"
+    assert result["createPost"]["isPublished"] == False
+
+    # Fetch it back
+    post_id = result["createPost"]["id"]
+    result = client.query(f"""
+        query {{
+            post(id: "{post_id}") {{
+                title
+                content
+            }}
+        }}
+    """)
+    assert result["post"]["title"] == "Hello"
+
+def test_list_posts_filtered(client):
+    result = client.query("""
+        query {
+            posts(isPublished: true, limit: 10) {
+                id
+                title
+            }
+        }
+    """)
+    assert isinstance(result["posts"], list)
+```
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Full Tutorial" icon="open-book">
+    [Build a complete blog API from scratch](/getting-started/first-api)
+  </Card>
+  <Card title="Custom Queries" icon="magnifier">
+    [Filtering, pagination, and full-text search](/guides/custom-queries)
+  </Card>
+  <Card title="Security" icon="approve-check-circle">
+    [Authentication, RBAC, and input validation](/features/security)
+  </Card>
+  <Card title="Other SDKs" icon="puzzle">
+    [TypeScript, Go, Java, Rust, PHP](/sdk/)
+  </Card>
+</CardGrid>

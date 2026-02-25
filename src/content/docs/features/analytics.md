@@ -609,5 +609,3 @@ REFRESH MATERIALIZED VIEW CONCURRENTLY mv_product_stats;
 - [Arrow Flight](/features/arrow-dataplane) — High-performance data access
 - [Performance](/guides/performance) — Query optimization
 - [Caching](/features/caching) — Cache analytics results
-`3
-`3

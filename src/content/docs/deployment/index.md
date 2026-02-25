@@ -466,5 +466,3 @@ See [Troubleshooting](/troubleshooting) for more common issues.
 3. Test in staging environment first
 4. Deploy to production with confidence
 5. Monitor metrics and logs continuously
-`3
-`3

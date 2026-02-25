@@ -594,5 +594,3 @@ except TimeoutError:
 - [NATS Example](/examples/nats-event-pipeline) - Complete event pipeline example
 - [Error Handling](/guides/error-handling) - Error recovery patterns
 - [Multi-Tenancy](/guides/multi-tenancy) - Scaling across tenants
-`3
-`3

@@ -480,5 +480,3 @@ async def test_payment_failure_compensation():
 - [Advanced Federation](/guides/advanced-federation) — Cross-service queries
 - [Advanced NATS](/guides/advanced-nats) — Reliability patterns
 - [Custom Resolvers](/guides/custom-resolvers) — Service-specific logic
-`3
-`3

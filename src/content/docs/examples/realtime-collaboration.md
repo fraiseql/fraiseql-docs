@@ -449,5 +449,3 @@ open http://localhost:3000
 - [NATS Integration](/features/nats)
 - [Performance Optimization](/guides/advanced-patterns)
 - [Deployment](/deployment)
-`3
-`3

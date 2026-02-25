@@ -1,0 +1,183 @@
+---
+title: Introduction
+description: What is FraiseQL and why should you use it?
+---
+
+import { CardGrid, Card, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL is a **database-first GraphQL framework**. You write SQL views, FraiseQL maps them to GraphQL types, and every query resolves to a single SQL statement. No resolvers. No N+1. No magic.
+
+## The Problem with Traditional GraphQL
+
+Traditional GraphQL frameworks require you to:
+
+1. **Write resolvers** for every field and relationship
+2. **Handle N+1 queries** manually with DataLoaders
+3. **Tune performance** at runtime with caching layers
+4. **Debug surprises** that only appear in production
+
+This leads to boilerplate code, runtime unpredictability, and hours spent debugging performance issues.
+
+## The FraiseQL Approach
+
+FraiseQL compiles the relationship between GraphQL types and SQL views at build time. At runtime, a GraphQL query becomes a single SQL statement — not a cascade of resolver calls.
+
+| Traditional GraphQL | FraiseQL |
+|---------------------|----------|
+| Write resolver functions | Write SQL views |
+| Handle N+1 with DataLoaders | N+1 eliminated by design |
+| Tune performance at runtime | Performance compiled in |
+| YAML / JSON configuration | TOML you can read |
+| Debug resolver chains | Debug SQL — you own it |
+
+## How It Works
+
+<Steps>
+
+1. **Write tables and views** in SQL for your database.
+
+   ```sql
+   CREATE VIEW v_post AS
+   SELECT
+     p.id,
+     jsonb_build_object(
+       'id',      p.id,
+       'title',   p.title,
+       'author',  row_to_json(u)
+     ) AS data
+   FROM tb_post p
+   JOIN tb_user u ON u.id = p.author_id;
+   ```
+
+2. **Define types** in your preferred language.
+
+   <Tabs syncKey="language">
+     <TabItem label="Python">
+
+   ```python
+   @fraiseql.type
+   class Post:
+       id: UUID
+       title: str
+       author: User
+   ```
+
+     </TabItem>
+     <TabItem label="TypeScript">
+
+   ```typescript
+   @fraiseqlType()
+   class Post {
+     id: string;
+     title: string;
+     author: User;
+   }
+   ```
+
+     </TabItem>
+     <TabItem label="Go">
+
+   ```go
+   type Post struct {
+     ID     string `fraiseql:"id"`
+     Title  string `fraiseql:"title"`
+     Author User   `fraiseql:"author"`
+   }
+   ```
+
+     </TabItem>
+   </Tabs>
+
+3. **Configure** with a single TOML file.
+
+   ```toml title="fraiseql.toml"
+   [project]
+   name = "my-api"
+
+   [database]
+   type = "postgresql"
+   url  = "${DATABASE_URL}"
+
+   [server]
+   port = 8080
+   ```
+
+4. **Build and serve.**
+
+   ```bash
+   fraiseql build
+   fraiseql serve
+   ```
+
+   Your GraphQL API is live. Every query resolves to the SQL view you wrote.
+
+</Steps>
+
+## Key Features
+
+<CardGrid>
+  <Card title="Any Database" icon="setting">
+    PostgreSQL, MySQL, SQLite, and SQL Server. Full multi-database support with database-specific optimizations.
+  </Card>
+  <Card title="Any Language" icon="pencil">
+    Define schemas in Python, TypeScript, Go, Java, Rust, and 12+ more. All compile to the same output.
+  </Card>
+  <Card title="No N+1 by Design" icon="rocket">
+    SQL views pre-join relationships. FraiseQL never issues N+1 queries — it's architecturally impossible.
+  </Card>
+  <Card title="Compile-Time Validation" icon="approve-check">
+    13 built-in validators catch errors at build time. Invalid schemas cannot be deployed.
+  </Card>
+  <Card title="You Own the SQL" icon="open-book">
+    You write the views. You see the query that runs. Full debuggability and control.
+  </Card>
+  <Card title="Rust Performance" icon="star">
+    Sub-millisecond query routing. The binary is a single compiled executable with no runtime dependencies.
+  </Card>
+</CardGrid>
+
+## Database Support
+
+FraiseQL supports four databases:
+
+| Database | Status | Notes |
+|----------|--------|-------|
+| **PostgreSQL** | ✅ Recommended | Best JSONB support, row-level security, full-text search |
+| **MySQL** | ✅ Supported | JSON column support, MySQL 8.0+ |
+| **SQLite** | ✅ Supported | Ideal for development and embedded use |
+| **SQL Server** | ✅ Supported | FOR JSON PATH, SQL Server 2019+ |
+| Oracle | ❌ Not supported | No plans to add support |
+
+## When to Use FraiseQL
+
+FraiseQL is ideal when you need:
+
+- **High performance** — query latency driven by SQL, not resolver chains
+- **Predictability** — deterministic, compiled behavior; no runtime surprises
+- **SQL ownership** — your team writes and reviews the queries that run
+- **Rapid development** — no resolver boilerplate to write or maintain
+
+## When NOT to Use FraiseQL
+
+FraiseQL isn't the right tool for every use case. Consider alternatives if you need:
+
+- **Complex business logic in resolvers** — FraiseQL is database-first; intricate middleware logic belongs in a service layer
+- **GraphQL federation across microservices** — FraiseQL federates databases, not arbitrary services
+- **Oracle** — explicitly not supported
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Quick Start" icon="rocket">
+    [5 minutes to your first working API](/getting-started/quickstart)
+  </Card>
+  <Card title="Full Tutorial" icon="open-book">
+    [Build a complete blog API step by step](/getting-started/first-api)
+  </Card>
+  <Card title="How It Works" icon="setting">
+    [Understand the architecture and SQL view pattern](/concepts/how-it-works)
+  </Card>
+  <Card title="Installation" icon="laptop">
+    [Detailed setup guide for all platforms](/getting-started/installation)
+  </Card>
+</CardGrid>

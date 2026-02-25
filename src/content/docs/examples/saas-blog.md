@@ -220,7 +220,7 @@ async def set_tenant_context(request, next):
     user = get_current_user_from_request(request)
     if user:
         # Set PostgreSQL context
-        await db.execute(f"SET app.tenant_id = '{user['tenant_id']}'")
+        await db.execute("SET app.tenant_id = $1", user['tenant_id'])
         request.user = user
     return await next(request)
 ```

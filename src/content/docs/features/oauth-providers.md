@@ -400,5 +400,3 @@ Ensure redirect URI matches exactly in:
 - [Security](/features/security) - RBAC and field-level authorization
 - [Rate Limiting](/features/rate-limiting) - Protect auth endpoints
 - [Deployment](/guides/deployment) - Production OAuth setup
-`3
-`3

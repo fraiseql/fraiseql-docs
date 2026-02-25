@@ -386,5 +386,3 @@ Ensure client and server use same hashing:
 - [Caching](/features/caching) — Response caching
 - [Performance](/guides/performance) — Additional optimizations
 - [Deployment](/guides/deployment) — Production configuration
-`3
-`3

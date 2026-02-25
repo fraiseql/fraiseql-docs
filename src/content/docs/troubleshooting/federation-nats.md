@@ -939,5 +939,3 @@ class SQLiteSerializer:
 - [Federation Example](/examples/federation-ecommerce) - Federation example
 - [NATS Example](/examples/nats-event-pipeline) - NATS example
 - [Federation + NATS Integration](/guides/federation-nats-integration) - Combined usage
-`3
-`3

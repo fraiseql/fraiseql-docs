@@ -701,5 +701,3 @@ aws ecs execute-command \
 - **Monitoring**: CloudWatch + X-Ray for distributed tracing
 - **Disaster Recovery**: Multi-region RDS replicas
 - **Cost Optimization**: Reserved Instances, Spot Instances
-`3
-`3

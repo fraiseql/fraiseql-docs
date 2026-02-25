@@ -591,5 +591,3 @@ SELECT * FROM mysql.slow_log ORDER BY start_time DESC LIMIT 20;
 - [Common Issues](/troubleshooting/common-issues)
 - [Performance Issues](/troubleshooting/performance-issues)
 - [MySQL Documentation](https://dev.mysql.com/doc/)
-`3
-`3

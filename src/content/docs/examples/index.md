@@ -484,5 +484,3 @@ A:
 7. Share what you built!
 
 Happy building! 🍓
-`3
-`3

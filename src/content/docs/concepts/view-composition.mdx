@@ -56,7 +56,7 @@ Every view in FraiseQL has a `data` JSONB column containing the complete respons
 
   <TabItem label="SQLite">
     ```sql
-    CREATE OR REPLACE VIEW v_user AS
+    CREATE VIEW v_user AS
     SELECT
         u.id,
         json_object(
@@ -163,7 +163,7 @@ Parent views embed child views by referencing `.data`:
   <TabItem label="SQLite">
     ```sql
     -- Child view: v_user owns user fields
-    CREATE OR REPLACE VIEW v_user AS
+    CREATE VIEW v_user AS
     SELECT
         u.id,
         json_object(
@@ -174,7 +174,7 @@ Parent views embed child views by referencing `.data`:
     FROM tb_user u;
 
     -- Parent view: v_post embeds v_user.data
-    CREATE OR REPLACE VIEW v_post AS
+    CREATE VIEW v_post AS
     SELECT
         p.id,
         json_object(
@@ -296,7 +296,7 @@ Direct embedding for single relationships:
             'id', p.id,
             'bio', p.bio,
             'website', p.website,
-            'user', JSON_PARSE(vu.data)
+            'user', vu.data
         ) AS data
     FROM tb_profile p
     JOIN tb_user u ON u.pk_user = p.fk_user
@@ -401,7 +401,7 @@ Use database-specific array aggregation to collect child records:
 
   <TabItem label="SQLite">
     ```sql
-    CREATE OR REPLACE VIEW v_user_with_posts AS
+    CREATE VIEW v_user_with_posts AS
     SELECT
         u.id,
         json_object(
@@ -433,7 +433,7 @@ Use database-specific array aggregation to collect child records:
         (
             SELECT u.id, u.name, u.email,
                 (
-                    SELECT json_group_array(vp.data)
+                    JSON_QUERY(COALESCE('[' + (SELECT STRING_AGG(vp.data, ',') FROM dbo.v_post vp WHERE vp.fk_user = u.pk_user) + ']', '[]'))
                     FROM dbo.v_post vp
                     WHERE vp.fk_user = u.pk_user
                 ) AS posts
@@ -525,7 +525,7 @@ Join through the association table:
     );
 
     -- View with many-to-many
-    CREATE OR REPLACE VIEW v_post_with_tags AS
+    CREATE VIEW v_post_with_tags AS
     SELECT
         p.id,
         json_object(
@@ -562,7 +562,7 @@ Join through the association table:
         (
             SELECT p.id, p.title,
                 (
-                    SELECT json_group_array(vt.data)
+                    JSON_QUERY(COALESCE('[' + (SELECT STRING_AGG(vt.data, ',') FROM dbo.v_tag vt JOIN dbo.tb_post_tag pt ON pt.fk_tag = vt.pk_tag WHERE pt.fk_post = p.pk_post) + ']', '[]'))
                     FROM dbo.tb_post_tag pt
                     JOIN dbo.tb_tag t ON t.pk_tag = pt.fk_tag
                     JOIN dbo.v_tag vt ON vt.id = t.id

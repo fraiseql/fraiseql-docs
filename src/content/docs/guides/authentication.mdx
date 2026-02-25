@@ -1,0 +1,410 @@
+---
+title: Authentication
+description: Configure JWT, API key, OAuth, and SAML authentication in FraiseQL
+---
+
+import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL validates authentication tokens automatically — configure your strategy in `fraiseql.toml` and tokens are verified before every request reaches your schema.
+
+## Strategies
+
+| Strategy | Best For | Config Key |
+|----------|----------|------------|
+| **JWT** | Web and mobile apps | `type = "jwt"` |
+| **API Key** | Service-to-service | `type = "api_key"` |
+| **OAuth 2.0** | Third-party login | `type = "oauth2"` |
+| **SAML** | Enterprise SSO | `type = "saml"` |
+
+---
+
+## JWT Authentication
+
+### Configuration
+
+```toml title="fraiseql.toml"
+[auth]
+type      = "jwt"
+secret    = "${JWT_SECRET}"
+issuer    = "your-app"
+audience  = "your-api"
+algorithm = "HS256"   # HS256, RS256, or ES256
+```
+
+FraiseQL validates every incoming token against these settings before routing the request to your schema. No middleware code required.
+
+### Issuing Tokens
+
+Your login mutation issues tokens. FraiseQL validates them on subsequent requests.
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import Email
+import jwt
+import os
+from datetime import datetime, timedelta
+
+@fraiseql.input
+class LoginInput:
+    email: Email
+    password: str
+
+@fraiseql.type
+class AuthPayload:
+    access_token: str
+    expires_in: int
+    token_type: str
+
+@fraiseql.mutation
+def login(info, input: LoginInput) -> AuthPayload:
+    """Authenticate and issue a JWT."""
+    # fn_login validates credentials and returns user_id + scopes
+    # (implemented as a PostgreSQL function)
+    pass
+```
+
+The PostgreSQL function `fn_login` handles credential validation and returns a user record. Your Python mutation calls it and issues the token:
+
+```python title="auth.py"
+import jwt, os
+from datetime import datetime, timedelta
+
+def create_token(user_id: str, scopes: list[str]) -> str:
+    return jwt.encode(
+        {
+            "sub": user_id,
+            "scopes": scopes,
+            "iss": "your-app",
+            "aud": "your-api",
+            "iat": datetime.utcnow(),
+            "exp": datetime.utcnow() + timedelta(hours=1),
+        },
+        os.environ["JWT_SECRET"],
+        algorithm="HS256",
+    )
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript title="schema.ts"
+import { fraiseqlInput, fraiseqlType, fraiseqlMutation } from 'fraiseql';
+import { Email } from 'fraiseql/scalars';
+import jwt from 'jsonwebtoken';
+
+@fraiseqlInput()
+class LoginInput {
+  email: Email;
+  password: string;
+}
+
+@fraiseqlType()
+class AuthPayload {
+  accessToken: string;
+  expiresIn: number;
+  tokenType: string;
+}
+
+@fraiseqlMutation()
+function login(input: LoginInput): AuthPayload {
+  // fn_login validates credentials via PostgreSQL function
+}
+
+function createToken(userId: string, scopes: string[]): string {
+  return jwt.sign(
+    { sub: userId, scopes, iss: 'your-app', aud: 'your-api' },
+    process.env.JWT_SECRET!,
+    { expiresIn: '1h' },
+  );
+}
+```
+
+  </TabItem>
+</Tabs>
+
+### Accessing the Current User
+
+Once a request is authenticated, FraiseQL makes the verified claims available in middleware:
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID
+
+@fraiseql.middleware
+def set_user_context(request, next):
+    """Make verified JWT claims available to queries and mutations."""
+    if request.auth:
+        request.context["current_user_id"] = request.auth.claims.get("sub")
+        request.context["user_scopes"] = request.auth.claims.get("scopes", [])
+    return next(request)
+
+# Use request.context in your query's row_filter
+@fraiseql.query(
+    sql_source="v_user",
+    id_arg="id",
+    row_filter="id = {current_user_id}"
+)
+def me() -> "User | None":
+    """Get the currently authenticated user."""
+    pass
+
+@fraiseql.query(sql_source="v_post")
+@fraiseql.authenticated
+def my_posts(limit: int = 20) -> list["Post"]:
+    """Get the current user's posts."""
+    pass
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript title="schema.ts"
+import { fraiseqlMiddleware, fraiseqlQuery, authenticated } from 'fraiseql';
+
+fraiseqlMiddleware((request, next) => {
+  if (request.auth) {
+    request.context.currentUserId = request.auth.claims.sub;
+    request.context.userScopes = request.auth.claims.scopes ?? [];
+  }
+  return next(request);
+});
+
+@fraiseqlQuery({ sqlSource: 'v_user', rowFilter: 'id = {currentUserId}' })
+@authenticated
+function me(): User | null {}
+```
+
+  </TabItem>
+</Tabs>
+
+### Protecting Queries and Mutations
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python title="schema.py"
+from fraiseql.auth import authenticated, requires_scope
+import fraiseql
+
+@fraiseql.query(sql_source="v_post")
+@authenticated
+def posts(limit: int = 20) -> list["Post"]:
+    """Requires valid JWT."""
+    pass
+
+@fraiseql.mutation
+@authenticated
+@requires_scope("write:posts")
+def create_post(info, input: "CreatePostInput") -> "Post":
+    """Requires valid JWT with write:posts scope."""
+    pass
+
+@fraiseql.mutation
+@authenticated
+@requires_scope("admin:posts")
+def delete_post(info, id: "ID") -> bool:
+    """Requires admin:posts scope."""
+    pass
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript title="schema.ts"
+import { authenticated, requiresScope, fraiseqlMutation, fraiseqlQuery } from 'fraiseql';
+
+@fraiseqlQuery({ sqlSource: 'v_post' })
+@authenticated
+function posts(limit = 20): Post[] {}
+
+@fraiseqlMutation()
+@authenticated
+@requiresScope('write:posts')
+function createPost(input: CreatePostInput): Post {}
+```
+
+  </TabItem>
+</Tabs>
+
+### Token Refresh
+
+```python title="schema.py"
+@fraiseql.input
+class RefreshInput:
+    refresh_token: str
+
+@fraiseql.mutation
+def refresh_token(info, input: RefreshInput) -> AuthPayload:
+    """Exchange a refresh token for a new access token."""
+    # fn_refresh_token validates the refresh token and returns new claims
+    pass
+```
+
+---
+
+## API Key Authentication
+
+### Configuration
+
+```toml title="fraiseql.toml"
+[auth]
+type       = "api_key"
+header     = "X-API-Key"
+key_prefix = "sk_"   # Optional: reject keys without this prefix
+```
+
+FraiseQL looks up the API key in a table you configure and makes the associated user/scopes available on `request.auth`.
+
+### Protecting Endpoints
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python title="schema.py"
+from fraiseql.auth import api_key_required, requires_scope
+import fraiseql
+
+@fraiseql.query(sql_source="v_report")
+@api_key_required
+def reports(limit: int = 100) -> list["Report"]:
+    """Requires a valid API key."""
+    pass
+
+@fraiseql.mutation
+@api_key_required
+@requires_scope("write:data")
+def ingest_data(info, payload: "IngestInput") -> bool:
+    """Requires an API key with write:data scope."""
+    pass
+```
+
+  </TabItem>
+</Tabs>
+
+### Issuing API Keys
+
+```python title="schema.py"
+import fraiseql
+import secrets
+
+@fraiseql.mutation
+@fraiseql.authenticated
+def create_api_key(info, name: str, scopes: list[str]) -> "ApiKey":
+    """Create a new API key for the current user."""
+    # The key value is returned once and never stored in plaintext
+    # fn_create_api_key stores a hash and returns the full key for display
+    pass
+```
+
+<Aside type="caution">
+Return the API key value exactly once — at creation. Store only a hash in your database. If the user loses their key, issue a new one.
+</Aside>
+
+---
+
+## OAuth 2.0
+
+### Configuration
+
+```toml title="fraiseql.toml"
+[auth]
+type = "oauth2"
+
+[auth.providers.google]
+client_id     = "${GOOGLE_CLIENT_ID}"
+client_secret = "${GOOGLE_CLIENT_SECRET}"
+scopes        = ["openid", "email", "profile"]
+
+[auth.providers.github]
+client_id     = "${GITHUB_CLIENT_ID}"
+client_secret = "${GITHUB_CLIENT_SECRET}"
+```
+
+### OAuth Callback Mutation
+
+```python title="schema.py"
+import fraiseql
+
+@fraiseql.input
+class OAuthCallbackInput:
+    code: str
+    provider: str  # "google", "github", etc.
+
+@fraiseql.mutation
+def oauth_callback(info, input: OAuthCallbackInput) -> "AuthPayload":
+    """Exchange an OAuth code for a FraiseQL JWT.
+
+    FraiseQL exchanges the code for the provider's token,
+    fetches user info, and calls fn_upsert_oauth_user.
+    """
+    pass
+```
+
+FraiseQL handles the OAuth token exchange. Your PostgreSQL function `fn_upsert_oauth_user` receives the normalized user info and returns a user record.
+
+---
+
+## SAML (Enterprise SSO)
+
+### Configuration
+
+```toml title="fraiseql.toml"
+[auth]
+type                   = "saml"
+metadata_url           = "${SAML_METADATA_URL}"
+entity_id              = "urn:your-app:entity"
+assertion_consumer_url = "https://api.example.com/auth/saml/acs"
+```
+
+### SAML Assertion Handler
+
+```python title="schema.py"
+import fraiseql
+
+@fraiseql.mutation
+def saml_acs(info, saml_response: str) -> "AuthPayload":
+    """Process a SAML assertion and return a FraiseQL JWT.
+
+    FraiseQL validates the SAML response signature,
+    extracts attributes, and calls fn_upsert_saml_user.
+    """
+    pass
+```
+
+---
+
+## Security Best Practices
+
+1. **Use HTTPS everywhere** — Never transmit tokens over unencrypted connections
+2. **Store secrets in environment variables** — Never commit `JWT_SECRET` to version control
+3. **Use a strong secret** — At least 32 random bytes: `openssl rand -base64 32`
+4. **Set short expiration** — Access tokens: 1 hour. Refresh tokens: 7-30 days
+5. **Restrict CORS** — Set `[server] cors_origins` to your frontend domain only
+6. **Use `HttpOnly` cookies** for web apps — Prevents XSS token theft
+7. **Rate-limit login** — Protect against brute force: `[auth] max_attempts = 5`
+8. **Rotate secrets regularly** — Use RS256 with key rotation for zero-downtime rotation
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Security & RBAC" icon="approve-check-circle">
+    [Role-based access control and input validation](/features/security)
+  </Card>
+  <Card title="Multi-Tenancy" icon="setting">
+    [Tenant-scoped authentication](/guides/multi-tenancy)
+  </Card>
+  <Card title="OAuth Providers" icon="external">
+    [Supported OAuth providers and configuration](/features/oauth-providers)
+  </Card>
+  <Card title="Troubleshooting" icon="warning">
+    [Common authentication errors and fixes](/troubleshooting/security-issues)
+  </Card>
+</CardGrid>

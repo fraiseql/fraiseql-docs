@@ -1619,5 +1619,3 @@ Column scan (no index): 50-100ms
 - [PostgreSQL Guide](/databases/postgresql/)
 - [MySQL Guide](/databases/mysql/)
 - [SQLite Guide](/databases/sqlite/)
-`3
-`3

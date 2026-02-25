@@ -1036,5 +1036,3 @@ SELECT COUNT(*) FROM v_user;  # Should equal tb_user count
 - [Mutations](/concepts/mutations) — Mutation patterns
 - [CQRS](/concepts/cqrs) — Understanding the data flow
 - [Schema Design](/guides/schema-design) — Overall design patterns
-`3
-`3

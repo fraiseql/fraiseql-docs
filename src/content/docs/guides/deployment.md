@@ -579,5 +579,3 @@ spec:
 - [Performance](/guides/performance) — Optimize for production load
 - [Troubleshooting](/guides/troubleshooting) — Debug production issues
 - [Security](/features/security) — Production security hardening
-`3
-`3

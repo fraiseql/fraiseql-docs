@@ -685,5 +685,3 @@ FROM pg_statio_user_tables;
 - [Common Issues](/troubleshooting/common-issues)
 - [Performance Issues](/troubleshooting/performance-issues)
 - [PostgreSQL Documentation](https://www.postgresql.org/docs/)
-`3
-`3

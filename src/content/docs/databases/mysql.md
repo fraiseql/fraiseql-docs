@@ -42,7 +42,7 @@ SELECT
   is_current,            -- Metadata
   data                   -- Complete JSON entity
 FROM v_user
-WHERE id = UNHEX($1);
+WHERE id = $1;
 
 -- Result row:
 -- id: "550e8400-e29b-41d4-a716-446655440000"
@@ -225,11 +225,11 @@ All input examples use **parameterized queries** (prepared statements with `?` p
 
 ```sql
 -- ✅ SAFE: Parameterized query
-PREPARE stmt FROM 'SELECT * FROM tb_user WHERE id = UNHEX(?) AND email = ?';
+PREPARE stmt FROM 'SELECT * FROM tb_user WHERE id = ? AND email = ?';
 EXECUTE stmt USING user_id, email;
 
 -- ❌ UNSAFE: String concatenation (NEVER DO THIS)
--- SET @sql = CONCAT('SELECT * FROM tb_user WHERE id = UNHEX("', user_id, '")');
+-- SET @sql = CONCAT('SELECT * FROM tb_user WHERE id = ', user_id, '');
 -- This allows injection: user_id = "'); DROP TABLE tb_user; --"
 ```
 
@@ -269,7 +269,7 @@ WHERE u.deleted_at IS NULL;
 ```sql
 -- Client requests: query { user(id: "uuid") { id name email } }
 -- Server executes:
-SELECT id, data FROM v_user WHERE id = UNHEX($1);
+SELECT id, data FROM v_user WHERE id = $1;
 ```
 
 ### Nested Views (One-to-Many Relationships)
@@ -883,7 +883,7 @@ SELECT
     AVG(e.engagement_score) AS avg_engagement
 FROM tf_user_events e
 LEFT JOIN tb_calendar cal ON cal.reference_date = e.occurred_at
-WHERE e.organization_id = UNHEX(?)
+WHERE e.organization_id = ?
 GROUP BY cal.year, cal.month
 ORDER BY cal.year DESC, cal.month;
 ```
@@ -980,7 +980,7 @@ SELECT
   JSON_EXTRACT(data, '$.metadata') as metadata_object,
   JSON_EXTRACT(data, '$.tags[0]') as first_tag
 FROM v_user
-WHERE id = UNHEX($1);
+WHERE id = $1;
 
 -- Filter on JSON fields
 SELECT * FROM v_user
@@ -1194,5 +1194,3 @@ Typical FraiseQL MySQL workloads:
 - [PostgreSQL Guide](/databases/postgresql/)
 - [SQLite Guide](/databases/sqlite/)
 - [SQL Server Guide](/databases/sqlserver/)
-`3
-`3

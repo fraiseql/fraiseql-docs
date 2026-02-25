@@ -649,5 +649,3 @@ postgres:
 2. **CI/CD Integration** - Automate Docker builds
 3. **Monitoring** - Add Prometheus/Grafana
 4. **Load Testing** - Verify performance with multiple instances
-`3
-`3

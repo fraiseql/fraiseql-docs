@@ -537,5 +537,3 @@ PRAGMA stats;
 - [Common Issues](/troubleshooting/common-issues)
 - [SQLite Documentation](https://www.sqlite.org/docs.html)
 - [When to Use SQLite](https://www.sqlite.org/bestpractices.html)
-`3
-`3

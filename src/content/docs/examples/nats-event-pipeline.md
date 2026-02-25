@@ -742,5 +742,3 @@ nats consumer report orders order-processor
 - [Subscriptions](/features/subscriptions) - GraphQL subscriptions
 - [Error Handling](/guides/error-handling) - Handle failures gracefully
 - [Performance](/guides/performance) - Optimize event processing
-`3
-`3

@@ -800,5 +800,3 @@ fraiseql config show
 - [CLI Reference](/reference/cli) — Command-line interface
 - [Deployment](/guides/deployment) — Production configuration
 - [Performance](/guides/performance) — Tuning options
-`3
-`3

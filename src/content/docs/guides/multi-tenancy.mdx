@@ -1,0 +1,422 @@
+---
+title: Multi-Tenancy Architecture
+description: Implement multi-tenant SaaS applications with FraiseQL's native multi-tenancy support
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+FraiseQL has **native multi-tenancy support**. Configure a strategy in `fraiseql.toml` and FraiseQL handles tenant routing, context injection, and data isolation automatically — no manual session-setting code required.
+
+## Choose a Strategy
+
+| Strategy | Isolation | Cost | Best For |
+|----------|-----------|------|----------|
+| **Row-Level** (`row`) | Rows filtered by policy | Lowest | High-volume SaaS |
+| **Schema-per-Tenant** (`schema`) | Separate PostgreSQL schemas | Medium | Mid-market SaaS |
+| **Database-per-Tenant** (`database`) | Dedicated database per tenant | Highest | Enterprise / regulated |
+
+---
+
+## 1. Row-Level Security
+
+All tenants share one database and one schema. PostgreSQL Row-Level Security policies enforce data isolation at the database layer.
+
+### Configure FraiseQL
+
+```toml title="fraiseql.toml"
+[multitenancy]
+enabled       = true
+strategy      = "row"
+tenant_header = "X-Tenant-ID"
+```
+
+FraiseQL reads the `X-Tenant-ID` header from each request and sets `app.tenant_id` as a PostgreSQL session variable automatically. Your RLS policies reference that variable.
+
+### Set Up PostgreSQL RLS
+
+```sql
+-- 1. Add tenant_id column (if not already present)
+ALTER TABLE tb_post ADD COLUMN tenant_id UUID NOT NULL;
+ALTER TABLE tb_user ADD COLUMN tenant_id UUID NOT NULL;
+
+-- 2. Create RLS policies
+CREATE POLICY post_tenant_isolation ON tb_post
+    USING (tenant_id = current_setting('app.tenant_id')::uuid);
+
+CREATE POLICY user_tenant_isolation ON tb_user
+    USING (tenant_id = current_setting('app.tenant_id')::uuid);
+
+-- 3. Enable RLS
+ALTER TABLE tb_post ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tb_user ENABLE ROW LEVEL SECURITY;
+```
+
+FraiseQL sets `app.tenant_id` before each query — your policies fire automatically. No application code needed.
+
+### Define Types
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python
+import fraiseql
+from uuid import UUID
+
+@fraiseql.type
+class Post:
+    id: UUID
+    tenant_id: UUID
+    title: str
+    content: str
+
+@fraiseql.query(sql_source="v_post")
+def posts(limit: int = 20) -> list[Post]:
+    """Returns posts for the current tenant (enforced by RLS)."""
+    pass
+
+@fraiseql.mutation
+def create_post(info, title: str, content: str) -> Post:
+    tenant_id = info.context["tenant_id"]
+    # INSERT INTO tb_post (tenant_id, title, content) VALUES ($1, $2, $3)
+    ...
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript
+import { fraiseqlType, fraiseqlQuery, fraiseqlMutation } from 'fraiseql';
+
+@fraiseqlType()
+class Post {
+  id: string;
+  tenantId: string;
+  title: string;
+  content: string;
+}
+
+@fraiseqlQuery({ sqlSource: 'v_post' })
+function posts(limit = 20): Post[] {
+  // Returns posts for the current tenant (enforced by RLS)
+}
+```
+
+  </TabItem>
+</Tabs>
+
+### Extract Tenant from JWT
+
+When your tenant ID comes from a JWT claim rather than a raw header, use middleware:
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python
+@fraiseql.middleware
+def extract_tenant(request, next):
+    """Extract tenant_id from JWT and make it available to resolvers."""
+    tenant_id = request.auth.claims.get("tenant_id")
+    if not tenant_id:
+        raise PermissionError("Missing tenant context")
+    request.context["tenant_id"] = tenant_id
+    return next(request)
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript
+import { fraiseqlMiddleware } from 'fraiseql';
+
+fraiseqlMiddleware(async (request, next) => {
+  const tenantId = request.auth.claims?.tenant_id;
+  if (!tenantId) throw new Error('Missing tenant context');
+  request.context.tenantId = tenantId;
+  return next(request);
+});
+```
+
+  </TabItem>
+</Tabs>
+
+---
+
+## 2. Schema-per-Tenant
+
+Each tenant gets a dedicated PostgreSQL schema. Tables are identical across schemas; the search path routes queries to the correct one.
+
+### Configure FraiseQL
+
+```toml title="fraiseql.toml"
+[multitenancy]
+enabled       = true
+strategy      = "schema"
+tenant_header = "X-Tenant-ID"
+```
+
+FraiseQL sets `search_path = tenant_{id}` for each request automatically.
+
+### Set Up Schemas
+
+```sql
+-- Create schema for a new tenant
+CREATE SCHEMA tenant_abc123;
+
+-- Create tables in that schema
+CREATE TABLE tenant_abc123.tb_post (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title      TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Grant permissions to the application role
+GRANT USAGE ON SCHEMA tenant_abc123 TO fraiseql_app;
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON ALL TABLES IN SCHEMA tenant_abc123 TO fraiseql_app;
+```
+
+### Provisioning New Tenants
+
+```python
+@fraiseql.mutation
+@requires_scope("admin:tenants")
+async def provision_tenant(info, name: str, plan: str) -> Tenant:
+    """Create schema, tables, and register the new tenant."""
+    tenant_id = generate_id()
+    # 1. Create schema via admin connection
+    await info.context["admin_db"].execute(
+        f"CREATE SCHEMA tenant_{tenant_id}"
+    )
+    # 2. Run migrations into new schema
+    await run_migrations(schema=f"tenant_{tenant_id}")
+    # 3. Register in tenants table
+    return await create_tenant_record(tenant_id, name, plan)
+```
+
+<Aside type="tip">
+Keep a `public.tenants` table as a registry. FraiseQL looks up tenant schemas from there when routing requests.
+</Aside>
+
+---
+
+## 3. Database-per-Tenant
+
+Each tenant has a dedicated PostgreSQL database. FraiseQL resolves the correct connection string from a routing table.
+
+### Configure FraiseQL
+
+```toml title="fraiseql.toml"
+[multitenancy]
+enabled       = true
+strategy      = "database"
+tenant_header = "X-Tenant-ID"
+
+[multitenancy.routing]
+# FraiseQL queries this table to resolve tenant → database URL
+registry_url = "${REGISTRY_DATABASE_URL}"
+registry_table = "tenant_databases"
+```
+
+### Routing Table Schema
+
+```sql
+-- In your central registry database
+CREATE TABLE tenant_databases (
+    tenant_id    UUID PRIMARY KEY,
+    database_url TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+FraiseQL caches the routing table in memory and refreshes it on a configurable interval.
+
+### Provisioning New Databases
+
+```python
+@fraiseql.mutation
+@requires_scope("admin:tenants")
+async def provision_tenant(info, name: str, plan: str) -> Tenant:
+    """Provision a new tenant database and register it."""
+    tenant_id = generate_id()
+    db_name = f"fraiseql_tenant_{tenant_id}"
+
+    # 1. Create and migrate new database
+    await create_database(db_name)
+    await run_migrations(database=db_name)
+
+    # 2. Register in routing table
+    db_url = f"postgresql://app:{SECRET}@{HOST}/{db_name}"
+    await registry_db.execute(
+        "INSERT INTO tenant_databases (tenant_id, database_url) VALUES ($1, $2)",
+        tenant_id, db_url,
+    )
+
+    return Tenant(id=tenant_id, name=name, plan=plan)
+```
+
+---
+
+## Security Best Practices
+
+### 1. Derive Tenant from JWT, Not User Input
+
+<Aside type="caution">
+Never trust a `tenant_id` value supplied directly by the client. Derive it from a verified JWT claim.
+</Aside>
+
+```python
+# Good: tenant_id comes from server-verified JWT
+@fraiseql.middleware
+def extract_tenant(request, next):
+    tenant_id = request.auth.claims.get("tenant_id")  # JWT verified by FraiseQL
+    request.context["tenant_id"] = tenant_id
+    return next(request)
+
+# Bad: tenant_id comes from a GraphQL argument (user-controlled)
+@fraiseql.query
+def posts(info, tenant_id: str) -> list[Post]:  # Don't do this
+    ...
+```
+
+### 2. Validate Tenant Exists
+
+```python
+@fraiseql.middleware
+async def validate_tenant(request, next):
+    tenant_id = request.auth.claims.get("tenant_id")
+    tenant = await get_tenant(tenant_id)
+    if not tenant or tenant.suspended:
+        raise PermissionError(f"Tenant not found or suspended: {tenant_id}")
+    request.context["tenant_id"] = tenant_id
+    return next(request)
+```
+
+### 3. Audit Tenant Data Access
+
+```python
+@fraiseql.middleware
+async def audit_tenant_access(request, next):
+    result = await next(request)
+    await audit_log.record(
+        tenant_id=request.context.get("tenant_id"),
+        user_id=request.auth.claims.get("sub"),
+        operation=request.operation_name,
+        timestamp=datetime.utcnow(),
+    )
+    return result
+```
+
+---
+
+## Performance
+
+### Index Tenant Columns
+
+For Row-Level Security, add indexes on `tenant_id` to avoid full-table scans:
+
+```sql
+CREATE INDEX idx_post_tenant ON tb_post (tenant_id);
+CREATE INDEX idx_user_tenant ON tb_user (tenant_id);
+
+-- Composite indexes for common query patterns
+CREATE INDEX idx_post_tenant_created ON tb_post (tenant_id, created_at DESC);
+```
+
+### Connection Pooling
+
+| Strategy | Pool Recommendation |
+|----------|---------------------|
+| Row-Level | Single shared pool (e.g., PgBouncer with `pool_mode=transaction`) |
+| Schema-per-Tenant | Shared pool; `SET search_path` per transaction |
+| Database-per-Tenant | Pool per database; size to `(expected_concurrent_tenants × 2)` |
+
+---
+
+## Complete Example
+
+A working multi-tenant blog platform using row-level security:
+
+```python title="schema.py"
+import fraiseql
+from uuid import UUID
+from datetime import datetime
+
+@fraiseql.type
+class Post:
+    id: UUID
+    title: str
+    content: str
+    published: bool
+    created_at: datetime
+
+@fraiseql.type
+class User:
+    id: UUID
+    name: str
+    email: str
+
+# Queries are scoped to current tenant via RLS automatically
+@fraiseql.query(sql_source="v_post")
+def posts(limit: int = 20, published: bool | None = None) -> list[Post]:
+    pass
+
+@fraiseql.query(sql_source="v_post", id_arg="id")
+def post(id: UUID) -> Post | None:
+    pass
+
+@fraiseql.mutation
+@requires_scope("write:posts")
+def create_post(info, title: str, content: str) -> Post:
+    tenant_id = info.context["tenant_id"]
+    user_id = info.context["user_id"]
+    # INSERT INTO tb_post (tenant_id, user_id, title, content) VALUES (...)
+    ...
+
+@fraiseql.mutation
+@requires_scope("write:posts")
+def publish_post(info, id: UUID) -> Post:
+    # UPDATE tb_post SET published = true WHERE id = $1
+    # RLS ensures the post belongs to the current tenant
+    ...
+```
+
+```toml title="fraiseql.toml"
+[project]
+name = "blog-platform"
+
+[database]
+type = "postgresql"
+url  = "${DATABASE_URL}"
+
+[auth]
+type       = "jwt"
+jwt_secret = "${JWT_SECRET}"
+
+[multitenancy]
+enabled       = true
+strategy      = "row"
+tenant_header = "X-Tenant-ID"
+
+[server]
+port = 8080
+```
+
+---
+
+## Related Guides
+
+<CardGrid>
+  <Card title="Authentication" icon="approve-check-circle">
+    [JWT, OAuth, and SAML setup](/guides/authentication)
+  </Card>
+  <Card title="Security" icon="warning">
+    [RBAC, input validation, and HTTPS](/features/security)
+  </Card>
+  <Card title="Performance" icon="rocket">
+    [Query optimization and connection pooling](/guides/performance)
+  </Card>
+  <Card title="SaaS Blog Example" icon="open-book">
+    [Complete multi-tenant application walkthrough](/examples/saas-blog)
+  </Card>
+</CardGrid>

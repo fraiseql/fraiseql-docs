@@ -313,5 +313,3 @@ def on_pending_payment():
 | **FraiseQL** | Predictable performance, code-first, multi-database |
 
 Both are excellent tools. Choose based on your team's preferences and requirements.
-`3
-`3

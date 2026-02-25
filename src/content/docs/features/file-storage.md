@@ -436,5 +436,3 @@ scanner = "clamav"
 - [Security](/features/security) - File access control
 - [Deployment](/guides/deployment) - Production file storage
 - [S3 Setup](/features/file-storage) - AWS S3 configuration
-`3
-`3

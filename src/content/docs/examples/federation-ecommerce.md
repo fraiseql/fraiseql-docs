@@ -761,5 +761,3 @@ backoff = "exponential"
 - [Error Handling](/guides/error-handling) - Saga failure recovery
 - [Multi-Tenancy](/guides/multi-tenancy) - Scaling this pattern
 - [Performance](/guides/performance) - Query optimization
-`3
-`3

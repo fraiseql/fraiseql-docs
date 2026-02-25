@@ -1,0 +1,201 @@
+---
+title: Why FraiseQL
+description: The architectural principles behind FraiseQL and why they matter for production GraphQL APIs
+---
+
+import { CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+Every GraphQL framework makes a fundamental choice: where does the data assembly happen? In resolver functions, or in the database?
+
+FraiseQL chooses the database — and that choice has cascading consequences for performance, correctness, and operational simplicity.
+
+## The Problem with Resolvers
+
+Traditional GraphQL resolvers have three structural problems that compound as your API grows.
+
+### 1. N+1 Queries Are the Default
+
+A resolver fetches data for one object at a time. When a field relationship is traversed across a list, the default behavior is N+1 queries:
+
+```
+GET /graphql → query { posts(limit: 100) { author { name } } }
+
+→ SELECT * FROM posts LIMIT 100           # 1 query
+→ SELECT * FROM users WHERE id = user_1   # 100 individual queries
+→ SELECT * FROM users WHERE id = user_2
+→ ...                                      # N+1 total
+```
+
+DataLoaders reduce this to N=2 queries, but require explicit implementation for every relationship. They're opt-in. Miss one and production takes the hit.
+
+### 2. Complexity Grows With the Data Model
+
+As your schema grows, so does the resolver forest. Each new type, field, or relationship needs a resolver. Each resolver needs to be tested, monitored, and maintained. Complex schemas accumulate thousands of lines of resolver code that does nothing but shuffle data between layers.
+
+### 3. Performance Is Non-Deterministic
+
+Resolver execution order depends on the query. Query complexity determines database load. A client requesting an unexpectedly deep graph can trigger unbounded database calls. You can't capacity-plan against that.
+
+---
+
+## The FraiseQL Model
+
+FraiseQL eliminates the resolver layer by pre-joining data relationships in SQL views:
+
+```sql
+-- v_post pre-joins users and aggregates comments
+CREATE VIEW v_post AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id',       p.id,
+        'title',    p.title,
+        'author',   vu.data,          -- pre-joined from v_user
+        'comments', jsonb_agg(vc.data) -- pre-aggregated from v_comment
+    ) AS data
+FROM tb_post p
+JOIN v_user vu ON vu.id = p.fk_user
+LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
+GROUP BY p.id, vu.data;
+```
+
+A GraphQL query like:
+
+```graphql
+query {
+  posts(limit: 100) {
+    title
+    author { name }
+    comments { content }
+  }
+}
+```
+
+Becomes one SQL statement:
+
+```sql
+SELECT data FROM v_post LIMIT 100;
+```
+
+**One query. Always.** Regardless of query depth, requested fields, or number of relationships.
+
+---
+
+## Architectural Consequences
+
+### Predictable Performance
+
+When a GraphQL query maps to a single SQL statement, performance is bounded by:
+- Your database query planner
+- Your indexes
+- Your hardware
+
+Not by resolver orchestration, batching strategy, or query complexity. A query that fetches 100 posts with nested authors and comments is no more expensive than fetching 100 posts alone — the database returns shaped JSON directly.
+
+| Query Shape | Traditional GraphQL | FraiseQL |
+|-------------|---------------------|----------|
+| 1 post, no nesting | 1 DB query | 1 DB query |
+| 100 posts + author | 101 DB queries (without DataLoader) | 1 DB query |
+| 100 posts + author + comments | 201+ DB queries | 1 DB query |
+| 10 levels deep | Unbounded | 1 DB query |
+
+### Predictable Resource Usage
+
+Traditional frameworks optimize at runtime: they cache, batch, and deduplicate as requests arrive. This runtime machinery runs on every request.
+
+FraiseQL eliminates runtime overhead:
+
+- **CPU**: Minimal — mostly JSON serialization and HTTP handling
+- **Memory**: Constant — no per-query object accumulation
+- **Network**: One database round-trip per request
+- **Scaling**: Scale the database, not a translation layer
+
+This predictability matters for capacity planning. You don't need headroom for "resolver explosion" or surprise N+1 queries.
+
+### You Own the SQL
+
+SQL views are code you write, review, and version-control. The query that serves your GraphQL API is the query you can read in `db/schema/02_read/`. You can:
+
+- `EXPLAIN ANALYZE` it directly
+- Add indexes based on its access patterns
+- Review it in a pull request
+- Optimize it without touching application code
+
+There is no generated SQL to reverse-engineer or ORM internals to debug.
+
+<Aside type="tip">
+FraiseQL is sometimes described as "the database-first GraphQL framework." The database is not the implementation detail — it is the interface.
+</Aside>
+
+---
+
+## What FraiseQL Trades Away
+
+FraiseQL is not the right choice for every GraphQL API. It trades flexibility for predictability.
+
+**FraiseQL is ideal when:**
+- Your data lives in a relational database (PostgreSQL, MySQL, SQLite, SQL Server)
+- You want your API to reflect your data model directly
+- Performance consistency and low operational overhead matter
+- Your team is comfortable with SQL
+
+**Consider alternatives when:**
+- Your resolvers contain complex business logic that doesn't belong in the database
+- You need to federate arbitrary microservices (not databases) behind a single GraphQL endpoint
+- Your data source is not a relational database
+
+---
+
+## The Operational Efficiency Argument
+
+For teams that do fit FraiseQL's model, the operational savings are significant.
+
+### Smaller Infrastructure Footprint
+
+Traditional GraphQL servers often require horizontal scaling to handle resolver overhead — even when the underlying database has capacity. You're scaling the translation layer, not the work itself.
+
+FraiseQL inverts this: the server is a thin translation layer (a compiled Rust binary). The database does the work it was designed for. You scale where the work actually happens.
+
+### Materialized Views for Hot Paths
+
+For frequently accessed or computationally expensive data, FraiseQL supports materialized views (`tv_` prefix). These trade disk storage for read performance:
+
+- **When to use**: Hot paths, complex aggregations, expensive JSON construction
+- **The trade-off**: Additional disk space for faster reads and reduced CPU load
+- **Maintenance**: Refresh strategies balance freshness against write performance
+
+The same GraphQL schema serves regular and materialized views — the optimization is transparent to clients.
+
+### Code Volume
+
+A resolver-based GraphQL API for a 20-type schema typically requires:
+- ~200 resolver functions
+- DataLoader implementations for each relationship
+- N+1 detection tooling
+- Resolver-level caching
+
+The same schema in FraiseQL requires:
+- 20 SQL views
+- 20 Python type definitions (~3 lines each)
+- Zero resolvers
+
+Less code means fewer bugs, less to maintain, and fewer things to monitor.
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="How It Works" icon="setting">
+    [Understand the SQL view pattern and compilation](/concepts/how-it-works)
+  </Card>
+  <Card title="CQRS Pattern" icon="open-book">
+    [How FraiseQL implements Command Query Responsibility Segregation](/concepts/cqrs)
+  </Card>
+  <Card title="Your First API" icon="rocket">
+    [Build a working API and see the pattern in action](/getting-started/first-api)
+  </Card>
+  <Card title="Performance Benchmarks" icon="chart">
+    [Measured performance comparisons](/guides/performance-benchmarks)
+  </Card>
+</CardGrid>

@@ -592,5 +592,3 @@ Example error response:
 - [TOML Configuration](/reference/toml-config#validation) - Configuration syntax
 - [Error Handling](/guides/error-handling) - Handle validation errors
 - [Input Processing](/reference/validation-rules) - Process before validation
-`3
-`3

@@ -683,6 +683,3 @@ Set up alerts:
 4. **Optimize database** indexes and queries
 5. **Plan multi-region** deployment as traffic grows
 6. **Monitor metrics** continuously to catch issues early
-`3
-`3
-`3

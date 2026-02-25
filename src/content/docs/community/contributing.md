@@ -531,5 +531,3 @@ Every contribution makes FraiseQL better. Whether it's a typo fix, new example, 
 5. Create an example app
 
 Welcome to the FraiseQL community!
-`3
-`3

@@ -34,7 +34,7 @@ A: Apollo requires manual resolver implementation. FraiseQL maps GraphQL types t
 A: Yes! FraiseQL offers better performance and is API-first instead of ORM-first. See [Prisma Migration Guide](/migrations/from-prisma).
 
 **Q: What languages does FraiseQL support?**
-A: FraiseQL itself is written in Python. It provides schema authoring SDKs for 15 languages (Python, TypeScript, Go, Java, Rust, etc.) See [SDK Guide](/sdk).
+A: FraiseQL server is a compiled Rust binary — fast, single binary, no runtime dependencies. Schema authoring SDKs are available for Python, TypeScript, Go, Java, Rust, PHP, and more. See [SDK Guide](/sdk).
 
 **Q: Is FraiseQL suitable for production?**
 A: Yes. It's used in production by companies handling millions of requests. See [deployment guides](/deployment) for setup.

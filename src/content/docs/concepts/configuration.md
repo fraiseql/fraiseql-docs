@@ -338,5 +338,3 @@ tenant_header = "X-Tenant-ID"
 - [How It Works](/concepts/how-it-works) — Understand compilation
 - [Schema Definition](/concepts/schema) — Define your types
 - [CLI Reference](/reference/cli) — All CLI commands
-`3
-`3

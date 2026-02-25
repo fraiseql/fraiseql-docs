@@ -169,7 +169,7 @@ FraiseQL expects strict prefixes to identify each layer:
   <TabItem label="SQLite">
     ```sql
     -- Read view: denormalized, JSON response
-    CREATE OR REPLACE VIEW v_user AS
+    CREATE VIEW v_user AS
     SELECT
         u.id,
         json_object(
@@ -740,7 +740,7 @@ Here's the full CQRS structure for a blog post:
             'published_at', p.published_at,
             'created_at', p.created_at,
             'updated_at', p.updated_at,
-            'author', JSON_PARSE(vu.data)
+            'author', vu.data
         ) AS data
     FROM tb_post p
     JOIN tb_user u ON u.pk_user = p.fk_user
@@ -898,4 +898,3 @@ def create_user(name: str, email: str) -> User:
 - [🍯 Confiture](/confiture) — Database lifecycle management
 - [Mutations](/concepts/mutations) — Write operations in detail
 - [Naming Conventions](/reference/naming-conventions) — Complete naming guide
-`3
