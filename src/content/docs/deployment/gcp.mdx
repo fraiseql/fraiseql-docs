@@ -3,6 +3,8 @@ title: Google Cloud Platform Deployment
 description: Deploy FraiseQL to Google Cloud Run, Cloud SQL, and GKE
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 # Google Cloud Platform Deployment
 
 Deploy FraiseQL on Google Cloud Platform using serverless Cloud Run or Kubernetes Engine (GKE).
@@ -60,6 +62,10 @@ gcloud sql instances describe fraiseql-prod \
 
 ### 3. Store Secrets in Secret Manager
 
+<Aside type="tip">
+Cloud Run integrates natively with Secret Manager. Secrets are mounted as environment variables at container startup with no code changes required.
+</Aside>
+
 ```bash
 # Create secrets
 echo "postgresql://fraiseql:PASSWORD@/fraiseql?host=/cloudsql/PROJECT:REGION:fraiseql-prod" | \
@@ -115,9 +121,9 @@ gcloud run domain-mappings create \
 
 ```
 Cloud Load Balancer (optional, for multiple regions)
-         ↓
+         |
 Cloud Run (Serverless, auto-scaling)
-         ↓
+         |
 Cloud SQL PostgreSQL (Managed database)
 ```
 
@@ -182,7 +188,7 @@ Cloud Run auto-scales automatically based on request count.
 
 To customize:
 
-```
+```yaml
 # cloud-run-config.yaml
 apiVersion: serving.knative.dev/v1
 kind: Service
@@ -238,7 +244,7 @@ gcloud container clusters get-credentials fraiseql-cluster --region=$REGION
 
 Follow the [Kubernetes deployment guide](/deployment/kubernetes) with GCP-specific configuration:
 
-```
+```yaml
 # fraiseql-gke-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -288,7 +294,7 @@ kubectl apply -f fraiseql-gke-deployment.yaml
 # Check status
 kubectl get services fraiseql
 kubectl get pods
-```python
+```
 
 ## Monitoring & Logging
 
@@ -403,7 +409,7 @@ gcloud sql operations list --instance=fraiseql-prod
 
 Create build pipeline:
 
-```
+```yaml
 # cloudbuild.yaml
 steps:
   # Build Docker image
@@ -443,7 +449,7 @@ Trigger from GitHub:
 gcloud builds connect --repository-name=fraiseql \
   --repository-owner=your-github-org \
   --region=$REGION
-```bash
+```
 
 ## Cost Optimization
 
@@ -453,14 +459,14 @@ gcloud builds connect --repository-name=fraiseql \
 - **Compute time**: $0.00001667 per CPU-second
 - **Memory**: $0.0000025 per GB-second
 
-Examples:
+Example:
 
-```bash
+```
 1 request at 1 CPU for 1 second = $0.00001667
 100,000 requests/month = $0.04
-```bash
+```
 
-**Optimization**:
+**Optimization tips:**
 - Use `min-instances=0` to save on idle time
 - Lower CPU allocation for I/O-bound apps
 - Cache responses at load balancer
@@ -471,10 +477,26 @@ Examples:
 - db-f1-micro: $28/month (small production)
 - db-custom-2-8192: $150+/month (medium workloads)
 
-**Optimization**:
+**Optimization tips:**
 - Use shared-core for development
 - Enable automated backups (cheaper than manual)
 - Use preemptible VMs if availability not critical
+
+## Comparison: Cloud Run vs GKE
+
+| Feature | Cloud Run | GKE |
+|---------|-----------|-----|
+| Setup time | 5 minutes | 30 minutes |
+| Scaling | Automatic | Manual/Automatic |
+| Price (low traffic) | $0.04/month | $200+/month |
+| Price (high traffic) | $0.40/M requests | Better for sustained load |
+| Latency | 100-500ms cold start | Low (warm) |
+| Customization | Limited | Full control |
+| Multi-region | Easy | More complex |
+
+<Aside type="tip">
+**Recommendation**: Use Cloud Run for most applications, especially if traffic is variable. Switch to GKE for predictable high traffic, complex deployments, or multi-region requirements.
+</Aside>
 
 ## Troubleshooting
 
@@ -523,25 +545,21 @@ gcloud run services update fraiseql \
 - [ ] Load testing completed
 - [ ] Disaster recovery plan documented
 
-## Comparison: Cloud Run vs GKE
-
-| Feature | Cloud Run | GKE |
-|---------|-----------|-----|
-| Setup time | 5 minutes | 30 minutes |
-| Scaling | Automatic | Manual/Automatic |
-| Price (low traffic) | $0.04/month | $200+/month |
-| Price (high traffic) | $0.40/M requests | Better for sustained load |
-| Latency | 100-500ms cold start | Low (warm) |
-| Customization | Limited | Full control |
-| Multi-region | Easy | More complex |
-
-**Recommendation**:
-- **Cloud Run**: Best for most applications, especially if traffic is variable
-- **GKE**: Best for predictable high traffic, complex deployments, multi-region
-
-## Next Steps
-
-- **CI/CD**: Set up Cloud Build triggers for automatic deployments
-- **Monitoring**: Configure Cloud Monitoring dashboards
-- **Security**: Set up Cloud Armor for DDoS protection
-- **Multi-region**: Deploy to multiple regions with Cloud Load Balancing
+<CardGrid>
+  <Card title="Cloud Build CI/CD" icon="setting">
+    Set up Cloud Build triggers for automatic deployments on every push to main.
+    [Deployment Overview](/deployment)
+  </Card>
+  <Card title="Cloud Monitoring" icon="open-book">
+    Configure Cloud Monitoring dashboards and alert policies.
+    [Scaling Guide](/deployment/scaling)
+  </Card>
+  <Card title="Cloud Armor" icon="warning">
+    Set up Cloud Armor DDoS protection and security policies.
+    [Deployment Overview](/deployment)
+  </Card>
+  <Card title="Troubleshooting" icon="document">
+    Debug Cloud Run deployment failures and Cloud SQL connection issues.
+    [Troubleshooting Guide](/troubleshooting)
+  </Card>
+</CardGrid>

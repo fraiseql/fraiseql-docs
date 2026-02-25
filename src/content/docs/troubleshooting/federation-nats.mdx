@@ -3,6 +3,8 @@ title: Federation & NATS Troubleshooting
 description: Solutions for 100+ common federation and NATS issues
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 # Federation & NATS Troubleshooting
 
 This guide covers solutions for common issues when using FraiseQL's federation and NATS capabilities.
@@ -153,7 +155,7 @@ CREATE INDEX idx_order_item_order_id ON tb_order_item(order_id);
 
 #### "Circular reference in federation"
 
-                                                                          ─           ─
+**Symptoms**: `CircularReferenceError` when loading schema or executing deeply nested queries.
 
 **Causes**:
 - Bidirectional federated references
@@ -560,7 +562,7 @@ nats consumer info orders order-processor
 # Acked: 800
 
 # 2. Increase processing capacity
-# Scale up consumer service: 1 instance → 3 instances
+# Scale up consumer service: 1 instance -> 3 instances
 
 # 3. Check consumer queue group
 nats consumer info orders order-processor
@@ -575,13 +577,6 @@ ack_wait = "60s"  # Increased from 30s
 @subscribe("fraiseql.order.created", queue_group="order-processors")
 async def process_order(event: dict):
     """Process order efficiently."""
-
-    # SLOW: Database query for every event
-    # ❌ await db.query(f"SELECT * FROM orders WHERE id = {event['order_id']}")
-
-    # FAST: Use data from event
-    # ✅ order_data = event['data']
-    # Process immediately
 
     order_id = event["data"]["order_id"]
 
@@ -618,8 +613,8 @@ nats consumer info orders order-processor
 
 # 2. Check subject matches
 # Published to: fraiseql.order.created
-# Subscribed to: fraiseql.order.>  ✓ Match
-# Subscribed to: orders.created    ✗ No match
+# Subscribed to: fraiseql.order.>  (match)
+# Subscribed to: orders.created    (no match)
 ```
 
 ```python
@@ -631,14 +626,15 @@ async def handle_order_created(event: dict):
     # If this log never appears, subscriber isn't running
 ```
 
-```python
+```toml
 # 4. Check max deliver limit
 # If message is redelivered more than max_deliver times,
 # it goes to dead letter queue
-
 [nats.jetstream.consumers.order-processor]
 max_deliver = 3  # Redelivered max 3 times
+```
 
+```python
 # Check dead letter queue
 @subscribe("fraiseql.dlq")
 async def handle_dead_letter(event: dict):
@@ -695,6 +691,10 @@ max_deliver = 3  # Retry 3 times
 - No idempotency checks
 - At-least-once delivery semantics
 - Retry without deduplication
+
+<Aside type="caution">
+NATS JetStream uses at-least-once delivery by default. Always implement idempotency checks in your event handlers to prevent duplicate processing.
+</Aside>
 
 **Solutions**:
 
@@ -872,8 +872,8 @@ await publish(
 
 ## Database-Specific Gotchas
 
-### PostgreSQL
-
+<Tabs>
+<TabItem label="PostgreSQL">
 #### "Deadlock between federation and saga"
 
 ```sql
@@ -881,9 +881,8 @@ await publish(
 -- Solution: Use lower isolation level
 SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
 ```
-
-### MySQL
-
+</TabItem>
+<TabItem label="MySQL">
 #### "Federated queries with large result sets OOM"
 
 ```python
@@ -902,9 +901,8 @@ async def large_order_list():
             yield order
         cursor = orders[-1]["id"]
 ```
-
-### SQLite
-
+</TabItem>
+<TabItem label="SQLite">
 #### "SQLite locking issues with federation"
 
 ```python
@@ -917,6 +915,8 @@ class SQLiteSerializer:
         async with cls._lock:
             return await execute_federation_write(query)
 ```
+</TabItem>
+</Tabs>
 
 ## Monitoring and Debugging Checklist
 
@@ -931,11 +931,21 @@ class SQLiteSerializer:
 - [ ] Verify event handler idempotency
 - [ ] Test failure scenarios regularly
 
-## Related Guides
-
-- [Federation](/features/federation) - Federation reference
-- [NATS](/features/nats) - NATS reference
-- [Error Handling](/guides/error-handling) - Error patterns
-- [Federation Example](/examples/federation-ecommerce) - Federation example
-- [NATS Example](/examples/nats-event-pipeline) - NATS example
-- [Federation + NATS Integration](/guides/federation-nats-integration) - Combined usage
+<CardGrid>
+  <Card title="Federation Reference" icon="document">
+    Complete reference documentation for FraiseQL's federation capabilities.
+    [Federation Guide](/features/federation)
+  </Card>
+  <Card title="NATS Reference" icon="document">
+    Reference documentation for NATS integration and JetStream configuration.
+    [NATS Guide](/features/nats)
+  </Card>
+  <Card title="Error Handling" icon="warning">
+    Patterns for handling errors in federated and event-driven applications.
+    [Error Handling Guide](/guides/error-handling)
+  </Card>
+  <Card title="General Troubleshooting" icon="open-book">
+    Diagnose connection, query, and infrastructure issues.
+    [Troubleshooting Index](/troubleshooting)
+  </Card>
+</CardGrid>

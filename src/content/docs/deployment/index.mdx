@@ -3,6 +3,8 @@ title: Deployment Guides
 description: Deploy FraiseQL to production on Docker, Kubernetes, AWS, GCP, or Azure
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 # Deployment Guides
 
 Choose your deployment target based on your infrastructure preferences and scalability needs.
@@ -70,7 +72,9 @@ NATS_SUBJECT_PREFIX=fraiseql.events
 
 ### Secrets Management Best Practice
 
-**NEVER commit secrets to version control.** Use:
+<Aside type="caution">
+**NEVER commit secrets to version control.** Use a dedicated secrets manager appropriate for your platform.
+</Aside>
 
 - **Docker/Docker Compose**: Use `.env` file (in `.gitignore`), or secrets manager
 - **Kubernetes**: Use Secrets or external secrets operator
@@ -127,7 +131,9 @@ FraiseQL responds to SIGTERM signal and:
 3. Closes database connections
 4. Exits
 
-Configure container/orchestrator shutdown timeout to at least 35 seconds.
+<Aside type="tip">
+Configure container/orchestrator shutdown timeout to at least 35 seconds to allow graceful completion of in-flight requests.
+</Aside>
 
 ## Database Connection Pooling
 
@@ -187,53 +193,54 @@ FATAL   # Critical issues only
 
 ### Log Aggregation Setup
 
-**CloudWatch (AWS)**:
+<Tabs>
+<TabItem label="AWS CloudWatch">
 ```bash
 # In Docker: Use awslogs driver
 # In Kubernetes: Use CloudWatch agent
 ```
-
-**Stackdriver (GCP)**:
+</TabItem>
+<TabItem label="GCP Stackdriver">
 ```bash
 # Automatic if running on Cloud Run
 # Manual setup for VMs
 ```
-
-**Azure Monitor**:
+</TabItem>
+<TabItem label="Azure Monitor">
 ```bash
 # Automatic if running on App Service
 # Container Insights for Kubernetes
 ```
+</TabItem>
+</Tabs>
 
 ## Monitoring & Observability
 
 ### Key Metrics to Monitor
 
-```
-GraphQL Queries (requests/sec)
-├── Success rate
-├── Error rate
-├── p50, p95, p99 latency
-└── Query complexity distribution
+**GraphQL Queries (requests/sec)**
+- Success rate
+- Error rate
+- p50, p95, p99 latency
+- Query complexity distribution
 
-Database
-├── Connection pool utilization
-├── Query execution time
-├── Transaction time
-└── Slow queries (>500ms)
+**Database**
+- Connection pool utilization
+- Query execution time
+- Transaction time
+- Slow queries (>500ms)
 
-System
-├── CPU usage
-├── Memory usage
-├── Disk space
-└── Network I/O
+**System**
+- CPU usage
+- Memory usage
+- Disk space
+- Network I/O
 
-NATS (if enabled)
-├── Messages published/sec
-├── Messages consumed/sec
-├── Delivery errors
-└── Consumer lag
-```
+**NATS (if enabled)**
+- Messages published/sec
+- Messages consumed/sec
+- Delivery errors
+- Consumer lag
 
 ### Prometheus Metrics
 
@@ -323,12 +330,10 @@ PER_IP_RATE_LIMIT_WINDOW_SECONDS=60
 
 Implement key rotation schedule:
 
-```
 1. Generate new API key
 2. Update client configuration (staged rollout)
 3. Wait for all clients to switch
 4. Revoke old key
-```
 
 ## Scaling Strategies
 
@@ -336,22 +341,12 @@ Implement key rotation schedule:
 
 For stateless FraiseQL deployment:
 
-```
 1. Deploy multiple instances
 2. Use load balancer (distribute traffic)
 3. All instances connect to same database
 4. Share NATS connection for events
-```
 
-**Example with 3 instances**:
-```
-               Load Balancer
-              /    |    \
-          Pod1  Pod2  Pod3
-             \    |    /
-         Shared PostgreSQL
-         (read replicas optional)
-```
+With 3 instances, traffic flows from the Load Balancer to Pod1, Pod2, and Pod3, all connecting to a shared PostgreSQL instance. Read replicas can be added optionally.
 
 ### Vertical Scaling (Bigger Instances)
 
@@ -377,26 +372,29 @@ Most platforms support auto-scaling based on:
 
 ### Database Backups
 
-**PostgreSQL**:
+<Tabs>
+<TabItem label="PostgreSQL">
 ```bash
 # Automated backups with WAL archiving
 pg_dump -h $DB_HOST -U $DB_USER -d $DB_NAME > backup.sql
 # Or: Use managed PostgreSQL (AWS RDS, Google Cloud SQL) for automated backups
 ```
-
-**MySQL**:
+</TabItem>
+<TabItem label="MySQL">
 ```bash
 # Binary log backups
 mysqldump -h $DB_HOST -u $DB_USER -p $DB_PASS $DB_NAME > backup.sql
 # Or: Use managed MySQL (AWS RDS, Google Cloud SQL)
 ```
-
-**SQLite**:
+</TabItem>
+<TabItem label="SQLite">
 ```bash
 # File-based backup
 cp /data/fraiseql.db /backups/fraiseql-$(date +%Y%m%d).db
 # Keep 7-30 days of rolling backups
 ```
+</TabItem>
+</Tabs>
 
 ### Recovery Time Objectives (RTO)
 
@@ -409,35 +407,15 @@ cp /data/fraiseql.db /backups/fraiseql-$(date +%Y%m%d).db
 
 ### Testing Backups
 
-**Critical**: Test restore procedures regularly:
+<Aside type="caution">
+Test restore procedures regularly. A backup that has never been tested is not a reliable backup.
 
 ```bash
 # Monthly: Restore backup to test environment
 # Verify: All data present, no corruption
 # Measure: Actual restore time
 ```
-
-## Deployment Paths
-
-Choose your deployment guide:
-
-
-─
-
-
-─
-
-
-─
-
-
-─
-
-
-─
-
-
-─
+</Aside>
 
 ## Common Issues & Troubleshooting
 
@@ -459,10 +437,21 @@ Choose your deployment guide:
 
 See [Troubleshooting](/troubleshooting) for more common issues.
 
-## Next Steps
-
-1. Choose your deployment platform above
-2. Follow the step-by-step guide
-3. Test in staging environment first
-4. Deploy to production with confidence
-5. Monitor metrics and logs continuously
+<CardGrid>
+  <Card title="Docker Deployment" icon="document">
+    Get started quickly with Docker and Docker Compose for local and small-scale production deployments.
+    [Docker Guide](/deployment/docker)
+  </Card>
+  <Card title="AWS Deployment" icon="cloud">
+    Deploy on AWS using ECS/Fargate, RDS, and CloudFormation for a fully managed AWS-native setup.
+    [AWS Guide](/deployment/aws)
+  </Card>
+  <Card title="GCP Deployment" icon="cloud">
+    Use Google Cloud Run or GKE for serverless and container-based deployments on Google Cloud.
+    [GCP Guide](/deployment/gcp)
+  </Card>
+  <Card title="Scaling & Performance" icon="rocket">
+    Learn horizontal scaling, auto-scaling, caching strategies, and database optimization.
+    [Scaling Guide](/deployment/scaling)
+  </Card>
+</CardGrid>

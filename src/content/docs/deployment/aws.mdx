@@ -3,24 +3,15 @@ title: AWS Deployment
 description: Deploy FraiseQL to AWS using ECS, Fargate, RDS, and CloudFormation
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 # AWS Deployment
 
 Deploy FraiseQL on AWS with managed services for production reliability.
 
 ## Architecture Overview
 
-```
-
-   │
-
-   │
-
-   │
-
-   │
-
-   │
-```
+The recommended AWS architecture routes traffic from Route 53 DNS through an Application Load Balancer to ECS Fargate tasks, which connect to RDS PostgreSQL. Secrets are stored in AWS Secrets Manager, and logs are sent to CloudWatch.
 
 ## Prerequisites
 
@@ -190,6 +181,10 @@ aws ecs register-task-definition \
 
 ### 6. Store Secrets in Secrets Manager
 
+<Aside type="caution">
+Always store secrets in AWS Secrets Manager rather than environment variables in your task definition. This prevents credentials from appearing in plaintext in ECS console or CloudTrail logs.
+</Aside>
+
 ```bash
 # Database URL
 aws secretsmanager create-secret \
@@ -329,7 +324,7 @@ aws route53 change-resource-record-sets \
 
 For repeatable deployments, use CloudFormation:
 
-```
+```yaml
 # fraiseql-stack.yaml
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'FraiseQL deployment stack'
@@ -579,7 +574,7 @@ aws cloudwatch put-metric-alarm \
 
 ### Automated RDS Backups
 
-Enabled by default in CloudFormation (BackupRetentionPeriod: 30)
+Enabled by default in CloudFormation (`BackupRetentionPeriod: 30`).
 
 ### Manual Snapshot
 
@@ -695,9 +690,21 @@ aws ecs execute-command \
 - [ ] Read replicas configured (if needed)
 - [ ] CloudFront distribution (optional, for CDN)
 
-## Next Steps
-
-- **CI/CD**: GitHub Actions or CodePipeline to automate deployments
-- **Monitoring**: CloudWatch + X-Ray for distributed tracing
-- **Disaster Recovery**: Multi-region RDS replicas
-- **Cost Optimization**: Reserved Instances, Spot Instances
+<CardGrid>
+  <Card title="CI/CD with GitHub Actions" icon="github">
+    Automate deployments to ECS using GitHub Actions or AWS CodePipeline.
+    [Scaling Guide](/deployment/scaling)
+  </Card>
+  <Card title="Monitoring with CloudWatch" icon="setting">
+    Set up CloudWatch dashboards, alarms, and X-Ray tracing.
+    [Deployment Overview](/deployment)
+  </Card>
+  <Card title="Disaster Recovery" icon="warning">
+    Configure multi-region RDS replicas and failover procedures.
+    [Scaling Guide](/deployment/scaling)
+  </Card>
+  <Card title="Troubleshooting" icon="open-book">
+    Debug common AWS deployment issues including task failures and connectivity.
+    [Troubleshooting Guide](/troubleshooting)
+  </Card>
+</CardGrid>

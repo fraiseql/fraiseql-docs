@@ -3,6 +3,8 @@ title: Deployment
 description: Deploy FraiseQL to production with Docker, cloud platforms, and best practices
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 This guide covers deploying FraiseQL to production environments, including Docker, cloud platforms, and operational best practices.
 
 ## Production Configuration
@@ -91,6 +93,8 @@ OTLP_ENDPOINT=https://otlp.example.com:4317
 
 ### Dockerfile
 
+FraiseQL compiles to a single Rust binary. The multi-stage Dockerfile produces a minimal runtime image:
+
 ```dockerfile
 # Build stage
 FROM rust:1.75-alpine AS builder
@@ -129,7 +133,7 @@ CMD ["./fraiseql-server"]
 
 ### docker-compose.yml
 
-```
+```yaml
 version: "3.8"
 
 services:
@@ -192,7 +196,7 @@ volumes:
 
 ### deployment.yaml
 
-```
+```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -284,7 +288,11 @@ spec:
 
 ### Secrets
 
-```
+<Aside type="caution">
+Never commit Kubernetes Secrets containing real credentials to version control. Use a secrets management solution such as External Secrets Operator, Vault, or cloud-native secrets managers.
+</Aside>
+
+```yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -297,8 +305,8 @@ stringData:
 
 ## Cloud Platforms
 
-### AWS (ECS/Fargate)
-
+<Tabs>
+<TabItem label="AWS (ECS/Fargate)">
 **Task Definition:**
 
 ```json
@@ -352,10 +360,9 @@ stringData:
   ]
 }
 ```
-
-### Google Cloud Run
-
-```
+</TabItem>
+<TabItem label="Google Cloud Run">
+```yaml
 # service.yaml
 apiVersion: serving.knative.dev/v1
 kind: Service
@@ -390,9 +397,8 @@ Deploy:
 ```bash
 gcloud run services replace service.yaml --region=us-central1
 ```
-
-### Fly.io
-
+</TabItem>
+<TabItem label="Fly.io">
 ```toml
 # fly.toml
 app = "fraiseql-api"
@@ -430,6 +436,8 @@ Deploy:
 fly secrets set DATABASE_URL="..." JWT_SECRET="..."
 fly deploy
 ```
+</TabItem>
+</Tabs>
 
 ## Database Migrations
 
@@ -482,7 +490,7 @@ curl http://localhost:8080/health
 
 FraiseQL is stateless and scales horizontally:
 
-```
+```yaml
 # Kubernetes HPA
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -514,7 +522,7 @@ spec:
 
 For high-scale deployments, use external connection pooling:
 
-```
+```yaml
 # PgBouncer sidecar
 - name: pgbouncer
   image: edoburu/pgbouncer:1.21.0
@@ -534,6 +542,10 @@ For high-scale deployments, use external connection pooling:
 
 ## Security Checklist
 
+<Aside type="caution">
+Review this checklist before every production deployment. Missing items in this list are common sources of security incidents.
+</Aside>
+
 - [ ] **TLS enabled** for all traffic
 - [ ] **JWT secrets** are strong (256+ bits)
 - [ ] **Database credentials** use secrets management
@@ -549,7 +561,7 @@ For high-scale deployments, use external connection pooling:
 
 ### Prometheus Metrics
 
-```
+```yaml
 # ServiceMonitor for Prometheus Operator
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -574,8 +586,21 @@ spec:
 | `fraiseql_db_pool_size` | Connection pool size | > 80% of max |
 | `fraiseql_errors_total` | Error count | > 10/min |
 
-## Next Steps
-
-- [Performance](/guides/performance) — Optimize for production load
-- [Troubleshooting](/guides/troubleshooting) — Debug production issues
-- [Security](/features/security) — Production security hardening
+<CardGrid>
+  <Card title="Performance Optimization" icon="rocket">
+    Optimize FraiseQL for production load with query tuning and caching.
+    [Performance Guide](/guides/performance)
+  </Card>
+  <Card title="Troubleshooting" icon="warning">
+    Debug production issues including connection errors and slow queries.
+    [Troubleshooting Guide](/guides/troubleshooting)
+  </Card>
+  <Card title="Security Hardening" icon="document">
+    Additional security configuration for production deployments.
+    [Security Guide](/features/security)
+  </Card>
+  <Card title="Cloud Deployment Guides" icon="cloud">
+    Step-by-step guides for AWS, GCP, and Azure deployments.
+    [Deployment Overview](/deployment)
+  </Card>
+</CardGrid>

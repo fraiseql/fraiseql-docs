@@ -3,17 +3,18 @@ title: Troubleshooting
 description: Debug common issues and errors in FraiseQL applications
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 This guide helps you diagnose and fix common issues in FraiseQL applications.
 
 ## Compilation Errors
 
 ### Schema Parse Error
 
-
-
-
-
-  ─
+**Error example:**
+```
+Error: Syntax error in schema
+  → Line 5: expected ':'
 ```
 
 **Cause:** Python syntax error in schema file.
@@ -25,14 +26,18 @@ This guide helps you diagnose and fix common issues in FraiseQL applications.
 class User
     id: str
 
+# Correct
+@fraiseql.type
+class User:
+    id: str
+```
 
+### Missing Type Reference
 
-
-
-
-  ─
+**Error example:**
+```
 Error: Type 'Author' not found
-  → Referenced in Post.author but not defined
+  -> Referenced in Post.author but not defined
 ```
 
 **Cause:** Referenced type doesn't exist in schema.
@@ -51,11 +56,10 @@ class Post:
 
 ### Circular Reference
 
-
-
-
-
-  ─      ─      ─         ─
+**Error example:**
+```
+Error: Circular reference detected
+  -> User -> Post -> User
 ```
 
 **Cause:** Types reference each other in a cycle.
@@ -79,7 +83,7 @@ class Post:
 **Error:**
 ```
 Error: Failed to connect to database
-  → Connection refused (os error 111)
+  -> Connection refused (os error 111)
 ```
 
 **Causes:**
@@ -101,10 +105,11 @@ psql $DATABASE_URL -c "SELECT 1"
 
 ### Migration Failed
 
-
-
-  ─
-```python
+**Error example:**
+```
+Error: Migration failed
+  -> relation "tb_user" already exists
+```
 
 **Cause:** Table already exists from previous migration.
 
@@ -122,11 +127,10 @@ psql $DATABASE_URL -c "DROP TABLE IF EXISTS tb_user CASCADE"
 
 ### View Creation Failed
 
-
-
-
-
-  ─
+**Error example:**
+```
+Error: column "pk_user" does not exist
+  -> Referenced in view tv_user definition
 ```
 
 **Cause:** View references non-existent column.
@@ -337,12 +341,15 @@ query { users(ids: [...]) { name } }
 
 ### Connection Pool Exhausted
 
-
-
-
-
-  ─
+**Error example:**
 ```
+Error: pool exhausted
+  -> no connections available after 30s
+```
+
+<Aside type="caution">
+Connection pool exhaustion under load is a common production issue. Increase pool size proactively before hitting limits, and monitor pool utilization as a key metric.
+</Aside>
 
 **Cause:** Too many concurrent queries.
 
@@ -473,7 +480,7 @@ Always check for partial errors:
 ```json
 {
     "data": {
-        "users": [...]  // May be partial
+        "users": [...]
     },
     "errors": [
         {"message": "Some field failed"}
@@ -516,8 +523,21 @@ If you can't resolve an issue:
    - Minimal reproduction
    - Expected vs actual behavior
 
-## Next Steps
-
-- [Performance](/guides/performance) — Optimize slow queries
-- [Testing](/guides/testing) — Test to prevent issues
-- [Deployment](/guides/deployment) — Production configuration
+<CardGrid>
+  <Card title="Performance Optimization" icon="rocket">
+    Optimize slow queries and reduce database load in production.
+    [Performance Guide](/guides/performance)
+  </Card>
+  <Card title="Testing Guide" icon="document">
+    Write tests to prevent regressions and catch issues early.
+    [Testing Guide](/guides/testing)
+  </Card>
+  <Card title="Deployment Guide" icon="cloud">
+    Production configuration and deployment best practices.
+    [Deployment Guide](/guides/deployment)
+  </Card>
+  <Card title="Troubleshooting Index" icon="open-book">
+    Comprehensive troubleshooting reference organized by error type and symptom.
+    [Troubleshooting Index](/troubleshooting)
+  </Card>
+</CardGrid>

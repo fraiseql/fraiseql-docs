@@ -3,6 +3,8 @@ title: Troubleshooting Guide
 description: Troubleshoot common FraiseQL issues and find solutions
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 # Troubleshooting Guide
 
 Find solutions to common FraiseQL issues organized by category.
@@ -156,25 +158,23 @@ Find solutions to common FraiseQL issues organized by category.
 
 ### Cloud Deployment Issues
 
-**AWS**: See [AWS Troubleshooting](/deployment/aws#troubleshooting)
-**GCP**: See [GCP Troubleshooting](/deployment/gcp#troubleshooting)
-**Azure**: See [Azure Troubleshooting](/deployment/azure#troubleshooting)
+<Tabs>
+<TabItem label="AWS">
+See [AWS Troubleshooting](/deployment/aws#troubleshooting) for ECS, Fargate, and RDS-specific issues.
+</TabItem>
+<TabItem label="GCP">
+See [GCP Troubleshooting](/deployment/gcp#troubleshooting) for Cloud Run and Cloud SQL-specific issues.
+</TabItem>
+<TabItem label="Azure">
+See [Azure Troubleshooting](/deployment/azure#troubleshooting) for App Service and AKS-specific issues.
+</TabItem>
+</Tabs>
 
 ---
 
 ## Database-Specific Issues
 
-
-─
-
-
-─
-
-
-─
-
-
-─
+For database-specific troubleshooting, refer to the guides for your database engine. Common database issues include connection pool exhaustion, slow queries from missing indexes, and lock contention under high concurrency.
 
 ---
 
@@ -198,20 +198,29 @@ docker exec fraiseql env | grep DATABASE
 
 ### Check Database
 
+<Tabs>
+<TabItem label="PostgreSQL">
 ```bash
-# PostgreSQL
 psql postgresql://user:pass@host/db -c "SELECT 1"
 pg_isready -h host -U user
-
-# MySQL
+```
+</TabItem>
+<TabItem label="MySQL">
+```bash
 mysql -h host -u user -p -e "SELECT 1"
-
-# SQLite
+```
+</TabItem>
+<TabItem label="SQLite">
+```bash
 sqlite3 fraiseql.db "SELECT 1"
-
-# SQL Server
+```
+</TabItem>
+<TabItem label="SQL Server">
+```bash
 sqlcmd -S host -U user -P pass -Q "SELECT 1"
 ```
+</TabItem>
+</Tabs>
 
 ### Check Connectivity
 
@@ -235,11 +244,10 @@ timeout 5 bash -c 'cat </dev/null >/dev/tcp/host/5432' && echo "OK" || echo "FAI
 # Prometheus metrics
 curl http://localhost:9000/metrics | grep fraiseql
 
-# Database connections
-# PostgreSQL
+# Database connections (PostgreSQL)
 SELECT datname, count(*) FROM pg_stat_activity GROUP BY datname;
 
-# MySQL
+# Database connections (MySQL)
 SHOW PROCESSLIST;
 ```
 
@@ -374,21 +382,21 @@ When reporting an issue, include:
 | Pod crashes | Check resource limits | 5 min |
 | High CPU | Check query complexity | 15 min |
 
----
-
-## Next Steps
-
-1. **If specific error**: Search error message above
-2. **If database issue**: Go to [Database-Specific Issues](#database-specific-issues)
-3. **If performance issue**: Go to [Performance Issues](/troubleshooting/performance-issues)
-4. **If security issue**: Go to [Security Issues](/troubleshooting/security-issues)
-5. **If not listed**: Search [Common Issues](/troubleshooting/common-issues) or ask for help
-
----
-
-## Related Resources
-
-- [Error Handling Guide](/guides/error-handling)
-- [Performance Guide](/guides/performance-benchmarks)
-- [Deployment Guides](/deployment)
-- [FAQ](/guides/faq)
+<CardGrid>
+  <Card title="Federation & NATS Issues" icon="warning">
+    Solutions for federation timeouts, saga failures, and NATS connectivity problems.
+    [Federation & NATS Troubleshooting](/troubleshooting/federation-nats)
+  </Card>
+  <Card title="Performance Guide" icon="rocket">
+    Diagnose slow queries, high latency, and database bottlenecks.
+    [Performance Issues](/troubleshooting/performance-issues)
+  </Card>
+  <Card title="Deployment Guides" icon="cloud">
+    Platform-specific troubleshooting for Docker, AWS, GCP, and Azure.
+    [Deployment Overview](/deployment)
+  </Card>
+  <Card title="Error Handling" icon="document">
+    Best practices for handling errors gracefully in FraiseQL applications.
+    [Error Handling Guide](/guides/error-handling)
+  </Card>
+</CardGrid>

@@ -3,22 +3,20 @@ title: Scaling & Performance
 description: Scale FraiseQL for high traffic with horizontal scaling, caching, and database optimization
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 # Scaling & Performance
 
 Scale FraiseQL to handle millions of requests with horizontal scaling, smart caching, and database optimization.
 
 ## Scaling Strategy Overview
 
-```
+FraiseQL scales in four phases:
 
-           │
-
-           │
-
-           │
-
-           │
-```
+1. **Multiple Instances with Load Balancer** — Simplest production setup
+2. **Horizontal Auto-Scaling** — Dynamic capacity based on demand
+3. **Database Scaling** — Connection pooling, read replicas, and sharding
+4. **Caching** — Reduce database load with intelligent caching
 
 ## Phase 1: Multiple Instances with Load Balancer
 
@@ -26,14 +24,7 @@ Simplest production setup: 3+ stateless FraiseQL instances behind a load balance
 
 ### Load Balancer Configuration
 
-
-
-
-
-
-          ─
-          ─
-```
+All major platforms support load balancing to multiple FraiseQL instances. Each instance is stateless and connects to the same shared database.
 
 **Health check configuration** (all platforms):
 
@@ -93,8 +84,9 @@ Scale down when: Database pool < 40% utilized
 
 ### Auto-Scaling Configuration Examples
 
-**AWS Auto Scaling Group**:
-```
+<Tabs>
+<TabItem label="AWS Auto Scaling">
+```yaml
 MinSize: 3
 MaxSize: 100
 DesiredCapacity: 3
@@ -104,9 +96,9 @@ TargetTrackingScalingPolicies:
     ScaleOutCooldown: 60s
     ScaleInCooldown: 300s
 ```
-
-**Kubernetes Horizontal Pod Autoscaler**:
-```
+</TabItem>
+<TabItem label="Kubernetes HPA">
+```yaml
 minReplicas: 3
 maxReplicas: 100
 targetCPUUtilizationPercentage: 70
@@ -125,15 +117,15 @@ behavior:
         value: 50   # Half replicas
         periodSeconds: 60
 ```
-
-**Azure App Service Auto-Scale**:
+</TabItem>
+<TabItem label="Azure App Service">
 ```bash
 # Scale out: +1 instance when CPU > 70%
 # Scale in: -1 instance when CPU < 30%
 # Min: 3 instances, Max: 100 instances
 ```
-
-**GCP Cloud Run**:
+</TabItem>
+<TabItem label="GCP Cloud Run">
 ```bash
 # Automatic scaling based on request concurrency
 # Max concurrent requests per instance: 80 (default)
@@ -141,67 +133,55 @@ behavior:
 # Scale down: -1 instance per minute
 # Max instances: 1000 (configurable)
 ```
+</TabItem>
+</Tabs>
 
 ### Monitoring Auto-Scaling
 
+<Tabs>
+<TabItem label="AWS">
 ```bash
-# AWS
 aws autoscaling describe-scaling-activities \
   --auto-scaling-group-name fraiseql-asg
-
-# Kubernetes
+```
+</TabItem>
+<TabItem label="Kubernetes">
+```bash
 kubectl get hpa fraiseql --watch
-
-# Azure
+```
+</TabItem>
+<TabItem label="Azure">
+```bash
 az monitor autoscale history list \
   --resource-group mygroup \
   --resource fraiseql
+```
+</TabItem>
+</Tabs>
 
+## Phase 3: Database Scaling
 
-
-
-
-─
-
-As traffic grows, database becomes the bottleneck.
+As traffic grows, the database becomes the bottleneck.
 
 ### Connection Pooling
 
 Limit connections to prevent database overload:
 
-```
-Without pooling:
-1000 instances × 20 connections = 20,000 connections
-→ Database crashes (max: ~5,000)
+Without pooling, 1000 instances at 20 connections each would require 20,000 database connections — well beyond what most databases support (typically capped at ~5,000).
 
+With PgBouncer, 50 instances with a minimum pool of 5 results in only 250 connections to the database:
 
-               ─                      ─
-─
+```bash
 # PgBouncer for PostgreSQL
 PGBOUNCER_MIN_POOL_SIZE=5
 PGBOUNCER_MAX_POOL_SIZE=20    # Per database
 PGBOUNCER_CONNECTION_TIMEOUT=30
 PGBOUNCER_IDLE_IN_TRANSACTION_SESSION_TIMEOUT=600
-
-# Result: 50 instances × 5 min pool = 250 connections to DB
-#         Database handles easily
 ```
 
 ### Read Replicas
 
-Distribute read traffic across replicas:
-
-```
-
-    │
-
-    │
-
-
-          ─
-         ─
-             ─
-```
+Distribute read traffic across replicas. Write queries go to the primary; read queries are spread across replicas.
 
 **Setup** (AWS RDS):
 
@@ -275,20 +255,11 @@ SELECT * FROM posts WHERE user_id IN (?, ?, ...) -- 1 query
 
 ### Database Sharding (Advanced)
 
-For massive scale (millions of users):
+For massive scale (millions of users), shard by a key such as `user_id`:
 
-```
-Shard by user_id:
-
-Shard 1: Users 1-1M
-         Database: shard-1.db.example.com
-
-Shard 2: Users 1M-2M
-         Database: shard-2.db.example.com
-
-Shard 3: Users 2M-3M
-         Database: shard-3.db.example.com
-```
+- Shard 1: Users 1–1M → `shard-1.db.example.com`
+- Shard 2: Users 1M–2M → `shard-2.db.example.com`
+- Shard 3: Users 2M–3M → `shard-3.db.example.com`
 
 Configure in FraiseQL:
 
@@ -366,15 +337,16 @@ def get_user(id: ID) -> User:
 
 ### Cache Invalidation Strategies
 
-**Time-based (simplest)**:
+<Tabs>
+<TabItem label="Time-based (Simplest)">
 ```python
 # Cache expires after X seconds
 @cached(ttl=3600)  # 1 hour
 def get_user(id: ID) -> User:
     pass
 ```
-
-**Event-based (most accurate)**:
+</TabItem>
+<TabItem label="Event-based (Most Accurate)">
 ```python
 @fraiseql.mutation
 def update_user(id: ID, name: str) -> User:
@@ -388,8 +360,8 @@ def update_user(id: ID, name: str) -> User:
 
     return result
 ```
-
-**Dependency-based (advanced)**:
+</TabItem>
+<TabItem label="Dependency-based (Advanced)">
 ```python
 # Cache depends on tag
 @cached(tags=["user:123"])
@@ -399,6 +371,8 @@ def get_user(id: ID) -> User:
 # Invalidate all queries tagged "user:123"
 cache.delete_by_tag("user:123")
 ```
+</TabItem>
+</Tabs>
 
 ### Cache Metrics to Monitor
 
@@ -409,28 +383,24 @@ Example: 8000 hits, 200 misses = 97.5% hit rate
 
 Cache size: Total data in cache
 Target: < 80% of available memory
+```
 
-
-
-               ─                                 ─
+## Phase 5: Multi-Region Deployment
 
 Serve global traffic with multiple regions.
 
 ### Multi-Region Architecture
 
-```
-User in Europe → Route 53 / Global Load Balancer → EU Region
-                                                     ├─ EU Database
-                                                     └─ EU Cache
+Traffic is routed to the nearest region based on user location. Each region has its own database and cache, with data replication strategies:
 
-               ─                                 ─
-- Write-through replication: Write to primary, replicate to others
-- Eventually consistent: Replicate asynchronously
-- NATS events: Update cache across regions
+- **Write-through replication**: Write to primary, replicate to others
+- **Eventually consistent**: Replicate asynchronously
+- **NATS events**: Update cache across regions
 
 ### Configure Multi-Region
 
-**AWS**:
+<Tabs>
+<TabItem label="AWS">
 ```bash
 # Route 53 weighted routing
 # 50% traffic to us-east-1
@@ -440,8 +410,8 @@ aws route53 change-resource-record-sets \
   --hosted-zone-id Z123 \
   --change-batch '{...}'
 ```
-
-**Kubernetes**:
+</TabItem>
+<TabItem label="Kubernetes">
 ```bash
 # Kubefed for multi-cluster orchestration
 kubefedctl join cluster-eu --host-cluster-context=host
@@ -462,8 +432,8 @@ spec:
       - cluster-asia
 EOF
 ```
-
-**GCP**:
+</TabItem>
+<TabItem label="GCP">
 ```bash
 # Cloud Load Balancing for global routing
 gcloud compute backend-services create fraiseql-global \
@@ -476,6 +446,8 @@ gcloud compute backend-services add-backend fraiseql-global \
   --instance-group-zone=us-central1-a \
   --global
 ```
+</TabItem>
+</Tabs>
 
 ## Performance Testing & Load Testing
 
@@ -675,11 +647,21 @@ Set up alerts:
 - [ ] Stale data is acceptable for 1-3600 seconds
 - [ ] Cache layer is highly available
 
-## Next Steps
-
-1. **Load test** your current deployment to find breaking point
-2. **Set up auto-scaling** based on your traffic patterns
-3. **Add caching** for frequently accessed data
-4. **Optimize database** indexes and queries
-5. **Plan multi-region** deployment as traffic grows
-6. **Monitor metrics** continuously to catch issues early
+<CardGrid>
+  <Card title="Load Testing" icon="rocket">
+    Run load tests against your deployment to find breaking points before production.
+    [Performance Guide](/guides/performance-benchmarks)
+  </Card>
+  <Card title="AWS Auto-Scaling" icon="cloud">
+    Configure ECS service auto-scaling and Application Load Balancer on AWS.
+    [AWS Guide](/deployment/aws)
+  </Card>
+  <Card title="Monitoring" icon="setting">
+    Set up Prometheus metrics and alerting rules to monitor scaling behavior.
+    [Deployment Overview](/deployment)
+  </Card>
+  <Card title="Troubleshooting" icon="warning">
+    Diagnose connection pool exhaustion and other scaling-related issues.
+    [Troubleshooting Guide](/troubleshooting)
+  </Card>
+</CardGrid>

@@ -3,6 +3,8 @@ title: Azure Deployment
 description: Deploy FraiseQL to Azure App Service, Container Instances, and AKS
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 # Azure Deployment
 
 Deploy FraiseQL on Azure using App Service, Container Instances, or Kubernetes Service (AKS).
@@ -175,6 +177,10 @@ az monitor autoscale rule create \
 
 ### 1. Create Azure Key Vault
 
+<Aside type="tip">
+Use Azure Key Vault to store all secrets instead of embedding them in App Service configuration. Key Vault provides audit logging, access control, and secret rotation.
+</Aside>
+
 ```bash
 # Create Key Vault
 az keyvault create \
@@ -291,7 +297,7 @@ az aks get-credentials \
 
 Follow the [Kubernetes deployment guide](/deployment/kubernetes) with Azure-specific steps:
 
-```
+```yaml
 # fraiseql-aks-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -401,7 +407,7 @@ az webapp deployment slot swap \
 
 ### Create Build Pipeline
 
-```
+```yaml
 # azure-pipelines.yml
 trigger:
   - main
@@ -620,9 +626,21 @@ az acr repository show-tags \
 - [ ] Set up Azure DevOps CI/CD pipeline
 - [ ] Test failover and recovery procedures
 
-## Next Steps
-
-- **CI/CD**: Set up Azure DevOps pipelines for automatic deployments
-- **Monitoring**: Create custom dashboards in Azure Monitor
-- **Security**: Configure Azure Security Center recommendations
-- **Multi-region**: Set up traffic manager for global distribution
+<CardGrid>
+  <Card title="CI/CD with Azure DevOps" icon="setting">
+    Set up Azure DevOps pipelines for automatic deployments to App Service.
+    [Deployment Overview](/deployment)
+  </Card>
+  <Card title="Custom Dashboards" icon="open-book">
+    Create monitoring dashboards in Azure Monitor for visibility into your deployment.
+    [Scaling Guide](/deployment/scaling)
+  </Card>
+  <Card title="Security Center" icon="warning">
+    Review and apply Azure Security Center recommendations for FraiseQL.
+    [Deployment Overview](/deployment)
+  </Card>
+  <Card title="Troubleshooting" icon="document">
+    Diagnose App Service startup failures, database connectivity, and container issues.
+    [Troubleshooting Guide](/troubleshooting)
+  </Card>
+</CardGrid>

@@ -3,6 +3,8 @@ title: Docker Deployment
 description: Deploy FraiseQL using Docker and Docker Compose
 ---
 
+import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
 # Docker Deployment
 
 Deploy FraiseQL in Docker containers for development and production use.
@@ -37,7 +39,7 @@ CMD ["uv", "run", "python", "-m", "fraiseql", "serve"]
 
 ### 2. Create `docker-compose.yml`
 
-```
+```yaml
 version: '3.8'
 
 services:
@@ -155,7 +157,7 @@ CMD ["gunicorn", "--workers=4", "--worker-class=uvicorn.workers.UvicornWorker", 
 
 For production with proper secrets management:
 
-```
+```yaml
 version: '3.8'
 
 services:
@@ -354,27 +356,25 @@ echo "Database initialization complete"
 
 ## Volume Management
 
-### Development (Hot Reload)
-
-```
+<Tabs>
+<TabItem label="Development (Hot Reload)">
+```yaml
 fraiseql:
   volumes:
     - .:/app  # Mount entire project
     - /app/.venv  # Exclude venv from bind mount
 ```
-
-### Production (No Volumes)
-
-```
+</TabItem>
+<TabItem label="Production (No Volumes)">
+```yaml
 fraiseql:
   volumes: []
   # All data lives in the container (ephemeral)
   # Database state lives in PostgreSQL volume
 ```
-
-### Data Persistence
-
-```
+</TabItem>
+<TabItem label="Data Persistence">
+```yaml
 fraiseql:
   volumes:
     # For SQLite or file-based uploads
@@ -387,12 +387,14 @@ volumes:
   fraiseql_uploads:
     driver: local
 ```
+</TabItem>
+</Tabs>
 
 ## Scaling: Docker Swarm
 
 For multiple instances:
 
-```
+```yaml
 version: '3.8'
 
 services:
@@ -453,7 +455,7 @@ docker-compose logs --timestamps fraiseql
 
 ### Send Logs to External Service
 
-```
+```yaml
 fraiseql:
   logging:
     driver: "splunk"  # or awslogs, gcplogs, awsfirelens
@@ -507,7 +509,7 @@ docker volume prune
 
 Increase memory limit in `docker-compose.yml`:
 
-```
+```yaml
 fraiseql:
   deploy:
     resources:
@@ -552,7 +554,7 @@ Schedule with cron:
 ```bash
 # Add to crontab
 0 2 * * * cd /home/user/fraiseql && ./scripts/backup.sh
-```python
+```
 
 ### Restore from Backup
 
@@ -570,22 +572,25 @@ echo "Restore complete"
 
 ## Security Best Practices
 
-1. **Never hardcode secrets**: Use `.env` files (add to `.gitignore`)
-2. **Use read-only root filesystem**:
-   ```
+<Aside type="caution">
+Never hardcode secrets. Use `.env` files (added to `.gitignore`) or a dedicated secrets manager.
+</Aside>
+
+1. **Use read-only root filesystem**:
+   ```yaml
    fraiseql:
      read_only: true
      tmpfs: ["/tmp", "/var/tmp"]
    ```
 
-3. **Don't run as root**:
+2. **Don't run as root**:
    ```dockerfile
    RUN useradd -m -u 1000 fraiseql
    USER fraiseql
    ```
 
-4. **Network isolation**:
-   ```
+3. **Network isolation**:
+   ```yaml
    networks:
      backend:  # Only for backend services
      frontend: # Only for frontend access
@@ -594,7 +599,7 @@ echo "Restore complete"
        - backend
    ```
 
-5. **Secrets in production** (use Docker Secrets):
+4. **Secrets in production** (use Docker Secrets):
    ```bash
    echo "${JWT_SECRET}" | docker secret create jwt_secret -
 
@@ -613,7 +618,7 @@ echo "Restore complete"
 
 Adjust based on expected load:
 
-```
+```yaml
 fraiseql:
   deploy:
     resources:
@@ -637,15 +642,27 @@ CMD ["gunicorn", "--workers=9", ...]
 
 ### Database Optimization
 
-```
+```yaml
 postgres:
   environment:
     POSTGRES_INITDB_ARGS: "-c max_connections=200 -c shared_buffers=256MB"
 ```
 
-## Next Steps
-
-1. **Kubernetes** - For production at scale
-2. **CI/CD Integration** - Automate Docker builds
-3. **Monitoring** - Add Prometheus/Grafana
-4. **Load Testing** - Verify performance with multiple instances
+<CardGrid>
+  <Card title="Scaling & Performance" icon="rocket">
+    Learn how to scale beyond a single Docker host with Kubernetes and auto-scaling.
+    [Scaling Guide](/deployment/scaling)
+  </Card>
+  <Card title="AWS Deployment" icon="cloud">
+    Move to a fully managed AWS infrastructure with ECS, Fargate, and RDS.
+    [AWS Guide](/deployment/aws)
+  </Card>
+  <Card title="Troubleshooting" icon="warning">
+    Diagnose and fix common Docker deployment issues.
+    [Troubleshooting Guide](/troubleshooting)
+  </Card>
+  <Card title="Deployment Overview" icon="open-book">
+    Compare all deployment options and review the production checklist.
+    [Deployment Overview](/deployment)
+  </Card>
+</CardGrid>
