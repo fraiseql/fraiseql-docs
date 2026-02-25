@@ -13,13 +13,13 @@ These are **schema authoring** SDKs, not GraphQL client libraries. You use them 
 
 ## How It Works
 
-You write your schema in your preferred language using native type definitions and decorators/annotations/attributes. The FraiseQL CLI (`fraiseql build`) compiles this to a `schema.json` intermediate representation, which the FraiseQL Rust runtime serves as a GraphQL API — with SQL views (`v_*`) handling reads and PostgreSQL functions (`fn_*`) handling mutations.
+You write your schema in your preferred language using native type definitions and decorators/annotations/attributes. The FraiseQL CLI (`fraiseql compile`) compiles this to a `schema.json` intermediate representation, which the FraiseQL Rust runtime serves as a GraphQL API — with SQL views (`v_*`) handling reads and PostgreSQL functions (`fn_*`) handling mutations.
 
 ```
 Your schema (Python/TS/Go/Java/Rust/PHP)
-         ↓  fraiseql build
+         ↓  fraiseql compile
      schema.json (IR)
-         ↓  fraiseql serve
+         ↓  fraiseql run
    FraiseQL Rust server
          ↓
      PostgreSQL

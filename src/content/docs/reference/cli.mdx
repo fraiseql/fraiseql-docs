@@ -5,358 +5,511 @@ description: FraiseQL command-line interface reference
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
-Complete reference for the FraiseQL v2 command-line tools.
+Complete reference for the `fraiseql` command-line interface.
 
 ## Overview
 
-FraiseQL v2 has two CLI tools:
+FraiseQL ships as a **single binary** named `fraiseql`. It covers the full lifecycle in two phases:
 
-| Tool | Purpose |
-|------|---------|
-| `fraiseql-cli` | Schema compilation, analysis, and development |
-| `fraiseql-server` | Production GraphQL server |
-
-## Installation
-
-### From Cargo (Rust)
+1. **Schema authoring** — compile, extract, lint, validate, and analyze your schema
+2. **Runtime serving** — compile and serve the GraphQL API in a single step with `fraiseql run`
 
 ```bash
-cargo install fraiseql-cli fraiseql-server
-```
-
-### From Binary Release
-
-```bash
-# Download from releases
-curl -L https://github.com/fraiseql/fraiseql/releases/latest/download/fraiseql-cli-linux-amd64 -o fraiseql-cli
-chmod +x fraiseql-cli
+fraiseql <SUBCOMMAND> [OPTIONS] [ARGUMENTS]
 ```
 
 ---
 
-## fraiseql-cli
+## `fraiseql run`
 
-### `compile`
-
-Compile GraphQL schema to optimized execution plan.
+Compile the schema and immediately start the GraphQL server. This is the command you will use most often — it compiles the schema in-memory (no disk artifact) and starts the HTTP server. With `--watch`, the server hot-reloads whenever the schema file changes.
 
 ```bash
-fraiseql-cli compile [OPTIONS] [INPUT]
+fraiseql run [OPTIONS] [INPUT]
+```
+
+**Arguments:**
+- `INPUT` — Schema file or `fraiseql.toml` (default: `fraiseql.toml`)
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--database <URL>` | `$DATABASE_URL` | PostgreSQL connection string |
+| `--port <PORT>` | `8080` | HTTP port to listen on |
+| `--bind <ADDR>` | `0.0.0.0` | Bind address |
+| `--watch` | off | Hot-reload when schema file changes |
+| `--introspection` | off | Enable GraphQL introspection endpoint |
+
+**Examples:**
+
+```bash
+# Start with defaults (reads fraiseql.toml)
+fraiseql run
+
+# Specify database and config explicitly
+fraiseql run fraiseql.toml --database postgres://localhost/mydb
+
+# Development mode with hot-reload
+fraiseql run --port 3000 --watch
+
+# Enable introspection from a pre-compiled schema
+fraiseql run schema.json --introspection
+```
+
+<Aside type="tip">
+Use `--watch` during development so the server restarts automatically when you edit the schema. In production, omit `--watch` and set `--database` via the `DATABASE_URL` environment variable.
+</Aside>
+
+---
+
+## `fraiseql compile`
+
+Compile the schema to `schema.compiled.json`. Use this when you need the compiled artifact on disk — for example, to commit it to version control or to inspect it before deployment.
+
+```bash
+fraiseql compile [OPTIONS] [INPUT]
 ```
 
 **Arguments:**
 - `INPUT` — Schema file or directory (default: `fraiseql.toml`)
 
 **Options:**
-- `-o, --output <FILE>` — Output file (default: `schema.compiled.json`)
-- `--check` — Validate only, don't write output
-- `--database <URL>` — Validate against database schema
-- `-v, --verbose` — Verbose output
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-o, --output <FILE>` | `schema.compiled.json` | Output file path |
+| `--check` | off | Validate only; do not write output |
+| `--database <URL>` | `$DATABASE_URL` | Validate against live database schema |
+| `-v, --verbose` | off | Verbose output |
 
 **Examples:**
 
 ```bash
 # Compile from fraiseql.toml
-fraiseql-cli compile
+fraiseql compile
 
-# Compile specific schema file
-fraiseql-cli compile schema.json -o compiled.json
+# Compile a specific schema file to a custom output path
+fraiseql compile schema.json -o compiled.json
 
-# Validate without writing
-fraiseql-cli compile --check
-```
+# Validate without writing (useful in CI)
+fraiseql compile --check
 
-### `explain`
-
-Show SQL execution plan for a GraphQL query.
-
-```bash
-fraiseql-cli explain [OPTIONS] <QUERY>
-```
-
-**Arguments:**
-- `QUERY` — GraphQL query string or file
-
-**Options:**
-- `--schema <FILE>` — Compiled schema (default: `schema.compiled.json`)
-- `--variables <JSON>` — Query variables as JSON
-- `--format <FORMAT>` — Output format: `sql`, `plan`, `json`
-
-**Examples:**
-
-```bash
-# Explain a query
-fraiseql-cli explain "{ users { id name } }"
-
-# With variables
-fraiseql-cli explain "query($id: ID!) { user(id: $id) { name } }" \
-    --variables '{"id": "123"}'
-
-# From file
-fraiseql-cli explain query.graphql --format plan
-```
-
-### `cost`
-
-Calculate query complexity score.
-
-```bash
-fraiseql-cli cost [OPTIONS] <QUERY>
-```
-
-**Options:**
-- `--schema <FILE>` — Compiled schema
-- `--max-cost <N>` — Fail if cost exceeds N
-- `--json` — JSON output
-
-**Examples:**
-
-```bash
-# Check query cost
-fraiseql-cli cost "{ users { posts { comments { id } } } }"
-
-# Enforce cost limit
-fraiseql-cli cost query.graphql --max-cost 100
-```
-
-### `analyze`
-
-Analyze schema for optimization opportunities.
-
-```bash
-fraiseql-cli analyze [OPTIONS] [SCHEMA]
-```
-
-**Options:**
-- `--category <CAT>` — Filter by category: `performance`, `security`, `federation`, `complexity`, `caching`, `indexing`
-- `--json` — JSON output
-- `--verbose` — Detailed recommendations
-
-**Examples:**
-
-```bash
-# Full analysis
-fraiseql-cli analyze schema.compiled.json
-
-# Security-focused analysis
-fraiseql-cli analyze --category security
-```
-
-**Output categories:**
-- **Performance** — Missing indexes, N+1 patterns, batching opportunities
-- **Security** — Missing auth, exposed fields, RLS recommendations
-- **Federation** — Cross-service references, entity boundaries
-- **Complexity** — Deep nesting, high field counts
-- **Caching** — Cacheable queries, invalidation strategies
-- **Indexing** — Missing database indexes
-
-### `dependency-graph`
-
-Visualize type dependencies.
-
-```bash
-fraiseql-cli dependency-graph [OPTIONS] [SCHEMA]
-```
-
-**Options:**
-- `--format <FMT>` — Output format: `json`, `dot`, `mermaid`, `d2`, `console`
-- `--output <FILE>` — Output file
-- `--show-cycles` — Highlight circular dependencies
-- `--unused` — Show unused types
-
-**Examples:**
-
-```bash
-# Console output
-fraiseql-cli dependency-graph
-
-# Graphviz DOT
-fraiseql-cli dependency-graph --format dot -o deps.dot
-dot -Tpng deps.dot -o deps.png
-
-# Mermaid (for Markdown)
-fraiseql-cli dependency-graph --format mermaid >> README.md
-```
-
-### `lint`
-
-Check schema for design issues.
-
-```bash
-fraiseql-cli lint [OPTIONS] [SCHEMA]
-```
-
-**Options:**
-- `--audit <AUDIT>` — Audit category: `federation`, `cost`, `cache`, `auth`, `compilation`
-- `--fail-on <LEVEL>` — Fail on: `critical`, `warning`, `all`
-- `--fix` — Auto-fix where possible
-- `--json` — JSON output
-
-**Examples:**
-
-```bash
-# Full lint
-fraiseql-cli lint
-
-# Auth audit only, fail on warnings
-fraiseql-cli lint --audit auth --fail-on warning
-```
-
-### `validate`
-
-Validate schema structure.
-
-```bash
-fraiseql-cli validate [OPTIONS] [SCHEMA]
-```
-
-**Options:**
-- `--strict` — Treat warnings as errors
-- `--database <URL>` — Validate against database
-- `--json` — JSON output
-
-**Examples:**
-
-```bash
-# Basic validation
-fraiseql-cli validate schema.json
-
-# Strict with database check
-fraiseql-cli validate --strict --database "$DATABASE_URL"
-```
-
-### `generate-views`
-
-Generate SQL DDL for Arrow views.
-
-```bash
-fraiseql-cli generate-views [OPTIONS] [SCHEMA]
-```
-
-**Options:**
-- `-o, --output <FILE>` — Output SQL file
-- `--refresh <STRATEGY>` — Refresh strategy: `trigger`, `scheduled`
-- `--include <PATTERNS>` — Include patterns (e.g., `va_*`, `tv_*`)
-
-**Examples:**
-
-```bash
-# Generate all views
-fraiseql-cli generate-views -o views.sql
-
-# Only Arrow views with trigger refresh
-fraiseql-cli generate-views --include "va_*" --refresh trigger
-```
-
-### `introspect`
-
-Introspect database for fact tables.
-
-```bash
-fraiseql-cli introspect [OPTIONS]
-```
-
-**Options:**
-- `--database <URL>` — Database connection string
-- `--output <FORMAT>` — Output format: `python`, `json`
-- `--tables <PATTERN>` — Table pattern (default: `tf_*`)
-
-**Examples:**
-
-```bash
-# Discover fact tables
-fraiseql-cli introspect --database "$DATABASE_URL"
-
-# Generate Python schema
-fraiseql-cli introspect --output python > facts.py
+# Validate against the database schema
+fraiseql compile --check --database "$DATABASE_URL"
 ```
 
 ---
 
-## fraiseql-server
+## `fraiseql extract`
 
-Production GraphQL server.
-
-### Basic Usage
+Extract a FraiseQL schema from annotated source files. Supports Python, TypeScript, Go, and other languages that use FraiseQL annotations.
 
 ```bash
-fraiseql-server [OPTIONS]
+fraiseql extract [OPTIONS] [INPUT]
+```
+
+**Arguments:**
+- `INPUT` — Source file or directory to scan for annotations
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output <FILE>` | Output schema file |
+| `--format <FMT>` | Output format |
+
+**Example:**
+
+```bash
+# Extract schema from an annotated Python module
+fraiseql extract src/models.py -o schema.json
+```
+
+---
+
+## Developer Tools
+
+### `fraiseql explain`
+
+Show the SQL execution plan that FraiseQL generates for a given GraphQL query. Useful for understanding and optimizing query behavior.
+
+```bash
+fraiseql explain [OPTIONS] <QUERY>
+```
+
+**Arguments:**
+- `QUERY` — GraphQL query string or path to a `.graphql` file
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--schema <FILE>` | Compiled schema (default: `schema.compiled.json`) |
+| `--variables <JSON>` | Query variables as a JSON string |
+| `--format <FMT>` | Output format: `sql`, `plan`, `json` |
+
+**Examples:**
+
+```bash
+# Show the generated SQL for a simple query
+fraiseql explain "{ users { id name } }"
+
+# With variables
+fraiseql explain "query(\$id: ID!) { user(id: \$id) { name } }" \
+    --variables '{"id": "123"}'
+
+# Show the full execution plan from a query file
+fraiseql explain query.graphql --format plan
+```
+
+---
+
+### `fraiseql cost`
+
+Calculate the complexity score for a GraphQL query. Use this in CI to enforce query cost limits before deployment.
+
+```bash
+fraiseql cost [OPTIONS] <QUERY>
+```
+
+**Arguments:**
+- `QUERY` — GraphQL query string or path to a `.graphql` file
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--schema <FILE>` | Compiled schema |
+| `--max-cost <N>` | Exit with a non-zero code if cost exceeds N |
+| `--json` | Machine-readable JSON output |
+
+**Examples:**
+
+```bash
+# Check cost of a deeply nested query
+fraiseql cost "{ users { posts { comments { id } } } }"
+
+# Enforce a cost budget in CI
+fraiseql cost query.graphql --max-cost 100
+```
+
+---
+
+### `fraiseql analyze`
+
+Analyze the schema for optimization opportunities across performance, security, federation, complexity, caching, and indexing categories.
+
+```bash
+fraiseql analyze [OPTIONS] [SCHEMA]
+```
+
+**Arguments:**
+- `SCHEMA` — Compiled schema file (default: `schema.compiled.json`)
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--category <CAT>` | Filter: `performance`, `security`, `federation`, `complexity`, `caching`, `indexing` |
+| `--json` | Machine-readable JSON output |
+| `--verbose` | Include detailed recommendations |
+
+**Examples:**
+
+```bash
+# Full analysis with recommendations
+fraiseql analyze schema.compiled.json
+
+# Security-focused analysis
+fraiseql analyze --category security --verbose
+```
+
+---
+
+### `fraiseql dependency-graph`
+
+Visualize the type dependency graph of a compiled schema. Output can be piped into Graphviz, Mermaid, or D2 for rendering.
+
+```bash
+fraiseql dependency-graph [OPTIONS] [SCHEMA]
+```
+
+**Arguments:**
+- `SCHEMA` — Compiled schema file (default: `schema.compiled.json`)
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--format <FMT>` | Output format: `json`, `dot`, `mermaid`, `d2`, `console` |
+| `--output <FILE>` | Write output to file instead of stdout |
+| `--show-cycles` | Highlight circular dependencies |
+| `--unused` | Include unused types in the graph |
+
+**Examples:**
+
+```bash
+# Quick console view
+fraiseql dependency-graph
+
+# Graphviz DOT for rendering as a PNG
+fraiseql dependency-graph --format dot -o deps.dot
+dot -Tpng deps.dot -o deps.png
+
+# Mermaid diagram (paste into Markdown)
+fraiseql dependency-graph --format mermaid
+```
+
+---
+
+### `fraiseql lint`
+
+Check the schema for design issues. Audits cover federation, cost, caching, authorization, and compilation correctness.
+
+```bash
+fraiseql lint [OPTIONS] [SCHEMA]
+```
+
+**Arguments:**
+- `SCHEMA` — Schema file (default: `fraiseql.toml` or `schema.compiled.json`)
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--audit <AUDIT>` | Audit category: `federation`, `cost`, `cache`, `auth`, `compilation` |
+| `--fail-on <LEVEL>` | Exit non-zero on: `critical`, `warning`, `all` |
+| `--fix` | Auto-fix issues where possible |
+| `--json` | Machine-readable JSON output |
+
+**Examples:**
+
+```bash
+# Run all lint checks
+fraiseql lint
+
+# Auth audit only, fail on any warning
+fraiseql lint --audit auth --fail-on warning
+
+# Auto-fix and verify in CI
+fraiseql lint --fix --fail-on critical
+```
+
+---
+
+### `fraiseql validate`
+
+Validate the structural correctness of a schema file. Optionally connects to the database to cross-check table and column references.
+
+```bash
+fraiseql validate [OPTIONS] [SCHEMA]
+```
+
+**Arguments:**
+- `SCHEMA` — Schema file to validate
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--strict` | Treat warnings as errors |
+| `--database <URL>` | Validate against a live database |
+| `--json` | Machine-readable JSON output |
+
+**Examples:**
+
+```bash
+# Basic structural validation
+fraiseql validate schema.json
+
+# Strict mode with database cross-check
+fraiseql validate --strict --database "$DATABASE_URL"
+```
+
+---
+
+## Code Generation
+
+### `fraiseql generate-views`
+
+Generate SQL DDL statements for Arrow views derived from the compiled schema.
+
+```bash
+fraiseql generate-views [OPTIONS] [SCHEMA]
+```
+
+**Arguments:**
+- `SCHEMA` — Compiled schema file
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output <FILE>` | Output SQL file |
+| `--refresh <STRATEGY>` | Refresh strategy: `trigger`, `scheduled` |
+| `--include <PATTERNS>` | Include only views matching a pattern (e.g. `va_*`, `tv_*`) |
+
+**Examples:**
+
+```bash
+# Generate all views to a SQL file
+fraiseql generate-views -o views.sql
+
+# Arrow views only, with trigger-based refresh
+fraiseql generate-views --include "va_*" --refresh trigger -o arrow_views.sql
+```
+
+---
+
+### `fraiseql introspect`
+
+Connect to a PostgreSQL database and discover fact tables, then emit a schema stub.
+
+```bash
+fraiseql introspect [OPTIONS]
 ```
 
 **Options:**
-- `--config <FILE>` — Config file (default: `fraiseql.toml`)
-- `--schema <FILE>` — Compiled schema (default: `schema.compiled.json`)
-- `--bind <ADDR>` — Bind address (default: `0.0.0.0:8080`)
 
-### Environment Variables
+| Option | Description |
+|--------|-------------|
+| `--database <URL>` | PostgreSQL connection string |
+| `--output <FORMAT>` | Output format: `python`, `json` |
+| `--tables <PATTERN>` | Table name pattern (default: `tf_*`) |
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `FRAISEQL_CONFIG` | Path to config file |
-| `FRAISEQL_SCHEMA_PATH` | Path to compiled schema |
-| `FRAISEQL_BIND_ADDR` | Server bind address |
-| `FRAISEQL_METRICS_ENABLED` | Enable Prometheus metrics |
-| `FRAISEQL_METRICS_TOKEN` | Metrics endpoint auth token |
-| `FRAISEQL_ADMIN_API_ENABLED` | Enable admin API |
-| `FRAISEQL_ADMIN_TOKEN` | Admin API auth token |
-| `FRAISEQL_INTROSPECTION_ENABLED` | Enable GraphQL introspection |
-| `FRAISEQL_RATE_LIMITING_ENABLED` | Enable rate limiting |
-
-### Example
+**Examples:**
 
 ```bash
-# Start server
-DATABASE_URL="postgresql://localhost/mydb" \
-FRAISEQL_METRICS_ENABLED=true \
-fraiseql-server --schema schema.compiled.json
+# Discover all fact tables in the database
+fraiseql introspect --database "$DATABASE_URL"
 
-# With config file
-fraiseql-server --config production.toml
+# Emit a Python schema stub
+fraiseql introspect --database "$DATABASE_URL" --output python > facts.py
 ```
 
-### Docker
+---
 
-```dockerfile
-FROM fraiseql/fraiseql-server:latest
+### `fraiseql generate`
 
-COPY schema.compiled.json /app/
-COPY fraiseql.toml /app/
+Generate source files (client types, SDK stubs) from a compiled schema.
 
-ENV DATABASE_URL="postgresql://db:5432/app"
-ENV FRAISEQL_SCHEMA_PATH="/app/schema.compiled.json"
-
-EXPOSE 8080
-CMD ["fraiseql-server"]
+```bash
+fraiseql generate [OPTIONS] [SCHEMA]
 ```
+
+**Arguments:**
+- `SCHEMA` — Compiled schema file
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--language <LANG>` | Target language for generated code |
+| `--output <DIR>` | Output directory |
+| `--types-only` | Generate type definitions only, no resolvers |
+
+---
+
+## Project Management
+
+### `fraiseql init`
+
+Scaffold a new FraiseQL project with a starter `fraiseql.toml`, schema stub, and migration directory.
+
+```bash
+fraiseql init [OPTIONS] [NAME]
+```
+
+**Arguments:**
+- `NAME` — Project name (default: current directory name)
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--template <TPL>` | Starter template |
+| `--database <URL>` | Pre-fill database URL in config |
+| `--sdk <SDK>` | Include SDK for a specific language |
+
+**Example:**
+
+```bash
+fraiseql init my-api --database postgres://localhost/mydb
+```
+
+---
+
+### `fraiseql migrate`
+
+Manage database migrations via the bundled `confiture` migration tool.
+
+```bash
+fraiseql migrate <SUBCOMMAND> [OPTIONS]
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `up` | Apply pending migrations |
+| `down` | Roll back the last migration |
+| `status` | Show applied and pending migrations |
+| `create <NAME>` | Create a new migration file |
+
+**Examples:**
+
+```bash
+# Apply all pending migrations
+fraiseql migrate up
+
+# Check migration status
+fraiseql migrate status
+
+# Create a new migration
+fraiseql migrate create add_user_table
+```
+
+---
+
+### `fraiseql sbom`
+
+Generate a Software Bill of Materials for the schema, listing all types, fields, and their data lineage.
+
+```bash
+fraiseql sbom [OPTIONS] [SCHEMA]
+```
+
+**Arguments:**
+- `SCHEMA` — Compiled schema file
 
 ---
 
 ## Global Options
 
-All commands support:
+All commands support the following options:
 
 | Option | Description |
 |--------|-------------|
-| `-v, --verbose` | Verbose logging |
-| `--debug` | Debug logging |
-| `--json` | Machine-readable JSON output |
-| `-q, --quiet` | Suppress non-error output |
-| `-h, --help` | Show help |
-| `-V, --version` | Show version |
+| `-h, --help` | Show help for the command |
+| `-V, --version` | Print the `fraiseql` version |
+
+---
 
 ## Exit Codes
 
 | Code | Meaning |
 |------|---------|
-| 0 | Success |
-| 1 | Validation/compilation error |
-| 2 | Configuration error |
-| 3 | Database connection error |
+| `0` | Success |
+| `1` | Validation or compilation error |
+| `2` | Configuration error |
+| `3` | Database connection error |
+
+---
 
 ## Configuration File
 
-Commands read from `fraiseql.toml`:
+Most commands read `fraiseql.toml` when no explicit input is provided. A minimal configuration:
 
 ```toml
 [project]
@@ -371,10 +524,13 @@ output = "schema.compiled.json"
 strict = true
 
 [server]
-bind = "0.0.0.0:8080"
+bind = "0.0.0.0"
+port = 8080
 graphql_path = "/graphql"
 health_path = "/health"
 ```
+
+Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if your config file is not named `fraiseql.toml`.
 
 <CardGrid>
   <Card title="TOML Configuration" icon="setting">

@@ -3,14 +3,18 @@ title: How It Works
 description: Understanding FraiseQL's database-first architecture
 ---
 
-import D2Diagram from '../../../components/D2Diagram.astro';
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 FraiseQL is a **database-first GraphQL framework**. You write SQL views that compose nested JSONB responses. FraiseQL maps your GraphQL types to those views. At runtime, every query resolves to a single SQL statement — no resolvers, no N+1, no DataLoader.
 
 ## The Three Layers
 
-<D2Diagram name="three-stages" alt="FraiseQL three layers: Developer-owned SQL views, compiled GraphQL mapping, runtime query executor" />
+```mermaid
+graph LR
+    A[Write SQL Views<br/>v_* + fn_*] --> B[fraiseql compile<br/>GraphQL mapping]
+    B --> C[fraiseql run<br/>GraphQL API server]
+    C --> D[Single SQL query<br/>per GraphQL request]
+```
 
 ### 1. Write SQL Views
 
@@ -219,9 +223,6 @@ This is real code in your language, with full IDE support, type checking, and re
 
 When you run `fraiseql compile`, the compiler:
 
-
-                                                                    ─                  ─
-
 ```bash
 $ fraiseql compile
 ✓ Compiled 2 types → mapped to SQL views
@@ -239,7 +240,7 @@ The compiled executor serves GraphQL queries:
 - **No runtime overhead** — query paths are pre-compiled
 
 ```bash
-$ fraiseql serve
+$ fraiseql run
 → GraphQL API running at http://localhost:8080/graphql
 ```
 
@@ -302,19 +303,34 @@ The compiler transforms your schema through three phases:
 
 Schema files in any supported language are validated and parsed into a type graph:
 
-<D2Diagram name="compilation-01-parsing" alt="Parsing phase: schema files through lexer and parser to type graph" />
+```mermaid
+graph LR
+    A[Schema Files<br/>Python / TS / Go] --> B[Lexer & Parser]
+    B --> C[Type Graph]
+```
 
 ### Phase 2: Analysis & SQL Generation
 
 The type graph is analyzed to generate SQL views and optimize query paths:
 
-<D2Diagram name="compilation-02-analysis" alt="Analysis phase: type graph to SQL generation to query optimization" />
+```mermaid
+graph LR
+    A[Type Graph] --> B[SQL View Analysis]
+    B --> C[Query Path Optimization]
+    C --> D[Compiled Query Map]
+```
 
 ### Phase 3: Code Generation & Output
 
 The final phase produces a compiled Rust binary, migration files, and all deployment artifacts:
 
-<D2Diagram name="compilation-03-codegen" alt="Codegen phase: Rust code generation to migrations and compiled binary" />
+```mermaid
+graph LR
+    A[Compiled Query Map] --> B[Rust Code Generation]
+    B --> C[Query Executor Binary]
+    B --> D[SDK Types<br/>15 languages]
+    B --> E[Migration Files]
+```
 
 ### Input: Schema in Any Language
 

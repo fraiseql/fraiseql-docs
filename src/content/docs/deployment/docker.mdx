@@ -346,10 +346,10 @@ Example `scripts/init-db.sh`:
 set -e
 
 echo "Running database migrations..."
-python -m fraiseql migrate
+fraiseql migrate
 
 echo "Seeding database (optional)..."
-python -m fraiseql seed --data=seeds/initial-data.json
+psql "$DATABASE_URL" -f seeds/initial-data.sql
 
 echo "Database initialization complete"
 ```

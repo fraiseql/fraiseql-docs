@@ -3,7 +3,6 @@ title: CQRS Pattern
 description: Understanding Command Query Responsibility Segregation in FraiseQL
 ---
 
-import D2Diagram from '../../../components/D2Diagram.astro';
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 FraiseQL uses **Command Query Responsibility Segregation (CQRS)** at the database level. You separate read and write operations into distinct structures that you design and own: normalized tables (`tb_*`) for writes, JSONB views (`v_*`) for reads.
@@ -12,17 +11,42 @@ FraiseQL uses **Command Query Responsibility Segregation (CQRS)** at the databas
 
 Traditional APIs couple reads and writes to the same tables. A single `tb_user` table must serve both fast reads and safe writes — and it does neither well:
 
-<D2Diagram name="cqrs-problem" alt="Traditional database architecture where reads and writes compete on the same table" caption="The problem: one table serves conflicting needs" />
+The problem: one table serves conflicting needs
+
+```mermaid
+graph LR
+    API[API Layer] --> T[(tb_user table)]
+    T --> R[Read: SELECT *]
+    T --> W[Write: INSERT/UPDATE]
+    R -.->|conflicts| W
+```
 
 FraiseQL separates these concerns at compile time. Write tables handle normalization and constraints. Read views handle denormalization and speed. An auto-sync bridge keeps them consistent:
 
-<D2Diagram name="cqrs-solution" alt="FraiseQL separates write tables from read views with auto-sync" caption="The solution: separated at compile time" />
+The solution: separated at compile time
+
+```mermaid
+graph LR
+    W[Write Path] --> TB[(tb_* Tables)]
+    TB --> S[sync_tv_*&#40;&#41;]
+    S --> TV[(tv_* Projections)]
+    TV --> V[v_* Views]
+    V --> R[Read Path]
+```
 
 ## CQRS Separation
 
 Here is the full picture — normalized tables on the write side, denormalized JSONB views on the read side, connected by an auto-sync bridge:
 
-<D2Diagram name="cqrs-separation" alt="CQRS architecture separating write-side tables from read-side views" size="wide" />
+```mermaid
+graph LR
+    M[GraphQL Mutation] --> FN[fn_* Function]
+    FN --> TB[(tb_* Write Tables)]
+    TB --> SYNC[sync_tv_*&#40;&#41;]
+    SYNC --> TV[(tv_* Materialized)]
+    TV --> V[v_* Read Views]
+    V --> Q[GraphQL Query]
+```
 
 ## Naming Conventions
 
@@ -652,9 +676,8 @@ Reads query `v_` or `tv_` views directly:
     OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY;
 
     -- With filtering
-    SELECT data FROM dbo.v_user
-    WHERE JSON_VALUE(data, '$.is_active') = 'true'
-    LIMIT 10;
+    SELECT TOP 10 data FROM dbo.v_user
+    WHERE JSON_VALUE(data, '$.is_active') = 'true';
     ```
   </TabItem>
 </Tabs>

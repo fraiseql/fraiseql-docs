@@ -11,61 +11,43 @@ Advanced federation patterns for building scalable, distributed systems with Fra
 
 ### Federated Query Execution Flow
 
-```d2
-direction: down
+```mermaid
+graph TD
+  client["Client"]
 
-client: {
-  label: "👤 Client"
-  shape: box
-}
+  subgraph FRAISEQL["GraphQL Server"]
+    parser["Query Parser"]
+    planner["Query Planner"]
+    executor["Federated Executor"]
+  end
 
-graphql_server: {
-  shape: frame
-  label: "📡 GraphQL Server"
+  subgraph PRIMARY_DB["Primary DB"]
+    tb_user["tb_user"]
+  end
 
-  parser: "Query Parser"
-  planner: "Query Planner"
-  executor: "Federated Executor"
-}
+  subgraph SECONDARY_DB["Secondary DB"]
+    tb_analytics["tb_analytics"]
+  end
 
-primary_db: {
-  shape: frame
-  label: "🗄️ Primary DB"
+  subgraph CACHE["Cache Layer"]
+    fed_cache["Federation Results"]
+    q_cache["Query Cache"]
+  end
 
-  table: "tb_user"
-  index: "Index on user_id"
-}
+  response["Combined Response"]
 
-secondary_db: {
-  shape: frame
-  label: "🗄️ Secondary DB"
+  client -- "GraphQL Query" --> parser
+  parser --> planner --> executor
 
-  table: "tb_analytics"
-  index: "Index on user_id"
-}
+  executor -- "Check cache" --> fed_cache
+  executor -- "Fetch base entities" --> tb_user
+  executor -- "Fetch federated data (batched)" --> tb_analytics
 
-cache_layer: {
-  shape: frame
-  label: "💾 Cache Layer"
+  tb_user -- "User data" --> executor
+  tb_analytics -- "Analytics data" --> executor
 
-  federation_cache: "Federation Results"
-  query_cache: "Query Cache"
-}
-
-client -> graphql_server.parser: "GraphQL Query"
-
-graphql_server.parser -> graphql_server.planner
-graphql_server.planner -> graphql_server.executor
-
-graphql_server.executor -> cache_layer.federation_cache: "Check cache"
-graphql_server.executor -> primary_db.table: "Fetch base entities"
-graphql_server.executor -> secondary_db.table: "Fetch federated data (batched)"
-
-primary_db.table -> graphql_server.executor: "User data"
-secondary_db.table -> graphql_server.executor: "Analytics data"
-
-graphql_server.executor -> cache_layer.query_cache: "Store results"
-cache_layer.query_cache -> client: "Combined response"
+  executor --> q_cache --> response
+  response --> client
 ```
 
 ### Database Heterogeneity

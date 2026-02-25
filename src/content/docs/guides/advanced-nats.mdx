@@ -11,46 +11,34 @@ Advanced NATS patterns for building reliable, scalable event-driven systems with
 
 ### Core Concepts
 
-```d2
-direction: right
+```mermaid
+graph LR
+  subgraph CLIENTS["NATS Clients"]
+    publisher["Publisher"]
+    subscriber_a["Subscriber A"]
+    subscriber_b["Subscriber B"]
+  end
 
-clients: {
-  shape: frame
-  label: "📡 NATS Clients"
+  subgraph CLUSTER["NATS Server Cluster"]
+    server1["Server 1 (Leader)"]
+    server2["Server 2"]
+    server3["Server 3"]
+  end
 
-  publisher: "Publisher"
-  subscriber_a: "Subscriber A"
-  subscriber_b: "Subscriber B"
-}
+  subgraph PERSISTENCE["Persistence"]
+    jetstream["JetStream\n(Event Log)"]
+    snapshots["Snapshots"]
+  end
 
-nats_cluster: {
-  shape: frame
-  label: "🔗 NATS Server Cluster"
+  subjects["Subject Space\nevents.orders.*\nevents.users.*\ncommands.*"]
 
-  server1: "Server 1\n(Leader)"
-  server2: "Server 2"
-  server3: "Server 3"
-}
+  publisher -- "Publish" --> server1
+  subscriber_a -- "Subscribe" --> server2
+  subscriber_b -- "Subscribe" --> server3
 
-persistence: {
-  shape: frame
-  label: "💾 Persistence"
-
-  jetstream: "JetStream\n(Event Log)"
-  snapshots: "Snapshots"
-}
-
-subjects: {
-  label: "🏷️ Subject Space\n(events.orders.*)\n(events.users.*)\n(commands.*)"
-  shape: box
-}
-
-clients.publisher -> nats_cluster.server1: "Publish"
-clients.subscriber_a -> nats_cluster.server2: "Subscribe"
-clients.subscriber_b -> nats_cluster.server3: "Subscribe"
-
-nats_cluster.server1 -> persistence.jetstream: "Persist"
-nats_cluster.server1 -> subjects: "Route by subject"
+  server1 -- "Persist" --> jetstream
+  server1 -- "Route by subject" --> subjects
+  jetstream --> snapshots
 ```
 
 ### Event Streaming with JetStream

@@ -16,7 +16,6 @@ hero:
 ---
 
 import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
-import D2Diagram from '../../components/D2Diagram.astro';
 
 ## A Different Path
 
@@ -43,10 +42,12 @@ This is database-first. It's a shift. And we built the tooling to make it work.
 
 ## How It Works
 
-
-
-
-                     ─                 ─
+```mermaid
+graph LR
+    A[Write SQL Views<br/>v_* + fn_*] --> B[fraiseql compile<br/>GraphQL mapping]
+    B --> C[fraiseql run<br/>GraphQL API server]
+    C --> D[Single SQL query<br/>per GraphQL request]
+```
 
 1. **Write** SQL views following the `.data` JSONB pattern (`v_user`, `v_post`, ...)
 2. **Compile** the mapping between your GraphQL types and SQL views
@@ -187,7 +188,7 @@ The complexity lives in the database, where it belongs — not in runtime resolv
 **Compile and serve:**
 
 ```bash
-$ fraiseql compile && fraiseql serve
+$ fraiseql run
 ✓ Compiled 2 types → mapped to SQL views
 ✓ Built query executor
 → GraphQL API running at http://localhost:8080/graphql

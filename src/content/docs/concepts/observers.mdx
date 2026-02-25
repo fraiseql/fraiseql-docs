@@ -3,8 +3,6 @@ title: Observers
 description: Event-driven logic with webhooks, email, and Slack actions
 ---
 
-import D2Diagram from '../../../components/D2Diagram.astro';
-
 Observers provide **event-driven logic** for your FraiseQL API. They react to database changes and trigger actions like webhooks, emails, or Slack notifications.
 
 ## Why Observers?
@@ -392,11 +390,29 @@ def on_order_deleted():
 
 The pipeline from trigger to execution:
 
-<D2Diagram name="observer-01-flow" alt="Observer flow: mutation triggers condition evaluation, queues actions for async execution" caption="Observer execution pipeline" />
+Observer execution pipeline
+
+```mermaid
+graph LR
+    A[GraphQL Mutation] --> B[Write to tb_* Table]
+    B --> C[Database Trigger]
+    C --> D{Condition Met?}
+    D -->|Yes| E[Queue Actions]
+    D -->|No| F[Skip]
+    E --> G[Async Execution<br/>with Retry]
+```
 
 Each observer can dispatch one or more action types:
 
-<D2Diagram name="observer-02-actions" alt="Four action types: Webhook, Email, Slack, and Custom handlers" caption="Available action types" size="wide" />
+Available action types
+
+```mermaid
+graph LR
+    O[Observer] --> W[Webhook<br/>HTTP POST]
+    O --> E[Email<br/>SMTP / SES]
+    O --> S[Slack<br/>Channel / DM]
+    O --> C[Custom<br/>Handler]
+```
 
 ## Best Practices
 

@@ -225,7 +225,7 @@ RUN apt-get update && apt-get install -y curl && \
 COPY . /app
 WORKDIR /app
 
-RUN fraiseql build
+RUN fraiseql compile
 CMD ["fraiseql", "serve", "--host", "0.0.0.0"]
 ```
 
@@ -241,7 +241,7 @@ RUN apk add --no-cache curl && \
 COPY . /app
 WORKDIR /app
 
-RUN fraiseql build
+RUN fraiseql compile
 CMD ["fraiseql", "serve", "--host", "0.0.0.0"]
 ```
 

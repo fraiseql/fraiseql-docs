@@ -21,7 +21,7 @@ Solutions for FraiseQL performance problems.
 
 1. Check logs for slow queries:
 ```bash
-LOG_LEVEL=debug python -m fraiseql serve
+LOG_LEVEL=debug fraiseql run
 ```
 
 2. Monitor during slow period:
@@ -567,7 +567,7 @@ WHERE state = 'idle' AND query_start < NOW() - INTERVAL '5 minutes';
 1. **Find why connections aren't returning**:
    ```bash
    # Check logs for exceptions that don't close connections
-   LOG_LEVEL=debug python -m fraiseql serve
+   LOG_LEVEL=debug fraiseql run
    ```
 
 2. **Reduce transaction time**:

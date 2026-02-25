@@ -963,7 +963,7 @@ CREATE INDEX idx_posts_created_at ON posts(created_at DESC);
 
 # 5. Check N+1 problems
 # Should have < 5 queries for any request
-LOG_LEVEL=debug python -m fraiseql serve
+LOG_LEVEL=debug fraiseql run
 ```
 
 ### N+1 Queries
@@ -1151,7 +1151,7 @@ class User:
 from fraiseql import ID, FraiseQL
 
 # 5. Validate schema
-python -m fraiseql validate
+fraiseql validate
 ```
 
 ### Required Field Null
@@ -1305,7 +1305,7 @@ docker logs fraiseql
 docker logs --tail 100 fraiseql
 
 # 2. Run in foreground to see errors
-docker run -it fraiseql python -m fraiseql serve
+docker run -it fraiseql fraiseql run
 
 # 3. Check environment variables
 docker exec fraiseql env

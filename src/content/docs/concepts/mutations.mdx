@@ -3,13 +3,17 @@ title: Mutations
 description: Write operations, database functions, and change data capture
 ---
 
-import D2Diagram from '../../../components/D2Diagram.astro';
-
 Mutations are **write operations** in FraiseQL. They modify data through SQL functions and return updated entities through the CQRS read layer.
 
 ## Mutation Flow
 
-<D2Diagram name="mutation-flow" alt="Mutation flow: GraphQL mutation to SQL function to sync projections to return view data" />
+```mermaid
+graph LR
+    A[GraphQL Mutation] --> B[fn_* PostgreSQL Function]
+    B --> C[Write to tb_* Tables]
+    C --> D[sync_tv_*&#40;&#41; refresh]
+    D --> E[Return from v_* View]
+```
 
 ## Defining Mutations
 
@@ -32,7 +36,7 @@ def update_user(id: str, name: str | None = None, email: str | None = None) -> U
 def delete_user(id: str) -> bool:
     """Delete a user."""
     pass
-```sql
+```
 
 ### Decorator Options
 
