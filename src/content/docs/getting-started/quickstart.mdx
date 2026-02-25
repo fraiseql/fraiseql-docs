@@ -14,36 +14,45 @@ Get a FraiseQL GraphQL API running in 5 minutes. This guide assumes you have a P
 
 ## Step 1: Install FraiseQL
 
-```bash
-# Using cargo (if you have Rust)
-cargo install fraiseql
+FraiseQL is a Rust binary. Install it once, use it from any project regardless of language.
 
-# Or using the install script
+```bash
+# Install script (macOS / Linux)
 curl -fsSL https://fraiseql.dev/install.sh | sh
+
+# Homebrew (macOS)
+brew install fraiseql
+
+# From source (requires Rust toolchain)
+cargo install fraiseql
 ```
+
+Verify:
+
+```bash
+fraiseql --version
+```
+
+## Step 1b: Install the Schema SDK
+
+The schema SDK lets you define GraphQL types in your preferred language using decorators or structs.
 
 <Tabs syncKey="lang">
   <TabItem label="Python">
     ```bash
-    # Using uv (recommended)
-    uv tool install fraiseql
-
-    # Using pipx
-    pipx install fraiseql
+    uv add fraiseql
+    # or: pip install fraiseql
     ```
   </TabItem>
   <TabItem label="TypeScript">
     ```bash
-    # Using npm
-    npm install -g fraiseql
-
-    # Using pnpm
-    pnpm add -g fraiseql
+    npm install fraiseql
+    # or: pnpm add fraiseql
     ```
   </TabItem>
   <TabItem label="Go">
     ```bash
-    go install github.com/fraiseql/fraiseql@latest
+    go get github.com/fraiseql/fraiseql-go
     ```
   </TabItem>
 </Tabs>

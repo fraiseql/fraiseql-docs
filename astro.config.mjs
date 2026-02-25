@@ -59,6 +59,13 @@ export default defineConfig({
           ],
         },
         {
+          label: 'AI-Assisted',
+          items: [
+            { label: 'Overview', slug: 'ai' },
+            { label: 'Generating Views', slug: 'ai/generating-views' },
+          ],
+        },
+        {
           label: 'Core Concepts',
           items: [
             { label: 'How It Works', slug: 'concepts/how-it-works' },

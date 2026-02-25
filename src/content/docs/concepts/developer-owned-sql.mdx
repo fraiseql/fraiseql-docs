@@ -3,7 +3,7 @@ title: Developer-Owned SQL
 description: Why FraiseQL puts you in control of your SQL views
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem, LinkCard, Aside } from '@astrojs/starlight/components';
 
 FraiseQL is database-first. You write the SQL views that power your GraphQL API. This is a deliberate choice — and it's the reason FraiseQL can guarantee single-query execution, zero N+1 problems, and predictable performance.
 
@@ -248,7 +248,9 @@ The pattern is consistent: JSON object building for single objects, array aggreg
 
 ## AI-Friendly by Design
 
-The view pattern is simple and consistent enough that language models generate it accurately — including local models like Llama and Mistral.
+The view pattern is simple and consistent enough that language models generate it accurately — including local models like Llama and Mistral running on your own hardware.
+
+This is not accidental. SQL has fifty years of training data behind it. The FraiseQL naming convention (`tb_*`, `v_*`, `pk_*`, `fk_*`) removes ambiguity. The limited vocabulary (`jsonb_build_object`, `jsonb_agg`, `COALESCE`) gives models a small surface to get right.
 
 ### Why It Works for LLMs
 
@@ -256,6 +258,10 @@ The view pattern is simple and consistent enough that language models generate i
 - **Limited vocabulary** — `jsonb_build_object`, `jsonb_agg`, `COALESCE`, `FILTER`
 - **Clear inputs** — the table schema defines what goes into the view
 - **No ambiguity** — the naming convention (`tb_*`, `v_*`, `pk_*`, `fk_*`) removes guesswork
+
+<Aside type="tip" title="You review SQL, not black-box output">
+  AI generates the view scaffold. You read the SQL in a PR, verify correctness, and commit. The LLM touches nothing in your database — it produces text you review and apply.
+</Aside>
 
 ### Example Prompt
 
@@ -397,6 +403,12 @@ The output is predictable:
 </Tabs>
 
 You review it, adjust if needed, and commit. The SQL is yours.
+
+<LinkCard
+  title="Generating SQL Views with AI"
+  description="Copy-paste prompts for every scenario: single tables, one-to-many, many-to-many, aggregations, filtered views, and mutation functions. Works with Claude, GPT-4o, and local Ollama models."
+  href="/ai/generating-views"
+/>
 
 ## When You Need More
 

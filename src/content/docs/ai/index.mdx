@@ -1,0 +1,129 @@
+---
+title: SQL and LLMs — A Natural Fit
+description: Why FraiseQL's view pattern is uniquely suited to AI-assisted development, and how to use it.
+---
+
+import { Card, CardGrid, Aside, LinkCard } from '@astrojs/starlight/components';
+
+SQL is the most LLM-trained language ever written. Fifty years of textbooks, blog posts, Stack Overflow answers, and production code — all feeding into models that now produce accurate, idiomatic SQL from a one-sentence description.
+
+FraiseQL's `v_*` + `.data` pattern takes direct advantage of this. The structure is consistent, the vocabulary is limited, and the naming convention removes ambiguity. The result: even small local models generate correct FraiseQL views reliably.
+
+## Why SQL Is Different
+
+Most languages have edge cases, ecosystem churn, and ambiguous patterns that trip up code generation. SQL is unusual:
+
+- **Unambiguous grammar** — a `SELECT` statement means exactly one thing across every database. There are no competing patterns for "how to join two tables".
+- **Fifty years of training data** — SQL has been documented, taught, and discussed in public longer than any other programming language. The density of quality examples in model training sets is unmatched.
+- **Closed vocabulary** — the FraiseQL view pattern uses a small set of functions: `jsonb_build_object`, `jsonb_agg`, `COALESCE`, `FILTER WHERE`. There are no framework APIs to hallucinate.
+- **Schema as the specification** — the DDL tells the LLM everything it needs: column names, types, foreign keys, nullability. The output is mechanically derivable from the input.
+
+Compare this to asking an LLM to generate a GraphQL resolver. Resolvers involve framework APIs, DataLoader patterns, middleware conventions, and ORM query builders — all with multiple competing approaches and rapid version churn. The generation surface is enormous and the correct answer depends on which library version you're using.
+
+A FraiseQL view is SQL. It runs against your database. You read it in a PR. The contract is clear.
+
+## The FraiseQL Pattern Is LLM-Ready
+
+Every view in FraiseQL follows the same structure:
+
+```sql
+CREATE VIEW v_entity AS
+SELECT
+    e.id,
+    jsonb_build_object(
+        'id',         e.id::text,
+        'field_one',  e.field_one,
+        'field_two',  e.field_two,
+        'related',    vr.data        -- embed another view's .data
+    ) AS data
+FROM tb_entity e
+JOIN v_related vr ON vr.id = e.fk_related_id;
+```
+
+This pattern has exactly the properties that make LLM generation reliable:
+
+<CardGrid>
+  <Card title="Consistent structure" icon="approve-check">
+    Every view has `id` and `data`. The LLM doesn't have to invent a structure — it fills in a template.
+  </Card>
+  <Card title="Limited vocabulary" icon="document">
+    `jsonb_build_object`, `jsonb_agg`, `COALESCE`, `FILTER`. A local 7B model can learn these in its context window.
+  </Card>
+  <Card title="Clear inputs" icon="puzzle">
+    The table DDL specifies column names, types, and foreign keys. The view is mechanically derivable.
+  </Card>
+  <Card title="No naming ambiguity" icon="rocket">
+    `tb_*` for tables, `v_*` for views, `pk_*` for primary keys, `fk_*` for foreign keys. The model has no guesswork to do.
+  </Card>
+</CardGrid>
+
+## The Virtuous Loop
+
+The AI-assisted workflow fits naturally into a developer-owned process:
+
+```
+Describe domain
+      ↓
+LLM generates SQL view
+      ↓
+You review plain SQL in a PR     ← you own it here
+      ↓
+confiture build
+      ↓
+fraiseql compile
+      ↓
+Working GraphQL API
+```
+
+You review SQL in a PR. Not generated resolvers. Not a migration plan in a black box. Plain SQL you can read, understand, and modify. If the LLM got something wrong, you fix it the same way you'd fix any SQL — and you understand exactly what changed.
+
+<Aside type="tip" title="No black box">
+  The LLM generates SQL. You review SQL. The SQL runs in your database. There is no layer between the AI output and the running system that you cannot inspect.
+</Aside>
+
+## Why SQL Output Is Better Than Generated Resolvers
+
+Some tools use AI to generate resolvers, ORM queries, or configuration files. FraiseQL's approach of generating SQL views is superior for a few reasons:
+
+**Reviewability.** SQL is readable by anyone on your team — backend developers, DBAs, and with a little context, non-specialists. Generated JavaScript/TypeScript resolvers with DataLoader patterns are not.
+
+**Testability.** SQL views can be tested directly in `psql` before they touch your application. Run `SELECT data FROM v_order LIMIT 5` and inspect the output. No test harness required.
+
+**Database-native.** The view runs inside the database engine. It gets query planning, indexes, and execution statistics. Resolver code runs outside the database and cannot benefit from any of this.
+
+**Auditability.** The view is in your version control. The git diff shows exactly what changed when you update a view. There is no generated code to keep in sync.
+
+## Works With Cloud and Local Models
+
+You do not need a cloud API to benefit from AI-assisted view generation.
+
+**Cloud models (recommended for complex schemas):**
+- Claude (Anthropic) — strong SQL generation, follows conventions precisely
+- GPT-4o (OpenAI) — reliable for standard patterns, good at multi-table views
+
+**Local models (for air-gapped or enterprise environments):**
+- `qwen2.5-coder:7b` via Ollama — best small model for SQL generation tasks
+- `llama3.1:8b` via Ollama — good general coverage of the FraiseQL patterns
+- `deepseek-coder:6.7b` via Ollama — strong at code generation including SQL
+
+The FraiseQL pattern's limited vocabulary means even 7B models stay on-task. A model that would hallucinate a custom resolver API gets the `jsonb_build_object` call right because there is only one way to do it.
+
+<Aside type="note" title="Enterprise air-gap">
+  Many enterprise teams cannot send database schemas to cloud APIs. Local model support via Ollama is a first-class path — not an afterthought. The system prompt in the how-to guide works identically with Ollama.
+</Aside>
+
+## What AI Does Not Replace
+
+AI generates the scaffold. You own the result.
+
+- **AI generates**: the view structure, join logic, field mapping, aggregation patterns
+- **You verify**: correctness against your domain, performance under load, security (row-level isolation, tenant filtering)
+- **You extend**: computed fields, business logic, indexes, edge cases
+
+The review checklist in the how-to guide gives you seven specific things to check before applying a generated view. It takes two minutes and it's the most important step in the workflow.
+
+<LinkCard
+  title="Generating SQL Views with AI"
+  description="Step-by-step guide with copy-paste prompt templates for every scenario."
+  href="/ai/generating-views"
+/>
