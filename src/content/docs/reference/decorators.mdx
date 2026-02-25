@@ -1,0 +1,548 @@
+---
+title: Decorators
+description: Complete reference for FraiseQL Python decorators
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL uses Python decorators to define GraphQL schema elements. This reference covers all available decorators.
+
+## @type
+
+Defines a GraphQL object type.
+
+```python
+import fraiseql
+
+@fraiseql.type
+class User:
+    """A user in the system."""
+    id: ID
+    name: str
+    email: str
+    created_at: DateTime
+```
+
+### Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `database` | `str` | Database for federated types |
+| `dataplane` | `str` | Data plane (`"graphql"` or `"arrow"`) |
+| `implements` | `list[str]` | Interfaces to implement |
+
+```python
+@fraiseql.type(database="analytics", implements=["Node"])
+class UserAnalytics:
+    id: ID
+    page_views: int
+```
+
+### Field Options
+
+Use `Annotated` for field-level options:
+
+```python
+from typing import Annotated
+
+@fraiseql.type
+class User:
+    id: ID
+    email: str
+
+    # Protected field
+    salary: Annotated[Decimal, fraiseql.field(requires_scope="hr:read")]
+
+    # Deprecated field
+    username: Annotated[str, fraiseql.field(deprecated="Use email instead")]
+
+    # Non-nullable with default
+    role: Annotated[str, fraiseql.field(default="user")]
+
+    # Computed field (not from database)
+    display_name: Annotated[str, fraiseql.field(computed=True)]
+```
+
+## @query
+
+Defines a GraphQL query.
+
+```python
+@fraiseql.query(sql_source="v_user")
+def user(id: ID) -> User | None:
+    """Get a user by ID."""
+    pass
+```
+
+### Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `sql_source` | `str` | View or table to query |
+| `auto_params` | `dict` | Auto-generate parameters |
+| `cache_ttl` | `int` | Cache duration in seconds |
+| `cache` | `bool` | Enable/disable caching |
+| `requires_role` | `str` | Required role |
+| `requires_scope` | `str` | Required scope |
+| `max_limit` | `int` | Maximum limit value |
+| `default_limit` | `int` | Default limit value |
+
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    auto_params={
+        "limit": True,
+        "offset": True,
+        "where": True,
+        "order_by": True,
+        "total_count": True
+    },
+    cache_ttl=300,
+    max_limit=100,
+    default_limit=20
+)
+def posts(
+    limit: int = 20,
+    offset: int = 0,
+    where: PostWhereInput | None = None,
+    order_by: PostOrderByInput | None = None
+) -> list[Post]:
+    """List posts with filtering and pagination."""
+    pass
+```
+
+### Auto Params
+
+| Param | Generated Type | Description |
+|-------|----------------|-------------|
+| `limit` | `Int` | LIMIT clause |
+| `offset` | `Int` | OFFSET clause |
+| `where` | `{Type}WhereInput` | Filter conditions |
+| `order_by` | `{Type}OrderByInput` | Sort order |
+| `total_count` | Result wrapper | Include total count |
+
+## @mutation
+
+Defines a GraphQL mutation.
+
+```python
+@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+def create_user(email: str, name: str) -> User:
+    """Create a new user."""
+    pass
+```
+
+### Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `sql_source` | `str` | SQL function to call |
+| `operation` | `str` | `"CREATE"`, `"UPDATE"`, `"DELETE"` |
+| `requires_role` | `str` | Required role |
+| `requires_scope` | `str` | Required scope |
+| `cache_update` | `bool` | Update cache after mutation |
+
+```python
+@fraiseql.mutation(
+    sql_source="fn_delete_user",
+    operation="DELETE",
+    requires_scope="admin:delete_user"
+)
+def delete_user(id: ID) -> bool:
+    """Delete a user. Requires admin scope."""
+    pass
+```
+
+## @subscription
+
+Defines a GraphQL subscription.
+
+```python
+@fraiseql.subscription(entity_type="User", topic="user_created")
+def user_created() -> User:
+    """Subscribe to new users."""
+    pass
+```
+
+### Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `entity_type` | `str` | Entity to watch |
+| `topic` | `str` | NATS topic |
+| `operation` | `str` | `"INSERT"`, `"UPDATE"`, `"DELETE"` |
+| `filter` | `str` | Filter expression |
+| `jetstream` | `bool` | Use JetStream |
+| `replay` | `bool` | Allow replay |
+
+```python
+@fraiseql.subscription(
+    entity_type="Order",
+    operation="UPDATE",
+    filter="status == 'shipped'"
+)
+def order_shipped(customer_id: ID | None = None) -> Order:
+    """Subscribe to shipped orders."""
+    pass
+```
+
+## @input
+
+Defines a GraphQL input type.
+
+```python
+@fraiseql.input
+class CreateUserInput:
+    """Input for creating a user."""
+    email: str
+    name: str
+    bio: str | None = None
+    role: str = "user"
+```
+
+### Validation
+
+```python
+from typing import Annotated
+
+@fraiseql.input
+class CreateUserInput:
+    email: Annotated[str, fraiseql.validate(
+        pattern=r"^[^@]+@[^@]+\.[^@]+$",
+        message="Invalid email format"
+    )]
+    name: Annotated[str, fraiseql.validate(
+        min_length=2,
+        max_length=100
+    )]
+    age: Annotated[int, fraiseql.validate(
+        minimum=0,
+        maximum=150
+    )]
+```
+
+## @enum
+
+Defines a GraphQL enum.
+
+```python
+from enum import Enum
+
+@fraiseql.enum
+class OrderStatus(Enum):
+    """Status of an order."""
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
+```
+
+Usage:
+
+```python
+@fraiseql.type
+class Order:
+    id: ID
+    status: OrderStatus
+```
+
+## @interface
+
+Defines a GraphQL interface.
+
+```python
+@fraiseql.interface
+class Node:
+    """An object with an ID."""
+    id: ID
+
+@fraiseql.interface
+class Timestamped:
+    """An object with timestamps."""
+    created_at: DateTime
+    updated_at: DateTime
+```
+
+Implement interfaces:
+
+```python
+@fraiseql.type(implements=["Node", "Timestamped"])
+class User:
+    id: ID
+    name: str
+    created_at: DateTime
+    updated_at: DateTime
+```
+
+## @union
+
+Defines a GraphQL union type.
+
+```python
+@fraiseql.type
+class User:
+    id: ID
+    name: str
+
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+
+@fraiseql.union(members=[User, Post])
+class SearchResult:
+    """Result from a search query."""
+    pass
+```
+
+Usage:
+
+```python
+@fraiseql.query(sql_source="fn_search")
+def search(query: str) -> list[SearchResult]:
+    pass
+```
+
+## @scalar
+
+Defines a custom scalar type.
+
+```python
+@fraiseql.scalar
+class Email:
+    """Email address with validation."""
+
+    @staticmethod
+    def serialize(value: str) -> str:
+        return value.lower()
+
+    @staticmethod
+    def parse(value: str) -> str:
+        if "@" not in value:
+            raise ValueError("Invalid email format")
+        return value.lower()
+
+    @staticmethod
+    def parse_literal(ast) -> str:
+        if isinstance(ast, StringValueNode):
+            return Email.parse(ast.value)
+        raise ValueError("Email must be a string")
+```
+
+## @observer
+
+Defines an event observer.
+
+```python
+from fraiseql import observer, webhook, email, slack
+
+@observer(
+    entity="Order",
+    event="INSERT",
+    condition="total > 1000",
+    actions=[
+        webhook("https://api.example.com/orders"),
+        slack("#sales", "New order: {id}")
+    ]
+)
+def on_high_value_order():
+    """Triggered for high-value orders."""
+    pass
+```
+
+### Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `entity` | `str` | Entity to watch |
+| `event` | `str` | `"INSERT"`, `"UPDATE"`, `"DELETE"` |
+| `condition` | `str` | Trigger condition |
+| `actions` | `list` | Actions to execute |
+| `retry` | `RetryConfig` | Retry configuration |
+
+### Actions
+
+```python
+# Webhook
+webhook(
+    url="https://api.example.com",
+    headers={"Authorization": "Bearer {TOKEN}"},
+    body_template='{"id": "{{id}}"}'
+)
+
+# Email
+email(
+    to="{customer_email}",
+    subject="Order {id} confirmed",
+    body="Your order has been confirmed."
+)
+
+# Slack
+slack(
+    channel="#orders",
+    message="New order: {id} for ${total}"
+)
+```
+
+## @role
+
+Defines a role with scopes.
+
+```python
+@fraiseql.role("admin")
+class AdminRole:
+    """Administrator with full access."""
+    scopes = [
+        "read:*",
+        "write:*",
+        "delete:*",
+        "admin:*"
+    ]
+
+@fraiseql.role("user")
+class UserRole:
+    """Standard user access."""
+    scopes = [
+        "read:User",
+        "read:Post",
+        "write:Post"
+    ]
+```
+
+## @middleware
+
+Defines request middleware.
+
+```python
+@fraiseql.middleware
+async def log_requests(request, next):
+    """Log all requests."""
+    start = time.time()
+    response = await next(request)
+    duration = time.time() - start
+    logger.info(f"{request.operation} completed in {duration:.3f}s")
+    return response
+```
+
+## @after_mutation
+
+Hook that runs after a mutation.
+
+```python
+@fraiseql.after_mutation("create_user")
+async def after_create_user(user: User, context):
+    """Send welcome email after user creation."""
+    await send_welcome_email(user.email, user.name)
+```
+
+## @before_mutation
+
+Hook that runs before a mutation.
+
+```python
+@fraiseql.before_mutation("delete_user")
+async def before_delete_user(id: ID, context):
+    """Validate deletion is allowed."""
+    user = await get_user(id)
+    if user.is_system_user:
+        raise ValueError("Cannot delete system user")
+```
+
+## @arrow_query
+
+Defines an Arrow Flight query.
+
+```python
+@fraiseql.arrow_query(sql_source="va_analytics")
+def analytics_data(
+    start_date: Date,
+    end_date: Date
+) -> list[AnalyticsRow]:
+    """Query analytics via Arrow Flight."""
+    pass
+```
+
+## fraiseql.field()
+
+Field-level configuration.
+
+```python
+fraiseql.field(
+    requires_scope="scope",     # Required scope
+    deprecated="message",       # Deprecation message
+    default=value,              # Default value
+    filterable=True,            # Include in WhereInput
+    orderable=True,             # Include in OrderByInput
+    computed=False,             # Is computed (not in DB)
+    filter_type=CustomFilter,   # Custom filter type
+    filter_operators=["_eq"],   # Allowed operators
+)
+```
+
+## fraiseql.validate()
+
+Input validation rules.
+
+```python
+fraiseql.validate(
+    pattern="regex",          # Regex pattern
+    min_length=1,             # Minimum string length
+    max_length=100,           # Maximum string length
+    minimum=0,                # Minimum number value
+    maximum=100,              # Maximum number value
+    enum=["a", "b"],          # Allowed values
+    custom=validator_func,    # Custom validator
+    message="Error message",  # Custom error message
+)
+```
+
+## Type Annotations
+
+### Optional Fields
+
+```python
+@fraiseql.type
+class User:
+    bio: str | None  # Nullable field
+```
+
+### Lists
+
+```python
+@fraiseql.type
+class User:
+    roles: list[str]        # Non-null list, non-null items
+    tags: list[str] | None  # Nullable list
+```
+
+### Forward References
+
+```python
+@fraiseql.type
+class User:
+    posts: list['Post']     # Forward reference
+    manager: 'User | None'  # Self-reference
+```
+
+## Export
+
+Export schema to JSON:
+
+```python
+if __name__ == "__main__":
+    fraiseql.export_schema("schema.json")
+    print("Schema exported!")
+```
+
+<CardGrid>
+  <Card title="Type System" icon="list-format">
+    [Type System](/concepts/type-system) — Type definitions
+  </Card>
+  <Card title="Scalars" icon="setting">
+    [Scalars](/reference/scalars) — Built-in scalars
+  </Card>
+  <Card title="GraphQL API" icon="open-book">
+    [GraphQL API](/reference/graphql-api) — Generated API
+  </Card>
+</CardGrid>

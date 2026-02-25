@@ -1,0 +1,138 @@
+---
+title: Database Guides
+description: Comprehensive guides for each supported database with optimization strategies, idioms, and best practices
+---
+
+import { CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+FraiseQL supports multiple databases out of the box. This section provides database-specific guides to help you optimize, configure, and troubleshoot your chosen database.
+
+## Supported Databases
+
+### PostgreSQL
+The most feature-rich relational database. Recommended for most production deployments.
+
+- **Best for**: Production applications, complex queries, advanced features
+- **Performance**: Excellent for analytical and transactional workloads
+- **Features**: Native JSONB, advanced indexing, full-text search
+- **Scale**: Handles millions of records efficiently
+
+### MySQL
+Popular open-source relational database with strong ecosystem support.
+
+- **Best for**: Web applications, wide adoption across hosting providers
+- **Performance**: Fast for read-heavy workloads
+- **Features**: Stable, mature, excellent documentation
+- **Scale**: Production-ready for large-scale applications
+
+### SQLite
+Lightweight, serverless, embedded SQL database engine.
+
+- **Best for**: Development, testing, embedded applications, mobile apps
+- **Performance**: Fast for single-machine workloads
+- **Features**: Zero configuration, great for rapid development
+- **Scale**: Perfect for apps under 100GB
+
+### SQL Server
+Enterprise-grade relational database with advanced features.
+
+- **Best for**: Enterprise environments, Windows-centric deployments
+- **Performance**: Excellent for OLTP and OLAP workloads
+- **Features**: Always On, partitioning, advanced analytics
+- **Scale**: Supports enterprise-scale deployments
+
+## Choosing Your Database
+
+### Database Comparison
+
+| Feature | PostgreSQL | MySQL | SQLite | SQL Server |
+|---------|-----------|-------|--------|-----------|
+| **Type** | Relational | Relational | Relational | Relational |
+| **License** | Open Source | Open Source | Public Domain | Proprietary |
+| **Setup Complexity** | Medium | Easy | Very Easy | Hard |
+| **Performance** | Excellent | Very Good | Good (single-user) | Excellent |
+| **Features** | Extensive | Good | Basic | Extensive |
+| **JSON Support** | Native JSONB | JSON type | JSON functions | JSON support |
+| **Full-Text Search** | Native | Native | FTS5 extension | Native |
+| **Scalability** | Very High | Very High | Single machine | Very High |
+| **Production Ready** | Yes | Yes | With caveats | Yes |
+| **Cost** | Free | Free | Free | Expensive (licensing) |
+
+## Platform-Specific Recommendations
+
+### Development and Testing
+**Recommended**: SQLite
+- Zero configuration
+- Fast startup
+- No server process needed
+- Perfect for rapid iteration
+
+### Small to Medium Production
+**Recommended**: PostgreSQL or MySQL
+- PostgreSQL if you need advanced features (JSONB, full-text search, complex queries)
+- MySQL if you prefer simplicity and proven stability
+
+### Large-Scale Production
+**Recommended**: PostgreSQL
+- Superior performance at scale
+- Advanced features for complex queries
+- Excellent reliability and uptime
+- Strong community support
+
+### Enterprise Deployment
+**Recommended**: PostgreSQL or SQL Server
+- PostgreSQL for open-source, maximum flexibility
+- SQL Server if Windows ecosystem and enterprise support are priorities
+
+<Aside type="tip">
+FraiseQL schemas are database-agnostic. The `tb_*`, `v_*`, `fn_*`, `tv_*` naming conventions and the data column pattern work across all supported databases. Switch databases by changing your connection string.
+</Aside>
+
+## Common Database Tasks
+
+### Backup and Recovery
+- **PostgreSQL**: `pg_dump` / `pg_restore`
+- **MySQL**: `mysqldump` / `mysql`
+- **SQLite**: File copy (built-in backup)
+- **SQL Server**: Native backup tools
+
+### Connection Pooling
+
+For production applications, use connection pooling:
+- **PostgreSQL**: PgBouncer, pgpool
+- **MySQL**: ProxySQL, MaxScale
+- **SQLite**: Built-in (single connections)
+- **SQL Server**: Connection pooling (built-in)
+
+### Monitoring
+- **PostgreSQL**: `pg_stat` views, monitoring tools
+- **MySQL**: Performance schema, slow query log
+- **SQLite**: Built-in profiling
+- **SQL Server**: SQL Server Management Studio, DMVs
+
+## Migration Between Databases
+
+FraiseQL makes it easy to change databases without rewriting your schema definition.
+
+- **Same schema definition** — Python/TypeScript/Go/Java/Rust/PHP code is database-agnostic
+- **Portable applications** — switch databases by changing the connection string
+- **Testing flexibility** — use SQLite in tests, PostgreSQL in production
+
+See each database guide for migration strategies and syntax differences.
+
+## Next Steps
+
+<CardGrid>
+  <Card title="PostgreSQL Guide" icon="seti:db">
+    [Deep dive into PostgreSQL optimization](/databases/postgresql)
+  </Card>
+  <Card title="MySQL Guide" icon="seti:db">
+    [MySQL-specific patterns and performance tuning](/databases/mysql)
+  </Card>
+  <Card title="SQLite Guide" icon="seti:db">
+    [Embedded database best practices](/databases/sqlite)
+  </Card>
+  <Card title="SQL Server Guide" icon="seti:db">
+    [Enterprise deployment strategies](/databases/sqlserver)
+  </Card>
+</CardGrid>

@@ -1,0 +1,304 @@
+---
+title: Field-Level Encryption
+description: Encrypt sensitive data at rest with automatic key rotation
+---
+
+import { Aside, Steps, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL provides transparent field-level encryption for sensitive data, with automatic key rotation and compliance features.
+
+## Overview
+
+Field-level encryption protects sensitive data at rest. The application layer sees plaintext, FraiseQL's encryption layer handles automatic AES-256-GCM encrypt/decrypt transparently, and only ciphertext is stored in the database.
+
+## Configuration
+
+### Enable Encryption
+
+```toml
+[encryption]
+enabled = true
+algorithm = "AES-256-GCM"
+
+[encryption.keys]
+# Current encryption key (base64-encoded)
+current = "${ENCRYPTION_KEY}"
+
+# Previous keys for decryption during rotation
+previous = ["${ENCRYPTION_KEY_OLD}"]
+```
+
+### Define Encrypted Fields
+
+In your schema, mark fields for encryption:
+
+```python
+from typing import Annotated
+import fraiseql
+
+@fraiseql.type
+class User:
+    id: fraiseql.ID
+    name: str
+
+    # Encrypted at rest
+    email: Annotated[str, fraiseql.field(encrypted=True)]
+    ssn: Annotated[str, fraiseql.field(encrypted=True)]
+    phone: Annotated[str, fraiseql.field(encrypted=True)]
+```
+
+## Key Management
+
+### HashiCorp Vault Integration
+
+For production, use HashiCorp Vault for key management:
+
+```toml
+[encryption]
+enabled = true
+provider = "vault"
+
+[encryption.vault]
+address = "${VAULT_ADDR}"
+token = "${VAULT_TOKEN}"
+secret_path = "secret/data/fraiseql/encryption"
+key_name = "field-encryption-key"
+```
+
+### Automatic Key Rotation
+
+Configure automatic key rotation:
+
+```toml
+[encryption.rotation]
+enabled = true
+interval_days = 90
+notify_before_days = 14
+
+[encryption.rotation.vault]
+# Vault handles key versioning
+auto_rotate = true
+```
+
+### Manual Key Rotation
+
+Trigger rotation via CLI:
+
+```bash
+fraiseql-cli encryption rotate --confirm
+```
+
+## Supported Field Types
+
+| Field Type | Encryption Support |
+|------------|-------------------|
+| `String` | Full |
+| `Email` | Full |
+| `Phone` | Full |
+| `JSONB` | Full (entire object) |
+| `Int` | Partial (stored as string) |
+| `Float` | Partial (stored as string) |
+| `Boolean` | Not recommended |
+| `Date` | Partial (stored as string) |
+
+## Query Considerations
+
+### Encrypted Fields in WHERE Clauses
+
+Encrypted fields cannot be directly searched:
+
+```graphql
+# Will not work - field is encrypted
+query {
+    users(where: { email: { _eq: "user@example.com" } }) {
+        id
+        name
+    }
+}
+```
+
+### Solutions for Searchable Encrypted Data
+
+#### 1. Blind Index
+
+Store a hash alongside encrypted data:
+
+```sql
+-- In your migration
+ALTER TABLE tb_user ADD COLUMN email_hash TEXT;
+CREATE INDEX ON tb_user(email_hash);
+```
+
+```python
+@fraiseql.type
+class User:
+    email: Annotated[str, fraiseql.field(encrypted=True, blind_index=True)]
+```
+
+#### 2. Separate Lookup Table
+
+For exact match queries on encrypted fields:
+
+```sql
+CREATE TABLE tb_user_email_lookup (
+    email_hash TEXT PRIMARY KEY,
+    fk_user BIGINT REFERENCES tb_user(pk_user)
+);
+```
+
+## Performance
+
+### Encryption Overhead
+
+| Operation | Overhead |
+|-----------|----------|
+| Encrypt (per field) | ~0.1ms |
+| Decrypt (per field) | ~0.1ms |
+| Batch (100 rows) | ~5ms |
+
+### Optimization Tips
+
+1. **Batch operations**: Encrypt/decrypt in batches
+2. **Cache decrypted values**: For frequently-accessed data
+3. **Minimize encrypted fields**: Only encrypt truly sensitive data
+
+## Compliance
+
+### Audit Logging
+
+All encryption operations are logged:
+
+```toml
+[encryption.audit]
+enabled = true
+log_access = true
+log_rotation = true
+```
+
+Audit entries include:
+- Field accessed
+- User/service that accessed
+- Timestamp
+- Operation type (encrypt/decrypt)
+
+### Compliance Profiles
+
+```toml
+[compliance]
+profile = "HIPAA"  # or "PCI", "SOC2", "GDPR"
+
+[compliance.hipaa]
+# HIPAA-specific requirements
+encryption_required_fields = ["ssn", "medical_record", "diagnosis"]
+audit_retention_days = 2555  # 7 years
+```
+
+## Error Handling
+
+### Decryption Failures
+
+When decryption fails (e.g., wrong key):
+
+```json
+{
+    "errors": [{
+        "message": "Field decryption failed",
+        "extensions": {
+            "code": "DECRYPTION_ERROR",
+            "field": "email"
+        }
+    }]
+}
+```
+
+### Key Rotation During Queries
+
+FraiseQL automatically tries previous keys:
+
+<Steps>
+1. Attempt decrypt with current key
+2. If fails, try previous keys in order
+3. If successful, re-encrypt with current key (lazy migration)
+4. If all fail, return error
+</Steps>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `fraiseql_encryption_ops_total` | Encryption operations |
+| `fraiseql_decryption_ops_total` | Decryption operations |
+| `fraiseql_encryption_latency_ms` | Operation latency |
+| `fraiseql_key_rotation_total` | Key rotations performed |
+
+## Best Practices
+
+### Encrypt Minimal Data
+
+Only encrypt truly sensitive fields:
+
+```python
+@fraiseql.type
+class User:
+    id: fraiseql.ID           # Don't encrypt - needed for queries
+    name: str                 # Don't encrypt - low sensitivity
+    email: Annotated[str, fraiseql.field(encrypted=True)]  # PII
+    ssn: Annotated[str, fraiseql.field(encrypted=True)]    # Highly sensitive
+    created_at: DateTime      # Don't encrypt - needed for queries
+```
+
+### Rotate Keys Regularly
+
+```toml
+[encryption.rotation]
+interval_days = 90  # Every 90 days
+```
+
+### Test Key Rotation
+
+Before production rotation:
+
+```bash
+# Test rotation in staging
+fraiseql-cli encryption rotate --dry-run
+
+# Verify all data can be re-encrypted
+fraiseql-cli encryption verify
+```
+
+### Secure Key Storage
+
+<Aside type="caution">
+Never store encryption keys in source code, configuration files committed to git, or plain text environment files. Use HashiCorp Vault, AWS KMS / Azure Key Vault / GCP KMS, or Kubernetes secrets with encryption at rest.
+</Aside>
+
+## Troubleshooting
+
+### "Decryption failed" Errors
+
+1. Verify encryption key is correct
+2. Check previous keys are configured
+3. Run verification: `fraiseql-cli encryption verify`
+
+### Performance Degradation
+
+1. Profile encryption operations
+2. Check batch sizes
+3. Consider caching frequently-accessed decrypted values
+
+### Key Rotation Stuck
+
+1. Check Vault connectivity
+2. Verify permissions for key operations
+3. Review audit logs for errors
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Security" icon="shield">
+    [Security](/features/security) — Authentication and RBAC
+  </Card>
+  <Card title="Deployment" icon="rocket">
+    [Deployment](/guides/deployment) — Production key management
+  </Card>
+</CardGrid>

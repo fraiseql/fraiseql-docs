@@ -1,0 +1,337 @@
+---
+title: SQLite Guide for FraiseQL
+description: SQLite implementation guide for FraiseQL with Trinity pattern, JSON projections, and pragmatic patterns for development and embedded use
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+## Introduction
+
+SQLite is the **best choice for FraiseQL development** because it requires zero setup and perfectly mirrors production behavior:
+
+- **Instant Setup**: Single file, zero configuration, works everywhere
+- **Perfect for Development**: Identical schema and queries to PostgreSQL/MySQL
+- **In-Memory Testing**: Create isolated test databases instantly
+- **Embedded Deployments**: Ship database with your application
+- **~15 WHERE Operators**: Fewer operators, but sufficient for most GraphQL queries
+- **JSON Support**: Native `json_object()`, `json_array()` functions (SQLite 3.9+)
+- **ACID Transactions**: Despite simplicity, maintains consistency
+
+<Aside type="caution">
+SQLite allows only one concurrent writer. It is not recommended for high-concurrency production deployments. Use PostgreSQL or MySQL for production.
+</Aside>
+
+## Core Architecture
+
+### Single JSON Data Column Pattern
+
+Like PostgreSQL and MySQL, FraiseQL views expose entities as **single JSON columns** named `data`:
+
+```sql
+-- Every v_* view returns:
+-- 1. Metadata columns (id, tenant_id, organization_id, etc.)
+-- 2. Single JSON column named 'data' containing complete entity
+
+SELECT
+  id,
+  tenant_id,
+  organization_id,
+  is_current,
+  data
+FROM v_user
+WHERE id = ?;
+```
+
+### Trinity Pattern: TEXT UUID + INTEGER PKs
+
+FraiseQL uses a dual-identifier system (adapted for SQLite):
+
+```sql
+CREATE TABLE tb_user (
+  pk_user INTEGER PRIMARY KEY AUTOINCREMENT,  -- Internal, fast FKs
+  id TEXT NOT NULL UNIQUE,                    -- Public, exposed in GraphQL (UUID)
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT NOT NULL,
+  deleted_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE tb_post (
+  pk_post INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT NOT NULL UNIQUE,
+  fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  deleted_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Foreign key enforcement (CRITICAL - default is OFF in SQLite)
+PRAGMA foreign_keys = ON;
+```
+
+<Aside type="caution">
+Foreign keys are disabled by default in SQLite. You must run `PRAGMA foreign_keys = ON;` as the first statement after every connection to enforce referential integrity.
+</Aside>
+
+## View Structure: v_* (Regular Views)
+
+Views are the **source truth** for read operations:
+
+```sql
+-- File: 02411_v_user.sql
+CREATE VIEW v_user AS
+SELECT
+  u.id,
+  u.organization_id,
+  u.tenant_id,
+  u.deleted_at IS NULL AS is_current,
+  json_object(
+    'id', u.id,
+    'email', u.email,
+    'name', u.name,
+    'status', COALESCE(u.status, 'active'),
+    'created_at', u.created_at,
+    'updated_at', u.updated_at
+  ) AS data
+FROM tb_user u
+WHERE u.deleted_at IS NULL;
+```
+
+### Nested Views (One-to-Many Relationships)
+
+```sql
+-- File: 02412_v_user_with_posts.sql
+CREATE VIEW v_user_with_posts AS
+SELECT
+  u.id,
+  u.organization_id,
+  u.tenant_id,
+  u.is_current,
+  json_object(
+    'id', u.id,
+    'email', u.email,
+    'name', u.name,
+    'posts', COALESCE(
+      (
+        SELECT json_group_array(
+          json_object('id', p.id, 'title', p.title, 'status', p.status)
+        )
+        FROM tb_post p
+        WHERE p.fk_user = u.pk_user AND p.deleted_at IS NULL
+      ),
+      json_array()
+    )
+  ) AS data
+FROM v_user u;
+```
+
+<Aside type="note">
+SQLite uses subqueries for aggregation rather than LEFT JOIN + GROUP BY. Use `COALESCE(..., json_array())` to provide a default empty array when no related records exist.
+</Aside>
+
+## Materialized Views: tv_* (Optional for Heavy Reads)
+
+SQLite is single-writer, so materialized views are mainly useful for caching query results:
+
+```sql
+-- File: 02414_tv_user.sql
+CREATE TABLE IF NOT EXISTS tv_user (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  is_current BOOLEAN DEFAULT 1,
+  data TEXT NOT NULL,  -- JSON stored as TEXT (SQLite has no JSONB type)
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_synced_at TIMESTAMP NULL,
+  sync_count INTEGER DEFAULT 0,
+  is_stale BOOLEAN DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_tv_user_organization ON tv_user(organization_id);
+CREATE INDEX IF NOT EXISTS idx_tv_user_is_current ON tv_user(is_current);
+```
+
+**Refresh Triggers** (called after INSERT/UPDATE):
+
+```sql
+CREATE TRIGGER trg_user_after_insert
+AFTER INSERT ON tb_user
+FOR EACH ROW
+BEGIN
+  INSERT OR REPLACE INTO tv_user (id, organization_id, tenant_id, is_current, data)
+  SELECT id, organization_id, tenant_id, is_current, data
+  FROM v_user WHERE id = NEW.id;
+END;
+```
+
+## Mutation Triggers
+
+SQLite uses **INSTEAD OF triggers** for mutation logic (no stored procedures):
+
+```sql
+-- File: 03311_create_user.sql
+CREATE TRIGGER trg_user_create
+INSTEAD OF INSERT ON v_user
+WHEN NEW.id IS NOT NULL AND NEW.email IS NOT NULL
+BEGIN
+  SELECT CASE
+    WHEN EXISTS(SELECT 1 FROM tb_user WHERE email = NEW.email AND deleted_at IS NULL)
+    THEN RAISE(ABORT, 'conflict:email')
+  END;
+
+  INSERT INTO tb_user (id, email, name, status)
+  VALUES (NEW.id, NEW.email, NEW.name, COALESCE(NEW.status, 'active'));
+END;
+```
+
+**Alternative: Application-Level Mutations**
+
+For more complex mutations, handle them in application code rather than triggers:
+
+```python
+def create_user(db, tenant_id: str, user_id: str, payload: dict) -> dict:
+    if not payload.get('email') or '@' not in payload['email']:
+        return {'status': 'invalid_input', 'message': 'Valid email required', 'entity': None}
+
+    existing = db.execute(
+        'SELECT id FROM tb_user WHERE email = ? AND deleted_at IS NULL',
+        (payload['email'],)
+    ).fetchone()
+
+    if existing:
+        return {'status': 'conflict:email', 'message': 'Email already in use', 'entity': None}
+
+    new_id = str(uuid.uuid4())
+    db.execute(
+        'INSERT INTO tb_user (id, email, name, status) VALUES (?, ?, ?, ?)',
+        (new_id, payload['email'], payload.get('name'), 'active')
+    )
+    db.commit()
+
+    result = db.execute('SELECT data FROM v_user WHERE id = ?', (new_id,)).fetchone()
+    return {'status': 'success:created', 'message': 'User created', 'entity': json.loads(result[0])}
+```
+
+## Configuration: Essential Pragmas
+
+```sql
+-- File: 00001_pragmas.sql
+PRAGMA foreign_keys = ON;          -- CRITICAL: enable foreign key enforcement
+PRAGMA journal_mode = WAL;         -- Better concurrent reads
+PRAGMA cache_size = -64000;        -- 64MB cache
+PRAGMA temp_store = MEMORY;        -- Speed up temp tables
+PRAGMA synchronous = NORMAL;       -- Balance safety vs speed
+PRAGMA optimize;                   -- Query optimization hints
+ANALYZE;                           -- Enable query planner statistics
+```
+
+## Testing with In-Memory Databases
+
+SQLite's in-memory mode is perfect for isolated test databases:
+
+```python
+import sqlite3
+import pytest
+
+@pytest.fixture
+def test_db():
+    """Create fresh in-memory SQLite database for each test"""
+    conn = sqlite3.connect(':memory:')
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA foreign_keys = ON')
+
+    with open('db/0_schema/init.sql', 'r') as f:
+        conn.executescript(f.read())
+
+    yield conn
+    conn.close()
+
+def test_create_user(test_db):
+    test_db.execute(
+        'INSERT INTO tb_user (id, email, name) VALUES (?, ?, ?)',
+        ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User')
+    )
+    test_db.commit()
+
+    result = test_db.execute(
+        'SELECT data FROM v_user WHERE email = ?', ('test@example.com',)
+    ).fetchone()
+    assert result is not None
+```
+
+## Troubleshooting
+
+### "database is locked" Error
+
+```sql
+-- Increase busy timeout
+PRAGMA busy_timeout = 5000;  -- Wait 5 seconds before failing
+```
+
+SQLite allows only one writer at a time. If you see this error frequently, consider migrating to PostgreSQL for production.
+
+### Foreign Key Constraint Fails
+
+```sql
+-- MUST be first statement after opening connection
+PRAGMA foreign_keys = ON;
+```
+
+### View Returns NULL Instead of Empty Array
+
+```sql
+-- Problem: json_group_array returns NULL when no rows
+-- Solution: Use COALESCE
+SELECT COALESCE(
+  json_group_array(id),
+  json_array()
+) FROM tb_post WHERE user_id = 999;
+```
+
+### JSON Functions Not Available
+
+```sql
+-- Check SQLite version (must be 3.9.0 or higher)
+SELECT sqlite_version();
+```
+
+## Limitations and Workarounds
+
+| Limitation | Workaround |
+|-----------|-----------|
+| Single concurrent writer | Use application-level locking; reads are concurrent |
+| No JSONB type | JSON works fine; slightly slower but same patterns |
+| No composite types | Use JSON structures in documentation |
+| No stored procedures | Use INSTEAD OF triggers or application logic |
+| Max ~15 WHERE operators | Use simpler queries; application-level filtering for complex logic |
+
+## Performance Benchmarks
+
+| Query Type | Latency | Notes |
+|-----------|---------|-------|
+| Single entity (v_*) | 0.3-0.8ms | Index lookup on id |
+| List query (100 rows) | 2-5ms | With is_current filter |
+| Nested JSON (3 levels) | 5-20ms | Depends on aggregation |
+| Materialized view (tv_*) | 0.5-1ms | Pre-computed cache |
+| Analytics view (va_*) | 10-100ms | GROUP BY aggregation |
+
+**Optimization Tips:**
+- Always enable WAL mode for concurrent read performance
+- Use in-memory `:memory:` databases for testing
+- Create indexes on frequently-filtered columns
+- Use `tv_*` (materialized views) for frequently-accessed complex objects
+
+## See Also
+
+<CardGrid>
+  <Card title="Database Overview" icon="seti:db">
+    [Compare all supported databases](/databases/)
+  </Card>
+  <Card title="PostgreSQL Guide" icon="seti:db">
+    [Migrate to PostgreSQL for production](/databases/postgresql)
+  </Card>
+  <Card title="SQLite Troubleshooting" icon="warning">
+    [SQLite-specific troubleshooting](/troubleshooting/by-database/sqlite)
+  </Card>
+</CardGrid>

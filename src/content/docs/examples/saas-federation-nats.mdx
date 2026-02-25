@@ -1,0 +1,431 @@
+---
+title: Multi-Tenant SaaS with Federation & NATS
+description: Complete real-world example combining federation, NATS events, and custom resolvers
+---
+
+import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
+
+A complete multi-tenant SaaS application combining federation, NATS messaging, and custom resolvers for a production-ready system.
+
+## Architecture Overview
+
+```
+Tenant A ──┐
+           ├─► API Gateway (Auth + RBAC)
+Tenant B ──┘         |
+                      |
+          +-----------+-----------+
+          |           |           |
+     Tenant DB A  Tenant DB B  Master DB
+          |                       |
+          +──── NATS Events ──────+
+                      |
+               Analytics DB
+```
+
+## Configuration
+
+### fraiseql.toml
+
+```toml
+[multi_tenancy]
+enabled = true
+strategy = "database_per_tenant"
+auth_header = "X-Tenant-ID"
+
+# Tenant database pool
+[databases.tenant]
+type = "postgresql"
+pool_max = 20
+
+# Shared services
+[databases.shared]
+type = "postgresql"
+url = "${SHARED_DB_URL}"
+pool_max = 10
+
+[nats]
+enabled = true
+servers = ["nats://localhost:4222"]
+jetstream_enabled = true
+
+[nats.publishing]
+auto_publish = true
+batch_size = 50
+batch_timeout = 1000
+```
+
+## Database Schema
+
+```sql
+-- Tenant databases (one per tenant)
+CREATE TABLE tb_organization (
+    pk_org      SERIAL PRIMARY KEY,
+    id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier  TEXT NOT NULL UNIQUE,
+    tenant_id   UUID NOT NULL,
+    name        TEXT NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    subscription_tier TEXT NOT NULL DEFAULT 'free'
+);
+
+CREATE TABLE tb_member (
+    pk_member  SERIAL PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT NOT NULL UNIQUE,
+    fk_org     INTEGER NOT NULL REFERENCES tb_organization(pk_org),
+    name       TEXT NOT NULL,
+    email      TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE tb_project (
+    pk_project SERIAL PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT NOT NULL UNIQUE,
+    tenant_id  UUID NOT NULL,
+    fk_org     INTEGER NOT NULL REFERENCES tb_organization(pk_org),
+    name       TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE tb_task (
+    pk_task    SERIAL PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT NOT NULL UNIQUE,
+    fk_project INTEGER NOT NULL REFERENCES tb_project(pk_project),
+    title      TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'todo',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Views with JSONB data column
+CREATE VIEW v_organization AS
+SELECT
+    o.id,
+    o.identifier,
+    jsonb_build_object(
+        'id',                o.id::text,
+        'identifier',        o.identifier,
+        'name',              o.name,
+        'subscription_tier', o.subscription_tier,
+        'created_at',        o.created_at
+    ) AS data,
+    o.tenant_id,
+    o.pk_org
+FROM tb_organization o;
+
+CREATE VIEW v_project AS
+SELECT
+    p.id,
+    p.identifier,
+    jsonb_build_object(
+        'id',         p.id::text,
+        'identifier', p.identifier,
+        'name',       p.name,
+        'org_id',     o.id::text,
+        'created_at', p.created_at
+    ) AS data,
+    p.tenant_id,
+    p.fk_org
+FROM tb_project p
+JOIN tb_organization o ON o.pk_org = p.fk_org;
+```
+
+## Python Schema
+
+```python
+import fraiseql
+from fraiseql.scalars import ID
+from fraiseql import TenantContext
+from datetime import datetime
+
+
+@fraiseql.type(database="tenant")
+class Organization:
+    """Tenant-specific organization."""
+    id: ID
+    name: str
+    created_at: datetime
+    subscription_tier: str
+
+    @fraiseql.field_resolver
+    async def member_count(self, ctx: TenantContext) -> int:
+        """Count organization members."""
+        result = await ctx.db.query_one(
+            """
+            SELECT COUNT(*) as count
+            FROM tb_member
+            WHERE fk_org = (SELECT pk_org FROM tb_organization WHERE id = $1)
+            """,
+            [self.id]
+        )
+        return result.get("count", 0)
+
+
+@fraiseql.type(database="tenant")
+class Project:
+    """Tenant-specific project."""
+    id: ID
+    name: str
+    created_at: datetime
+
+    # Multi-database federation
+    organization: Organization = fraiseql.federated(
+        database="tenant",
+        lookup="fk_org"
+    )
+
+    @fraiseql.field_resolver
+    async def task_count(self, ctx: TenantContext) -> int:
+        """Count tasks in project."""
+        result = await ctx.db.query_one(
+            """
+            SELECT COUNT(*) as count
+            FROM tb_task
+            WHERE fk_project = (SELECT pk_project FROM tb_project WHERE id = $1)
+            """,
+            [self.id]
+        )
+        return result["count"]
+
+
+# Root queries
+@fraiseql.query(sql_source="v_organization")
+async def organizations(limit: int = 50) -> list[Organization]:
+    """
+    Get all organizations for tenant.
+    Automatically filtered by tenant_id from context (RLS).
+    """
+    pass
+
+@fraiseql.query(sql_source="v_project")
+async def projects_by_org(org_id: ID) -> list[Project]:
+    """Get projects for organization (with RLS)."""
+    pass
+
+
+# Mutations
+@fraiseql.mutation(operation="CREATE")
+async def create_project(
+    ctx: TenantContext,
+    org_id: ID,
+    name: str
+) -> Project:
+    """Create project and emit event."""
+    # Verify ownership (RLS ensures tenant isolation)
+    org = await ctx.db.query_one(
+        """
+        SELECT pk_org FROM tb_organization
+        WHERE id = $1 AND tenant_id = $2
+        """,
+        [org_id, ctx.tenant_id]
+    )
+    if not org:
+        raise Exception("Organization not found")
+
+    project = await ctx.db.query_one(
+        """
+        INSERT INTO tb_project (tenant_id, fk_org, name, identifier)
+        VALUES ($1, $2, $3, lower(regexp_replace($3, '[^a-zA-Z0-9]+', '-', 'g')))
+        RETURNING id, identifier, name, created_at
+        """,
+        [ctx.tenant_id, org['pk_org'], name]
+    )
+
+    return Project(**project)
+
+
+# Observers for event-driven features
+@fraiseql.observer(
+    entity="Project",
+    event="CREATE",
+    database="tenant"
+)
+async def on_project_created_event(project: Project, ctx: TenantContext):
+    """
+    React to project creation:
+    - Notify shared analytics
+    - Update usage metrics
+    """
+    await fraiseql.nats.publish(
+        subject="analytics.project_created",
+        data={
+            "tenant_id": str(ctx.tenant_id),
+            "project_id": str(project.id),
+            "timestamp": datetime.now().isoformat()
+        }
+    )
+
+@fraiseql.nats.subscribe(
+    subject="analytics.>",
+    consumer_group="analytics_sync"
+)
+async def sync_analytics(message):
+    """Sync analytics events to shared database."""
+    data = message.data
+    await ctx.db.execute(
+        """
+        INSERT INTO tb_analytics_event (event_type, tenant_id, data, recorded_at)
+        VALUES ($1, $2, $3::jsonb, NOW())
+        """,
+        [data["event_type"], data["tenant_id"], json.dumps(data)]
+    )
+    await message.ack()
+```
+
+## Deployment Considerations
+
+### Database Isolation
+
+```sql
+-- For each tenant, create isolated database
+CREATE DATABASE tenant_acme_corp;
+CREATE USER tenant_acme_corp WITH PASSWORD '...';
+GRANT CONNECT ON DATABASE tenant_acme_corp TO tenant_acme_corp;
+
+-- Enable RLS for extra safety
+ALTER TABLE tb_organization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tb_project ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON tb_organization
+USING (tenant_id = current_setting('app.tenant_id')::uuid);
+
+CREATE POLICY project_tenant_isolation ON tb_project
+USING (tenant_id = current_setting('app.tenant_id')::uuid);
+```
+
+### Performance Optimization
+
+```python
+# Cache tenant configurations
+@fraiseql.query(sql_source="v_tenant_config", cache_ttl=3600)
+async def tenant_config(ctx: TenantContext) -> dict:
+    """Frequently accessed configuration."""
+    pass
+
+# Batch operations for multi-tenant deployments
+@fraiseql.mutation(operation="CREATE")
+async def bulk_create_projects(
+    ctx: TenantContext,
+    org_id: ID,
+    names: list[str]
+) -> list[Project]:
+    """Batch create projects efficiently."""
+    org = await ctx.db.query_one(
+        "SELECT pk_org FROM tb_organization WHERE id = $1 AND tenant_id = $2",
+        [org_id, ctx.tenant_id]
+    )
+    if not org:
+        raise Exception("Organization not found")
+
+    projects = []
+    for name in names:
+        project = await ctx.db.query_one(
+            """
+            INSERT INTO tb_project (tenant_id, fk_org, name, identifier)
+            VALUES ($1, $2, $3, lower(regexp_replace($3, '[^a-zA-Z0-9]+', '-', 'g')))
+            RETURNING id, identifier, name, created_at
+            """,
+            [ctx.tenant_id, org['pk_org'], name]
+        )
+        projects.append(Project(**project))
+
+    return projects
+```
+
+## Testing
+
+```python
+import pytest
+from fraiseql.testing import FraiseQLTestClient
+
+@pytest.fixture
+async def client():
+    return await FraiseQLTestClient.create(
+        config="fraiseql.test.toml"
+    )
+
+@pytest.mark.asyncio
+async def test_tenant_isolation(client):
+    """Verify tenants cannot access each other's data."""
+    # Create as tenant A
+    client.set_tenant("tenant-a")
+    org_a = await client.execute("""
+        mutation {
+            createOrganization(name: "Org A") { id }
+        }
+    """)
+
+    # Try to access as tenant B
+    client.set_tenant("tenant-b")
+    result = await client.execute(f"""
+        query {{
+            organization(id: "{org_a['data']['createOrganization']['id']}") {{
+                name
+            }}
+        }}
+    """)
+
+    # Should return null due to RLS
+    assert result["data"]["organization"] is None
+
+@pytest.mark.asyncio
+async def test_nats_event_publishing(client):
+    """Verify events are published on mutations."""
+    client.set_tenant("tenant-a")
+
+    project = await client.execute("""
+        mutation {
+            createProject(orgId: "org-1", name: "Test") { id }
+        }
+    """)
+
+    # Give NATS time to process
+    await asyncio.sleep(0.5)
+
+    # Verify event was published
+    events = await get_published_events("analytics.project_created")
+    assert len(events) >= 1
+```
+
+## Monitoring
+
+```python
+# Track per-tenant metrics (Prometheus labels)
+fraiseql_tenant_requests_total{tenant_id="acme_corp", endpoint="/graphql"}
+fraiseql_tenant_latency_seconds{tenant_id="acme_corp", operation="query"}
+fraiseql_tenant_errors_total{tenant_id="acme_corp", error_type="validation"}
+
+# Monitor event processing
+fraiseql_nats_events_processed{tenant_id="acme_corp", event_type="project_created"}
+fraiseql_nats_consumer_lag{consumer="analytics_sync"}
+```
+
+## Production Checklist
+
+- [ ] Database per tenant created and configured
+- [ ] RLS policies enabled on all tables
+- [ ] NATS cluster deployed and replicated
+- [ ] Consumer groups configured for reliability
+- [ ] Monitoring and alerting configured
+- [ ] Backup strategy for each tenant DB
+- [ ] Failover procedures documented
+- [ ] Load testing completed
+- [ ] Security audit passed
+- [ ] Documentation updated
+
+<CardGrid>
+  <Card title="Advanced Federation" icon="seti:db">
+    Deep dive on federation patterns.
+  </Card>
+  <Card title="Advanced NATS" icon="random">
+    Event streaming advanced patterns.
+  </Card>
+  <Card title="Custom Resolvers" icon="puzzle">
+    Business logic integration.
+  </Card>
+  <Card title="Multi-Tenancy Guide" icon="document">
+    RLS and tenant isolation strategies.
+  </Card>
+</CardGrid>

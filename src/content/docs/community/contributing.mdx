@@ -1,0 +1,379 @@
+---
+title: Contributing Guide
+description: Contribute to FraiseQL documentation, code, or translations
+---
+
+import { Steps, Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+We welcome contributions! This guide explains how to help improve FraiseQL.
+
+## Ways to Contribute
+
+### 1. Improve Documentation
+
+Documentation is critical for adoption. Help by:
+
+- **Fix typos and grammar**: Submit a PR with corrections
+- **Clarify explanations**: Rephrase unclear sections
+- **Add examples**: Contribute real-world examples
+- **Add translations**: Translate docs to other languages
+- **Report issues**: Point out confusing parts
+
+**How to contribute docs**:
+
+<Steps>
+
+1. Fork and clone the repository:
+
+   ```bash
+   git clone https://github.com/yourusername/fraiseql.git
+   cd fraiseql
+   ```
+
+2. Edit documentation files in `src/content/docs/` (`.mdx` files).
+
+3. Preview locally:
+
+   ```bash
+   npm install
+   npm run dev
+   # Visit http://localhost:3000 to see changes
+   ```
+
+4. Commit and push:
+
+   ```bash
+   git add .
+   git commit -m "docs: clarify error handling explanation"
+   git push origin main
+   ```
+
+5. Create a Pull Request at: https://github.com/fraiseql/fraiseql/compare
+
+</Steps>
+
+### 2. Report Issues
+
+Found a bug or confusing behavior?
+
+**Before reporting**, check:
+- [GitHub Issues](https://github.com/fraiseql/fraiseql/issues) — already reported?
+- [Troubleshooting Guide](/troubleshooting) — has a solution?
+
+**Report an issue** with:
+
+```
+Title: Brief description of issue
+
+Environment:
+- FraiseQL version: 2.0.0
+- Python version: 3.12
+- Database: PostgreSQL 16
+- Deployment: Docker
+
+Steps to Reproduce:
+1. Create a type with X
+2. Query with Y
+3. See error
+
+Expected Behavior:
+Should return Z
+
+Actual Behavior:
+Returns error message
+```
+
+### 3. Suggest Features
+
+Have an idea to improve FraiseQL?
+
+<Aside type="tip">
+Post in [GitHub Discussions](https://github.com/fraiseql/fraiseql/discussions) **before** implementing. This gets feedback on design, ensures alignment with the project direction, and prevents duplicate efforts.
+</Aside>
+
+### 4. Write Example Applications
+
+Real-world examples help users learn.
+
+**Example repository structure:**
+
+```
+/your-example
+  ├── README.md           (description, setup instructions)
+  ├── schema.py           (FraiseQL schema code)
+  ├── docker-compose.yml
+  ├── tests/
+  ├── frontend/           (optional: web UI)
+  └── deploy/             (optional: Kubernetes manifests)
+```
+
+Submit a PR to the examples repository with a link to your repo.
+
+### 5. Contribute Code (Advanced)
+
+**Setup development environment**:
+
+<Steps>
+
+1. Clone and install in development mode:
+
+   ```bash
+   git clone https://github.com/fraiseql/fraiseql.git
+   cd fraiseql
+   python -m venv venv
+   source venv/bin/activate
+   pip install -e ".[dev]"
+   ```
+
+2. Run tests:
+
+   ```bash
+   pytest tests/
+   ```
+
+3. Check code quality:
+
+   ```bash
+   ruff check --fix
+   ruff format
+   ```
+
+4. Build docs:
+
+   ```bash
+   npm run build
+   ```
+
+</Steps>
+
+**Code style:**
+- Python: PEP 8, type hints required
+- Docstrings: Google style
+- Tests: pytest, aim for 80%+ coverage
+- Commit messages: `feat:`, `fix:`, `docs:`, `test:` prefixes
+
+**Submit code PR:**
+
+```bash
+# Create feature branch
+git checkout -b feature/amazing-feature
+
+# Make changes, add tests and documentation
+
+# Verify quality
+pytest tests/
+ruff check --fix
+
+# Commit with clear message
+git commit -m "feat: add support for X
+
+Add comprehensive support for X feature, including:
+- Core functionality
+- Unit tests
+- Documentation
+
+Fixes #123"
+
+# Push and create PR
+git push origin feature/amazing-feature
+```
+
+### 6. Answer Community Questions
+
+Help others on:
+- **Discord**: [Join channel](https://discord.gg/fraiseql)
+- **GitHub Discussions**: [Answer in Discussions](https://github.com/fraiseql/fraiseql/discussions)
+- **Stack Overflow**: Tag: `fraiseql`
+
+### 7. Translate Documentation
+
+Make FraiseQL accessible to non-English speakers.
+
+**Supported languages:** Spanish, French, German, Japanese, Chinese Simplified, Chinese Traditional.
+
+```bash
+# Create language directory
+mkdir -p src/content/docs/es
+
+# Copy docs structure
+cp -r src/content/docs/getting-started src/content/docs/es/
+
+# Translate files (English -> your language)
+# Preserve frontmatter (---...---)
+# Translate only content
+```
+
+---
+
+## Documentation Style Guide
+
+### File Structure
+
+```
+/src/content/docs
+├── getting-started/     # Quick intro section
+├── concepts/            # Architecture & design
+├── guides/              # Practical how-tos
+├── features/            # Feature documentation
+├── reference/           # API reference
+├── deployment/          # Deployment guides
+├── troubleshooting/     # Common problems & solutions
+└── sdk/                 # Schema authoring SDKs
+```
+
+### Frontmatter (Required)
+
+```
+---
+title: Page Title
+description: Brief one-sentence description
+---
+```
+
+### Formatting
+
+```markdown
+# H1: Main topic (use once per page, or omit — Starlight injects the title)
+
+## H2: Major sections
+
+### H3: Subsections
+
+#### H4: Details
+```
+
+**Callouts for important info** — use Starlight Aside components:
+
+```mdx
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip">This is a tip.</Aside>
+<Aside type="note">This is a note.</Aside>
+<Aside type="caution">This is a warning.</Aside>
+```
+
+---
+
+## Pull Request Process
+
+### Before Submitting
+
+1. Review existing PRs to avoid duplicate work
+2. Run formatters and linters
+3. Add tests for code changes
+4. Update docs for feature changes
+5. Test locally
+
+### PR Template
+
+```markdown
+## Description
+Brief description of changes
+
+## Type of change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Documentation
+- [ ] Performance improvement
+
+## Related Issues
+Fixes #123
+
+## Testing
+How to verify the fix:
+1. Step 1
+2. Step 2
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] Comments added for complex logic
+- [ ] Tests added/updated
+- [ ] Documentation updated
+- [ ] No breaking changes
+```
+
+### Review Process
+
+Maintainers will:
+1. Review code/docs quality
+2. Check for breaking changes
+3. Suggest improvements
+4. Request changes if needed
+
+Address feedback professionally. All contributions are valued!
+
+---
+
+## Code Review Standards
+
+When reviewing others' contributions:
+
+**Be constructive:**
+- "Consider using X here because..." (not "That's wrong")
+- Suggest improvements with reasoning
+- Acknowledge good work
+
+**Be timely:**
+- Respond within 2 days
+- Focus on functionality and design, not style nitpicks
+
+**Don't be dismissive:**
+- All contributions are valuable
+- Thank people for their effort
+- Explain decisions
+
+---
+
+## Getting Help
+
+**Discord**: [Join FraiseQL Discord](https://discord.gg/fraiseql) — real-time chat, quick questions
+
+**GitHub Discussions**: [Discussions tab](https://github.com/fraiseql/fraiseql/discussions) — feature ideas, design discussions
+
+**GitHub Issues**: [Issues tab](https://github.com/fraiseql/fraiseql/issues) — bug reports
+
+**Email**: [support@fraiseql.dev](mailto:support@fraiseql.dev) — commercial support, private questions
+
+### Finding Tasks
+
+Look for issues labeled:
+- `good first issue` — Start here!
+- `help wanted` — Contributors needed
+- `documentation` — Docs improvement
+
+---
+
+## Recognition
+
+We recognize contributions in:
+- **README**: List of contributors
+- **CHANGELOG**: Major feature credits
+- **Discord**: Contributor role
+- **GitHub**: Contribution history
+
+---
+
+## Common Questions
+
+**Q: Do I need to sign a CLA?**
+A: No, we don't require a Contributor License Agreement.
+
+**Q: Can I get paid to contribute?**
+A: We can discuss sponsorships for substantial work. Email [support@fraiseql.dev](mailto:support@fraiseql.dev)
+
+**Q: How long until my PR is reviewed?**
+A: Typically 2-5 days. High-priority issues reviewed faster.
+
+**Q: My PR was rejected. Can I resubmit?**
+A: Yes! Address feedback and resubmit. We want to help you succeed.
+
+---
+
+<CardGrid>
+  <Card title="Code of Conduct" icon="approve-check-circle">
+    [Community standards and expectations](/community/code-of-conduct)
+  </Card>
+  <Card title="Getting Support" icon="question">
+    [Find help and community channels](/community/support)
+  </Card>
+</CardGrid>

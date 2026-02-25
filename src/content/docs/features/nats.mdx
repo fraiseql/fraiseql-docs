@@ -1,0 +1,489 @@
+---
+title: NATS Integration
+description: Real-time messaging with NATS and JetStream
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL integrates with NATS for real-time messaging, enabling GraphQL subscriptions, event streaming, and distributed communication.
+
+## Overview
+
+NATS integration provides:
+- **GraphQL Subscriptions**: Real-time updates to clients
+- **Event Streaming**: Publish database changes to message streams
+- **Request-Reply**: Synchronous messaging patterns
+- **JetStream**: Persistent message streams with replay
+
+## Configuration
+
+### Basic Setup
+
+```toml
+[nats]
+enabled = true
+url = "${NATS_URL}"
+prefix = "fraiseql"
+
+[nats.auth]
+type = "token"
+token = "${NATS_TOKEN}"
+```
+
+### JetStream
+
+```toml
+[nats.jetstream]
+enabled = true
+stream = "fraiseql-events"
+subjects = ["fraiseql.>"]
+retention = "limits"
+max_msgs = 1000000
+max_bytes = 1073741824  # 1GB
+```
+
+### Cluster Configuration
+
+```toml
+[nats]
+urls = [
+    "nats://node1:4222",
+    "nats://node2:4222",
+    "nats://node3:4222"
+]
+```
+
+## GraphQL Subscriptions
+
+### Defining Subscriptions
+
+```python
+import fraiseql
+from fraiseql.scalars import ID
+
+@fraiseql.type
+class Order:
+    id: ID
+    status: str
+    total: Decimal
+    customer_id: ID
+
+@fraiseql.subscription(entity_type="Order", topic="order_created")
+def order_created(customer_id: ID | None = None) -> Order:
+    """
+    Subscribe to new orders.
+    Optionally filter by customer.
+    """
+    pass
+
+@fraiseql.subscription(entity_type="Order", operation="UPDATE")
+def order_updated(order_id: ID | None = None) -> Order:
+    """Subscribe to order updates."""
+    pass
+```
+
+### Client Usage
+
+```graphql
+subscription {
+    orderCreated(customerId: "...") {
+        id
+        status
+        total
+    }
+}
+```
+
+### Filtering Subscriptions
+
+```python
+@fraiseql.subscription(
+    entity_type="Order",
+    topic="order_status_changed",
+    filter="status == 'shipped'"
+)
+def order_shipped() -> Order:
+    """Only receive shipped orders."""
+    pass
+```
+
+## Publishing Events
+
+### Automatic CDC Publishing
+
+Database changes automatically publish to NATS:
+
+```toml
+[nats.cdc]
+enabled = true
+tables = ["tb_user", "tb_order", "tb_post"]
+```
+
+Events published:
+- `fraiseql.user.created`
+- `fraiseql.user.updated`
+- `fraiseql.user.deleted`
+- `fraiseql.order.created`
+- etc.
+
+### Custom Event Publishing
+
+```python
+from fraiseql import publish
+
+@fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
+def create_order(customer_id: ID, items: list[OrderItemInput]) -> Order:
+    pass
+
+# Custom event after mutation
+@fraiseql.after_mutation("create_order")
+async def after_create_order(order: Order):
+    await publish(
+        subject="orders.high_value",
+        data={"order_id": order.id, "total": order.total}
+    )
+```
+
+### Event Schema
+
+```json
+{
+    "type": "order.created",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "data": {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "status": "pending",
+        "total": "1234.56",
+        "customer_id": "..."
+    },
+    "metadata": {
+        "correlation_id": "...",
+        "source": "fraiseql"
+    }
+}
+```
+
+## JetStream Features
+
+### Persistent Streams
+
+```toml
+[nats.jetstream.streams.orders]
+subjects = ["fraiseql.order.>"]
+retention = "limits"
+max_msgs = 100000
+max_age = "168h"  # 7 days
+```
+
+### Consumers
+
+```toml
+[nats.jetstream.consumers.order-processor]
+stream = "orders"
+durable_name = "order-processor"
+deliver_policy = "all"
+ack_policy = "explicit"
+max_deliver = 3
+```
+
+### Replay
+
+Clients can replay historical events:
+
+```python
+@fraiseql.subscription(
+    entity_type="Order",
+    topic="order_created",
+    replay=True,
+    replay_from="2024-01-01T00:00:00Z"
+)
+def order_history() -> Order:
+    """Replay all orders from the start of the year."""
+    pass
+```
+
+## Request-Reply
+
+### Synchronous Queries
+
+```python
+from fraiseql import request
+
+async def get_user_permissions(user_id: str) -> dict:
+    """Request permissions from auth service."""
+    response = await request(
+        subject="auth.permissions",
+        data={"user_id": user_id},
+        timeout=5000  # ms
+    )
+    return response
+```
+
+### Service Registration
+
+```python
+from fraiseql import service
+
+@service("inventory.check")
+async def check_inventory(product_id: str, quantity: int) -> dict:
+    """Handle inventory check requests."""
+    available = await check_stock(product_id)
+    return {
+        "product_id": product_id,
+        "requested": quantity,
+        "available": available,
+        "can_fulfill": available >= quantity
+    }
+```
+
+## Event-Driven Workflows
+
+### Order Processing Pipeline
+
+```python
+# Observer triggers NATS event
+@observer(
+    entity="Order",
+    event="INSERT",
+    actions=[
+        publish_nats("orders.new", body="{_json}")
+    ]
+)
+def on_new_order():
+    pass
+
+# Separate service consumes event
+@subscribe("orders.new")
+async def process_new_order(event):
+    order = event.data
+    await validate_inventory(order.items)
+    await calculate_shipping(order)
+    await notify_warehouse(order)
+```
+
+### Saga Coordination
+
+```python
+from fraiseql import saga, nats_step
+
+@saga(name="create_order")
+async def create_order_saga(order_data):
+    # Step 1: Create order
+    order = await nats_step(
+        "orders.create",
+        data=order_data,
+        compensate="orders.cancel"
+    )
+
+    # Step 2: Reserve inventory
+    reservation = await nats_step(
+        "inventory.reserve",
+        data={"order_id": order.id, "items": order.items},
+        compensate="inventory.release"
+    )
+
+    # Step 3: Process payment
+    payment = await nats_step(
+        "payments.process",
+        data={"order_id": order.id, "amount": order.total}
+    )
+
+    return order
+```
+
+## Scaling
+
+### Partitioning
+
+```toml
+[nats.partitions]
+enabled = true
+key = "customer_id"
+count = 8
+```
+
+Messages for the same customer go to the same partition:
+
+```
+fraiseql.order.created.0  # Partition 0
+fraiseql.order.created.1  # Partition 1
+...
+fraiseql.order.created.7  # Partition 7
+```
+
+### Queue Groups
+
+Multiple consumers share load:
+
+```toml
+[nats.jetstream.consumers.order-processor]
+queue_group = "order-processors"
+```
+
+## Monitoring
+
+### NATS Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `fraiseql_nats_messages_published` | Messages published |
+| `fraiseql_nats_messages_received` | Messages received |
+| `fraiseql_nats_subscriptions_active` | Active subscriptions |
+| `fraiseql_nats_jetstream_pending` | Pending messages in stream |
+| `fraiseql_nats_request_latency` | Request-reply latency |
+
+### Connection Health
+
+```bash
+# Check NATS connection
+fraiseql health --nats
+
+# Output:
+# NATS: connected
+# JetStream: enabled
+# Streams: 3
+# Consumers: 5
+# Pending messages: 127
+```
+
+## Security
+
+### TLS
+
+```toml
+[nats.tls]
+enabled = true
+cert_file = "/path/to/cert.pem"
+key_file = "/path/to/key.pem"
+ca_file = "/path/to/ca.pem"
+```
+
+### Authorization
+
+```toml
+[nats.auth]
+type = "nkey"
+nkey = "${NATS_NKEY}"
+
+# Or JWT
+[nats.auth]
+type = "jwt"
+jwt = "${NATS_JWT}"
+nkey = "${NATS_NKEY}"
+```
+
+### Subject Permissions
+
+Configure in NATS server:
+
+```toml
+# Allow FraiseQL to publish/subscribe
+users = [
+    {
+        user: fraiseql
+        permissions: {
+            publish: ["fraiseql.>"]
+            subscribe: ["fraiseql.>", "_INBOX.>"]
+        }
+    }
+]
+```
+
+## Error Handling
+
+### Dead Letter Queue
+
+```toml
+[nats.jetstream.dlq]
+enabled = true
+subject = "fraiseql.dlq"
+max_deliver = 3
+```
+
+Failed messages after max retries go to DLQ:
+
+```python
+@subscribe("fraiseql.dlq")
+async def handle_dead_letter(event):
+    logger.error(f"Dead letter: {event}")
+    await alert_ops(event)
+```
+
+### Retry Configuration
+
+```toml
+[nats.retry]
+max_attempts = 3
+backoff = "exponential"
+initial_delay = 100  # ms
+max_delay = 10000    # ms
+```
+
+## Best Practices
+
+### Use JetStream for Reliability
+
+```python
+# Persistent stream for critical events
+@fraiseql.subscription(
+    entity_type="Payment",
+    topic="payment.processed",
+    jetstream=True,
+    ack_wait="30s"
+)
+def payment_processed() -> Payment:
+    pass
+```
+
+### Keep Events Small
+
+```python
+# Good: Minimal event data
+await publish("order.created", {
+    "order_id": order.id,
+    "customer_id": order.customer_id
+})
+
+# Avoid: Large payloads
+await publish("order.created", {
+    "order": full_order_object,
+    "customer": full_customer_object,
+    "items": all_items_with_details
+})
+```
+
+### Idempotent Handlers
+
+```python
+@subscribe("orders.process")
+async def process_order(event):
+    order_id = event.data["order_id"]
+
+    # Idempotency check
+    if await is_already_processed(order_id):
+        return
+
+    # Process order
+    await do_process_order(order_id)
+
+    # Mark as processed
+    await mark_processed(order_id)
+```
+
+<Aside type="tip">
+Always design event handlers to be idempotent. NATS JetStream guarantees at-least-once delivery, so duplicate messages are possible during failure recovery.
+</Aside>
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Subscriptions" icon="random">
+    [Subscriptions](/features/subscriptions) — GraphQL subscriptions in depth
+  </Card>
+  <Card title="Observers" icon="document">
+    [Observers](/concepts/observers) — Event-driven logic
+  </Card>
+  <Card title="Federation" icon="setting">
+    [Federation](/features/federation) — Cross-service communication
+  </Card>
+</CardGrid>

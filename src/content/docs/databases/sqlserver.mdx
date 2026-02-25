@@ -1,0 +1,420 @@
+---
+title: SQL Server Guide for FraiseQL
+description: SQL Server implementation guide for FraiseQL with Trinity pattern, FOR JSON projections, indexed views, and enterprise HA features
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+## Introduction
+
+SQL Server is an **excellent choice for FraiseQL** in enterprise Windows/Azure environments:
+
+- **~18 WHERE Operators**: Suitable for complex GraphQL input types
+- **FOR JSON PATH**: Native JSON generation matching GraphQL schema
+- **Indexed Views**: Materialized views with automatic maintenance (unique to SQL Server)
+- **Always On Availability Groups**: Built-in HA/DR without additional tools
+- **Transparent Data Encryption**: Enterprise security at database level
+- **Row-Level Security**: Column and row filtering for multi-tenancy
+- **Azure SQL**: Seamless cloud deployment with managed backup/HA
+- **Strong Windows Integration**: Active Directory, Azure AD authentication
+
+FraiseQL works perfectly on SQL Server; schema and patterns mirror PostgreSQL/MySQL, with enterprise-specific optimizations.
+
+## Core Architecture
+
+### Single JSON Data Column Pattern
+
+Like all FraiseQL databases, views expose entities as **single JSON columns** named `data`:
+
+```sql
+-- Every v_* view returns:
+-- 1. Metadata columns (id, tenant_id, organization_id, etc.)
+-- 2. Single JSON column named 'data' containing complete entity
+
+SELECT
+  id,
+  tenant_id,
+  organization_id,
+  is_current,
+  data
+FROM v_user
+WHERE id = @user_id;
+```
+
+**Why?** The FraiseQL Rust server receives the complete entity as a single JSON payload, no assembly needed.
+
+### Trinity Pattern: UNIQUEIDENTIFIER + BIGINT PKs
+
+FraiseQL uses dual identifiers:
+
+```sql
+CREATE TABLE dbo.tb_user (
+  pk_user BIGINT PRIMARY KEY IDENTITY(1,1),                    -- Internal, fast FKs
+  id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(), -- Public UUID
+  email NVARCHAR(255) NOT NULL UNIQUE,
+  name NVARCHAR(255) NOT NULL,
+  deleted_at DATETIMEOFFSET NULL,
+  created_at DATETIMEOFFSET DEFAULT GETUTCDATE(),
+  updated_at DATETIMEOFFSET DEFAULT GETUTCDATE()
+);
+
+CREATE TABLE dbo.tb_post (
+  pk_post BIGINT PRIMARY KEY IDENTITY(1,1),
+  id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),
+  fk_user BIGINT NOT NULL REFERENCES dbo.tb_user(pk_user) ON DELETE CASCADE,
+  title NVARCHAR(255) NOT NULL,
+  deleted_at DATETIMEOFFSET NULL,
+  created_at DATETIMEOFFSET DEFAULT GETUTCDATE()
+);
+```
+
+**Why?**
+- `id` (UNIQUEIDENTIFIER): UUID exposed in GraphQL, immutable across systems
+- `pk_*` (BIGINT): Fast joins, small FK storage, internal only
+- `NEWSEQUENTIALID()`: Sequential UUIDs avoid index fragmentation
+
+### Resolver Functions
+
+Every table has UUID to INTEGER resolver functions:
+
+```sql
+-- File: 02001_resolver_functions.sql
+CREATE FUNCTION dbo.core_get_pk_user(@user_id UNIQUEIDENTIFIER)
+RETURNS BIGINT AS
+BEGIN
+  RETURN (SELECT pk_user FROM dbo.tb_user WHERE id = @user_id);
+END;
+
+CREATE FUNCTION dbo.core_get_user_id(@pk_user BIGINT)
+RETURNS UNIQUEIDENTIFIER AS
+BEGIN
+  RETURN (SELECT id FROM dbo.tb_user WHERE pk_user = @pk_user);
+END;
+```
+
+## Mutation Response Type
+
+SQL Server stored procedures return JSON results:
+
+```json
+{
+  "status": "success:created",
+  "message": "User created successfully",
+  "entity_id": "550e8400-e29b-41d4-a716-446655440000",
+  "entity_type": "User",
+  "entity": { "id": "...", "email": "john@example.com", "name": "John Doe" },
+  "updated_fields": ["email", "name"],
+  "cascade": { "updated": [] },
+  "metadata": { "operation": "INSERT", "tenant_id": "...", "timestamp": "2024-02-08T10:30:00Z" }
+}
+```
+
+## View Structure: v_* (Regular Views)
+
+Views are the **source truth** for read operations:
+
+```sql
+-- File: 02411_v_user.sql
+CREATE OR ALTER VIEW dbo.v_user AS
+SELECT
+  u.id,
+  u.organization_id,
+  u.tenant_id,
+  CASE WHEN u.deleted_at IS NULL THEN 1 ELSE 0 END AS is_current,
+  (SELECT
+    u.id AS id,
+    u.email AS email,
+    u.name AS name,
+    u.status AS status,
+    u.created_at AS created_at
+  FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS data
+FROM dbo.tb_user u
+WHERE u.deleted_at IS NULL;
+```
+
+<Aside type="note">
+SQL Server uses `FOR JSON PATH, WITHOUT_ARRAY_WRAPPER` to generate JSON objects from rows. This is equivalent to PostgreSQL's `jsonb_build_object()`.
+</Aside>
+
+### Nested Views (One-to-Many Relationships)
+
+```sql
+-- File: 02412_v_user_with_posts.sql
+CREATE OR ALTER VIEW dbo.v_user_with_posts AS
+SELECT
+  u.id,
+  u.organization_id,
+  u.tenant_id,
+  u.is_current,
+  (SELECT
+    u.id AS id,
+    u.email AS email,
+    u.name AS name,
+    (SELECT
+      p.id AS id,
+      p.title AS title,
+      p.status AS status
+    FROM dbo.tb_post p
+    WHERE p.fk_user = u.pk_user AND p.deleted_at IS NULL
+    FOR JSON PATH) AS posts
+  FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS data
+FROM dbo.v_user u;
+```
+
+<Aside type="note">
+SQL Server `FOR JSON PATH` returns `NULL` for empty subqueries rather than `[]`. Handle this in your application layer or use `COALESCE((...FOR JSON PATH), '[]')`.
+</Aside>
+
+## Indexed Views: tv_* (Materialized Projections)
+
+SQL Server's **indexed views** are the equivalent of materialized views — they are maintained automatically by the database engine:
+
+```sql
+-- File: 02414_tv_user.sql
+-- Standard table-backed projection (like other databases)
+CREATE TABLE dbo.tv_user (
+  id UNIQUEIDENTIFIER PRIMARY KEY,
+  organization_id UNIQUEIDENTIFIER NOT NULL,
+  tenant_id UNIQUEIDENTIFIER NOT NULL,
+  is_current BIT DEFAULT 1,
+  data NVARCHAR(MAX) NOT NULL,  -- JSON stored as NVARCHAR
+  updated_at DATETIMEOFFSET DEFAULT GETUTCDATE(),
+  last_synced_at DATETIMEOFFSET NULL,
+  sync_count BIGINT DEFAULT 0,
+  is_stale BIT DEFAULT 0
+);
+
+CREATE INDEX idx_tv_user_organization ON dbo.tv_user(organization_id);
+CREATE INDEX idx_tv_user_is_current ON dbo.tv_user(is_current);
+```
+
+**Refresh stored procedure:**
+
+```sql
+CREATE OR ALTER PROCEDURE dbo.core_refresh_user
+  @user_id UNIQUEIDENTIFIER
+AS
+BEGIN
+  DECLARE @new_data NVARCHAR(MAX);
+  SELECT @new_data = data FROM dbo.v_user_with_posts WHERE id = @user_id;
+
+  IF @new_data IS NOT NULL
+  BEGIN
+    MERGE dbo.tv_user AS target
+    USING (SELECT @user_id AS id, @new_data AS data) AS source
+    ON target.id = source.id
+    WHEN MATCHED THEN
+      UPDATE SET data = source.data, updated_at = GETUTCDATE(),
+                 last_synced_at = GETUTCDATE(), sync_count = sync_count + 1, is_stale = 0
+    WHEN NOT MATCHED THEN
+      INSERT (id, data) VALUES (source.id, source.data);
+  END
+END;
+```
+
+## Mutation Stored Procedures: app vs core
+
+### app Procedures: API Layer
+
+```sql
+-- File: 03311_create_user.sql
+CREATE OR ALTER PROCEDURE dbo.app_create_user
+  @input_tenant_id UNIQUEIDENTIFIER,
+  @input_user_id UNIQUEIDENTIFIER,
+  @input_payload NVARCHAR(MAX)
+AS
+BEGIN
+  DECLARE @email NVARCHAR(255) = JSON_VALUE(@input_payload, '$.email');
+  DECLARE @name NVARCHAR(255) = JSON_VALUE(@input_payload, '$.name');
+
+  IF @email IS NULL OR @email = ''
+  BEGIN
+    SELECT JSON_QUERY('{"status":"invalid_input","message":"email is required"}') AS result;
+    RETURN;
+  END;
+
+  EXEC dbo.core_create_user @input_tenant_id, @input_user_id, @email, @name, @input_payload;
+END;
+```
+
+<Aside type="note">
+**Security**: All input examples use **parameterized queries** (`@param` placeholders) to prevent SQL injection. JSON values are extracted using `JSON_VALUE()` before SQL composition.
+</Aside>
+
+### core Procedures: Business Logic Layer
+
+```sql
+CREATE OR ALTER PROCEDURE dbo.core_create_user
+  @input_tenant_id UNIQUEIDENTIFIER,
+  @input_user_id UNIQUEIDENTIFIER,
+  @input_email NVARCHAR(255),
+  @input_name NVARCHAR(255),
+  @input_payload NVARCHAR(MAX)
+AS
+BEGIN
+  SET NOCOUNT ON;
+  BEGIN TRY
+    BEGIN TRANSACTION;
+
+    DECLARE @user_id UNIQUEIDENTIFIER = NEWSEQUENTIALID();
+    DECLARE @entity_data NVARCHAR(MAX);
+
+    -- Check for duplicate email
+    IF EXISTS(SELECT 1 FROM dbo.tb_user WHERE email = @input_email AND deleted_at IS NULL)
+    BEGIN
+      SELECT '{"status":"conflict:email","message":"Email already in use"}' AS result;
+      ROLLBACK; RETURN;
+    END;
+
+    INSERT INTO dbo.tb_user (id, email, name, created_by)
+    VALUES (@user_id, @input_email, @input_name, @input_user_id);
+
+    SELECT @entity_data = data FROM dbo.v_user WHERE id = @user_id;
+
+    EXEC dbo.core_refresh_user @user_id;
+
+    COMMIT;
+
+    SELECT JSON_MODIFY(
+      JSON_MODIFY('{"status":"success:created","message":"User created successfully"}',
+        '$.entity_id', CAST(@user_id AS NVARCHAR(36))),
+      '$.entity', JSON_QUERY(@entity_data)
+    ) AS result;
+
+  END TRY
+  BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK;
+    SELECT '{"status":"database_error","message":"Create user failed"}' AS result;
+  END CATCH;
+END;
+```
+
+## Enterprise Features
+
+### Always On Availability Groups
+
+```sql
+-- Connection string for read-write (primary)
+-- Server=primary.ag.fraiseql.com;Database=fraiseql;...
+
+-- Connection string for read-only (secondary)
+-- Server=fraiseql-ag;ApplicationIntent=ReadOnly;...
+```
+
+### Row-Level Security
+
+```sql
+-- Multi-tenancy via RLS
+CREATE FUNCTION dbo.fn_security_predicate(@tenant_id UNIQUEIDENTIFIER)
+RETURNS TABLE WITH SCHEMABINDING AS
+RETURN SELECT 1 AS result
+WHERE @tenant_id = CAST(SESSION_CONTEXT(N'tenant_id') AS UNIQUEIDENTIFIER);
+
+CREATE SECURITY POLICY dbo.tenant_filter
+ADD FILTER PREDICATE dbo.fn_security_predicate(tenant_id) ON dbo.tb_user
+WITH (STATE = ON);
+```
+
+### Transparent Data Encryption
+
+```sql
+-- Enable TDE for encryption at rest
+USE master;
+CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'strong-password';
+CREATE CERTIFICATE TDECert WITH SUBJECT = 'TDE Certificate';
+
+USE fraiseql;
+CREATE DATABASE ENCRYPTION KEY WITH ALGORITHM = AES_256
+ENCRYPTION BY SERVER CERTIFICATE TDECert;
+
+ALTER DATABASE fraiseql SET ENCRYPTION ON;
+```
+
+## Configuration and Performance
+
+### Connection String
+
+```
+mssql://user:password@host:1433/fraiseql?encrypt=true&trustServerCertificate=false
+```
+
+### FraiseQL-Optimized SQL Server Configuration
+
+```sql
+-- Optimize for JSON workloads
+ALTER DATABASE fraiseql SET COMPATIBILITY_LEVEL = 150;  -- SQL Server 2019+
+ALTER DATABASE fraiseql SET QUERY_STORE = ON;
+ALTER DATABASE fraiseql SET AUTO_UPDATE_STATISTICS ON;
+ALTER DATABASE fraiseql SET AUTO_CREATE_STATISTICS ON;
+
+-- Memory optimization
+-- Set max server memory to 75% of available RAM via SQL Server Configuration Manager
+```
+
+## Troubleshooting
+
+### FOR JSON Returns NULL for Empty Subquery
+
+```sql
+-- Problem: No posts = NULL instead of []
+-- Solution: COALESCE with empty JSON array string
+SELECT
+  u.id,
+  COALESCE(
+    (SELECT p.id, p.title FROM dbo.tb_post p WHERE p.fk_user = u.pk_user FOR JSON PATH),
+    '[]'
+  ) AS posts
+FROM dbo.tb_user u WHERE u.id = @id;
+```
+
+### JSON_VALUE Returns NULL
+
+```sql
+-- JSON_VALUE returns NULL for nested paths or arrays
+-- Use JSON_QUERY for objects and arrays
+SELECT
+  JSON_VALUE(@json, '$.email') AS email,      -- scalar value
+  JSON_QUERY(@json, '$.metadata') AS metadata  -- object or array
+```
+
+### Indexed View Refresh Lag
+
+Indexed views in SQL Server are automatically maintained. If you need manual refresh:
+
+```sql
+-- Force statistics update
+UPDATE STATISTICS dbo.tv_user WITH FULLSCAN;
+
+-- Rebuild indexes on the view
+ALTER INDEX ALL ON dbo.tv_user REBUILD;
+```
+
+## Performance Benchmarks
+
+| Query Type | Latency | Notes |
+|-----------|---------|-------|
+| Single entity (v_*) | 0.5-2ms | Index lookup on id |
+| List query (1000 rows) | 10-40ms | With is_current filter |
+| Nested JSON (5 levels) | 30-150ms | Depends on FOR JSON depth |
+| Materialized view (tv_*) | 1-5ms | Pre-computed JSON |
+| Analytics view (va_*) | 100-1000ms | GROUP BY aggregation |
+
+**Optimization Tips:**
+- Use `NEWSEQUENTIALID()` instead of `NEWID()` to avoid index fragmentation
+- Enable Query Store to track and force good query plans
+- Use columnstore indexes for analytics workloads
+- Always On read replicas for reporting queries
+
+## See Also
+
+<CardGrid>
+  <Card title="Database Overview" icon="seti:db">
+    [Compare all supported databases](/databases/)
+  </Card>
+  <Card title="PostgreSQL Guide" icon="seti:db">
+    [Optimal database for FraiseQL](/databases/postgresql)
+  </Card>
+  <Card title="SQL Server Troubleshooting" icon="warning">
+    [SQL Server-specific troubleshooting](/troubleshooting/by-database/sqlserver)
+  </Card>
+</CardGrid>

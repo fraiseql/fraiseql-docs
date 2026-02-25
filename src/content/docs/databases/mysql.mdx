@@ -1,0 +1,368 @@
+---
+title: MySQL Guide for FraiseQL
+description: MySQL implementation guide for FraiseQL with Trinity pattern, JSON projections, materialized views, and considerations for JSON vs JSONB
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+## Introduction
+
+MySQL is a **solid choice for FraiseQL** when PostgreSQL isn't available or when you have existing MySQL infrastructure:
+
+- **~20 WHERE Operators**: Fewer than PostgreSQL but suitable for most GraphQL input types
+- **JSON Type Support**: Native JSON type (since 5.7) with functions for composition
+- **JSON_OBJECT and JSON_ARRAYAGG**: Enables JSONB-like view composition (MySQL 5.7.22+)
+- **InnoDB ACID**: Full transaction support with row-level locking
+- **View Composition**: Can aggregate nested JSON objects, though less elegant than JSONB
+- **Stored Procedures**: MySQL stored procedures for mutation logic
+- **Wide Availability**: Common on shared hosting and cloud platforms
+
+<Aside type="caution">
+**Key Limitation**: JSON is text-based in MySQL, not JSONB. This means slightly slower queries (string parsing vs. optimized binary format), no native JSONB operators like `@>`, and GIN indexes are not available. FraiseQL works perfectly on MySQL; it just requires slightly different optimization strategies.
+</Aside>
+
+## Core Architecture
+
+### Single JSON Data Column Pattern
+
+Like PostgreSQL, FraiseQL views expose entities as **single JSON columns** named `data`:
+
+```sql
+-- Every v_* view returns:
+-- 1. Metadata columns (id, tenant_id, organization_id, etc.)
+-- 2. Single JSON column named 'data' containing complete entity
+
+SELECT
+  id,                    -- Metadata
+  tenant_id,             -- Metadata
+  organization_id,       -- Metadata
+  is_current,            -- Metadata
+  data                   -- Complete JSON entity
+FROM v_user
+WHERE id = $1;
+```
+
+**Why?** The FraiseQL Rust server receives the complete entity as a single JSON payload, no assembly needed.
+
+### Trinity Pattern: CHAR(36) UUID + INTEGER PKs
+
+FraiseQL uses a dual-identifier system (adapted for MySQL):
+
+```sql
+CREATE TABLE tb_user (
+  pk_user BIGINT PRIMARY KEY AUTO_INCREMENT,                    -- Internal, fast FKs
+  id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),                 -- Public, exposed in GraphQL
+  email VARCHAR(255) NOT NULL UNIQUE COLLATE utf8mb4_unicode_ci,
+  name VARCHAR(255) NOT NULL,
+  deleted_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_user_id (id),
+  KEY idx_user_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE tb_post (
+  pk_post BIGINT PRIMARY KEY AUTO_INCREMENT,
+  id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
+  fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user) ON DELETE CASCADE,  -- Uses pk_user
+  title VARCHAR(255) NOT NULL,
+  deleted_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_post_user (fk_user)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+**Why?**
+- `id` (CHAR(36)): UUID exposed in GraphQL, immutable across systems
+- `pk_*` (BIGINT): Fast joins, small FK storage, internal only
+- Resolver functions bridge them in mutations
+
+### Resolver Functions
+
+Every table has UUID to INTEGER resolver functions:
+
+```sql
+-- Resolve UUID to internal pk (used in mutations)
+DELIMITER $$
+CREATE FUNCTION core_get_pk_user(p_user_id CHAR(36))
+RETURNS BIGINT
+READS SQL DATA
+DETERMINISTIC
+BEGIN
+  DECLARE v_pk BIGINT;
+  SELECT pk_user INTO v_pk FROM tb_user WHERE id = p_user_id LIMIT 1;
+  RETURN v_pk;
+END$$
+DELIMITER ;
+```
+
+## Mutation Response Type
+
+All mutations return a structure with 8 fields (using JSON for compatibility):
+
+```json
+{
+  "status": "success:created",
+  "message": "User created successfully",
+  "entity_id": "550e8400-e29b-41d4-a716-446655440000",
+  "entity_type": "User",
+  "entity": { "id": "...", "email": "john@example.com", "name": "John Doe" },
+  "updated_fields": ["email", "name"],
+  "cascade": { "updated": [{"__typename": "Organization", "id": "...", "member_count": 5}] },
+  "metadata": { "operation": "INSERT", "tenant_id": "...", "timestamp": "2024-02-08T10:30:00Z" }
+}
+```
+
+## View Structure: v_* (Regular Views)
+
+Views are the **source truth** for read operations:
+
+```sql
+-- File: 02411_v_user.sql
+CREATE OR REPLACE VIEW v_user AS
+SELECT
+  u.id,
+  u.organization_id,
+  u.tenant_id,
+  u.deleted_at IS NULL AS is_current,
+  JSON_OBJECT(
+    'id', u.id,
+    'email', u.email,
+    'name', u.name,
+    'status', u.status,
+    'created_at', DATE_FORMAT(u.created_at, '%Y-%m-%dT%H:%i:%sZ')
+  ) AS data
+FROM tb_user u
+WHERE u.deleted_at IS NULL;
+```
+
+### Nested Views (One-to-Many Relationships)
+
+```sql
+-- File: 02412_v_user_with_posts.sql
+-- Note: MySQL's JSON_ARRAYAGG requires GROUP BY
+CREATE OR REPLACE VIEW v_user_with_posts AS
+SELECT
+  u.id,
+  u.organization_id,
+  u.tenant_id,
+  u.is_current,
+  JSON_OBJECT(
+    'id', u.id,
+    'email', u.email,
+    'name', u.name,
+    'posts', COALESCE(
+      JSON_ARRAYAGG(
+        JSON_OBJECT('id', p.id, 'title', p.title, 'status', p.status)
+      ),
+      JSON_ARRAY()
+    )
+  ) AS data
+FROM v_user u
+LEFT JOIN tb_post p ON p.fk_user = u.pk_user AND p.deleted_at IS NULL
+WHERE u.is_current
+GROUP BY u.pk_user, u.id, u.organization_id, u.tenant_id, u.is_current;
+```
+
+<Aside type="note">
+`GROUP BY` is required for `JSON_ARRAYAGG` in MySQL. Always group by PK and all selected columns. Use `COALESCE(..., JSON_ARRAY())` to avoid NULL for empty arrays.
+</Aside>
+
+## Materialized Views: tv_* (Denormalized Projections)
+
+For **read-heavy workloads** with complex object graphs, use table-backed materialized views:
+
+```sql
+-- File: 02414_tv_user.sql
+CREATE TABLE IF NOT EXISTS tv_user (
+  id CHAR(36) PRIMARY KEY,
+  organization_id CHAR(36) NOT NULL,
+  tenant_id CHAR(36) NOT NULL,
+  is_current BOOLEAN DEFAULT TRUE,
+  data JSON NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  last_synced_at TIMESTAMP NULL,
+  sync_count INT DEFAULT 0,
+  is_stale BOOLEAN DEFAULT FALSE,
+  KEY idx_tv_user_organization (organization_id),
+  KEY idx_tv_user_tenant (tenant_id),
+  KEY idx_tv_user_updated_at (updated_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+**Refresh via stored procedure:**
+
+```sql
+DELIMITER $$
+CREATE PROCEDURE core_refresh_user(IN p_user_id CHAR(36))
+MODIFIES SQL DATA
+BEGIN
+  DECLARE v_new_data JSON;
+  SELECT data INTO v_new_data FROM v_user_with_posts WHERE id = p_user_id;
+  IF v_new_data IS NOT NULL THEN
+    INSERT INTO tv_user (id, organization_id, tenant_id, is_current, data)
+    SELECT id, organization_id, tenant_id, is_current, v_new_data
+    FROM v_user WHERE id = p_user_id
+    ON DUPLICATE KEY UPDATE
+      data = VALUES(data),
+      updated_at = CURRENT_TIMESTAMP,
+      last_synced_at = CURRENT_TIMESTAMP,
+      sync_count = sync_count + 1,
+      is_stale = FALSE;
+  END IF;
+END$$
+DELIMITER ;
+```
+
+## Mutation Procedures: app_ vs core_
+
+FraiseQL separates concerns into two procedure sets:
+
+### app_ Procedures: API Layer
+
+Handles JSON deserialization from GraphQL payloads and delegates to `core_`:
+
+```sql
+DELIMITER $$
+CREATE PROCEDURE app_create_user(
+  IN input_tenant_id CHAR(36),
+  IN input_user_id CHAR(36),
+  IN input_payload JSON
+)
+BEGIN
+  DECLARE v_email VARCHAR(255);
+  DECLARE v_name VARCHAR(255);
+
+  -- Extract and validate input
+  SET v_email = JSON_UNQUOTE(JSON_EXTRACT(input_payload, '$.email'));
+  SET v_name = JSON_UNQUOTE(JSON_EXTRACT(input_payload, '$.name'));
+
+  -- Validate required fields
+  IF v_email IS NULL OR v_email = '' THEN
+    SELECT JSON_OBJECT('status', 'invalid_input', 'message', 'email is required') AS result;
+    LEAVE app_create_user;
+  END IF;
+
+  CALL core_create_user(input_tenant_id, input_user_id, v_email, v_name, input_payload);
+END$$
+DELIMITER ;
+```
+
+<Aside type="note">
+**Security**: All input examples use **parameterized queries** (prepared statements with `?` placeholders) to prevent SQL injection. JSON values are extracted before SQL composition and enums are validated against a whitelist.
+</Aside>
+
+## Configuration and Performance
+
+### FraiseQL-Optimized MySQL Configuration
+
+```ini
+# my.cnf or /etc/mysql/mysql.conf.d/mysqld.cnf
+[mysqld]
+
+# InnoDB Settings (critical for FraiseQL)
+default_storage_engine = InnoDB
+
+# Buffer pool: 50-75% of available RAM
+innodb_buffer_pool_size = 4G
+innodb_buffer_pool_instances = 8
+innodb_log_file_size = 1G
+innodb_flush_log_at_trx_commit = 2
+innodb_flush_method = O_DIRECT
+
+# Query Optimization
+join_buffer_size = 4M
+sort_buffer_size = 4M
+tmp_table_size = 256M
+max_heap_table_size = 256M
+
+# Connection Pooling
+max_connections = 500
+
+# Character Set
+character_set_server = utf8mb4
+collation_server = utf8mb4_unicode_ci
+```
+
+## MySQL 5.7 vs 8.0 Differences
+
+<Aside type="caution">
+**MySQL 8.0 is strongly recommended** for FraiseQL compatibility. MySQL 5.7 lacks `JSON_ARRAYAGG()`, `JSON_TABLE()`, and better query optimizer support for JSON paths.
+</Aside>
+
+| Feature | MySQL 5.7 | MySQL 8.0 |
+|---------|-----------|-----------|
+| `JSON_ARRAYAGG()` | No | Yes |
+| `JSON_TABLE()` | No | Yes |
+| Window functions | No | Yes |
+| JSON path optimizer | Basic | Improved |
+
+## Troubleshooting
+
+### JSON_ARRAYAGG Returns NULL for Zero Matches
+
+```sql
+-- Problem: No posts for user — shows NULL instead of []
+SELECT JSON_ARRAYAGG(p.id) FROM tb_post p WHERE fk_user = ?;
+
+-- Solution: Use COALESCE
+SELECT COALESCE(
+  JSON_ARRAYAGG(JSON_OBJECT('id', p.id, 'title', p.title)),
+  JSON_ARRAY()
+) as posts FROM tb_post p WHERE fk_user = ?;
+```
+
+### JSON Fields in WHERE Cause Performance Issues
+
+```sql
+-- Problem: Slow query scanning every row
+SELECT * FROM tv_user
+WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.status')) = 'active';
+
+-- Solution: Store scalar columns separately using generated columns
+ALTER TABLE tv_user
+ADD COLUMN status_extracted VARCHAR(50) GENERATED ALWAYS AS
+  (JSON_UNQUOTE(JSON_EXTRACT(data, '$.status'))) STORED;
+
+CREATE INDEX idx_tv_user_status ON tv_user(status_extracted);
+SELECT * FROM tv_user WHERE status_extracted = 'active';
+```
+
+### Materialized View Not Updating
+
+```sql
+-- Always call refresh in the same transaction as the INSERT
+START TRANSACTION;
+INSERT INTO tb_user (...);
+CALL core_refresh_user(v_user_id);
+COMMIT;
+```
+
+## Performance Benchmarks
+
+| Query Type | Latency | Notes |
+|-----------|---------|-------|
+| Single entity (v_*) | 0.5-1ms | Index lookup on id |
+| List query (1000 rows) | 10-30ms | With is_current filter |
+| Nested JSON (5 levels) | 50-200ms | Depends on aggregation size |
+| Materialized view access (tv_*) | 1-3ms | Pre-computed JSON |
+| Analytics view (va_*) | 100-1000ms | GROUP BY aggregation |
+
+**Optimization Tips:**
+- Use `tv_*` for frequently-accessed complex objects (more than 10 reads/sec)
+- Add generated columns for frequently-filtered JSON fields
+- InnoDB buffer pool size is critical; allocate 50-75% of RAM
+
+## See Also
+
+<CardGrid>
+  <Card title="Database Overview" icon="seti:db">
+    [Compare all supported databases](/databases/)
+  </Card>
+  <Card title="PostgreSQL Guide" icon="seti:db">
+    [Optimal database for FraiseQL](/databases/postgresql)
+  </Card>
+  <Card title="MySQL Troubleshooting" icon="warning">
+    [MySQL-specific troubleshooting](/troubleshooting/by-database/mysql)
+  </Card>
+</CardGrid>

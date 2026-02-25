@@ -1,0 +1,474 @@
+---
+title: Multi-Tenant Blog Platform (SaaS)
+description: Build a scalable SaaS blogging platform with FraiseQL
+---
+
+import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
+
+A complete example of a production-ready, multi-tenant blogging platform using FraiseQL.
+
+**Repository**: [github.com/fraiseql/examples/saas-blog](https://github.com/fraiseql/examples/saas-blog)
+
+## Features Demonstrated
+
+- **Multi-Tenancy**: Tenant isolation with row-level security (RLS)
+- **Authentication & Authorization**: JWT-based auth with role-based access control
+- **Real-Time Updates**: WebSocket subscriptions for live blog updates
+- **Soft Deletes**: Logical deletion of posts with recovery
+- **Audit Trail**: Track all changes to posts and comments
+- **Pagination**: Cursor-based pagination for large datasets
+- **Search**: Full-text search across blog posts
+- **Caching**: Redis caching for popular posts
+- **Federation**: Support multiple databases for scale
+
+## Database Schema
+
+<Tabs>
+  <TabItem label="SQL Tables">
+
+```sql
+CREATE TABLE tb_tenant (
+    pk_tenant  SERIAL PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT NOT NULL UNIQUE,
+    name       TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    subscription_tier TEXT NOT NULL DEFAULT 'free'
+);
+
+CREATE TABLE tb_user (
+    pk_user    SERIAL PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT NOT NULL UNIQUE,
+    fk_tenant  INTEGER NOT NULL REFERENCES tb_tenant(pk_tenant),
+    email      TEXT UNIQUE NOT NULL,
+    name       TEXT NOT NULL,
+    role       TEXT NOT NULL DEFAULT 'subscriber',  -- admin, editor, subscriber
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE tb_post (
+    pk_post    SERIAL PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT NOT NULL UNIQUE,
+    fk_tenant  INTEGER NOT NULL REFERENCES tb_tenant(pk_tenant),
+    fk_user    INTEGER NOT NULL REFERENCES tb_user(pk_user),
+    title      TEXT NOT NULL,
+    content    TEXT NOT NULL DEFAULT '',
+    published  BOOLEAN NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMPTZ,  -- Soft delete
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE tb_comment (
+    pk_comment SERIAL PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT NOT NULL UNIQUE,
+    fk_tenant  INTEGER NOT NULL REFERENCES tb_tenant(pk_tenant),
+    fk_post    INTEGER NOT NULL REFERENCES tb_post(pk_post),
+    fk_user    INTEGER NOT NULL REFERENCES tb_user(pk_user),
+    content    TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Views with JSONB data column
+CREATE VIEW v_post AS
+SELECT
+    p.id,
+    p.identifier,
+    jsonb_build_object(
+        'id',         p.id::text,
+        'identifier', p.identifier,
+        'title',      p.title,
+        'content',    p.content,
+        'published',  p.published,
+        'deleted_at', p.deleted_at,
+        'created_at', p.created_at,
+        'updated_at', p.updated_at,
+        'author',     jsonb_build_object(
+                          'id',    u.id::text,
+                          'name',  u.name,
+                          'email', u.email
+                      )
+    ) AS data,
+    p.fk_tenant,
+    p.deleted_at
+FROM tb_post p
+JOIN tb_user u ON u.pk_user = p.fk_user
+WHERE p.deleted_at IS NULL;
+
+CREATE VIEW v_comment AS
+SELECT
+    c.id,
+    c.identifier,
+    jsonb_build_object(
+        'id',         c.id::text,
+        'content',    c.content,
+        'created_at', c.created_at,
+        'author',     jsonb_build_object(
+                          'id',   u.id::text,
+                          'name', u.name
+                      )
+    ) AS data,
+    c.fk_post
+FROM tb_comment c
+JOIN tb_user u ON u.pk_user = c.fk_user;
+```
+
+  </TabItem>
+  <TabItem label="Python Schema">
+
+```python
+import fraiseql
+from fraiseql.scalars import ID
+from datetime import datetime
+
+@fraiseql.type
+class Tenant:
+    id: ID
+    name: str
+    created_at: datetime
+    subscription_tier: str  # free, pro, enterprise
+
+@fraiseql.type
+class User:
+    id: ID
+    email: str
+    name: str
+    role: str  # admin, editor, subscriber
+    created_at: datetime
+
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    content: str
+    published: bool
+    deleted_at: datetime | None  # Soft delete
+    created_at: datetime
+    updated_at: datetime
+
+@fraiseql.type
+class Comment:
+    id: ID
+    post_id: ID
+    user_id: ID
+    content: str
+    created_at: datetime
+
+
+@fraiseql.query(sql_source="v_post")
+def posts(first: int = 20, after: str | None = None) -> list[Post]:
+    """Get tenant's published posts (filtered by RLS)."""
+    pass
+
+@fraiseql.query(sql_source="v_comment")
+def comments(post_id: ID, first: int = 20) -> list[Comment]:
+    """Get comments for a post."""
+    pass
+```
+
+  </TabItem>
+</Tabs>
+
+## Key Queries
+
+```graphql
+# Get tenant's published posts (with pagination)
+query {
+  posts(first: 20, after: "cursor123") {
+    edges {
+      node {
+        id
+        title
+        author { name }
+        comments(first: 5) { edges { node { content author { name } } } }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+
+# Real-time subscription for new comments
+subscription {
+  commentCreated(postId: "post123") {
+    id
+    content
+    author { name }
+    createdAt
+  }
+}
+
+# Search posts
+query {
+  searchPosts(query: "GraphQL", first: 10) {
+    id
+    title
+    highlight
+  }
+}
+```
+
+## Key Mutations
+
+```graphql
+# Create post
+mutation {
+  createPost(
+    title: "Getting Started with FraiseQL"
+    content: "..."
+  ) {
+    id
+    title
+    author { name }
+  }
+}
+
+# Delete post (soft delete)
+mutation {
+  deletePost(id: "post123") {
+    id
+    deletedAt
+  }
+}
+
+# Restore deleted post
+mutation {
+  restorePost(id: "post123") {
+    id
+    deletedAt
+  }
+}
+
+# Add comment
+mutation {
+  createComment(postId: "post123", content: "Great post!") {
+    id
+    content
+    author { name }
+  }
+}
+```
+
+## Authentication & Authorization
+
+```python
+# JWT token includes tenant and role
+{
+  "user_id": "user123",
+  "tenant_id": "tenant456",
+  "role": "editor",
+  "scopes": ["read:posts", "write:posts", "read:comments"]
+}
+
+@fraiseql.query(sql_source="v_post")
+def posts(info) -> list[Post]:
+    """Automatically filters to current tenant via RLS."""
+    # PostgreSQL RLS policy:
+    # WHERE fk_tenant = (SELECT pk_tenant FROM tb_tenant WHERE id = current_setting('app.tenant_id'))
+    pass
+
+@fraiseql.mutation
+def create_post(info, title: str, content: str) -> Post:
+    """Only editors can create posts."""
+    user = get_current_user(info)
+    if user['role'] not in ['admin', 'editor']:
+        raise PermissionError("Only editors can create posts")
+    pass
+```
+
+## Multi-Tenancy Implementation
+
+### Row-Level Security (PostgreSQL)
+
+```sql
+-- Enable RLS on all tenant-scoped tables
+ALTER TABLE tb_post ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tb_comment ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tb_user ENABLE ROW LEVEL SECURITY;
+
+-- Create policy for post visibility (tenant isolation)
+CREATE POLICY posts_tenant_isolation ON tb_post
+USING (fk_tenant = (
+    SELECT pk_tenant FROM tb_tenant
+    WHERE id = current_setting('app.tenant_id')::uuid
+));
+
+-- Create policy for soft-deleted posts
+CREATE POLICY posts_exclude_deleted ON tb_post
+USING (deleted_at IS NULL);
+
+-- Set tenant context from request
+SET app.tenant_id = 'tenant456';
+```
+
+### Application Middleware
+
+```python
+@fraiseql.middleware
+async def set_tenant_context(request, next):
+    """Set tenant context from JWT token."""
+    user = get_current_user_from_request(request)
+    if user:
+        # Set PostgreSQL context for RLS
+        await ctx.db.execute(
+            "SELECT set_config('app.tenant_id', $1, true)",
+            [user['tenant_id']]
+        )
+        request.user = user
+    return await next(request)
+```
+
+## Soft Deletes & Recovery
+
+```python
+@fraiseql.query(sql_source="v_post")
+def post(info, id: ID) -> Post:
+    """Get single post (v_post already excludes soft-deleted)."""
+    pass
+
+@fraiseql.mutation
+async def delete_post(info, id: ID) -> Post:
+    """Soft-delete a post (sets deleted_at, does not remove row)."""
+    result = await ctx.db.query_one(
+        """
+        UPDATE tb_post SET deleted_at = NOW()
+        WHERE id = $1
+        RETURNING id, deleted_at
+        """,
+        [id]
+    )
+    return Post(**result)
+
+@fraiseql.mutation
+async def restore_post(info, id: ID) -> Post:
+    """Restore a soft-deleted post."""
+    result = await ctx.db.query_one(
+        """
+        UPDATE tb_post SET deleted_at = NULL
+        WHERE id = $1
+        RETURNING id, deleted_at
+        """,
+        [id]
+    )
+    return Post(**result)
+```
+
+## Audit Trail
+
+```python
+@fraiseql.type
+class AuditLog:
+    id: ID
+    user_id: ID
+    entity_type: str  # "post", "comment"
+    entity_id: ID
+    action: str  # "create", "update", "delete"
+    changes: dict  # { field: { old: value, new: value } }
+    created_at: datetime
+
+# Middleware to log all mutations
+@fraiseql.middleware
+async def audit_mutations(request, next):
+    """Audit all data modifications."""
+    result = await next(request)
+    if is_mutation(request):
+        changes = extract_changes(request, result)
+        await log_audit_event(get_current_user(request), changes)
+    return result
+```
+
+## Caching Strategy
+
+```python
+@fraiseql.query(sql_source="v_post", cache_ttl=3600)  # Cache for 1 hour
+def popular_posts(first: int = 10) -> list[Post]:
+    """Cache popular posts to reduce database load."""
+    pass
+
+# Invalidate cache on mutations
+@fraiseql.mutation
+async def create_post(info, title: str, content: str) -> Post:
+    """Invalidate post cache after creating."""
+    result = await ctx.db.query_one(
+        """
+        INSERT INTO tb_post (fk_tenant, fk_user, title, content, identifier)
+        VALUES (
+            (SELECT pk_tenant FROM tb_tenant WHERE id = $1),
+            (SELECT pk_user FROM tb_user WHERE id = $2),
+            $3, $4,
+            lower(regexp_replace($3, '[^a-zA-Z0-9]+', '-', 'g'))
+        )
+        RETURNING id, title, content, published, deleted_at, created_at, updated_at
+        """,
+        [info.context.tenant_id, info.context.user_id, title, content]
+    )
+    invalidate_cache("popular_posts")
+    return Post(**result)
+```
+
+## Getting Started
+
+<Steps>
+1. **Clone the example**
+
+   ```bash
+   git clone https://github.com/fraiseql/examples/saas-blog
+   cd saas-blog
+   ```
+
+2. **Set up environment**
+
+   ```bash
+   cp .env.example .env
+   uv sync
+   ```
+
+3. **Start database**
+
+   ```bash
+   docker-compose up -d postgres redis
+   ```
+
+4. **Run migrations**
+
+   ```bash
+   confiture migrate
+   ```
+
+5. **Start FraiseQL server**
+
+   ```bash
+   fraiseql serve
+   ```
+
+6. **Visit GraphQL playground**
+
+   ```bash
+   open http://localhost:8000/graphql
+   ```
+</Steps>
+
+## Learning Path
+
+1. **Basic**: Create/read/delete posts for single tenant
+2. **Multi-Tenancy**: Add row-level security for tenant isolation
+3. **Real-Time**: Add subscriptions for live updates
+4. **Advanced**: Add soft deletes, audit trail, and caching
+5. **Production**: Deploy to Kubernetes with monitoring
+
+<CardGrid>
+  <Card title="Multi-Tenancy Guide" icon="seti:db">
+    Row-level security and tenant isolation patterns.
+  </Card>
+  <Card title="Advanced Patterns" icon="puzzle">
+    Soft deletes, audit logs, and pagination.
+  </Card>
+  <Card title="Deployment" icon="rocket">
+    Kubernetes deployment with monitoring.
+  </Card>
+  <Card title="Federation" icon="random">
+    Scale to multiple databases.
+  </Card>
+</CardGrid>

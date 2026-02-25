@@ -1,0 +1,2064 @@
+---
+title: Query Operators
+description: Complete reference for WHERE clause operators in FraiseQL queries
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL generates filter operators for query arguments. This reference covers all available operators and their SQL mappings.
+
+## Overview
+
+When you define a query with `auto_params={"where": True}`, FraiseQL generates filter input types:
+
+```python
+@fraiseql.query(
+    sql_source="v_user",
+    auto_params={"where": True}
+)
+def users(where: UserWhereInput | None = None) -> list[User]:
+    pass
+```
+
+This generates:
+
+```graphql
+input UserWhereInput {
+    id: IDFilter
+    name: StringFilter
+    email: StringFilter
+    is_active: BooleanFilter
+    created_at: DateTimeFilter
+    _and: [UserWhereInput!]
+    _or: [UserWhereInput!]
+    _not: UserWhereInput
+}
+```
+
+## Comparison Operators
+
+### Equality
+
+| Operator | Description | SQL |
+|----------|-------------|-----|
+| `_eq` | Equals | `= $value` |
+| `_neq` | Not equals | `<> $value` |
+
+```graphql
+query {
+    users(where: { status: { _eq: "active" } }) {
+        id
+        name
+    }
+}
+```
+
+```sql
+SELECT data FROM v_user WHERE data->>'status' = 'active'
+```
+
+### Comparison
+
+| Operator | Description | SQL |
+|----------|-------------|-----|
+| `_gt` | Greater than | `> $value` |
+| `_gte` | Greater than or equal | `>= $value` |
+| `_lt` | Less than | `< $value` |
+| `_lte` | Less than or equal | `<= $value` |
+
+```graphql
+query {
+    products(where: { price: { _gte: "100.00", _lte: "500.00" } }) {
+        id
+        name
+        price
+    }
+}
+```
+
+```sql
+SELECT data FROM v_product
+WHERE (data->>'price')::numeric >= 100.00
+  AND (data->>'price')::numeric <= 500.00
+```
+
+### Null Checks
+
+| Operator | Description | SQL |
+|----------|-------------|-----|
+| `_is_null` | Is null | `IS NULL` / `IS NOT NULL` |
+
+```graphql
+query {
+    users(where: { avatar_url: { _is_null: false } }) {
+        id
+        name
+        avatar_url
+    }
+}
+```
+
+```sql
+SELECT data FROM v_user WHERE data->>'avatar_url' IS NOT NULL
+
+
+## String Operators
+
+| Operator | Description | SQL |
+|----------|-------------|-----|
+| `_like` | Pattern match (case-sensitive) | `LIKE $pattern` |
+| `_ilike` | Pattern match (case-insensitive) | `ILIKE $pattern` |
+| `_nlike` | Not like | `NOT LIKE $pattern` |
+| `_nilike` | Not ilike | `NOT ILIKE $pattern` |
+| `_regex` | Regular expression | `~ $pattern` |
+| `_iregex` | Case-insensitive regex | `~* $pattern` |
+| `_nregex` | Not regex | `!~ $pattern` |
+| `_niregex` | Not iregex | `!~* $pattern` |
+
+### Pattern Matching
+
+Use `%` for wildcard and `_` for single character:
+
+```graphql
+query {
+    users(where: { email: { _ilike: "%@example.com" } }) {
+        id
+        email
+    }
+}
+```
+
+```sql
+SELECT data FROM v_user WHERE data->>'email' ILIKE '%@example.com'
+```
+
+### Regular Expressions
+
+```graphql
+query {
+    posts(where: { title: { _regex: "^Getting Started" } }) {
+        id
+        title
+    }
+}
+```
+
+```sql
+SELECT data FROM v_post WHERE data->>'title' ~ '^Getting Started'
+```
+
+## List Operators
+
+| Operator | Description | SQL |
+|----------|-------------|-----|
+| `_in` | In list | `IN ($values)` |
+| `_nin` | Not in list | `NOT IN ($values)` |
+
+```graphql
+query {
+    users(where: { status: { _in: ["active", "pending"] } }) {
+        id
+        name
+        status
+    }
+}
+```
+
+```sql
+SELECT data FROM v_user WHERE data->>'status' IN ('active', 'pending')
+```
+
+## Array Operators
+
+For array fields (`list[T]`):
+
+| Operator | Description | SQL |
+|----------|-------------|-----|
+| `_contains` | Array contains value | `@> ARRAY[$value]` |
+| `_contained_in` | Array is contained in | `<@ $array` |
+| `_has_any` | Has any of values | `&& $array` |
+| `_has_all` | Has all of values | `@> $array` |
+| `_is_empty` | Array is empty | `= '{}'` |
+
+```graphql
+query {
+    posts(where: { tags: { _contains: "graphql" } }) {
+        id
+        title
+        tags
+    }
+}
+```
+
+```sql
+SELECT data FROM v_post
+WHERE (data->'tags')::text[] @> ARRAY['graphql']
+```
+
+### Multiple Tags
+
+```graphql
+query {
+    posts(where: { tags: { _has_all: ["graphql", "tutorial"] } }) {
+        id
+        title
+    }
+}
+```
+
+```sql
+SELECT data FROM v_post
+WHERE (data->'tags')::text[] @> ARRAY['graphql', 'tutorial']
+```
+
+## JSONB Operators
+
+For `Json` fields:
+
+| Operator | Description | SQL |
+|----------|-------------|-----|
+| `_contains` | Contains JSON | `@> $json` |
+| `_contained_in` | Contained in JSON | `<@ $json` |
+| `_has_key` | Has key | `? $key` |
+| `_has_keys_any` | Has any key | `?| $keys` |
+| `_has_keys_all` | Has all keys | `?& $keys` |
+
+```graphql
+query {
+    users(where: {
+        preferences: { _contains: { theme: "dark" } }
+    }) {
+        id
+        name
+        preferences
+    }
+}
+```
+
+```sql
+SELECT data FROM v_user
+WHERE data->'preferences' @> '{"theme": "dark"}'::jsonb
+```
+
+## Date/Time Operators
+
+DateTime fields support comparison operators:
+
+```graphql
+query {
+    events(where: {
+        created_at: {
+            _gte: "2024-01-01T00:00:00Z"
+            _lt: "2024-02-01T00:00:00Z"
+        }
+    }) {
+        id
+        name
+        created_at
+    }
+}
+```
+
+Special date operators:
+
+| Operator | Description | SQL |
+|----------|-------------|-----|
+| `_year` | Extract year | `EXTRACT(YEAR FROM ...)` |
+| `_month` | Extract month | `EXTRACT(MONTH FROM ...)` |
+| `_day` | Extract day | `EXTRACT(DAY FROM ...)` |
+| `_dow` | Day of week (0=Sun) | `EXTRACT(DOW FROM ...)` |
+
+```graphql
+query {
+    orders(where: {
+        created_at: { _year: 2024, _month: 1 }
+    }) {
+        id
+        total
+    }
+}
+```
+
+## Logical Operators
+
+### AND
+
+All conditions must match (default behavior):
+
+```graphql
+query {
+    products(where: {
+        is_available: { _eq: true }
+        price: { _lte: "100.00" }
+    }) {
+        id
+        name
+    }
+}
+```
+
+Explicit `_and`:
+
+```graphql
+query {
+    products(where: {
+        _and: [
+            { is_available: { _eq: true } }
+            { price: { _lte: "100.00" } }
+        ]
+    }) {
+        id
+        name
+    }
+}
+```
+
+### OR
+
+Any condition must match:
+
+```graphql
+query {
+    users(where: {
+        _or: [
+            { role: { _eq: "admin" } }
+            { role: { _eq: "moderator" } }
+        ]
+    }) {
+        id
+        name
+        role
+    }
+}
+```
+
+```sql
+SELECT data FROM v_user
+WHERE data->>'role' = 'admin' OR data->>'role' = 'moderator'
+```
+
+### NOT
+
+Negate conditions:
+
+```graphql
+query {
+    users(where: {
+        _not: { status: { _eq: "banned" } }
+    }) {
+        id
+        name
+    }
+}
+```
+
+```sql
+SELECT data FROM v_user WHERE NOT (data->>'status' = 'banned')
+```
+
+### Complex Logic
+
+Combine operators for complex queries:
+
+```graphql
+query {
+    products(where: {
+        _and: [
+            { is_available: { _eq: true } }
+            {
+                _or: [
+                    { category: { _eq: "electronics" } }
+                    {
+                        _and: [
+                            { category: { _eq: "accessories" } }
+                            { price: { _lt: "50.00" } }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }) {
+        id
+        name
+        category
+        price
+    }
+}
+```
+
+## Filter Types by Scalar
+
+### IDFilter
+
+```graphql
+input IDFilter {
+    _eq: ID
+    _neq: ID
+    _in: [ID!]
+    _nin: [ID!]
+    _is_null: Boolean
+}
+```
+
+### StringFilter
+
+```graphql
+input StringFilter {
+    _eq: String
+    _neq: String
+    _gt: String
+    _gte: String
+    _lt: String
+    _lte: String
+    _in: [String!]
+    _nin: [String!]
+    _like: String
+    _ilike: String
+    _nlike: String
+    _nilike: String
+    _regex: String
+    _iregex: String
+    _is_null: Boolean
+}
+```
+
+### IntFilter
+
+```graphql
+input IntFilter {
+    _eq: Int
+    _neq: Int
+    _gt: Int
+    _gte: Int
+    _lt: Int
+    _lte: Int
+    _in: [Int!]
+    _nin: [Int!]
+    _is_null: Boolean
+}
+```
+
+### FloatFilter
+
+```graphql
+input FloatFilter {
+    _eq: Float
+    _neq: Float
+    _gt: Float
+    _gte: Float
+    _lt: Float
+    _lte: Float
+    _in: [Float!]
+    _nin: [Float!]
+    _is_null: Boolean
+}
+```
+
+### BooleanFilter
+
+```graphql
+input BooleanFilter {
+    _eq: Boolean
+    _neq: Boolean
+    _is_null: Boolean
+}
+```
+
+### DateTimeFilter
+
+```graphql
+input DateTimeFilter {
+    _eq: DateTime
+    _neq: DateTime
+    _gt: DateTime
+    _gte: DateTime
+    _lt: DateTime
+    _lte: DateTime
+    _in: [DateTime!]
+    _nin: [DateTime!]
+    _is_null: Boolean
+    _year: Int
+    _month: Int
+    _day: Int
+    _dow: Int
+}
+```
+
+### DecimalFilter
+
+```graphql
+input DecimalFilter {
+    _eq: Decimal
+    _neq: Decimal
+    _gt: Decimal
+    _gte: Decimal
+    _lt: Decimal
+    _lte: Decimal
+    _in: [Decimal!]
+    _nin: [Decimal!]
+    _is_null: Boolean
+}
+```
+
+### ArrayFilter
+
+```graphql
+input StringArrayFilter {
+    _contains: String
+    _contained_in: [String!]
+    _has_any: [String!]
+    _has_all: [String!]
+    _is_empty: Boolean
+    _is_null: Boolean
+}
+```
+
+### JsonFilter
+
+```graphql
+input JsonFilter {
+    _contains: JSON
+    _contained_in: JSON
+    _has_key: String
+    _has_keys_any: [String!]
+    _has_keys_all: [String!]
+    _is_null: Boolean
+}
+```
+
+## Rich Type Filters
+
+FraiseQL provides specialized filters for domain-specific scalar types. These filters offer operators tailored to each type's semantics, enabling powerful queries that understand your data.
+
+---
+
+### Contact & Communication
+
+#### EmailFilter
+
+```graphql
+input EmailFilter {
+    # Basic
+    _eq: Email
+    _neq: Email
+    _in: [Email!]
+    _nin: [Email!]
+    _is_null: Boolean
+
+    # Domain extraction
+    _domain_eq: String           # Match domain exactly
+    _domain_neq: String
+    _domain_in: [String!]        # Domain in list
+    _domain_nin: [String!]
+    _domain_endswith: String     # Domain ends with (e.g., ".edu")
+    _domain_contains: String     # Domain contains substring
+
+    # Local part extraction
+    _local_eq: String            # Match local part (before @)
+    _local_startswith: String
+    _local_contains: String
+
+    # Pattern detection
+    _is_freemail: Boolean        # gmail.com, yahoo.com, hotmail.com, etc.
+    _is_corporate: Boolean       # NOT freemail
+    _is_disposable: Boolean      # Known disposable email domains
+}
+```
+
+```graphql
+query {
+    # Find company emails
+    users(where: { email: { _domain_eq: "acme.com" } }) {
+        id email
+    }
+
+    # Find all .edu emails
+    users(where: { email: { _domain_endswith: ".edu" } }) {
+        id email
+    }
+
+    # Exclude freemail addresses
+    leads(where: { email: { _is_freemail: false } }) {
+        id email company
+    }
+
+    # Filter by local part pattern
+    users(where: { email: { _local_startswith: "sales." } }) {
+        id email
+    }
+}
+```
+
+#### PhoneNumberFilter
+
+```graphql
+input PhoneNumberFilter {
+    # Basic
+    _eq: PhoneNumber
+    _neq: PhoneNumber
+    _in: [PhoneNumber!]
+    _nin: [PhoneNumber!]
+    _is_null: Boolean
+
+    # Country code extraction
+    _country_code_eq: String     # +1, +44, +33
+    _country_code_in: [String!]
+    _country_code_nin: [String!]
+
+    # Geographic grouping
+    _country_eq: CountryCode     # Derived from country code
+    _country_in: [CountryCode!]
+    _region_eq: String           # North America, Europe, Asia
+
+    # Number type detection
+    _is_mobile: Boolean
+    _is_landline: Boolean
+    _is_toll_free: Boolean
+    _is_premium: Boolean
+
+    # Pattern matching
+    _national_startswith: String # Area code matching
+    _national_contains: String
+}
+```
+
+```graphql
+query {
+    # Find US phone numbers
+    contacts(where: { phone: { _country_code_eq: "+1" } }) {
+        id phone
+    }
+
+    # Find mobile numbers in Europe
+    contacts(where: {
+        phone: {
+            _region_eq: "Europe"
+            _is_mobile: true
+        }
+    }) {
+        id phone
+    }
+
+    # Find toll-free numbers
+    support_lines(where: { phone: { _is_toll_free: true } }) {
+        id department phone
+    }
+}
+```
+
+#### URLFilter
+
+```graphql
+input URLFilter {
+    # Basic
+    _eq: URL
+    _neq: URL
+    _in: [URL!]
+    _nin: [URL!]
+    _is_null: Boolean
+
+    # Protocol
+    _protocol_eq: String         # "https", "http", "ftp"
+    _protocol_in: [String!]
+    _is_secure: Boolean          # protocol = "https"
+
+    # Host extraction
+    _host_eq: String             # Full host: "api.example.com"
+    _host_in: [String!]
+    _host_endswith: String       # ".example.com" (subdomain matching)
+    _host_contains: String
+
+    # Domain (excludes subdomain)
+    _domain_eq: String           # "example.com"
+    _domain_in: [String!]
+    _tld_eq: String              # "com", "org", "io"
+    _tld_in: [String!]
+
+    # Path
+    _path_eq: String
+    _path_startswith: String     # "/api/v1/"
+    _path_contains: String
+    _path_matches: String        # Regex
+
+    # Query parameters
+    _has_query_param: String     # Has parameter "utm_source"
+}
+```
+
+```graphql
+query {
+    # Find HTTPS links only
+    links(where: { url: { _is_secure: true } }) {
+        id url
+    }
+
+    # Find links to specific domain
+    links(where: { url: { _domain_eq: "github.com" } }) {
+        id url
+    }
+
+    # Find API endpoints
+    webhooks(where: { url: { _path_startswith: "/api/" } }) {
+        id url
+    }
+
+    # Find links with tracking params
+    links(where: { url: { _has_query_param: "utm_source" } }) {
+        id url campaign
+    }
+}
+```
+
+#### DomainNameFilter
+
+```graphql
+input DomainNameFilter {
+    # Basic
+    _eq: DomainName
+    _neq: DomainName
+    _in: [DomainName!]
+    _nin: [DomainName!]
+    _is_null: Boolean
+
+    # TLD extraction
+    _tld_eq: String              # "com", "org", "co.uk"
+    _tld_in: [String!]
+    _tld_category: TLDCategory   # GENERIC, COUNTRY, SPONSORED
+
+    # Hierarchy
+    _parent_domain_eq: String    # "example.com" matches "api.example.com"
+    _subdomain_of: String        # Is subdomain of given domain
+    _depth_eq: Int               # Number of labels (api.example.com = 3)
+    _depth_gte: Int
+    _depth_lte: Int
+
+    # Pattern
+    _endswith: String            # ".example.com"
+    _contains: String
+}
+```
+
+---
+
+### Location & Geography
+
+#### CountryCodeFilter
+
+```graphql
+input CountryCodeFilter {
+    # Basic
+    _eq: CountryCode
+    _neq: CountryCode
+    _in: [CountryCode!]
+    _nin: [CountryCode!]
+    _is_null: Boolean
+
+    # Geographic grouping
+    _continent_eq: Continent     # AF, AN, AS, EU, NA, OC, SA
+    _continent_in: [Continent!]
+    _region_eq: String           # "Western Europe", "Southeast Asia"
+    _subregion_eq: String
+
+    # Political/Economic groupings
+    _in_eu: Boolean              # European Union member
+    _in_eurozone: Boolean        # Uses Euro
+    _in_schengen: Boolean        # Schengen Area
+    _in_nato: Boolean
+    _in_g7: Boolean
+    _in_g20: Boolean
+    _in_oecd: Boolean
+    _in_commonwealth: Boolean
+    _in_brics: Boolean
+
+    # Regulatory
+    _gdpr_applicable: Boolean    # EU + EEA + adequacy decisions
+}
+```
+
+```graphql
+query {
+    # Find EU customers
+    customers(where: { country: { _in_eu: true } }) {
+        id name country
+    }
+
+    # Find customers in Asia
+    customers(where: { country: { _continent_eq: "AS" } }) {
+        id name country
+    }
+
+    # Find GDPR-applicable users
+    users(where: { country: { _gdpr_applicable: true } }) {
+        id email country
+    }
+
+    # Find G20 economies
+    companies(where: { country: { _in_g20: true } }) {
+        id name country
+    }
+}
+```
+
+#### CoordinatesFilter
+
+```graphql
+input CoordinatesFilter {
+    # Basic
+    _eq: Coordinates
+    _is_null: Boolean
+
+    # Geospatial (PostGIS)
+    _within_radius: RadiusInput  # Center point + radius in km
+    _within_bounds: BoundsInput  # Bounding box
+    _within_polygon: [[Float!]!] # GeoJSON polygon
+    _within_geojson: JSON        # Arbitrary GeoJSON geometry
+
+    # Distance calculations
+    _distance_from_lt: DistanceInput
+    _distance_from_lte: DistanceInput
+    _distance_from_gt: DistanceInput
+    _distance_from_gte: DistanceInput
+
+    # Hemisphere
+    _hemisphere_lat: Hemisphere  # NORTH, SOUTH
+    _hemisphere_lng: Hemisphere  # EAST, WEST
+
+    # Named regions (with geocoding data)
+    _in_country: CountryCode
+    _in_timezone: Timezone
+}
+
+input RadiusInput {
+    lat: Float!
+    lng: Float!
+    radius_km: Float!
+}
+
+input BoundsInput {
+    min_lat: Float!
+    max_lat: Float!
+    min_lng: Float!
+    max_lng: Float!
+}
+
+input DistanceInput {
+    lat: Float!
+    lng: Float!
+    km: Float!
+}
+```
+
+```graphql
+query {
+    # Find stores within 50km of NYC
+    stores(where: {
+        location: {
+            _within_radius: { lat: 40.7128, lng: -74.0060, radius_km: 50 }
+        }
+    }) {
+        id name location
+    }
+
+    # Find locations in bounding box
+    locations(where: {
+        coords: {
+            _within_bounds: {
+                min_lat: 40.0, max_lat: 41.0,
+                min_lng: -74.5, max_lng: -73.5
+            }
+        }
+    }) {
+        id name coords
+    }
+
+    # Find drivers less than 5km away
+    drivers(where: {
+        position: {
+            _distance_from_lt: { lat: 40.7128, lng: -74.0060, km: 5 }
+        }
+    }) {
+        id name position
+    }
+}
+```
+
+#### PostalCodeFilter
+
+```graphql
+input PostalCodeFilter {
+    # Basic
+    _eq: PostalCode
+    _neq: PostalCode
+    _in: [PostalCode!]
+    _nin: [PostalCode!]
+    _is_null: Boolean
+
+    # Pattern matching
+    _startswith: String          # "90" for LA area
+    _matches: String             # Regex
+
+    # Country-specific parsing
+    _country_eq: CountryCode
+
+    # US ZIP codes
+    _zip5_eq: String             # First 5 digits
+    _zip3_eq: String             # SCF (Sectional Center)
+
+    # UK postcodes
+    _outcode_eq: String          # "SW1A" of "SW1A 1AA"
+    _area_eq: String             # "SW" area
+
+    # Canadian postal codes
+    _fsa_eq: String              # Forward Sortation Area
+}
+```
+
+```graphql
+query {
+    # Find LA area customers (ZIP starts with 90)
+    customers(where: { postal_code: { _startswith: "90" } }) {
+        id name postal_code
+    }
+
+    # Find London customers
+    customers(where: { postal_code: { _area_eq: "SW" } }) {
+        id name postal_code
+    }
+}
+```
+
+#### TimezoneFilter
+
+```graphql
+input TimezoneFilter {
+    # Basic
+    _eq: Timezone
+    _neq: Timezone
+    _in: [Timezone!]
+    _nin: [Timezone!]
+    _is_null: Boolean
+
+    # Offset-based
+    _offset_eq: Int              # UTC offset in minutes
+    _offset_gte: Int
+    _offset_lte: Int
+
+    # DST handling
+    _observes_dst: Boolean
+    _current_offset_eq: Int      # Current offset (DST-aware)
+
+    # Geographic
+    _continent_eq: String        # "America", "Europe", "Asia"
+}
+```
+
+#### LanguageCodeFilter
+
+```graphql
+input LanguageCodeFilter {
+    # Basic
+    _eq: LanguageCode
+    _neq: LanguageCode
+    _in: [LanguageCode!]
+    _nin: [LanguageCode!]
+    _is_null: Boolean
+
+    # Language families
+    _family_eq: String           # "Indo-European", "Sino-Tibetan"
+    _branch_eq: String           # "Germanic", "Romance", "Slavic"
+
+    # Script
+    _script_eq: ScriptCode       # "Latn", "Cyrl", "Hans", "Arab"
+    _script_in: [ScriptCode!]
+
+    # Properties
+    _is_rtl: Boolean             # Right-to-left script
+}
+```
+
+---
+
+### Financial
+
+#### CurrencyCodeFilter
+
+```graphql
+input CurrencyCodeFilter {
+    # Basic
+    _eq: CurrencyCode
+    _neq: CurrencyCode
+    _in: [CurrencyCode!]
+    _nin: [CurrencyCode!]
+    _is_null: Boolean
+
+    # Classification
+    _is_fiat: Boolean
+    _is_crypto: Boolean
+    _is_commodity: Boolean       # XAU (gold), XAG (silver)
+
+    # Properties
+    _decimals_eq: Int            # Minor unit decimals (USD=2, JPY=0)
+    _country_eq: CountryCode     # Primary country
+
+    # Groupings
+    _is_major: Boolean           # G10 currencies
+    _is_pegged: Boolean          # Pegged to another currency
+    _pegged_to: CurrencyCode
+}
+```
+
+```graphql
+query {
+    # Find transactions in major currencies
+    transactions(where: { currency: { _is_major: true } }) {
+        id amount currency
+    }
+
+    # Find fiat currencies only
+    accounts(where: { currency: { _is_fiat: true } }) {
+        id balance currency
+    }
+
+    # Find currencies pegged to USD
+    currencies(where: { currency: { _pegged_to: "USD" } }) {
+        code name
+    }
+}
+```
+
+#### MoneyFilter
+
+```graphql
+input MoneyFilter {
+    # Basic
+    _eq: Money
+    _neq: Money
+    _is_null: Boolean
+
+    # Amount comparisons (same currency)
+    _amount_eq: Decimal
+    _amount_neq: Decimal
+    _amount_gt: Decimal
+    _amount_gte: Decimal
+    _amount_lt: Decimal
+    _amount_lte: Decimal
+
+    # Currency filtering
+    _currency_eq: CurrencyCode
+    _currency_in: [CurrencyCode!]
+    _currency_nin: [CurrencyCode!]
+
+    # Cross-currency (with exchange rate table)
+    _converted_gt: MoneyInput
+    _converted_gte: MoneyInput
+    _converted_lt: MoneyInput
+    _converted_lte: MoneyInput
+}
+```
+
+```graphql
+query {
+    # Find high-value orders
+    orders(where: {
+        total: {
+            _amount_gte: "10000.00"
+            _currency_eq: "USD"
+        }
+    }) {
+        id total
+    }
+
+    # Find orders over $1000 USD equivalent
+    orders(where: {
+        total: {
+            _converted_gte: { amount: "1000.00", currency: "USD" }
+        }
+    }) {
+        id total
+    }
+}
+```
+
+#### IBANFilter
+
+```graphql
+input IBANFilter {
+    # Basic
+    _eq: IBAN
+    _neq: IBAN
+    _in: [IBAN!]
+    _nin: [IBAN!]
+    _is_null: Boolean
+
+    # Country extraction
+    _country_eq: CountryCode     # First 2 characters
+    _country_in: [CountryCode!]
+    _country_nin: [CountryCode!]
+
+    # Bank identification
+    _bank_code_eq: String
+    _bank_code_in: [String!]
+    _bank_code_startswith: String
+
+    # Branch identification
+    _branch_code_eq: String
+
+    # SEPA
+    _is_sepa: Boolean            # SEPA zone country
+
+    # Validation
+    _is_valid: Boolean           # Passes mod-97 check
+}
+```
+
+```graphql
+query {
+    # Find German bank accounts
+    accounts(where: { iban: { _country_eq: "DE" } }) {
+        id iban holder_name
+    }
+
+    # Find SEPA accounts
+    accounts(where: { iban: { _is_sepa: true } }) {
+        id iban
+    }
+
+    # Find accounts at specific bank
+    accounts(where: { iban: { _bank_code_eq: "COBADEFF" } }) {
+        id iban
+    }
+}
+```
+
+#### Securities Filters (CUSIP, ISIN, LEI)
+
+```graphql
+input CUSIPFilter {
+    _eq: CUSIP
+    _in: [CUSIP!]
+    _is_null: Boolean
+    _issuer_eq: String           # First 6 characters
+    _issuer_startswith: String
+    _is_equity: Boolean
+    _is_fixed_income: Boolean
+}
+
+input ISINFilter {
+    _eq: ISIN
+    _in: [ISIN!]
+    _is_null: Boolean
+    _country_eq: CountryCode     # First 2 characters
+    _country_in: [CountryCode!]
+    _nsin_eq: String             # National Securities ID
+    _nsin_startswith: String
+}
+
+input LEIFilter {
+    _eq: LEI
+    _in: [LEI!]
+    _is_null: Boolean
+    _lou_eq: String              # Local Operating Unit (first 4)
+    _lou_in: [String!]
+    _is_active: Boolean
+}
+```
+
+```graphql
+query {
+    # Find US securities
+    securities(where: { isin: { _country_eq: "US" } }) {
+        id isin name
+    }
+
+    # Find active legal entities
+    entities(where: { lei: { _is_active: true } }) {
+        id lei name
+    }
+}
+```
+
+#### PercentageFilter
+
+```graphql
+input PercentageFilter {
+    # Basic
+    _eq: Percentage
+    _neq: Percentage
+    _is_null: Boolean
+
+    # Numeric comparisons
+    _gt: Float
+    _gte: Float
+    _lt: Float
+    _lte: Float
+
+    # Convenience
+    _is_zero: Boolean
+    _is_positive: Boolean
+    _is_negative: Boolean
+}
+```
+
+---
+
+### Identifiers
+
+#### VINFilter
+
+```graphql
+input VINFilter {
+    # Basic
+    _eq: VIN
+    _neq: VIN
+    _in: [VIN!]
+    _nin: [VIN!]
+    _is_null: Boolean
+
+    # WMI - World Manufacturer Identifier (first 3)
+    _wmi_eq: String              # "WVW" (Volkswagen Germany)
+    _wmi_in: [String!]
+    _wmi_startswith: String      # "W" (Germany), "1" (USA), "J" (Japan)
+
+    # Manufacturer
+    _manufacturer_eq: String     # Decoded manufacturer name
+    _manufacturer_in: [String!]
+
+    # Model year
+    _model_year_eq: Int          # Decoded from position 10
+    _model_year_gte: Int
+    _model_year_lte: Int
+
+    # Plant code
+    _plant_code_eq: String       # Position 11
+
+    # Country of origin
+    _country_eq: CountryCode
+    _country_in: [CountryCode!]
+    _region_eq: VINRegion        # EUROPE, NORTH_AMERICA, ASIA
+}
+```
+
+```graphql
+query {
+    # Find Volkswagen vehicles
+    vehicles(where: { vin: { _wmi_eq: "WVW" } }) {
+        id vin model
+    }
+
+    # Find vehicles from 2020+
+    vehicles(where: { vin: { _model_year_gte: 2020 } }) {
+        id vin model_year
+    }
+
+    # Find German-made vehicles
+    vehicles(where: { vin: { _wmi_startswith: "W" } }) {
+        id vin manufacturer
+    }
+
+    # Find Toyota or Honda
+    vehicles(where: {
+        vin: { _manufacturer_in: ["Toyota", "Honda"] }
+    }) {
+        id vin manufacturer model
+    }
+}
+```
+
+#### TrackingNumberFilter
+
+```graphql
+input TrackingNumberFilter {
+    # Basic
+    _eq: TrackingNumber
+    _neq: TrackingNumber
+    _in: [TrackingNumber!]
+    _is_null: Boolean
+
+    # Carrier detection
+    _carrier_eq: Carrier         # UPS, FEDEX, USPS, DHL
+    _carrier_in: [Carrier!]
+
+    # Pattern
+    _startswith: String
+    _matches: String
+
+    # Service type
+    _service_type_eq: String     # "EXPRESS", "GROUND", "FREIGHT"
+}
+```
+
+```graphql
+query {
+    # Find FedEx shipments
+    shipments(where: { tracking: { _carrier_eq: "FEDEX" } }) {
+        id tracking status
+    }
+
+    # Find express shipments
+    shipments(where: { tracking: { _service_type_eq: "EXPRESS" } }) {
+        id tracking carrier
+    }
+
+    # Find UPS shipments (1Z prefix)
+    shipments(where: { tracking: { _startswith: "1Z" } }) {
+        id tracking
+    }
+}
+```
+
+#### SemanticVersionFilter
+
+```graphql
+input SemanticVersionFilter {
+    # Basic
+    _eq: SemanticVersion
+    _neq: SemanticVersion
+    _in: [SemanticVersion!]
+    _nin: [SemanticVersion!]
+    _is_null: Boolean
+
+    # Semver-aware comparison
+    _gt: SemanticVersion
+    _gte: SemanticVersion
+    _lt: SemanticVersion
+    _lte: SemanticVersion
+
+    # Component extraction
+    _major_eq: Int
+    _major_gte: Int
+    _major_lte: Int
+    _minor_eq: Int
+    _minor_gte: Int
+    _minor_lte: Int
+    _patch_eq: Int
+    _patch_gte: Int
+    _patch_lte: Int
+
+    # Pre-release / metadata
+    _prerelease_eq: String       # "alpha", "beta.1", "rc.2"
+    _has_prerelease: Boolean
+    _is_stable: Boolean          # No prerelease tag
+
+    # Range expressions (npm/cargo style)
+    _satisfies: String           # "^1.2.0", "~1.2.0", ">=1.0.0 <2.0.0"
+    _compatible_with: SemanticVersion  # ^version
+}
+```
+
+```graphql
+query {
+    # Find packages on major version 2
+    packages(where: { version: { _major_eq: 2 } }) {
+        id name version
+    }
+
+    # Find stable releases only
+    releases(where: { version: { _is_stable: true } }) {
+        id version published_at
+    }
+
+    # Find compatible versions
+    dependencies(where: {
+        version: { _satisfies: "^1.2.0" }
+    }) {
+        id name version
+    }
+
+    # Find pre-release versions
+    packages(where: { version: { _has_prerelease: true } }) {
+        id name version
+    }
+}
+```
+
+#### SlugFilter
+
+```graphql
+input SlugFilter {
+    # Basic
+    _eq: Slug
+    _neq: Slug
+    _in: [Slug!]
+    _nin: [Slug!]
+    _is_null: Boolean
+
+    # Pattern matching
+    _startswith: String
+    _endswith: String
+    _contains: String
+
+    # Path-like slugs
+    _path_startswith: String     # "blog/" matches "blog/post-title"
+    _path_depth_eq: Int          # Number of segments
+    _path_depth_gte: Int
+}
+```
+
+```graphql
+query {
+    # Find blog posts
+    pages(where: { slug: { _path_startswith: "blog/" } }) {
+        id title slug
+    }
+
+    # Find top-level pages only
+    pages(where: { slug: { _path_depth_eq: 1 } }) {
+        id title slug
+    }
+}
+```
+
+#### APIKeyFilter
+
+```graphql
+input APIKeyFilter {
+    # Basic
+    _eq: APIKey
+    _in: [APIKey!]
+    _is_null: Boolean
+
+    # Prefix matching
+    _prefix_eq: String           # "sk_live", "pk_test"
+    _prefix_in: [String!]
+    _startswith: String
+
+    # Environment detection
+    _is_live: Boolean            # Contains "live" or "prod"
+    _is_test: Boolean            # Contains "test" or "dev"
+
+    # Key type
+    _is_secret: Boolean          # Starts with "sk_"
+    _is_public: Boolean          # Starts with "pk_"
+}
+```
+
+```graphql
+query {
+    # Find live API keys
+    api_keys(where: { key: { _is_live: true } }) {
+        id key_prefix created_at
+    }
+
+    # Find secret keys
+    api_keys(where: { key: { _is_secret: true } }) {
+        id key_prefix scope
+    }
+}
+```
+
+---
+
+### Transportation
+
+#### AirportCodeFilter
+
+```graphql
+input AirportCodeFilter {
+    # Basic
+    _eq: AirportCode
+    _neq: AirportCode
+    _in: [AirportCode!]
+    _nin: [AirportCode!]
+    _is_null: Boolean
+
+    # Geographic
+    _country_eq: CountryCode
+    _country_in: [CountryCode!]
+    _region_eq: String           # State/province
+    _city_eq: String
+    _continent_eq: Continent
+
+    # Airport properties
+    _type_eq: AirportType        # INTERNATIONAL, DOMESTIC, REGIONAL
+    _size_eq: AirportSize        # LARGE_HUB, MEDIUM_HUB, SMALL_HUB
+    _is_hub: Boolean             # Major airline hub
+
+    # Geospatial
+    _within_radius: AirportRadiusInput
+
+    # Timezone
+    _timezone_eq: Timezone
+}
+```
+
+```graphql
+query {
+    # Find flights from US airports
+    flights(where: {
+        departure: { _country_eq: "US" }
+    }) {
+        id flight_number departure arrival
+    }
+
+    # Find flights from major hubs
+    flights(where: {
+        departure: { _is_hub: true }
+    }) {
+        id flight_number departure
+    }
+
+    # Find airports near a location
+    airports(where: {
+        code: {
+            _within_radius: { lat: 40.7, lng: -74.0, radius_km: 100 }
+        }
+    }) {
+        code name city
+    }
+}
+```
+
+#### FlightNumberFilter
+
+```graphql
+input FlightNumberFilter {
+    # Basic
+    _eq: FlightNumber
+    _neq: FlightNumber
+    _in: [FlightNumber!]
+    _nin: [FlightNumber!]
+    _is_null: Boolean
+
+    # Component extraction
+    _airline_eq: String          # IATA code: "AA", "UA", "DL"
+    _airline_in: [String!]
+    _flight_eq: Int              # Numeric portion: 1234
+    _flight_gte: Int
+    _flight_lte: Int
+
+    # Airline properties
+    _airline_country_eq: CountryCode
+    _airline_alliance_eq: String  # ONEWORLD, STAR_ALLIANCE, SKYTEAM
+}
+```
+
+```graphql
+query {
+    # Find American Airlines flights
+    flights(where: { flight_number: { _airline_eq: "AA" } }) {
+        id flight_number departure arrival
+    }
+
+    # Find Star Alliance flights
+    flights(where: {
+        flight_number: { _airline_alliance_eq: "STAR_ALLIANCE" }
+    }) {
+        id flight_number airline
+    }
+}
+```
+
+#### PortCodeFilter
+
+```graphql
+input PortCodeFilter {
+    # Basic
+    _eq: PortCode
+    _neq: PortCode
+    _in: [PortCode!]
+    _nin: [PortCode!]
+    _is_null: Boolean
+
+    # UN/LOCODE parsing
+    _country_eq: CountryCode
+    _country_in: [CountryCode!]
+    _location_eq: String         # 3-char location
+
+    # Port properties
+    _type_eq: PortType           # SEA, RIVER, RAIL, MULTIMODAL
+    _type_in: [PortType!]
+    _is_seaport: Boolean
+    _is_inland: Boolean
+
+    # Geographic
+    _continent_eq: Continent
+}
+```
+
+---
+
+### Content & Media
+
+#### MimeTypeFilter
+
+```graphql
+input MimeTypeFilter {
+    # Basic
+    _eq: MimeType
+    _neq: MimeType
+    _in: [MimeType!]
+    _nin: [MimeType!]
+    _is_null: Boolean
+
+    # Type/subtype parsing
+    _type_eq: String             # "application", "image", "video"
+    _type_in: [String!]
+    _subtype_eq: String          # "json", "png", "mp4"
+    _subtype_in: [String!]
+
+    # Category grouping
+    _is_image: Boolean
+    _is_video: Boolean
+    _is_audio: Boolean
+    _is_text: Boolean
+    _is_document: Boolean        # pdf, doc, docx
+    _is_archive: Boolean         # zip, tar, gz
+    _is_binary: Boolean
+}
+```
+
+```graphql
+query {
+    # Find image files
+    files(where: { mime_type: { _is_image: true } }) {
+        id name mime_type size
+    }
+
+    # Find documents
+    files(where: { mime_type: { _is_document: true } }) {
+        id name mime_type
+    }
+
+    # Find specific types
+    files(where: { mime_type: { _subtype_in: ["pdf", "docx"] } }) {
+        id name
+    }
+}
+```
+
+#### ColorFilter
+
+```graphql
+input ColorFilter {
+    # Basic
+    _eq: Color
+    _neq: Color
+    _in: [Color!]
+    _is_null: Boolean
+
+    # Hex parsing
+    _hex_eq: String              # "#FF5733"
+    _hex_startswith: String
+
+    # RGB components
+    _red_gte: Int
+    _red_lte: Int
+    _green_gte: Int
+    _green_lte: Int
+    _blue_gte: Int
+    _blue_lte: Int
+
+    # HSL components
+    _hue_gte: Int                # 0-360
+    _hue_lte: Int
+    _saturation_gte: Float       # 0-100
+    _saturation_lte: Float
+    _lightness_gte: Float        # 0-100
+    _lightness_lte: Float
+
+    # Perceptual
+    _is_light: Boolean           # Lightness > 50%
+    _is_dark: Boolean
+    _is_saturated: Boolean       # Saturation > 50%
+    _is_grayscale: Boolean       # Saturation = 0
+}
+```
+
+```graphql
+query {
+    # Find dark theme assets
+    assets(where: { primary_color: { _is_dark: true } }) {
+        id name primary_color
+    }
+
+    # Find red-ish colors (hue 0-30 or 330-360)
+    themes(where: {
+        accent_color: { _hue_lte: 30 }
+    }) {
+        id name accent_color
+    }
+
+    # Find grayscale images
+    images(where: { dominant_color: { _is_grayscale: true } }) {
+        id url
+    }
+}
+```
+
+---
+
+### Networking
+
+#### NetworkAddressFilter (IPAddress, CIDR)
+
+```graphql
+input NetworkAddressFilter {
+    # Basic
+    _eq: IPAddress
+    _neq: IPAddress
+    _in: [IPAddress!]
+    _nin: [IPAddress!]
+    _is_null: Boolean
+
+    # Network matching
+    _in_subnet: CIDR             # IP within CIDR range
+    _in_range: IPRangeInput      # IP within range
+
+    # IP version
+    _is_ipv4: Boolean
+    _is_ipv6: Boolean
+
+    # Special ranges
+    _is_private: Boolean         # RFC 1918
+    _is_public: Boolean
+    _is_loopback: Boolean
+    _is_multicast: Boolean
+    _is_link_local: Boolean
+}
+
+input CIDRFilter {
+    _eq: CIDR
+    _neq: CIDR
+    _contains: IPAddress         # CIDR contains IP
+    _overlaps: CIDR              # CIDRs overlap
+    _is_null: Boolean
+}
+```
+
+```graphql
+query {
+    # Find requests from private IPs
+    requests(where: { ip_address: { _is_private: true } }) {
+        id ip_address path
+    }
+
+    # Find requests from specific subnet
+    requests(where: {
+        ip_address: { _in_subnet: "10.0.0.0/8" }
+    }) {
+        id ip_address
+    }
+
+    # Find IPv6 connections
+    connections(where: { ip: { _is_ipv6: true } }) {
+        id ip protocol
+    }
+}
+```
+
+#### PortFilter
+
+```graphql
+input PortFilter {
+    # Basic
+    _eq: Port
+    _neq: Port
+    _in: [Port!]
+    _nin: [Port!]
+    _is_null: Boolean
+
+    # Numeric comparison
+    _gt: Int
+    _gte: Int
+    _lt: Int
+    _lte: Int
+
+    # Port categories
+    _is_well_known: Boolean      # 0-1023
+    _is_registered: Boolean      # 1024-49151
+    _is_dynamic: Boolean         # 49152-65535
+    _is_privileged: Boolean      # < 1024
+
+    # Common services
+    _is_http: Boolean            # 80, 8080
+    _is_https: Boolean           # 443
+    _is_ssh: Boolean             # 22
+    _is_database: Boolean        # 3306, 5432, 27017
+}
+```
+
+```graphql
+query {
+    # Find services on privileged ports
+    services(where: { port: { _is_privileged: true } }) {
+        id name port
+    }
+
+    # Find database connections
+    connections(where: { port: { _is_database: true } }) {
+        id host port protocol
+    }
+
+    # Find high ports
+    services(where: { port: { _gte: 8000 } }) {
+        id name port
+    }
+}
+```
+
+---
+
+### Database & Structural
+
+#### LTreeFilter
+
+```graphql
+input LTreeFilter {
+    # Basic
+    _eq: LTree
+    _neq: LTree
+    _in: [LTree!]
+    _is_null: Boolean
+
+    # Path comparison
+    _lt: LTree
+    _lte: LTree
+    _gt: LTree
+    _gte: LTree
+
+    # Hierarchy
+    _ancestor_of: LTree          # Is ancestor of path
+    _descendant_of: LTree        # Is descendant of path
+    _is_descendant: LTree
+
+    # Pattern matching
+    _matches_lquery: String      # Matches lquery pattern
+    _matches_ltxtquery: String   # Full-text search on path
+
+    # Depth
+    _nlevel_eq: Int              # Exact depth
+    _nlevel_gte: Int
+    _nlevel_lte: Int
+}
+```
+
+```graphql
+query {
+    # Find all electronics categories
+    categories(where: {
+        path: { _descendant_of: "root.electronics" }
+    }) {
+        id name path
+    }
+
+    # Find top-level categories
+    categories(where: { path: { _nlevel_eq: 2 } }) {
+        id name path
+    }
+
+    # Pattern matching
+    categories(where: {
+        path: { _matches_lquery: "root.*.phones" }
+    }) {
+        id name path
+    }
+}
+```
+
+#### DateRangeFilter
+
+```graphql
+input DateRangeFilter {
+    # Basic
+    _eq: DateRange
+    _neq: DateRange
+    _is_null: Boolean
+
+    # Containment
+    _contains_date: Date         # Range contains date
+    _contains_range: DateRange   # Range contains range
+
+    # Overlap
+    _overlaps: DateRange         # Ranges overlap
+    _adjacent: DateRange         # Ranges are adjacent
+
+    # Position
+    _strictly_left: DateRange    # Entirely before
+    _strictly_right: DateRange   # Entirely after
+    _not_left: DateRange         # Not entirely left
+    _not_right: DateRange        # Not entirely right
+}
+```
+
+```graphql
+query {
+    # Find bookings that include a date
+    bookings(where: {
+        period: { _contains_date: "2024-06-15" }
+    }) {
+        id room period
+    }
+
+    # Find overlapping reservations
+    reservations(where: {
+        dates: { _overlaps: "[2024-06-01,2024-06-30)" }
+    }) {
+        id guest dates
+    }
+
+    # Find available slots (no overlap)
+    slots(where: {
+        period: {
+            _not: { _overlaps: "[2024-06-10,2024-06-15)" }
+        }
+    }) {
+        id period
+    }
+}
+```
+
+#### DurationFilter
+
+```graphql
+input DurationFilter {
+    # Basic
+    _eq: Duration
+    _neq: Duration
+    _is_null: Boolean
+
+    # Comparison
+    _gt: Duration
+    _gte: Duration
+    _lt: Duration
+    _lte: Duration
+
+    # Component extraction
+    _hours_gte: Int
+    _hours_lte: Int
+    _minutes_gte: Int
+    _minutes_lte: Int
+
+    # Total conversion
+    _total_seconds_gt: Float
+    _total_seconds_gte: Float
+    _total_seconds_lt: Float
+    _total_seconds_lte: Float
+    _total_minutes_gt: Float
+    _total_hours_gt: Float
+}
+```
+
+```graphql
+query {
+    # Find long videos (over 1 hour)
+    videos(where: { duration: { _total_hours_gt: 1 } }) {
+        id title duration
+    }
+
+    # Find short tasks (under 30 minutes)
+    tasks(where: { estimated_time: { _total_minutes_lt: 30 } }) {
+        id name estimated_time
+    }
+}
+```
+
+---
+
+## Rich Type Filter Summary
+
+| Category | Types | Key Operators |
+|----------|-------|---------------|
+| **Contact** | Email | `_domain_eq`, `_domain_endswith`, `_is_freemail`, `_is_corporate` |
+| | PhoneNumber | `_country_code_eq`, `_is_mobile`, `_region_eq` |
+| | URL | `_domain_eq`, `_protocol_eq`, `_path_startswith`, `_is_secure` |
+| **Geography** | CountryCode | `_continent_eq`, `_in_eu`, `_gdpr_applicable`, `_in_g20` |
+| | Coordinates | `_within_radius`, `_within_bounds`, `_distance_from_lt` |
+| | PostalCode | `_startswith`, `_zip5_eq`, `_area_eq` |
+| **Financial** | CurrencyCode | `_is_fiat`, `_is_major`, `_is_crypto` |
+| | Money | `_amount_gte`, `_currency_eq`, `_converted_gt` |
+| | IBAN | `_country_eq`, `_bank_code_eq`, `_is_sepa` |
+| **Identifiers** | VIN | `_wmi_eq`, `_manufacturer_eq`, `_model_year_gte` |
+| | SemanticVersion | `_major_eq`, `_satisfies`, `_is_stable` |
+| | TrackingNumber | `_carrier_eq`, `_service_type_eq` |
+| **Transportation** | AirportCode | `_country_eq`, `_is_hub`, `_within_radius` |
+| | FlightNumber | `_airline_eq`, `_airline_alliance_eq` |
+| **Content** | MimeType | `_is_image`, `_is_document`, `_type_eq` |
+| | Color | `_is_dark`, `_hue_gte`, `_is_grayscale` |
+| **Networking** | IPAddress | `_in_subnet`, `_is_private`, `_is_ipv6` |
+| | Port | `_is_privileged`, `_is_database` |
+| **Database** | LTree | `_ancestor_of`, `_descendant_of`, `_nlevel_eq` |
+| | DateRange | `_contains_date`, `_overlaps`, `_adjacent` |
+
+## Performance Tips
+
+### Use Indexed Fields
+
+Ensure filtered fields are indexed:
+
+```sql
+CREATE INDEX idx_user_email ON tb_user(email);
+CREATE INDEX idx_user_status ON tb_user(status);
+CREATE INDEX idx_post_created ON tb_post(created_at DESC);
+```
+
+### JSONB Indexes
+
+For JSONB filtering, create GIN indexes:
+
+```sql
+-- Full JSONB index
+CREATE INDEX idx_user_data ON tv_user USING GIN (data);
+
+-- Specific field index
+CREATE INDEX idx_user_data_status ON tv_user ((data->>'status'));
+```
+
+### Avoid Leading Wildcards
+
+Leading wildcards prevent index usage:
+
+```graphql
+# Bad: Can't use index
+{ email: { _like: "%@example.com" } }
+
+# Good: Can use index
+{ email: { _like: "john%" } }
+```
+
+### Limit Result Sets
+
+Always use pagination with filters:
+
+```graphql
+query {
+    users(
+        where: { is_active: { _eq: true } }
+        limit: 20
+        offset: 0
+    ) {
+        id
+        name
+    }
+}
+```
+
+## Advanced: Rich Filters
+
+Beyond these standard operators, FraiseQL supports **rich filters** for semantic scalar types like `EmailAddress`, `Coordinates`, `IBAN`, and 46 more. Rich filters provide domain-specific operators:
+
+- Email domain matching (`domainEq`)
+- Geographic distance queries (`distanceWithin`)
+- Financial code validation (`ibanCountryEq`)
+- And 140+ more specialized operators
+
+See [Rich Filters](/features/rich-filters) for complete documentation on semantic scalars and their operators.
+
+## Next Steps
+
+- [Rich Filters](/features/rich-filters) — Advanced operators for semantic types
+- [Automatic Where](/features/automatic-where) — How filter types are generated
+- [Semantic Scalars](/reference/semantic-scalars) — Complete semantic type reference
+- [Pagination](/features/pagination) — Limit and offset patterns
+- [Performance](/guides/performance) — Query optimization
+
+<CardGrid>
+  <Card title="Rich Filters" icon="list-format">
+    [Rich Filters](/features/rich-filters) — Advanced operators for semantic types
+  </Card>
+  <Card title="Automatic Where" icon="setting">
+    [Automatic Where](/features/automatic-where) — How filter types are generated
+  </Card>
+  <Card title="Semantic Scalars" icon="open-book">
+    [Semantic Scalars](/reference/semantic-scalars) — Complete semantic type reference
+  </Card>
+</CardGrid>

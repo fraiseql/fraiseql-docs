@@ -1,0 +1,405 @@
+---
+title: PostgreSQL Guide for FraiseQL
+description: Complete PostgreSQL implementation guide for FraiseQL's CQRS architecture with Trinity pattern, JSONB projections, materialized views, and mutation responses
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+## Introduction
+
+PostgreSQL is the **optimal database for FraiseQL** because it perfectly supports the core CQRS + JSON in/out architecture:
+
+- **60+ WHERE Operators**: Full-featured GraphQL input types when compiled to PostgreSQL
+- **JSONB Type**: Native, indexed, queryable JSON with operators (`::`, `->`, `->>`, `@>`)
+- **GIN Indexes**: Efficient indexing of JSONB columns for fast queries
+- **View Composition**: Seamless aggregation of nested JSONB objects via `jsonb_build_object()`, `jsonb_agg()`
+- **Stored Procedures**: PL/pgSQL for complex mutation logic with transaction support
+- **Composite Types**: Strong typing for input validation and return shapes
+- **Materialized Views**: Optional denormalized projections for read-heavy workloads
+- **Advanced Features**: CTEs, window functions, arrays, full-text search, hierarchies (LTREE)
+
+## Core Architecture
+
+### Single JSONB Data Column Pattern
+
+FraiseQL views expose entities as **single JSONB columns** named `data`:
+
+```sql
+-- Every v_* view returns:
+-- 1. Metadata columns (id, tenant_id, organization_id, etc.)
+-- 2. Single JSONB column named 'data' containing complete entity
+
+SELECT
+  id,                    -- Metadata
+  tenant_id,             -- Metadata
+  organization_id,       -- Metadata
+  is_current,            -- Metadata
+  data                   -- Complete JSONB entity
+FROM v_user
+WHERE id = $1;
+```
+
+**Why?** The FraiseQL Rust server receives the complete entity as a single JSONB payload, no assembly needed.
+
+### Trinity Pattern: UUID + INTEGER PKs
+
+FraiseQL uses a dual-identifier system:
+
+```sql
+CREATE TABLE tb_user (
+  pk_user BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,  -- Internal, fast FKs
+  id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),        -- Public, exposed in GraphQL
+  email VARCHAR(255) NOT NULL UNIQUE,
+  name VARCHAR(255) NOT NULL,
+  deleted_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE tb_post (
+  pk_post BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+  fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user) ON DELETE CASCADE,  -- Uses pk_user
+  title VARCHAR(255) NOT NULL,
+  deleted_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Why?**
+- `id` (UUID): Exposed in GraphQL, immutable across systems, stateless
+- `pk_*` (INTEGER): Fast joins, small FK storage, internal only
+- Resolver functions bridge them in mutations
+
+### Resolver Functions
+
+Every table has UUID to INTEGER resolver functions:
+
+```sql
+-- Resolve UUID to internal pk (used in mutations)
+CREATE OR REPLACE FUNCTION core.get_pk_user(p_user_id UUID)
+RETURNS BIGINT
+LANGUAGE SQL STABLE PARALLEL SAFE
+AS $$
+  SELECT pk_user FROM tb_user WHERE id = p_user_id;
+$$;
+
+-- Resolve pk to UUID (used in responses)
+CREATE OR REPLACE FUNCTION core.get_user_id(p_pk_user BIGINT)
+RETURNS UUID
+LANGUAGE SQL STABLE PARALLEL SAFE
+AS $$
+  SELECT id FROM tb_user WHERE pk_user = p_pk_user;
+$$;
+```
+
+## Mutation Response Type
+
+All mutations return a **composite type** with 8 fields:
+
+```sql
+-- File: 00402_type_mutation_response.sql
+CREATE TYPE app.mutation_response AS (
+  status          TEXT,              -- "success:created", "failed:validation", "not_found:user"
+  message         TEXT,              -- Human-readable error/success message
+  entity_id       TEXT,              -- UUID of created/updated entity
+  entity_type     TEXT,              -- GraphQL type name: "User", "Post"
+  entity          JSONB,             -- Complete entity from v_* view (null if error)
+  updated_fields  TEXT[],            -- Array of field names that changed
+  cascade         JSONB,             -- Side-effects: {updated: [...], deleted: [...]}
+  metadata        JSONB              -- Audit: {operation: "INSERT", tenant_id: "..."}
+);
+```
+
+**Example mutation result:**
+```json
+{
+  "status": "success:created",
+  "message": "User created successfully",
+  "entity_id": "550e8400-e29b-41d4-a716-446655440000",
+  "entity_type": "User",
+  "entity": { "id": "...", "email": "john@example.com", "name": "John Doe" },
+  "updated_fields": ["email", "name"],
+  "cascade": { "updated": [{"__typename": "Organization", "id": "...", "member_count": 5}] },
+  "metadata": { "operation": "INSERT", "tenant_id": "...", "timestamp": "2024-02-08T10:30:00Z" }
+}
+```
+
+## Input Types
+
+Mutations accept strongly-typed input via composite types:
+
+```sql
+-- File: 00445_type_user_input.sql
+CREATE TYPE app.type_user_input AS (
+  email         VARCHAR(255),
+  name          VARCHAR(255),
+  status        VARCHAR(50),
+  metadata      JSONB
+);
+```
+
+<Aside type="note">
+**Security**: All input examples use **parameterized queries** (`$1`, `$2` placeholders) to prevent SQL injection. JSON values are extracted before SQL composition and enums are validated against a whitelist before use.
+</Aside>
+
+## View Structure: v_* (Regular Views)
+
+Views are the **source truth** for read operations:
+
+```sql
+-- File: 02411_v_user.sql
+CREATE OR REPLACE VIEW v_user AS
+SELECT
+  u.id,
+  u.organization_id,
+  u.tenant_id,
+  u.deleted_at IS NULL AS is_current,
+  jsonb_build_object(
+    'id', u.id::TEXT,
+    'email', u.email,
+    'name', u.name,
+    'status', u.status,
+    'role', u.role,
+    'created_at', u.created_at,
+    'updated_at', u.updated_at
+  ) AS data
+FROM tb_user u
+WHERE u.deleted_at IS NULL;
+```
+
+### Nested Views (One-to-Many Relationships)
+
+```sql
+-- File: 02412_v_user_with_posts.sql
+CREATE OR REPLACE VIEW v_user_with_posts AS
+SELECT
+  u.id,
+  u.organization_id,
+  u.tenant_id,
+  u.is_current,
+  jsonb_build_object(
+    'id', u.id::TEXT,
+    'email', u.email,
+    'name', u.name,
+    'posts', COALESCE(
+      jsonb_agg(
+        jsonb_build_object('id', p.id::TEXT, 'title', p.title, 'status', p.status)
+        ORDER BY p.created_at DESC
+      ) FILTER (WHERE p.id IS NOT NULL),
+      '[]'::jsonb
+    )
+  ) AS data
+FROM v_user u
+LEFT JOIN tb_post p ON p.fk_user = u.pk_user AND p.deleted_at IS NULL
+WHERE u.is_current
+GROUP BY u.pk_user, u.id, u.organization_id, u.tenant_id, u.is_current;
+```
+
+<Aside type="tip">
+Use `FILTER (WHERE ...)` with `COALESCE(..., '[]'::jsonb)` to ensure empty arrays instead of NULL when no related records exist. Order within aggregation ensures consistent results.
+</Aside>
+
+## Materialized Views: tv_* (Denormalized Projections)
+
+For **read-heavy workloads** with complex object graphs, use table-backed materialized views:
+
+```sql
+-- File: 02414_tv_user.sql
+CREATE TABLE IF NOT EXISTS tv_user (
+  id UUID PRIMARY KEY,
+  organization_id UUID NOT NULL,
+  tenant_id UUID NOT NULL,
+  is_current BOOLEAN DEFAULT TRUE,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  last_synced_at TIMESTAMP WITH TIME ZONE,
+  sync_count INTEGER DEFAULT 0,
+  is_stale BOOLEAN DEFAULT FALSE
+);
+
+-- GIN index for nested JSONB queries
+CREATE INDEX idx_tv_user_data_gin ON tv_user USING GIN(data);
+CREATE INDEX idx_tv_user_organization ON tv_user(organization_id);
+```
+
+**Refresh function:**
+
+```sql
+CREATE OR REPLACE FUNCTION core.refresh_user(p_user_id UUID) RETURNS VOID
+LANGUAGE plpgsql AS $$
+DECLARE v_new_data JSONB;
+BEGIN
+  SELECT data INTO v_new_data FROM v_user_with_posts WHERE id = p_user_id;
+  UPDATE tv_user SET
+    data = v_new_data,
+    updated_at = CURRENT_TIMESTAMP,
+    last_synced_at = CURRENT_TIMESTAMP,
+    sync_count = sync_count + 1,
+    is_stale = FALSE
+  WHERE id = p_user_id;
+END; $$;
+```
+
+## Mutation Functions: app/ vs core/
+
+FraiseQL separates concerns into two PostgreSQL schemas:
+
+### app/ Schema: API Layer
+
+```sql
+-- File: 03311_create_user.sql
+CREATE OR REPLACE FUNCTION app.create_user(
+  input_tenant_id UUID,
+  input_user_id UUID,
+  input_payload JSONB
+) RETURNS app.mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE v_input app.type_user_input;
+BEGIN
+  v_input := jsonb_populate_record(NULL::app.type_user_input, input_payload);
+  RETURN core.create_user(input_tenant_id, input_user_id, v_input, input_payload);
+EXCEPTION WHEN others THEN
+  RETURN core.build_error_response('invalid_input', 'Input validation failed: ' || SQLERRM, NULL, NULL);
+END; $$;
+```
+
+### core/ Schema: Business Logic Layer
+
+```sql
+CREATE OR REPLACE FUNCTION core.create_user(
+  input_tenant_id UUID,
+  input_user_id UUID,
+  input_data app.type_user_input,
+  input_payload JSONB
+) RETURNS app.mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_user_id UUID := gen_random_uuid();
+  v_user_pk BIGINT;
+  v_entity_data JSONB;
+BEGIN
+  IF input_data.email IS NULL OR input_data.email = '' THEN
+    RETURN core.build_error_response('invalid_input', 'email is required', NULL, 'User');
+  END IF;
+
+  INSERT INTO tb_user (id, email, name, status, created_by)
+  VALUES (v_user_id, input_data.email, input_data.name, COALESCE(input_data.status, 'active'), input_user_id)
+  RETURNING pk_user INTO v_user_pk;
+
+  SELECT data INTO v_entity_data FROM v_user WHERE id = v_user_id;
+
+  PERFORM core.refresh_user(v_user_id);
+
+  RETURN ('success:created', 'User created successfully', v_user_id::TEXT, 'User',
+    v_entity_data, ARRAY['id', 'email', 'name']::TEXT[], NULL::JSONB,
+    jsonb_build_object('operation', 'INSERT', 'entity_pk', v_user_pk, 'timestamp', CURRENT_TIMESTAMP)
+  )::app.mutation_response;
+
+EXCEPTION WHEN others THEN
+  RETURN core.build_error_response('database_error', 'Create user failed: ' || SQLERRM, NULL, 'User');
+END; $$;
+```
+
+## Configuration and Performance
+
+### FraiseQL-Optimized PostgreSQL Configuration
+
+```ini
+# postgresql.conf
+shared_buffers = 4GB                    # 25% of available RAM
+effective_cache_size = 12GB             # 75% of available RAM
+maintenance_work_mem = 1GB              # For CREATE INDEX, VACUUM
+work_mem = 50MB                         # Per operation
+
+random_page_cost = 1.1                  # For SSDs
+effective_io_concurrency = 200
+
+max_connections = 200
+# Use pgBouncer for connection pooling in production
+```
+
+### JSONB Query Examples
+
+```sql
+-- Extract specific fields from data column
+SELECT
+  id,
+  data->>'email' as email,
+  (data->>'age')::INTEGER as age,
+  data->'metadata' as metadata_object
+FROM v_user
+WHERE id = $1;
+
+-- JSONB containment queries (requires GIN index)
+SELECT * FROM tv_user
+WHERE data @> jsonb_build_object('status', 'active', 'verified', true);
+```
+
+## Troubleshooting
+
+### View Returns NULL for JSONB Aggregations
+
+```sql
+-- Problem: jsonb_agg returns NULL for zero matches
+-- Solution: Use COALESCE with FILTER
+CREATE VIEW v_fixed AS
+SELECT COALESCE(
+  jsonb_agg(p.data ORDER BY p.created_at DESC) FILTER (WHERE p.deleted_at IS NULL),
+  '[]'::jsonb
+) as posts FROM tb_post p GROUP BY p.user_id;
+```
+
+### JSONB GIN Index Not Being Used
+
+```sql
+-- Check if index exists and has stats
+SELECT * FROM pg_stat_user_indexes WHERE indexname = 'idx_tv_user_data_gin';
+
+-- Check query plan
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM tv_user WHERE data @> jsonb_build_object('status', 'active');
+-- Look for "Bitmap Index Scan" on GIN index
+```
+
+### High Memory Usage During View Computation
+
+```sql
+-- Increase work_mem for the connection
+SET work_mem = '256MB';
+
+-- Or use LIMIT to compute in batches
+SELECT data FROM v_user_with_posts
+WHERE organization_id = $1 LIMIT 100;
+```
+
+## Performance Benchmarks
+
+| Query Type | Latency | Notes |
+|-----------|---------|-------|
+| Single entity (v_*) | 0.2-0.5ms | Direct index lookup on id |
+| List query (1000 rows) | 5-15ms | With is_current filter |
+| Nested JSON (5 levels) | 20-100ms | Depends on aggregation size |
+| Materialized view access (tv_*) | 0.5-2ms | Pre-computed JSONB |
+| Analytics view (va_*) | 50-500ms | GROUP BY aggregation |
+| Full-text search | 100-1000ms | On indexed text fields |
+
+**Optimization Tips:**
+- Use `tv_*` for frequently-accessed complex objects (more than 10 reads/sec)
+- GIN indexes on JSONB data significantly improve performance
+- BRIN indexes for time-series data (created_at, updated_at)
+- Partial indexes on soft-delete filters: `WHERE deleted_at IS NULL`
+
+## See Also
+
+<CardGrid>
+  <Card title="Database Overview" icon="seti:db">
+    [Compare all supported databases](/databases/)
+  </Card>
+  <Card title="MySQL Guide" icon="seti:db">
+    [MySQL implementation patterns](/databases/mysql)
+  </Card>
+  <Card title="PostgreSQL Troubleshooting" icon="warning">
+    [PostgreSQL-specific troubleshooting](/troubleshooting/by-database/postgresql)
+  </Card>
+</CardGrid>

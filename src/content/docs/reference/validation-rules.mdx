@@ -1,0 +1,603 @@
+---
+title: Validation Rules Reference
+description: Complete reference for all FraiseQL validation rules and constraint types
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL provides a comprehensive validation system for input constraints. This reference covers all available rule types and their configurations.
+
+## Why FraiseQL Differs
+
+FraiseQL's validation system is uniquely positioned in the GraphQL ecosystem:
+
+**Compile-Time Enforcement**
+Unlike Apollo, Strawberry, and TypeGraphQL which validate at runtime, FraiseQL enforces all validation rules during schema compilation. This means invalid input structures are impossible at runtime — errors happen during development, not in production.
+
+**13 Built-In Validators**
+Most GraphQL frameworks offer 5-8 validators. FraiseQL includes 13:
+- 6 basic validators (required, pattern, length, range, enum, checksum)
+- 2 cross-field validators (comparison, conditional)
+- 4 mutual exclusivity validators (OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent)
+- 2 composite validators (all, any)
+
+Three of these (AnyOf, ConditionalRequired, RequiredIfAbsent) go beyond the GraphQL specification.
+
+**Part of a Larger Framework**
+This isn't just validation — it's part of FraiseQL's Phase 4 "batteries-included validation" strategy. Upcoming features include:
+- Validation introspection (clients can query validation rules)
+- Validation metrics (track common validation failures)
+- Audit logging (compliance and debugging)
+- Rate limiting directives
+
+**Zero Dependencies**
+No external validation libraries needed. Everything is built-in, compiled, and optimized.
+
+Learn more about mutual exclusivity validators in the [Mutual Exclusivity guide](/features/mutual-exclusivity).
+
+## Rule Categories
+
+### Basic Constraints
+- [Required](#required)
+- [Pattern](#pattern)
+- [Length](#length)
+- [Range](#range)
+- [Enum](#enum)
+- [Checksum](#checksum)
+
+### Cross-Field Constraints
+- [CrossField](#cross-field)
+- [Conditional](#conditional)
+
+### Mutual Exclusivity
+- [OneOf](#one-of)
+- [AnyOf](#any-of)
+- [ConditionalRequired](#conditional-required)
+- [RequiredIfAbsent](#required-if-absent)
+
+### Composite Rules
+- [All](#all)
+- [Any](#any)
+
+---
+
+## Basic Constraints
+
+### Required
+
+Field must be present and non-null.
+
+```toml
+[fraiseql.validation]
+user_name = "required"
+```
+
+```json
+{
+  "type": "required"
+}
+```
+
+**Error**: Field is required
+
+### Pattern
+
+Field value must match a regular expression pattern.
+
+```toml
+[fraiseql.validation]
+user_email = {
+    pattern = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+    message = "Invalid email format"
+}
+```
+
+```json
+{
+  "type": "pattern",
+  "value": {
+    "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+    "message": "Invalid email format"
+  }
+}
+```
+
+**Parameters:**
+- `pattern` (string, required): Regular expression pattern
+- `message` (string, optional): Custom error message
+
+**Error**: `<custom message>` or `Must match pattern`
+
+### Length
+
+String field length must be within specified bounds.
+
+```toml
+[fraiseql.validation]
+password = { length = { min = 8, max = 128 } }
+username = { length = { min = 3 } }
+code = { length = { max = 10 } }
+```
+
+```json
+{
+  "type": "length",
+  "value": {
+    "min": 8,
+    "max": 128
+  }
+}
+```
+
+**Parameters:**
+- `min` (integer, optional): Minimum length (inclusive)
+- `max` (integer, optional): Maximum length (inclusive)
+
+**Error**:
+- `Length between 8 and 128`
+- `Length at least 8`
+- `Length at most 128`
+
+### Range
+
+Numeric field value must be within specified bounds.
+
+```toml
+[fraiseql.validation]
+age = { range = { min = 0, max = 150 } }
+price = { range = { min = 0 } }
+quantity = { range = { max = 1000 } }
+```
+
+```json
+{
+  "type": "range",
+  "value": {
+    "min": 0,
+    "max": 150
+  }
+}
+```
+
+**Parameters:**
+- `min` (integer, optional): Minimum value (inclusive)
+- `max` (integer, optional): Maximum value (inclusive)
+
+**Error**:
+- `Value between 0 and 150`
+- `Value at least 0`
+- `Value at most 150`
+
+### Enum
+
+Field value must be one of allowed values.
+
+```toml
+[fraiseql.validation]
+status = {
+    enum = ["draft", "published", "archived"]
+}
+```
+
+```json
+{
+  "type": "enum",
+  "value": {
+    "values": ["draft", "published", "archived"]
+  }
+}
+```
+
+**Parameters:**
+- `values` (array of strings, required): Allowed values
+
+**Error**: `Must be one of: draft, published, archived`
+
+### Checksum
+
+Field value must pass checksum validation (e.g., Luhn for credit cards, Mod-97 for IBANs).
+
+```toml
+[fraiseql.validation]
+credit_card = { checksum = "luhn" }
+iban = { checksum = "mod97" }
+```
+
+```json
+{
+  "type": "checksum",
+  "value": {
+    "algorithm": "luhn"
+  }
+}
+```
+
+**Supported Algorithms:**
+- `luhn` - Luhn algorithm (credit cards, etc.)
+- `mod97` - Mod-97 algorithm (IBANs, ISINs, etc.)
+
+**Error**: `Invalid <algorithm>`
+
+---
+
+## Cross-Field Constraints
+
+### CrossField
+
+Compare a field against another field in the same input.
+
+```toml
+[fraiseql.validation]
+end_date = { cross_field = { field = "start_date", operator = "gt" } }
+```
+
+```json
+{
+  "type": "cross_field",
+  "value": {
+    "field": "start_date",
+    "operator": "gt"
+  }
+}
+```
+
+**Parameters:**
+- `field` (string, required): Name of field to compare against
+- `operator` (string, required): Comparison operator
+
+**Operators:**
+- `lt` - Less than
+- `lte` - Less than or equal
+- `eq` - Equal
+- `gte` - Greater than or equal
+- `gt` - Greater than
+
+**Error**: `Must be gt start_date`
+
+### Conditional
+
+Apply rules only if a condition is met.
+
+```toml
+[fraiseql.validation]
+payment_method = {
+    conditional = {
+        condition = "isPremium == true",
+        then_rules = ["required"]
+    }
+}
+```
+
+```json
+{
+  "type": "conditional",
+  "value": {
+    "condition": "isPremium == true",
+    "then_rules": [
+      {
+        "type": "required"
+      }
+    ]
+  }
+}
+```
+
+**Parameters:**
+- `condition` (string, required): Condition expression
+- `then_rules` (array, required): Rules to apply if condition true
+
+**Error**: Varies by nested rules
+
+---
+
+## Mutual Exclusivity Constraints
+
+### OneOf
+
+Exactly one field from a set must be provided. See [Mutual Exclusivity Validation](/features/mutual-exclusivity#one-of).
+
+```toml
+[fraiseql.validation]
+create_post_input = {
+    one_of = ["authorId", "authorPayload"]
+}
+```
+
+```json
+{
+  "type": "one_of",
+  "value": {
+    "fields": ["authorId", "authorPayload"]
+  }
+}
+```
+
+**Error**: `Exactly one of [authorId, authorPayload] must be provided, but 0 were provided`
+
+### AnyOf
+
+At least one field from a set must be provided. See [Mutual Exclusivity Validation](/features/mutual-exclusivity#any-of).
+
+```toml
+[fraiseql.validation]
+contact_input = {
+    any_of = ["email", "phone", "address"]
+}
+```
+
+```json
+{
+  "type": "any_of",
+  "value": {
+    "fields": ["email", "phone", "address"]
+  }
+}
+```
+
+**Error**: `At least one of [email, phone, address] must be provided`
+
+### ConditionalRequired
+
+If one field is present, others must be too. See [Mutual Exclusivity Validation](/features/mutual-exclusivity#conditional-required).
+
+```toml
+[fraiseql.validation]
+checkout_input = {
+    conditional_required = {
+        if_field_present = "isPremium",
+        then_required = ["paymentMethod", "billingAddress"]
+    }
+}
+```
+
+```json
+{
+  "type": "conditional_required",
+  "value": {
+    "if_field_present": "isPremium",
+    "then_required": ["paymentMethod", "billingAddress"]
+  }
+}
+```
+
+**Error**: `Since 'isPremium' is provided, 'paymentMethod', 'billingAddress' must also be provided`
+
+### RequiredIfAbsent
+
+If one field is absent, others must be provided. See [Mutual Exclusivity Validation](/features/mutual-exclusivity#required-if-absent).
+
+```toml
+[fraiseql.validation]
+create_order_input = {
+    required_if_absent = {
+        absent_field = "addressId",
+        then_required = ["street", "city", "state", "zip"]
+    }
+}
+```
+
+```json
+{
+  "type": "required_if_absent",
+  "value": {
+    "absent_field": "addressId",
+    "then_required": ["street", "city", "state", "zip"]
+  }
+}
+```
+
+**Error**: `Since 'addressId' is not provided, 'street', 'city', 'state', 'zip' must be provided`
+
+---
+
+## Composite Rules
+
+### All
+
+All rules in the set must pass (AND logic).
+
+```toml
+[fraiseql.validation]
+complex_field = {
+    all = [
+        { length = { min = 5, max = 50 } },
+        { pattern = "^[a-z]+$" }
+    ]
+}
+```
+
+```json
+{
+  "type": "all",
+  "value": [
+    {
+      "type": "length",
+      "value": { "min": 5, "max": 50 }
+    },
+    {
+      "type": "pattern",
+      "value": { "pattern": "^[a-z]+$" }
+    }
+  ]
+}
+```
+
+**Error**: Multiple errors returned for each failed rule
+
+### Any
+
+At least one rule must pass (OR logic).
+
+```toml
+[fraiseql.validation]
+flexible_field = {
+    any = [
+        { pattern = "^\\d+$" },         # numeric
+        { pattern = "^[a-z]+$" }        # alphabetic
+    ]
+}
+```
+
+```json
+{
+  "type": "any",
+  "value": [
+    {
+      "type": "pattern",
+      "value": { "pattern": "^\\d+$" }
+    },
+    {
+      "type": "pattern",
+      "value": { "pattern": "^[a-z]+$" }
+    }
+  ]
+}
+```
+
+**Error**: `At least one rule must pass`
+
+---
+
+## Configuration Examples
+
+### Complete Input Type
+
+```toml
+[fraiseql.validation]
+
+# Basic field validation
+user_email = {
+    required = true,
+    pattern = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+}
+
+user_password = {
+    required = true,
+    length = { min = 8, max = 128 },
+    pattern = "^(?=.*[A-Za-z])(?=.*\\d).+$"  # letters and numbers
+}
+
+user_age = {
+    range = { min = 0, max = 150 }
+}
+
+user_status = {
+    required = true,
+    enum = ["active", "inactive", "suspended"]
+}
+
+# Mutual exclusivity rules
+create_post_input = {
+    one_of = ["authorId", "authorPayload"]
+}
+
+contact_info = {
+    any_of = ["email", "phone", "address"]
+}
+
+# Conditional rules
+checkout_input = {
+    conditional_required = {
+        if_field_present = "isPremium",
+        then_required = ["paymentMethod", "billingAddress"]
+    }
+}
+
+order_location = {
+    required_if_absent = {
+        absent_field = "savedLocationId",
+        then_required = ["latitude", "longitude"]
+    }
+}
+```
+
+### Complex Validation
+
+```toml
+[fraiseql.validation]
+
+# Multiple validators on one field
+ssn = {
+    required = true,
+    length = { min = 11, max = 11 },
+    pattern = "^\\d{3}-\\d{2}-\\d{4}$"
+}
+
+# Credit card with checksum
+credit_card = {
+    required = true,
+    length = { min = 13, max = 19 },
+    checksum = "luhn"
+}
+
+# Date range validation
+start_date = { required = true }
+end_date = {
+    required = true,
+    cross_field = { field = "start_date", operator = "gt" }
+}
+
+# Either/or pattern
+address = {
+    required_if_absent = {
+        absent_field = "addressId",
+        then_required = ["street", "city", "state", "zip"]
+    }
+}
+```
+
+---
+
+## Performance Considerations
+
+**Evaluation Order:**
+1. Basic constraints (required, pattern, length, range, enum, checksum)
+2. Cross-field constraints (cross_field, conditional)
+3. Mutual exclusivity constraints (one_of, any_of, conditional_required, required_if_absent)
+4. Composite rules (all, any)
+
+**Performance Characteristics:**
+- Basic constraints: **O(1)** to **O(n)** depending on rule
+- Cross-field: **O(1)** field lookup
+- Mutual exclusivity: **O(n)** where n = number of fields in constraint
+- Composite rules: **O(n)** for each nested rule
+
+All validators are evaluated **before SQL execution** (fail-fast).
+
+---
+
+## Error Handling
+
+All validation errors are returned with:
+- **message** - Human-readable error description
+- **path** - JSON path to the invalid field
+- **context** - Additional context (when provided)
+
+Example error response:
+
+```json
+{
+  "errors": [
+    {
+      "message": "Since 'isPremium' is provided, 'paymentMethod', 'billingAddress' must also be provided",
+      "path": "checkoutInput"
+    }
+  ]
+}
+```
+
+---
+
+## Related Documentation
+
+<CardGrid>
+  <Card title="Mutual Exclusivity" icon="approve-check">
+    [Mutual Exclusivity Validation](/features/mutual-exclusivity) — Detailed guide with examples
+  </Card>
+  <Card title="TOML Configuration" icon="setting">
+    [TOML Configuration](/reference/toml-config) — Configuration syntax
+  </Card>
+  <Card title="Error Handling" icon="open-book">
+    [Error Handling](/guides/error-handling) — Handle validation errors
+  </Card>
+</CardGrid>

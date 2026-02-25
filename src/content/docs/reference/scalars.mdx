@@ -1,0 +1,1352 @@
+---
+title: Scalar Types
+description: Complete reference for FraiseQL scalar types and their PostgreSQL mappings
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+FraiseQL provides scalar types that map between Python, GraphQL, and PostgreSQL. This reference covers all available scalars and their usage.
+
+<Aside type="note">
+Looking for **semantic scalar types** with advanced filtering capabilities? See [Semantic Scalars](/reference/semantic-scalars) for 49 specialized types like `EmailAddress`, `Coordinates`, `IBAN`, and more, each with domain-specific operators and validation rules.
+</Aside>
+
+## Importing Scalars
+
+```python
+from fraiseql.scalars import (
+    # Core types
+    ID, UUID, DateTime, Date, Time, Decimal, Json, Vector,
+
+    # Contact/Communication
+    Email, PhoneNumber, URL, DomainName, Hostname,
+
+    # Location/Address
+    PostalCode, Latitude, Longitude, Coordinates, Timezone,
+    LocaleCode, LanguageCode, CountryCode,
+
+    # Financial
+    IBAN, CUSIP, ISIN, SEDOL, LEI, MIC, CurrencyCode,
+    Money, ExchangeCode, ExchangeRate, StockSymbol, Percentage,
+
+    # Identifiers
+    Slug, SemanticVersion, HashSHA256, APIKey,
+    LicensePlate, VIN, TrackingNumber, ContainerNumber,
+
+    # Networking
+    IPAddress, IPv4, IPv6, MACAddress, CIDR, Port,
+
+    # Transportation
+    AirportCode, PortCode, FlightNumber,
+
+    # Content
+    Markdown, HTML, MimeType, Color, Image, File,
+
+    # Database
+    LTree, DateRange, Duration,
+)
+```
+
+FraiseQL provides **47+ domain-specific scalar types** with built-in validation, organized into logical categories.
+
+## Core Scalars
+
+### ID
+
+The primary identifier type. Maps to PostgreSQL `UUID`.
+
+```python
+from fraiseql.scalars import ID
+
+@fraiseql.type
+class User:
+    id: ID  # UUID v4
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `str` |
+| GraphQL | `ID` |
+| PostgreSQL | `UUID` |
+| Format | UUID v4 (e.g., `550e8400-e29b-41d4-a716-446655440000`) |
+
+**Usage:**
+
+```python
+@fraiseql.query(sql_source="v_user")
+def user(id: ID) -> User | None:
+    pass
+
+@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+def create_user(name: str) -> User:
+    # Returns entity with generated ID
+    pass
+```
+
+### UUID
+
+Explicit UUID type. Identical to `ID` but semantically clearer.
+
+```python
+from fraiseql.scalars import UUID
+
+@fraiseql.type
+class Session:
+    session_id: UUID
+    user_id: UUID
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `str` |
+| GraphQL | `UUID` |
+| PostgreSQL | `UUID` |
+
+### String
+
+Built-in Python `str`. Maps to PostgreSQL text types.
+
+```python
+@fraiseql.type
+class Post:
+    title: str       # TEXT
+    slug: str        # TEXT
+    content: str     # TEXT
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `str` |
+| GraphQL | `String` |
+| PostgreSQL | `TEXT`, `VARCHAR` |
+
+### Int
+
+Built-in Python `int`. Maps to PostgreSQL integers.
+
+```python
+@fraiseql.type
+class Product:
+    quantity: int     # INTEGER
+    view_count: int   # INTEGER
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `int` |
+| GraphQL | `Int` |
+| PostgreSQL | `INTEGER`, `BIGINT`, `SMALLINT` |
+
+### Float
+
+Built-in Python `float`. Maps to PostgreSQL floating-point.
+
+```python
+@fraiseql.type
+class Location:
+    latitude: float   # DOUBLE PRECISION
+    longitude: float
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `float` |
+| GraphQL | `Float` |
+| PostgreSQL | `REAL`, `DOUBLE PRECISION` |
+
+### Boolean
+
+Built-in Python `bool`.
+
+```python
+@fraiseql.type
+class User:
+    is_active: bool
+    is_verified: bool
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `bool` |
+| GraphQL | `Boolean` |
+| PostgreSQL | `BOOLEAN` |
+
+## Date and Time
+
+### DateTime
+
+Timestamp with timezone. ISO 8601 format.
+
+```python
+from fraiseql.scalars import DateTime
+
+@fraiseql.type
+class Event:
+    created_at: DateTime
+    updated_at: DateTime
+    scheduled_for: DateTime | None
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `str` (ISO 8601) |
+| GraphQL | `DateTime` |
+| PostgreSQL | `TIMESTAMPTZ` |
+| Format | `2024-01-15T10:30:00Z` |
+
+**Example values:**
+
+```json
+{
+    "created_at": "2024-01-15T10:30:00Z",
+    "updated_at": "2024-01-15T14:22:33.123456Z"
+}
+```
+
+### Date
+
+Date without time component.
+
+```python
+from fraiseql.scalars import Date
+
+@fraiseql.type
+class Invoice:
+    issue_date: Date
+    due_date: Date
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `str` (ISO 8601) |
+| GraphQL | `Date` |
+| PostgreSQL | `DATE` |
+| Format | `2024-01-15` |
+
+### Time
+
+Time without date component.
+
+```python
+from fraiseql.scalars import Time
+
+@fraiseql.type
+class Schedule:
+    start_time: Time
+    end_time: Time
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `str` (ISO 8601) |
+| GraphQL | `Time` |
+| PostgreSQL | `TIME`, `TIMETZ` |
+| Format | `14:30:00` |
+
+## Numeric Types
+
+### Decimal
+
+Arbitrary-precision decimal. Use for financial calculations.
+
+```python
+from fraiseql.scalars import Decimal
+
+@fraiseql.type
+class Order:
+    subtotal: Decimal
+    tax: Decimal
+    total: Decimal
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `str` (to preserve precision) |
+| GraphQL | `Decimal` |
+| PostgreSQL | `NUMERIC`, `DECIMAL` |
+| Format | `"123.45"` |
+
+**Why string representation?**
+
+JSON and JavaScript cannot represent arbitrary precision decimals. FraiseQL serializes as strings to preserve exact values:
+
+```json
+{
+    "total": "1234567890.12345678901234567890"
+}
+```
+
+**PostgreSQL definition:**
+
+```sql
+total DECIMAL(12, 2) NOT NULL  -- 12 digits, 2 decimal places
+```
+
+## Complex Types
+
+### Json
+
+Arbitrary JSON data. Maps to PostgreSQL `JSONB`.
+
+```python
+from fraiseql.scalars import Json
+
+@fraiseql.type
+class User:
+    preferences: Json    # Arbitrary JSON object
+    metadata: Json | None
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `dict`, `list`, or primitive |
+| GraphQL | `JSON` |
+| PostgreSQL | `JSONB` |
+
+**Example values:**
+
+```json
+{
+    "preferences": {
+        "theme": "dark",
+        "notifications": {
+            "email": true,
+            "push": false
+        }
+    },
+    "metadata": null
+}
+```
+
+**Use cases:**
+
+- User preferences/settings
+- Flexible metadata
+- External API responses
+- Configuration objects
+
+### Vector
+
+Vector embeddings for ML/AI applications. Maps to `pgvector`.
+
+```python
+from fraiseql.scalars import Vector
+
+@fraiseql.type
+class Document:
+    content: str
+    embedding: Vector  # 1536-dimensional vector
+```
+
+| Aspect | Value |
+|--------|-------|
+| Python | `list[float]` |
+| GraphQL | `[Float!]` |
+| PostgreSQL | `vector` (pgvector extension) |
+
+**PostgreSQL setup:**
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE tb_document (
+    pk_document INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    content TEXT NOT NULL,
+    embedding vector(1536)  -- OpenAI ada-002 dimension
+);
+
+-- Similarity search index
+CREATE INDEX idx_document_embedding ON tb_document
+USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
+```
+
+## Arrays
+
+Use Python `list[T]` for array types:
+
+```python
+@fraiseql.type
+class Post:
+    tags: list[str]           # TEXT[]
+    categories: list[int]     # INTEGER[]
+    scores: list[float]       # DOUBLE PRECISION[]
+```
+
+| Python | GraphQL | PostgreSQL |
+|--------|---------|------------|
+| `list[str]` | `[String!]` | `TEXT[]` |
+| `list[int]` | `[Int!]` | `INTEGER[]` |
+| `list[float]` | `[Float!]` | `DOUBLE PRECISION[]` |
+| `list[ID]` | `[ID!]` | `UUID[]` |
+
+**Nullable arrays vs nullable elements:**
+
+```python
+tags: list[str]           # Non-null array, non-null elements
+tags: list[str] | None    # Nullable array, non-null elements
+tags: list[str | None]    # Non-null array, nullable elements
+```
+
+## Optional Types
+
+Use union with `None` for nullable fields:
+
+```python
+@fraiseql.type
+class User:
+    email: str              # Required
+    bio: str | None         # Optional (nullable)
+    avatar_url: str | None  # Optional (nullable)
+```
+
+**GraphQL output:**
+
+```graphql
+type User {
+    email: String!
+    bio: String
+    avatarUrl: String
+}
+```
+
+## Type Coercion
+
+FraiseQL automatically coerces PostgreSQL types:
+
+| PostgreSQL | Python Scalar |
+|------------|---------------|
+| `UUID` | `ID`, `UUID` |
+| `TEXT`, `VARCHAR`, `CHAR` | `str` |
+| `INTEGER`, `BIGINT`, `SMALLINT` | `int` |
+| `REAL`, `DOUBLE PRECISION` | `float` |
+| `BOOLEAN` | `bool` |
+| `TIMESTAMPTZ`, `TIMESTAMP` | `DateTime` |
+| `DATE` | `Date` |
+| `TIME`, `TIMETZ` | `Time` |
+| `NUMERIC`, `DECIMAL` | `Decimal` |
+| `JSONB`, `JSON` | `Json` |
+| `vector` | `Vector` |
+| `TEXT[]`, `VARCHAR[]` | `list[str]` |
+| `INTEGER[]` | `list[int]` |
+| `UUID[]` | `list[ID]` |
+
+## Contact & Communication
+
+### Email
+
+RFC 5322 validated email address with domain-aware filtering.
+
+```python
+from fraiseql.scalars import Email
+
+@fraiseql.type
+class User:
+    email: Email
+    backup_email: Email | None
+```
+
+| Aspect | Value |
+|--------|-------|
+| GraphQL | `Email` |
+| PostgreSQL | `TEXT` |
+| Validation | RFC 5322 format |
+
+**Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_domain_eq` | Match domain exactly | `"acme.com"` |
+| `_domain_in` | Domain in list | `["acme.com", "corp.com"]` |
+| `_domain_endswith` | Domain suffix | `".edu"` |
+| `_is_freemail` | Gmail, Yahoo, etc. | `true` |
+| `_is_corporate` | Not freemail | `true` |
+| `_local_startswith` | Local part prefix | `"sales."` |
+
+```graphql
+query {
+    # Corporate emails only
+    leads(where: { email: { _is_corporate: true } }) { id email }
+
+    # All .edu domains
+    students(where: { email: { _domain_endswith: ".edu" } }) { id email }
+}
+```
+
+### PhoneNumber
+
+E.164 format phone numbers with geographic filtering.
+
+```python
+from fraiseql.scalars import PhoneNumber
+
+@fraiseql.type
+class Contact:
+    phone: PhoneNumber
+    mobile: PhoneNumber | None
+```
+
+| Aspect | Value |
+|--------|-------|
+| GraphQL | `PhoneNumber` |
+| PostgreSQL | `TEXT` |
+| Format | E.164 (e.g., `+14155551234`) |
+
+**Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_country_code_eq` | Country code | `"+1"`, `"+44"` |
+| `_country_eq` | Country | `"US"`, `"GB"` |
+| `_region_eq` | Geographic region | `"Europe"` |
+| `_is_mobile` | Mobile number | `true` |
+| `_is_toll_free` | Toll-free number | `true` |
+
+```graphql
+query {
+    # US mobile numbers
+    contacts(where: {
+        phone: { _country_code_eq: "+1", _is_mobile: true }
+    }) { id phone }
+}
+```
+
+### URL
+
+RFC 3986 validated URLs with component extraction.
+
+```python
+from fraiseql.scalars import URL
+
+@fraiseql.type
+class Website:
+    homepage: URL
+    favicon: URL | None
+```
+
+**Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_domain_eq` | Match domain | `"github.com"` |
+| `_protocol_eq` | Protocol | `"https"` |
+| `_is_secure` | HTTPS only | `true` |
+| `_path_startswith` | Path prefix | `"/api/"` |
+| `_tld_eq` | Top-level domain | `"io"` |
+
+### DomainName & Hostname
+
+```python
+from fraiseql.scalars import DomainName, Hostname
+
+@fraiseql.type
+class Server:
+    domain: DomainName      # e.g., "example.com"
+    hostname: Hostname      # e.g., "api.example.com"
+```
+
+**Filter Operators:** `_tld_eq`, `_subdomain_of`, `_depth_eq`, `_endswith`
+
+## Location & Address
+
+### Geographic Coordinates
+
+```python
+from fraiseql.scalars import Latitude, Longitude, Coordinates
+
+@fraiseql.type
+class Location:
+    lat: Latitude           # -90 to 90
+    lng: Longitude          # -180 to 180
+    coords: Coordinates     # Combined lat,lng or GeoJSON
+```
+
+| Type | Range | Example |
+|------|-------|---------|
+| `Latitude` | -90 to 90 | `40.7128` |
+| `Longitude` | -180 to 180 | `-74.0060` |
+| `Coordinates` | GeoJSON or pair | `{"lat": 40.7, "lng": -74.0}` |
+
+**Coordinates Filter Operators (PostGIS):**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_within_radius` | Within distance | `{ lat, lng, radius_km }` |
+| `_within_bounds` | In bounding box | `{ min_lat, max_lat, min_lng, max_lng }` |
+| `_distance_from_lt` | Closer than | `{ lat, lng, km: 50 }` |
+| `_in_country` | Within country | `"US"` |
+
+```graphql
+query {
+    # Find stores within 50km of NYC
+    stores(where: {
+        location: {
+            _within_radius: { lat: 40.7128, lng: -74.006, radius_km: 50 }
+        }
+    }) { id name location }
+}
+```
+
+### Address Components
+
+```python
+from fraiseql.scalars import PostalCode, CountryCode, Timezone
+
+@fraiseql.type
+class Address:
+    postal_code: PostalCode     # ZIP/postal codes
+    country: CountryCode        # ISO 3166-1 alpha-2 (e.g., "US")
+    timezone: Timezone          # IANA timezone (e.g., "America/New_York")
+```
+
+**CountryCode Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_continent_eq` | Continent | `"EU"`, `"AS"`, `"NA"` |
+| `_in_eu` | EU member state | `true` |
+| `_in_eurozone` | Uses Euro | `true` |
+| `_gdpr_applicable` | GDPR applies | `true` |
+| `_in_g20` | G20 economy | `true` |
+
+```graphql
+query {
+    # Find EU customers (GDPR-applicable)
+    customers(where: { country: { _gdpr_applicable: true } }) {
+        id name country
+    }
+}
+```
+
+**PostalCode Filter Operators:** `_startswith`, `_zip5_eq` (US), `_area_eq` (UK), `_fsa_eq` (CA)
+
+**Timezone Filter Operators:** `_offset_eq`, `_observes_dst`, `_continent_eq`
+
+### Locale & Language
+
+```python
+from fraiseql.scalars import LocaleCode, LanguageCode
+
+@fraiseql.type
+class UserPreferences:
+    locale: LocaleCode          # e.g., "en-US"
+    language: LanguageCode      # ISO 639-1 (e.g., "en")
+```
+
+**LanguageCode Filter Operators:** `_family_eq`, `_script_eq`, `_is_rtl`
+
+## Financial
+
+### Bank & Securities Identifiers
+
+```python
+from fraiseql.scalars import IBAN, CUSIP, ISIN, SEDOL, LEI
+
+@fraiseql.type
+class BankAccount:
+    iban: IBAN                  # International Bank Account Number
+
+@fraiseql.type
+class Security:
+    cusip: CUSIP | None         # North American securities
+    isin: ISIN | None           # International Securities ID
+    sedol: SEDOL | None         # London Stock Exchange
+    lei: LEI | None             # Legal Entity Identifier
+```
+
+| Type | Format | Example |
+|------|--------|---------|
+| `IBAN` | ISO 13616 | `DE89370400440532013000` |
+| `CUSIP` | 9 characters | `037833100` |
+| `ISIN` | 12 characters | `US0378331005` |
+| `SEDOL` | 7 characters | `2046251` |
+| `LEI` | 20 characters | `529900W18LQJJN6SJ336` |
+
+**IBAN Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_country_eq` | Country code (first 2 chars) | `"DE"`, `"FR"` |
+| `_bank_code_eq` | Bank identifier | `"COBADEFF"` |
+| `_is_sepa` | SEPA zone account | `true` |
+| `_is_valid` | Passes mod-97 check | `true` |
+
+```graphql
+query {
+    # Find German SEPA accounts
+    accounts(where: {
+        iban: { _country_eq: "DE", _is_sepa: true }
+    }) { id iban holder_name }
+}
+```
+
+**ISIN/CUSIP Filter Operators:** `_country_eq`, `_issuer_startswith`, `_is_equity`
+
+**LEI Filter Operators:** `_lou_eq`, `_is_active`
+
+### Currency & Exchange
+
+```python
+from fraiseql.scalars import CurrencyCode, Money, ExchangeRate, StockSymbol
+
+@fraiseql.type
+class Transaction:
+    amount: Money               # Amount with currency
+    currency: CurrencyCode      # ISO 4217 (e.g., "USD")
+    exchange_rate: ExchangeRate | None
+
+@fraiseql.type
+class Stock:
+    symbol: StockSymbol         # e.g., "AAPL"
+    exchange: ExchangeCode      # e.g., "NYSE"
+```
+
+**CurrencyCode Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_is_fiat` | Fiat currency | `true` |
+| `_is_crypto` | Cryptocurrency | `true` |
+| `_is_major` | G10 currencies | `true` |
+| `_is_pegged` | Pegged currency | `true` |
+| `_decimals_eq` | Minor unit decimals | `2` (USD), `0` (JPY) |
+
+**Money Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_amount_gte` | Amount greater than or equal | `"10000.00"` |
+| `_amount_lte` | Amount less than or equal | `"50000.00"` |
+| `_currency_eq` | Currency match | `"USD"` |
+| `_converted_gte` | Converted amount greater than or equal | `"10000.00"` (in target currency) |
+
+```graphql
+query {
+    # High-value USD transactions
+    transactions(where: {
+        total: { _amount_gte: "10000", _currency_eq: "USD" }
+    }) { id total }
+}
+```
+
+### Percentage
+
+```python
+from fraiseql.scalars import Percentage
+
+@fraiseql.type
+class TaxRate:
+    rate: Percentage            # 0-100 or 0-1 (configurable)
+    discount: Percentage | None
+```
+
+**Filter Operators:** `_gt`, `_gte`, `_lt`, `_lte`, `_is_zero`, `_is_positive`
+
+## Identifiers
+
+### Vehicle Identification
+
+```python
+from fraiseql.scalars import VIN, LicensePlate
+
+@fraiseql.type
+class Vehicle:
+    vin: VIN                    # 17-character Vehicle Identification Number
+    license_plate: LicensePlate
+```
+
+| Type | Format | Example |
+|------|--------|---------|
+| `VIN` | 17 characters | `1HGBH41JXMN109186` |
+| `LicensePlate` | Regional format | `ABC-1234` |
+
+**VIN Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_wmi_eq` | World Manufacturer ID (first 3) | `"WVW"` (VW Germany) |
+| `_manufacturer_eq` | Manufacturer name | `"Toyota"` |
+| `_manufacturer_in` | Manufacturers | `["Toyota", "Honda"]` |
+| `_model_year_eq` | Model year | `2024` |
+| `_model_year_gte` | Model year (gte) | `2020` |
+| `_country_eq` | Country of manufacture | `"DE"`, `"JP"` |
+| `_region_eq` | Manufacturing region | `"EUROPE"`, `"ASIA"` |
+
+```graphql
+query {
+    # Find 2020+ German vehicles
+    vehicles(where: {
+        vin: { _model_year_gte: 2020, _region_eq: "EUROPE" }
+    }) { id vin manufacturer model_year }
+}
+```
+
+### Shipping & Logistics
+
+```python
+from fraiseql.scalars import TrackingNumber, ContainerNumber
+
+@fraiseql.type
+class Shipment:
+    tracking: TrackingNumber    # Carrier tracking number
+    container: ContainerNumber | None  # ISO 6346
+```
+
+**TrackingNumber Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_carrier_eq` | Carrier | `"FEDEX"`, `"UPS"`, `"DHL"` |
+| `_carrier_in` | Carriers | `["FEDEX", "UPS"]` |
+| `_service_type_eq` | Service level | `"EXPRESS"`, `"GROUND"` |
+
+```graphql
+query {
+    # Find express FedEx shipments
+    shipments(where: {
+        tracking: { _carrier_eq: "FEDEX", _service_type_eq: "EXPRESS" }
+    }) { id tracking status }
+}
+```
+
+**ContainerNumber Filter Operators:** `_owner_eq`, `_category_eq`, `_size_eq`, `_type_eq`
+
+### Software & API
+
+```python
+from fraiseql.scalars import Slug, SemanticVersion, HashSHA256, APIKey
+
+@fraiseql.type
+class Package:
+    slug: Slug                  # URL-safe identifier
+    version: SemanticVersion    # e.g., "1.2.3"
+
+@fraiseql.type
+class Integration:
+    api_key: APIKey
+    checksum: HashSHA256
+```
+
+**SemanticVersion Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_major_eq` | Major version | `2` |
+| `_minor_gte` | Minor version (gte) | `5` |
+| `_satisfies` | npm/cargo range | `"^1.2.0"`, `"~2.0"` |
+| `_is_stable` | No prerelease tag | `true` |
+| `_has_prerelease` | Has prerelease | `true` |
+| `_gte` | Semver (gte) | `"1.0.0"` |
+
+```graphql
+query {
+    # Find compatible versions
+    packages(where: { version: { _satisfies: "^2.0.0" } }) {
+        id name version
+    }
+
+    # Find stable releases only
+    releases(where: { version: { _is_stable: true } }) {
+        id version published_at
+    }
+}
+```
+
+**Slug Filter Operators:** `_startswith`, `_contains`, `_path_startswith`, `_path_depth_eq`
+
+**APIKey Filter Operators:** `_prefix_eq`, `_is_live`, `_is_test`, `_is_secret`
+
+## Networking
+
+### IP Addresses
+
+```python
+from fraiseql.scalars import IPAddress, IPv4, IPv6, CIDR
+
+@fraiseql.type
+class Server:
+    ip: IPAddress               # IPv4 or IPv6
+    ipv4: IPv4 | None          # IPv4 only
+    ipv6: IPv6 | None          # IPv6 only
+    subnet: CIDR               # CIDR notation
+```
+
+| Type | Example |
+|------|---------|
+| `IPv4` | `192.168.1.1` |
+| `IPv6` | `2001:0db8:85a3::8a2e:0370:7334` |
+| `CIDR` | `192.168.0.0/24` |
+
+**IPAddress Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_in_subnet` | Within CIDR range | `"10.0.0.0/8"` |
+| `_is_ipv4` | IPv4 address | `true` |
+| `_is_ipv6` | IPv6 address | `true` |
+| `_is_private` | RFC 1918 private | `true` |
+| `_is_public` | Public IP | `true` |
+| `_is_loopback` | Loopback address | `true` |
+| `_is_multicast` | Multicast address | `true` |
+
+```graphql
+query {
+    # Find requests from private IPs
+    requests(where: { ip: { _is_private: true } }) {
+        id ip path
+    }
+
+    # Find requests from specific subnet
+    requests(where: { ip: { _in_subnet: "192.168.0.0/16" } }) {
+        id ip
+    }
+}
+```
+
+**CIDR Filter Operators:** `_contains` (IP), `_overlaps` (CIDR)
+
+### Hardware & Ports
+
+```python
+from fraiseql.scalars import MACAddress, Port
+
+@fraiseql.type
+class NetworkDevice:
+    mac: MACAddress             # e.g., "00:1A:2B:3C:4D:5E"
+    port: Port                  # 0-65535
+```
+
+**Port Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_is_well_known` | Ports 0-1023 | `true` |
+| `_is_privileged` | Ports (lt) 1024 | `true` |
+| `_is_http` | HTTP ports (80, 8080) | `true` |
+| `_is_https` | HTTPS port (443) | `true` |
+| `_is_database` | DB ports (3306, 5432, etc.) | `true` |
+| `_gte` | Port (gte) | `8000` |
+
+```graphql
+query {
+    # Find database services
+    services(where: { port: { _is_database: true } }) {
+        id name port protocol
+    }
+}
+```
+
+## Transportation
+
+### Aviation & Maritime
+
+```python
+from fraiseql.scalars import AirportCode, FlightNumber, PortCode
+
+@fraiseql.type
+class Flight:
+    departure: AirportCode      # IATA code (e.g., "JFK")
+    arrival: AirportCode
+    flight_number: FlightNumber # e.g., "AA123"
+
+@fraiseql.type
+class ShippingRoute:
+    origin_port: PortCode       # UN/LOCODE
+    destination_port: PortCode
+```
+
+**AirportCode Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_country_eq` | Country | `"US"` |
+| `_continent_eq` | Continent | `"EU"` |
+| `_is_hub` | Major airline hub | `true` |
+| `_size_eq` | Airport size | `"LARGE_HUB"` |
+| `_within_radius` | Near location | `{ lat, lng, radius_km }` |
+
+```graphql
+query {
+    # Find US hub airports
+    airports(where: {
+        code: { _country_eq: "US", _is_hub: true }
+    }) { code name city }
+
+    # Find airports near NYC
+    airports(where: {
+        code: { _within_radius: { lat: 40.7, lng: -74.0, radius_km: 100 } }
+    }) { code name }
+}
+```
+
+**FlightNumber Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_airline_eq` | IATA airline code | `"AA"`, `"UA"` |
+| `_airline_in` | Airlines | `["AA", "UA", "DL"]` |
+| `_flight_gte` | Flight number (gte) | `1000` |
+| `_airline_alliance_eq` | Alliance | `"ONEWORLD"`, `"STAR_ALLIANCE"` |
+
+**PortCode Filter Operators:** `_country_eq`, `_type_eq` (SEA, RIVER), `_is_seaport`
+
+## Content Types
+
+### Formatted Text
+
+```python
+from fraiseql.scalars import Markdown, HTML
+
+@fraiseql.type
+class Article:
+    content: Markdown           # Markdown-formatted
+    rendered: HTML | None       # HTML-formatted
+```
+
+**Filter Operators:** `_contains`, `_search` (fulltext), `_has_headings`, `_has_code_blocks`
+
+### Media
+
+```python
+from fraiseql.scalars import MimeType, Color, Image, File
+
+@fraiseql.type
+class Asset:
+    mime_type: MimeType         # e.g., "image/png"
+    color: Color | None         # Hex, RGB, or named
+
+@fraiseql.type
+class Attachment:
+    image: Image | None         # URL or base64
+    file: File | None           # URL or path
+```
+
+**MimeType Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_type_eq` | Primary type | `"image"`, `"video"` |
+| `_subtype_eq` | Subtype | `"png"`, `"mp4"` |
+| `_is_image` | Image type | `true` |
+| `_is_video` | Video type | `true` |
+| `_is_document` | Document type | `true` |
+| `_is_binary` | Binary content | `true` |
+
+```graphql
+query {
+    # Find image files
+    files(where: { mime_type: { _is_image: true } }) {
+        id name mime_type
+    }
+}
+```
+
+**Color Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_is_dark` | Dark color | `true` |
+| `_is_light` | Light color | `true` |
+| `_is_grayscale` | Grayscale | `true` |
+| `_hue_gte` | Hue range (0-360) | `180` |
+| `_saturation_gte` | Saturation (0-100) | `50` |
+
+```graphql
+query {
+    # Find dark theme assets
+    assets(where: { color: { _is_dark: true } }) {
+        id name color
+    }
+}
+```
+
+## Database Types
+
+### Hierarchical Data
+
+```python
+from fraiseql.scalars import LTree
+
+@fraiseql.type
+class Category:
+    path: LTree                 # ltree path (e.g., "root.electronics.phones")
+```
+
+**LTree Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_ancestor_of` | Is ancestor of | `"root.electronics.phones"` |
+| `_descendant_of` | Is descendant of | `"root.electronics"` |
+| `_nlevel_eq` | Exact depth | `3` |
+| `_nlevel_gte` | Depth (gte) | `2` |
+| `_matches_lquery` | LQuery pattern | `"root.*.phones"` |
+
+```graphql
+query {
+    # Find all electronics subcategories
+    categories(where: {
+        path: { _descendant_of: "root.electronics" }
+    }) { id name path }
+
+    # Find top-level categories
+    categories(where: { path: { _nlevel_eq: 2 } }) {
+        id name path
+    }
+}
+```
+
+### Date Ranges
+
+```python
+from fraiseql.scalars import DateRange, Duration
+
+@fraiseql.type
+class Booking:
+    period: DateRange           # e.g., "[2024-01-01,2024-01-15)"
+    duration: Duration          # ISO 8601 (e.g., "P1Y2M3D")
+```
+
+**DateRange Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_contains_date` | Range contains date | `"2024-06-15"` |
+| `_overlaps` | Ranges overlap | `"[2024-06-01,2024-06-30)"` |
+| `_adjacent` | Ranges are adjacent | `"[2024-05-01,2024-06-01)"` |
+| `_strictly_left` | Entirely before | `"[2024-07-01,)"` |
+| `_strictly_right` | Entirely after | `"(,2024-05-01]"` |
+
+```graphql
+query {
+    # Find bookings that include a specific date
+    bookings(where: {
+        period: { _contains_date: "2024-06-15" }
+    }) { id room period }
+
+    # Find overlapping reservations
+    reservations(where: {
+        dates: { _overlaps: "[2024-06-10,2024-06-20)" }
+    }) { id guest dates }
+}
+```
+
+**Duration Filter Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `_gt` | Duration (gt) | `"PT1H"` (1 hour) |
+| `_lte` | Duration (lte) | `"PT30M"` (30 min) |
+| `_total_hours_gt` | Total hours (gt) | `1.5` |
+| `_total_minutes_lt` | Total minutes (lt) | `30` |
+
+```graphql
+query {
+    # Find long videos
+    videos(where: { duration: { _total_hours_gt: 1 } }) {
+        id title duration
+    }
+}
+```
+
+## Rich Type Filter Summary
+
+Every rich type has specialized filter operators tailored to its domain. Below is a quick reference—see [Query Operators](/reference/operators#rich-type-filters) for complete documentation.
+
+| Category | Type | Key Operators |
+|----------|------|---------------|
+| **Contact** | Email | `_domain_eq`, `_domain_endswith`, `_is_freemail`, `_is_corporate` |
+| | PhoneNumber | `_country_code_eq`, `_is_mobile`, `_region_eq` |
+| | URL | `_domain_eq`, `_protocol_eq`, `_path_startswith`, `_is_secure` |
+| **Geography** | CountryCode | `_continent_eq`, `_in_eu`, `_gdpr_applicable`, `_in_g20` |
+| | Coordinates | `_within_radius`, `_within_bounds`, `_distance_from_lt` |
+| | PostalCode | `_startswith`, `_zip5_eq`, `_area_eq` |
+| **Financial** | CurrencyCode | `_is_fiat`, `_is_major`, `_is_crypto` |
+| | Money | `_amount_gte`, `_currency_eq`, `_converted_gt` |
+| | IBAN | `_country_eq`, `_bank_code_eq`, `_is_sepa` |
+| **Identifiers** | VIN | `_wmi_eq`, `_manufacturer_eq`, `_model_year_gte` |
+| | SemanticVersion | `_major_eq`, `_satisfies`, `_is_stable` |
+| | TrackingNumber | `_carrier_eq`, `_service_type_eq` |
+| **Transportation** | AirportCode | `_country_eq`, `_is_hub`, `_within_radius` |
+| | FlightNumber | `_airline_eq`, `_airline_alliance_eq` |
+| **Content** | MimeType | `_is_image`, `_is_document`, `_type_eq` |
+| | Color | `_is_dark`, `_hue_gte`, `_is_grayscale` |
+| **Networking** | IPAddress | `_in_subnet`, `_is_private`, `_is_ipv6` |
+| | Port | `_is_privileged`, `_is_database` |
+| **Database** | LTree | `_ancestor_of`, `_descendant_of`, `_nlevel_eq` |
+| | DateRange | `_contains_date`, `_overlaps`, `_adjacent` |
+
+### Basic Example
+
+```graphql
+query {
+    # EU customers with corporate emails
+    customers(where: {
+        country: { _in_eu: true }
+        email: { _is_corporate: true }
+    }) {
+        id name email country
+    }
+}
+```
+
+### Geospatial Example
+
+```graphql
+query {
+    # Stores within 50km of NYC
+    stores(where: {
+        location: {
+            _within_radius: { lat: 40.7128, lng: -74.006, radius_km: 50 }
+        }
+    }) {
+        id name location
+    }
+}
+```
+
+### Financial Example
+
+```graphql
+query {
+    # High-value transactions in major currencies
+    transactions(where: {
+        amount: { _amount_gte: "10000", _currency_in: ["USD", "EUR", "GBP"] }
+    }) {
+        id amount currency
+    }
+}
+```
+
+## PostgreSQL Mapping
+
+All rich scalars store as `TEXT` in PostgreSQL with application-level validation:
+
+| Category | Types | PostgreSQL |
+|----------|-------|------------|
+| Contact | Email, PhoneNumber, URL | `TEXT` |
+| Location | Coordinates, PostalCode | `TEXT` |
+| Financial | IBAN, CUSIP, Money | `TEXT` |
+| Identifiers | VIN, TrackingNumber | `TEXT` |
+| Networking | IPAddress, CIDR | `TEXT` (or `INET`/`CIDR`) |
+| Transportation | AirportCode, FlightNumber | `TEXT` |
+
+This design provides:
+- **Flexibility**: Validation rules can change without migrations
+- **Portability**: Standard TEXT columns work everywhere
+- **Performance**: TEXT indexing is well-optimized
+- **Separation**: Validation logic in application, storage in database
+
+## Custom Scalars
+
+Define your own domain-specific scalars:
+
+```python
+from typing import NewType
+
+# Simple custom scalar (zero runtime overhead)
+CompanyId = NewType("CompanyId", str)
+ProductSKU = NewType("ProductSKU", str)
+
+
+
+
+
+```
+
+For scalars with custom validation:
+
+```python
+@fraiseql.scalar
+class TaxId:
+    """Tax identification number with validation."""
+
+    @staticmethod
+    def serialize(value: str) -> str:
+        return value.upper().replace("-", "")
+
+    @staticmethod
+    def parse(value: str) -> str:
+        cleaned = value.upper().replace("-", "")
+        if len(cleaned) != 9:
+            raise ValueError("Tax ID must be 9 characters")
+        return cleaned
+```
+
+## JSONB Views
+
+In CQRS views, scalars are serialized into JSONB:
+
+```sql
+CREATE VIEW v_order AS
+SELECT
+    o.id,
+    jsonb_build_object(
+        'id', o.id::text,                    -- ID as string
+        'total', o.total::text,              -- Decimal as string
+        'created_at', o.created_at,          -- DateTime as ISO 8601
+        'items', o.items,                    -- Json as-is
+        'tags', to_jsonb(o.tags)             -- Array as JSON array
+    ) AS data
+FROM tb_order o;
+```
+
+## Complete Example
+
+```python
+import fraiseql
+from fraiseql.scalars import ID, DateTime, Date, Decimal, Json, Vector
+
+@fraiseql.type
+class Product:
+    """E-commerce product with all scalar types."""
+    id: ID
+    sku: str
+    name: str
+    description: str | None
+    price: Decimal
+    quantity: int
+    weight: float | None
+    is_available: bool
+    release_date: Date | None
+    created_at: DateTime
+    updated_at: DateTime
+    tags: list[str]
+    categories: list[int]
+    metadata: Json | None
+    embedding: Vector | None
+
+@fraiseql.query(sql_source="v_product")
+def product(id: ID) -> Product | None:
+    pass
+
+@fraiseql.query(sql_source="v_product")
+def products(
+    is_available: bool | None = None,
+    min_price: Decimal | None = None,
+    max_price: Decimal | None = None,
+    tags: list[str] | None = None,
+    limit: int = 20
+) -> list[Product]:
+    pass
+```
+
+## Next Steps
+
+- [Semantic Scalars](/reference/semantic-scalars) — Advanced types with rich filtering operators
+- [Operators](/reference/operators) — Filter operators for queries
+- [Naming Conventions](/reference/naming-conventions) — Column and table naming
+- [Type System](/concepts/type-system) — Complete type reference
+
+<CardGrid>
+  <Card title="Semantic Scalars" icon="list-format">
+    [Semantic Scalars](/reference/semantic-scalars) — Advanced types with rich filtering operators
+  </Card>
+  <Card title="Operators" icon="setting">
+    [Operators](/reference/operators) — Filter operators for queries
+  </Card>
+  <Card title="Naming Conventions" icon="open-book">
+    [Naming Conventions](/reference/naming-conventions) — Column and table naming
+  </Card>
+</CardGrid>

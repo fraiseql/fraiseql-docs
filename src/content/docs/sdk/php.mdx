@@ -1,0 +1,428 @@
+---
+title: PHP SDK
+description: Define GraphQL schemas in PHP using FraiseQL's attribute-based schema authoring SDK
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+The FraiseQL PHP SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations in PHP using attributes (PHP 8.0+), and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+
+<Aside type="note">
+This is not a GraphQL client library. FraiseQL PHP lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client.
+</Aside>
+
+## Installation
+
+```bash
+composer require fraiseql/fraiseql-php
+```
+
+**Requirements:** PHP 8.1+
+
+## Core Concepts
+
+FraiseQL PHP provides four attributes that map your PHP classes to GraphQL schema constructs:
+
+| Attribute | GraphQL Equivalent | Purpose |
+|-----------|-------------------|---------|
+| `#[FraiseType]` | `type` | Define a GraphQL output type |
+| `#[FraiseInput]` | `input` | Define a GraphQL input type |
+| `#[FraiseQuery]` | `Query` field | Wire a query to a SQL view |
+| `#[FraiseMutation]` | `Mutation` field | Define a mutation |
+
+---
+
+## Defining Types
+
+Use `#[FraiseType]` to define GraphQL output types. Properties map 1:1 to columns in your backing SQL view's `.data` JSONB object.
+
+```php title="schema/User.php"
+<?php
+
+namespace App\Schema;
+
+use FraiseQL\Attributes\FraiseType;
+use FraiseQL\Scalars\{ID, Email, DateTime};
+
+#[FraiseType]
+class User
+{
+    public ID $id;
+    public string $username;
+    public Email $email;
+    public ?string $bio;
+    public DateTime $createdAt;
+}
+```
+
+```php title="schema/Post.php"
+<?php
+
+namespace App\Schema;
+
+use FraiseQL\Attributes\FraiseType;
+use FraiseQL\Scalars\{ID, Slug, DateTime};
+
+#[FraiseType]
+class Post
+{
+    public ID $id;
+    public string $title;
+    public Slug $slug;
+    public string $content;
+    public bool $isPublished;
+    public DateTime $createdAt;
+    public DateTime $updatedAt;
+    // Nested types are composed from views at compile time
+    public User $author;
+    /** @var Comment[] */
+    public array $comments;
+}
+```
+
+### Built-in Scalars
+
+FraiseQL provides semantic scalars that add validation and documentation:
+
+```php
+use FraiseQL\Scalars\{
+    ID,        // UUID, auto-serialized
+    Email,     // Validated email address
+    Slug,      // URL-safe slug
+    DateTime,  // ISO 8601 datetime
+    URL,       // Validated URL
+};
+```
+
+---
+
+## Defining Inputs
+
+Use `#[FraiseInput]` to define GraphQL input types for mutations:
+
+```php title="schema/CreateUserInput.php"
+<?php
+
+namespace App\Schema;
+
+use FraiseQL\Attributes\{FraiseInput, Validate};
+use FraiseQL\Scalars\Email;
+
+#[FraiseInput]
+class CreateUserInput
+{
+    #[Validate(minLength: 3, maxLength: 50, pattern: '^[a-z0-9_]+$')]
+    public string $username;
+
+    #[Validate(required: true)]
+    public Email $email;
+
+    public ?string $bio = null;
+}
+```
+
+```php title="schema/CreatePostInput.php"
+<?php
+
+namespace App\Schema;
+
+use FraiseQL\Attributes\{FraiseInput, Validate};
+use FraiseQL\Scalars\ID;
+
+#[FraiseInput]
+class CreatePostInput
+{
+    #[Validate(minLength: 1, maxLength: 200)]
+    public string $title;
+
+    public string $content;
+    public ID $authorId;
+    public bool $isPublished = false;
+}
+```
+
+---
+
+## Defining Queries
+
+Use `#[FraiseQuery]` to wire queries to SQL views. The `sqlSource` argument names the view that backs this query:
+
+```php title="schema/Queries.php"
+<?php
+
+namespace App\Schema;
+
+use FraiseQL\Attributes\FraiseQuery;
+use FraiseQL\Scalars\ID;
+
+class Queries
+{
+    // List query — maps to SELECT * FROM v_post WHERE <args>
+    #[FraiseQuery(sqlSource: 'v_post')]
+    public function posts(
+        ?bool $isPublished = null,
+        ?ID $authorId = null,
+        int $limit = 20,
+        int $offset = 0,
+    ): array { return []; }
+
+    // Single-item query — maps to SELECT * FROM v_post WHERE id = $1
+    #[FraiseQuery(sqlSource: 'v_post', idArg: 'id')]
+    public function post(ID $id): ?Post { return null; }
+
+    // Query with row filter for current user's posts
+    #[FraiseQuery(sqlSource: 'v_post', rowFilter: 'author_id = {current_user_id}')]
+    public function myPosts(int $limit = 20): array { return []; }
+}
+```
+
+### How Arguments Become WHERE Clauses
+
+FraiseQL's **automatic-where** feature maps query arguments to SQL filters automatically. Declare an argument whose name matches a column in the backing view, and FraiseQL appends it as a `WHERE` clause:
+
+```graphql
+query {
+  posts(isPublished: true, authorId: "usr_01HZ3K") { ... }
+}
+```
+
+Becomes:
+
+```sql
+SELECT data FROM v_post
+WHERE is_published = true
+  AND author_id = 'usr_01HZ3K'
+LIMIT 20 OFFSET 0;
+```
+
+No resolver code required.
+
+---
+
+## Defining Mutations
+
+Use `#[FraiseMutation]` to define mutations that execute PostgreSQL functions:
+
+```php title="schema/Mutations.php"
+<?php
+
+namespace App\Schema;
+
+use FraiseQL\Attributes\FraiseMutation;
+use FraiseQL\Auth\{Authenticated, RequiresScope};
+use FraiseQL\MutationContext;
+use FraiseQL\Scalars\ID;
+
+class Mutations
+{
+    // FraiseQL calls: SELECT * FROM fn_create_user($1::jsonb)
+    #[FraiseMutation]
+    public function createUser(MutationContext $info, CreateUserInput $input): User
+    { return new User(); }
+
+    #[FraiseMutation]
+    #[Authenticated]
+    #[RequiresScope('write:posts')]
+    public function createPost(MutationContext $info, CreatePostInput $input): Post
+    { return new Post(); }
+
+    #[FraiseMutation]
+    #[Authenticated]
+    #[RequiresScope('write:posts')]
+    public function publishPost(MutationContext $info, ID $id): Post
+    { return new Post(); }
+
+    #[FraiseMutation]
+    #[Authenticated]
+    #[RequiresScope('admin:posts')]
+    public function deletePost(MutationContext $info, ID $id): bool
+    { return false; }
+}
+```
+
+Each mutation maps to a PostgreSQL function in `db/schema/03_functions/`. The PHP definition is the schema; the SQL function is the implementation.
+
+---
+
+## Authorization
+
+Use `#[Authenticated]` and `#[RequiresScope]` to protect queries and mutations:
+
+```php
+use FraiseQL\Auth\{Authenticated, RequiresScope};
+
+#[FraiseMutation]
+#[Authenticated]
+#[RequiresScope('write:posts')]
+public function createPost(MutationContext $info, CreatePostInput $input): Post
+{ return new Post(); }
+```
+
+---
+
+## Middleware
+
+Use `#[FraiseMiddleware]` to intercept requests and set context:
+
+```php title="schema/AppMiddleware.php"
+<?php
+
+namespace App\Schema;
+
+use FraiseQL\Attributes\FraiseMiddleware;
+use FraiseQL\Middleware\{Request, Handler, Response};
+
+class AppMiddleware
+{
+    #[FraiseMiddleware]
+    public function extractUserContext(Request $request, Handler $next): Response
+    {
+        if ($request->auth !== null) {
+            $request->context['current_user_id'] = $request->auth->claims['sub'];
+            $request->context['current_org_id'] = $request->auth->claims['org_id'];
+        }
+        return $next->handle($request);
+    }
+}
+```
+
+---
+
+## Laravel Integration
+
+<Aside type="tip">
+FraiseQL PHP ships with a first-class Laravel service provider that auto-discovers schema classes via PSR-4 namespaces.
+</Aside>
+
+```php title="config/fraiseql.php"
+<?php
+
+return [
+    'database_url' => env('DATABASE_URL'),
+    'jwt_secret'   => env('JWT_SECRET'),
+    'schema_namespaces' => [
+        'App\\Schema',
+    ],
+];
+```
+
+```php title="routes/api.php"
+<?php
+
+// FraiseQL registers /graphql automatically via the service provider.
+// You do not need to define routes manually.
+```
+
+---
+
+## Symfony Integration
+
+```yaml title="config/packages/fraiseql.yaml"
+fraiseql:
+    database_url: '%env(DATABASE_URL)%'
+    jwt_secret: '%env(JWT_SECRET)%'
+    schema_namespaces:
+        - 'App\Schema'
+```
+
+---
+
+## Build and Serve
+
+<Steps>
+
+1. Build the schema — compiles PHP attributes to the FraiseQL IR:
+
+   ```bash
+   fraiseql build
+   ```
+
+   Expected output:
+
+   ```
+   ✓ Schema compiled: 3 types, 2 queries, 2 mutations
+   ✓ Views validated against database
+   ✓ Build complete: schema.json
+   ```
+
+2. Serve the API:
+
+   ```bash
+   fraiseql serve
+   ```
+
+   Expected output:
+
+   ```
+   ✓ FraiseQL 2.0.0 running on http://localhost:8080/graphql
+   ✓ GraphQL Playground at http://localhost:8080/graphql
+   ```
+
+</Steps>
+
+---
+
+## Testing
+
+FraiseQL provides a test client that compiles your schema and runs queries against a real database:
+
+```php title="tests/SchemaTest.php"
+<?php
+
+use FraiseQL\Testing\TestClient;
+use PHPUnit\Framework\TestCase;
+
+class SchemaTest extends TestCase
+{
+    private TestClient $client;
+
+    protected function setUp(): void
+    {
+        $this->client = new TestClient([
+            'schema_namespaces' => ['App\\Schema'],
+            'database_url' => getenv('FRAISEQL_TEST_DATABASE_URL'),
+        ]);
+    }
+
+    public function testCreateAndFetchPost(): void
+    {
+        $result = $this->client->mutate('
+            mutation {
+                createPost(input: { title: "Hello", content: "World" }) {
+                    id
+                    title
+                    isPublished
+                }
+            }
+        ');
+
+        $this->assertEquals('Hello', $result['createPost']['title']);
+        $this->assertFalse($result['createPost']['isPublished']);
+
+        $postId = $result['createPost']['id'];
+        $result = $this->client->query(
+            "query { post(id: \"$postId\") { title content } }"
+        );
+        $this->assertEquals('Hello', $result['post']['title']);
+    }
+}
+```
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Full Tutorial" icon="open-book">
+    [Build a complete blog API from scratch](/getting-started/first-api)
+  </Card>
+  <Card title="Custom Queries" icon="magnifier">
+    [Filtering, pagination, and full-text search](/guides/custom-queries)
+  </Card>
+  <Card title="Security" icon="approve-check-circle">
+    [Authentication, RBAC, and input validation](/features/security)
+  </Card>
+  <Card title="Other SDKs" icon="puzzle">
+    [Python, TypeScript, Go, Java, Rust](/sdk/)
+  </Card>
+</CardGrid>

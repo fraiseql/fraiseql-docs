@@ -1,0 +1,445 @@
+---
+title: Rust SDK
+description: Define GraphQL schemas in Rust using FraiseQL's derive-macro schema authoring SDK
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+The FraiseQL Rust SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations in Rust using derive macros and procedural macros, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+
+<Aside type="note">
+This is not a GraphQL client library. FraiseQL Rust lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client.
+</Aside>
+
+## Installation
+
+```toml title="Cargo.toml"
+[dependencies]
+fraiseql = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+```
+
+**Requirements:** Rust 1.75+ (stable)
+
+## Core Concepts
+
+FraiseQL Rust provides four derive macros and proc-macros that map your Rust types to GraphQL schema constructs:
+
+| Macro | GraphQL Equivalent | Purpose |
+|-------|-------------------|---------|
+| `#[derive(FraiseType)]` | `type` | Define a GraphQL output type |
+| `#[derive(FraiseInput)]` | `input` | Define a GraphQL input type |
+| `#[fraiseql::query]` | `Query` field | Wire a query to a SQL view |
+| `#[fraiseql::mutation]` | `Mutation` field | Define a mutation |
+
+---
+
+## Defining Types
+
+Use `#[derive(FraiseType)]` to define GraphQL output types. Fields map 1:1 to columns in your backing SQL view's `.data` JSONB object.
+
+```rust title="schema.rs"
+use fraiseql::{FraiseType, scalars::*};
+use serde::{Deserialize, Serialize};
+
+/// A registered user.
+#[derive(FraiseType, Serialize, Deserialize)]
+pub struct User {
+    pub id: ID,
+    pub username: String,
+    pub email: Email,
+    pub bio: Option<String>,
+    pub created_at: DateTime,
+}
+
+/// A blog post.
+#[derive(FraiseType, Serialize, Deserialize)]
+pub struct Post {
+    pub id: ID,
+    pub title: String,
+    pub slug: Slug,
+    pub content: String,
+    pub is_published: bool,
+    pub created_at: DateTime,
+    pub updated_at: DateTime,
+    // Nested types are composed from views at compile time
+    pub author: User,
+    pub comments: Vec<Comment>,
+}
+
+/// A comment on a post.
+#[derive(FraiseType, Serialize, Deserialize)]
+pub struct Comment {
+    pub id: ID,
+    pub content: String,
+    pub created_at: DateTime,
+    pub author: User,
+}
+```
+
+### Built-in Scalars
+
+FraiseQL provides semantic scalars that add validation and documentation:
+
+```rust
+use fraiseql::scalars::{
+    ID,         // UUID, auto-serialized
+    Email,      // Validated email address
+    Slug,       // URL-safe slug
+    DateTime,   // ISO 8601 datetime
+    URL,        // Validated URL
+};
+```
+
+---
+
+## Defining Inputs
+
+Use `#[derive(FraiseInput)]` to define GraphQL input types for mutations:
+
+```rust title="schema.rs"
+use fraiseql::{FraiseInput, validate, scalars::*};
+
+/// Input for creating a user.
+#[derive(FraiseInput, Serialize, Deserialize)]
+pub struct CreateUserInput {
+    #[validate(min_length = 3, max_length = 50, pattern = "^[a-z0-9_]+$")]
+    pub username: String,
+    pub email: Email,
+    pub bio: Option<String>,
+}
+
+/// Input for creating a post.
+#[derive(FraiseInput, Serialize, Deserialize)]
+pub struct CreatePostInput {
+    #[validate(min_length = 1, max_length = 200)]
+    pub title: String,
+    pub content: String,
+    pub author_id: ID,
+    pub is_published: bool,
+}
+
+/// Input for updating a post.
+#[derive(FraiseInput, Serialize, Deserialize)]
+pub struct UpdatePostInput {
+    pub id: ID,
+    pub title: Option<String>,
+    pub content: Option<String>,
+    pub is_published: Option<bool>,
+}
+```
+
+---
+
+## Defining Queries
+
+Use `#[fraiseql::query]` to wire queries to SQL views. The `sql_source` argument names the view that backs this query:
+
+```rust title="schema.rs"
+use fraiseql::scalars::ID;
+
+// List query — maps to SELECT * FROM v_post WHERE <args>
+#[fraiseql::query(sql_source = "v_post")]
+pub async fn posts(
+    is_published: Option<bool>,
+    author_id: Option<ID>,
+    limit: i32,
+    offset: i32,
+) -> Vec<Post> { unreachable!() }
+
+// Single-item query — maps to SELECT * FROM v_post WHERE id = $1
+#[fraiseql::query(sql_source = "v_post", id_arg = "id")]
+pub async fn post(id: ID) -> Option<Post> { unreachable!() }
+
+// Query with row filter for current user's posts
+#[fraiseql::query(sql_source = "v_post", row_filter = "author_id = {current_user_id}")]
+pub async fn my_posts(limit: i32) -> Vec<Post> { unreachable!() }
+```
+
+### How Arguments Become WHERE Clauses
+
+FraiseQL's **automatic-where** feature maps query arguments to SQL filters automatically. Declare an argument whose name matches a column in the backing view, and FraiseQL appends it as a `WHERE` clause:
+
+```graphql
+query {
+  posts(isPublished: true, authorId: "usr_01HZ3K") { ... }
+}
+```
+
+Becomes:
+
+```sql
+SELECT data FROM v_post
+WHERE is_published = true
+  AND author_id = 'usr_01HZ3K'
+LIMIT 20 OFFSET 0;
+```
+
+No resolver code required.
+
+---
+
+## Defining Mutations
+
+Use `#[fraiseql::mutation]` to define mutations that execute PostgreSQL functions:
+
+```rust title="schema.rs"
+use fraiseql::{MutationContext, scalars::ID};
+use fraiseql::auth::{authenticated, requires_scope};
+
+// FraiseQL calls: SELECT * FROM fn_create_user($1::jsonb)
+#[fraiseql::mutation]
+pub async fn create_user(info: MutationContext, input: CreateUserInput) -> User {
+    unreachable!()
+}
+
+#[fraiseql::mutation]
+#[authenticated]
+#[requires_scope("write:posts")]
+pub async fn create_post(info: MutationContext, input: CreatePostInput) -> Post {
+    unreachable!()
+}
+
+#[fraiseql::mutation]
+#[authenticated]
+#[requires_scope("write:posts")]
+pub async fn publish_post(info: MutationContext, id: ID) -> Post {
+    unreachable!()
+}
+
+#[fraiseql::mutation]
+#[authenticated]
+#[requires_scope("admin:posts")]
+pub async fn delete_post(info: MutationContext, id: ID) -> bool {
+    unreachable!()
+}
+```
+
+Each mutation maps to a PostgreSQL function in `db/schema/03_functions/`. The Rust definition is the schema; the SQL function is the implementation.
+
+---
+
+## Authorization
+
+Use `#[authenticated]` and `#[requires_scope]` to protect queries and mutations:
+
+```rust
+use fraiseql::auth::{authenticated, requires_scope};
+
+#[fraiseql::query(sql_source = "v_post")]
+#[authenticated]
+pub async fn posts(limit: i32) -> Vec<Post> { unreachable!() }
+
+#[fraiseql::mutation]
+#[authenticated]
+#[requires_scope("write:posts")]
+pub async fn create_post(info: MutationContext, input: CreatePostInput) -> Post {
+    unreachable!()
+}
+```
+
+---
+
+## Middleware
+
+Use `#[fraiseql::middleware]` to intercept requests and set context:
+
+```rust title="schema.rs"
+use fraiseql::middleware::{Request, Next, Response};
+
+#[fraiseql::middleware]
+pub async fn extract_user_context(mut request: Request, next: Next) -> Response {
+    if let Some(auth) = &request.auth {
+        if let Some(sub) = auth.claims.get("sub") {
+            request.context.insert("current_user_id", sub.clone());
+        }
+        if let Some(org) = auth.claims.get("org_id") {
+            request.context.insert("current_org_id", org.clone());
+        }
+    }
+    next.call(request).await
+}
+```
+
+---
+
+## Complete Schema Example
+
+A full blog API schema:
+
+```rust title="schema.rs"
+use fraiseql::{FraiseType, FraiseInput, MutationContext, scalars::*};
+use fraiseql::auth::{authenticated, requires_scope};
+use serde::{Deserialize, Serialize};
+
+// Types
+
+#[derive(FraiseType, Serialize, Deserialize)]
+pub struct User {
+    pub id: ID,
+    pub username: String,
+    pub email: Email,
+    pub bio: Option<String>,
+    pub created_at: DateTime,
+}
+
+#[derive(FraiseType, Serialize, Deserialize)]
+pub struct Post {
+    pub id: ID,
+    pub title: String,
+    pub slug: Slug,
+    pub content: String,
+    pub is_published: bool,
+    pub created_at: DateTime,
+    pub author: User,
+    pub comments: Vec<Comment>,
+}
+
+#[derive(FraiseType, Serialize, Deserialize)]
+pub struct Comment {
+    pub id: ID,
+    pub content: String,
+    pub created_at: DateTime,
+    pub author: User,
+}
+
+// Inputs
+
+#[derive(FraiseInput, Serialize, Deserialize)]
+pub struct CreatePostInput {
+    pub title: String,
+    pub content: String,
+    pub is_published: bool,
+}
+
+#[derive(FraiseInput, Serialize, Deserialize)]
+pub struct CreateCommentInput {
+    pub post_id: ID,
+    pub content: String,
+}
+
+// Queries
+
+#[fraiseql::query(sql_source = "v_post")]
+pub async fn posts(is_published: Option<bool>, limit: i32) -> Vec<Post> { unreachable!() }
+
+#[fraiseql::query(sql_source = "v_post", id_arg = "id")]
+pub async fn post(id: ID) -> Option<Post> { unreachable!() }
+
+// Mutations
+
+#[fraiseql::mutation]
+#[authenticated]
+#[requires_scope("write:posts")]
+pub async fn create_post(info: MutationContext, input: CreatePostInput) -> Post {
+    unreachable!()
+}
+
+#[fraiseql::mutation]
+#[authenticated]
+#[requires_scope("write:comments")]
+pub async fn create_comment(info: MutationContext, input: CreateCommentInput) -> Comment {
+    unreachable!()
+}
+```
+
+---
+
+## Build and Serve
+
+<Steps>
+
+1. Build the schema — compiles Rust macros to the FraiseQL IR:
+
+   ```bash
+   fraiseql build
+   ```
+
+   Expected output:
+
+   ```
+   ✓ Schema compiled: 3 types, 2 queries, 2 mutations
+   ✓ Views validated against database
+   ✓ Build complete: schema.json
+   ```
+
+2. Serve the API:
+
+   ```bash
+   fraiseql serve
+   ```
+
+   Expected output:
+
+   ```
+   ✓ FraiseQL 2.0.0 running on http://localhost:8080/graphql
+   ✓ GraphQL Playground at http://localhost:8080/graphql
+   ```
+
+</Steps>
+
+---
+
+## Testing
+
+FraiseQL provides a test client that compiles your schema and runs queries against a real database:
+
+```rust title="tests/schema_test.rs"
+use fraiseql::testing::TestClient;
+
+#[tokio::test]
+async fn test_create_and_fetch_post() {
+    let client = TestClient::new(fraiseql::testing::Config {
+        schema_module: "schema",
+        database_url: std::env::var("FRAISEQL_TEST_DATABASE_URL").unwrap(),
+    });
+
+    let result = client.mutate(r#"
+        mutation {
+            createPost(input: { title: "Hello", content: "World" }) {
+                id
+                title
+                isPublished
+            }
+        }
+    "#).await.unwrap();
+
+    assert_eq!(result["createPost"]["title"], "Hello");
+    assert_eq!(result["createPost"]["isPublished"], false);
+}
+
+#[tokio::test]
+async fn test_list_posts_filtered() {
+    let client = TestClient::new(/* ... */);
+
+    let result = client.query(r#"
+        query {
+            posts(isPublished: true, limit: 10) {
+                id
+                title
+            }
+        }
+    "#).await.unwrap();
+
+    assert!(result["posts"].is_array());
+}
+```
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Full Tutorial" icon="open-book">
+    [Build a complete blog API from scratch](/getting-started/first-api)
+  </Card>
+  <Card title="Custom Queries" icon="magnifier">
+    [Filtering, pagination, and full-text search](/guides/custom-queries)
+  </Card>
+  <Card title="Security" icon="approve-check-circle">
+    [Authentication, RBAC, and input validation](/features/security)
+  </Card>
+  <Card title="Other SDKs" icon="puzzle">
+    [Python, TypeScript, Go, Java, PHP](/sdk/)
+  </Card>
+</CardGrid>
