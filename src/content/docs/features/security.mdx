@@ -312,7 +312,12 @@ PKCE requires `[security.state_encryption]` to also be enabled. If `pkce.enabled
 enabled               = true
 code_challenge_method = "S256"  # or "plain" (warns at startup in non-dev)
 state_ttl_secs        = 600
+# redis_url = "${REDIS_URL}"    # required for multi-replica deployments
 ```
+
+<Aside type="caution">
+In multi-replica deployments, PKCE state is stored in memory per process by default. A user's `/auth/start` may hit replica A while `/auth/callback` hits replica B — causing a silent auth failure. Set `redis_url` and enable the `redis-pkce` Cargo feature to share state across replicas.
+</Aside>
 
 ---
 

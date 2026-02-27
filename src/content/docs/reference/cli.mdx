@@ -578,6 +578,15 @@ All commands support the following options:
 
 ---
 
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string (overrides `[database] url`) |
+| `FRAISEQL_REQUIRE_REDIS=1` | Refuse to start if PKCE state or rate limiting is using in-memory storage. Recommended for Kubernetes and other multi-replica deployments — catches misconfiguration at startup rather than at request time. |
+
+---
+
 ## Configuration File
 
 Most commands read `fraiseql.toml` when no explicit input is provided. A minimal configuration:

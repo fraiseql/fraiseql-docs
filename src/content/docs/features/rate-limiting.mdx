@@ -6,7 +6,7 @@ description: Token bucket rate limiting for FraiseQL APIs
 import { Aside, Tabs, TabItem, CardGrid, Card } from '@astrojs/starlight/components';
 
 <Aside type="note">
-Rate limiting in rc.13 applies a global token bucket to all requests, per-endpoint limits to auth routes, and a per-authenticated-user limit (default: 10× the global rate). The rate limiter is in-memory per process — distributed Redis coordination for multi-replica deployments is planned for a future release.
+Rate limiting applies a global token bucket to all requests, per-endpoint limits to auth routes, and a per-authenticated-user limit (default: 10× the global rate). The in-memory backend is the default. A Redis backend is available for multi-replica deployments — enable it with the `redis-rate-limiting` Cargo feature and `redis_url` in `[security.rate_limiting]`.
 </Aside>
 
 FraiseQL includes built-in rate limiting via a **token bucket** algorithm, configured under `[security.rate_limiting]`.
@@ -93,17 +93,22 @@ Set `burst_size` to roughly 2x your `requests_per_second` for a balanced buffer.
 
 ## Multi-Instance (Distributed Rate Limits)
 
-The current implementation is **in-memory per instance**. When running multiple FraiseQL instances behind a load balancer, each instance maintains its own token bucket independently — a client can send requests across instances without hitting a shared limit.
+By default the rate limiter is **in-memory per process**. When running multiple FraiseQL instances behind a load balancer, each instance maintains its own token bucket independently — a client can distribute requests across replicas without hitting a shared limit.
 
-A Redis backend is planned for a future release. If you configure `redis_url` today, the server logs a warning and falls back to in-memory:
+For multi-replica deployments (Kubernetes, ECS, fly.io with multiple instances), configure the Redis backend. It requires the `redis-rate-limiting` Cargo feature in your deployment image:
 
 ```toml
 [security.rate_limiting]
-enabled  = true
-# redis_url = "redis://localhost:6379"  # Not yet enforced — logs a warning
+enabled    = true
+redis_url  = "${REDIS_URL}"
+requests_per_second = 100
 ```
 
-For production deployments that require distributed rate limiting before the Redis backend ships, apply rate limiting at your load balancer or API gateway layer.
+The Redis backend uses an atomic Lua token-bucket script (`EVALSHA` with `NOSCRIPT` fallback). If Redis is unavailable, the limiter **fails open** — requests are allowed through and a `fraiseql_rate_limit_redis_errors_total` counter increments. Check that counter in your alerting to detect Redis connectivity issues.
+
+<Aside type="tip">
+Set `FRAISEQL_REQUIRE_REDIS=1` in your deployment environment to make the server refuse to start if the in-memory backend is in use. This is the recommended pattern for Kubernetes — it catches misconfigured deployments at startup rather than at request time.
+</Aside>
 
 ---
 
@@ -268,6 +273,7 @@ These endpoints are not configurable — they are always exempt to ensure load b
 |--------|------|-------------|
 | `fraiseql_rate_limit_hits_total` | Counter | Requests rejected by rate limiter |
 | `fraiseql_rate_limit_allowed_total` | Counter | Requests allowed through |
+| `fraiseql_rate_limit_redis_errors_total` | Counter | Redis errors (fail-open; only present with `redis-rate-limiting` feature) |
 
 ### Grafana queries
 
@@ -294,7 +300,7 @@ sum(rate(fraiseql_rate_limit_hits_total[5m]) + rate(fraiseql_rate_limit_allowed_
 - Check that `requests_per_second` is lower than your actual peak traffic
 
 **Legitimate users being limited in multi-instance deployments**
-- Apply rate limiting at the load balancer layer instead, until the Redis backend ships
+- Configure `redis_url` in `[security.rate_limiting]` to share limits across replicas (requires `redis-rate-limiting` feature)
 
 ## Next Steps
 

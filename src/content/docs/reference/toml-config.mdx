@@ -358,7 +358,7 @@ auth_logout_max_requests     = 30
 auth_logout_window_secs      = 60
 failed_login_max_attempts    = 10
 failed_login_lockout_secs    = 900
-# redis_url = "redis://localhost:6379"  # Planned — logs a warning if set today
+# redis_url = "${REDIS_URL}"  # requires redis-rate-limiting Cargo feature
 ```
 
 | Field | Type | Default | Description |
@@ -367,6 +367,7 @@ failed_login_lockout_secs    = 900
 | `requests_per_second` | integer | `100` | Global token bucket refill rate |
 | `requests_per_second_per_user` | integer | `requests_per_second × 10` | Per-authenticated-user limit |
 | `burst_size` | integer | `200` | Maximum burst above steady-state rate |
+| `redis_url` | string | — | Redis connection URL for distributed rate limiting (requires `redis-rate-limiting` feature) |
 | `auth_start_max_requests` | integer | `5` | Max `/auth/start` requests per window |
 | `auth_start_window_secs` | integer | `60` | Window for `/auth/start` limit |
 | `auth_callback_max_requests` | integer | `10` | Max `/auth/callback` requests per window |
@@ -378,8 +379,10 @@ failed_login_lockout_secs    = 900
 | `failed_login_max_attempts` | integer | `10` | Failed auth attempts before lockout |
 | `failed_login_lockout_secs` | integer | `900` | Lockout duration in seconds |
 
-<Aside type="caution">
-Redis coordination is planned for a future release. If you set `redis_url`, the server logs a warning and continues with in-memory rate limiting. Each instance maintains its own bucket independently.
+<Aside type="note">
+When `redis_url` is set, an atomic Lua token-bucket script runs in Redis — limits are shared across all replicas. Requires the `redis-rate-limiting` Cargo feature in your deployment image. Fails open (requests allowed through) if Redis is unavailable; monitor `fraiseql_rate_limit_redis_errors_total`.
+
+For multi-replica deployments where distributed limiting is a hard requirement, set `FRAISEQL_REQUIRE_REDIS=1` to prevent the server from starting with the in-memory backend.
 </Aside>
 
 ### [security.state_encryption]
@@ -428,6 +431,7 @@ PKCE (Proof Key for Code Exchange) for the OAuth `/auth/start` → `/auth/callba
 enabled               = false   # opt-in; requires state_encryption.enabled = true
 code_challenge_method = "S256"  # or "plain" (warns at startup in non-dev environments)
 state_ttl_secs        = 600
+# redis_url = "${REDIS_URL}"    # requires redis-pkce Cargo feature
 ```
 
 | Field | Type | Default | Description |
@@ -435,6 +439,11 @@ state_ttl_secs        = 600
 | `enabled` | bool | `false` | Enable PKCE (opt-in) |
 | `code_challenge_method` | string | `"S256"` | Challenge method: `"S256"` (recommended) or `"plain"` |
 | `state_ttl_secs` | integer | `600` | OAuth state token lifetime in seconds |
+| `redis_url` | string | — | Redis connection URL for distributed PKCE state (requires `redis-pkce` feature) |
+
+<Aside type="caution">
+In multi-replica deployments, PKCE state must be stored in Redis. Without it, a user's `/auth/start` may hit replica A while `/auth/callback` hits replica B, causing the state lookup to fail silently. Requires the `redis-pkce` Cargo feature. Set `FRAISEQL_REQUIRE_REDIS=1` to enforce this at startup.
+</Aside>
 
 ---
 
