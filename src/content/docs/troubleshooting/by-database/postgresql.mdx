@@ -118,6 +118,18 @@ PGBOUNCER_MAX_POOL_SIZE=30
 
 **Problem**: p95 latency > 500ms
 
+<Aside type="caution">
+`pg_stat_statements` requires setup before use. Add to `postgresql.conf`:
+```
+shared_preload_libraries = 'pg_stat_statements'
+```
+Then restart PostgreSQL and run:
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+```
+Without this, queries to `pg_stat_statements` return "relation does not exist".
+</Aside>
+
 **Solutions**:
 ```bash
 # 1. Enable slow query logging
@@ -644,6 +656,23 @@ SELECT
     sum(heap_blks_hit) as heap_hit,
     sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read)) as ratio
 FROM pg_statio_user_tables;
+```
+
+## FraiseQL Configuration for PostgreSQL
+
+In `fraiseql.toml`, tune PostgreSQL-specific settings:
+
+```toml
+[database]
+url = "${DATABASE_URL}"
+pool_size = 10
+pool_timeout = 30
+statement_timeout = "5000ms"
+ssl_mode = "require"         # "disable", "allow", "prefer", "require", "verify-ca", "verify-full"
+
+[database.postgresql]
+application_name = "fraiseql"
+schema_search_path = "public,fraiseql_internal"
 ```
 
 <CardGrid>

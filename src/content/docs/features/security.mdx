@@ -1,56 +1,52 @@
 ---
 title: Security
-description: Field-level authorization, scopes, and RBAC in FraiseQL
+description: Authentication, authorization, and security features in FraiseQL
 ---
 
-import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+import { Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-FraiseQL provides comprehensive security features including field-level authorization, scopes, and role-based access control (RBAC).
+FraiseQL's security model has four layers: JWT verification by the engine, policy-driven authorization, field-level access control, and server-side injection for row filtering. Each layer is independent and can be used without the others.
 
-## Authentication
+## JWT Authentication
 
-### JWT Configuration
+FraiseQL verifies JWTs automatically on every request. Configuration is done via **environment variables**, not TOML — there is no `[auth]` section in `fraiseql.toml`.
 
-```toml
-[auth]
-enabled = true
-provider = "jwt"
+| Environment variable | Description |
+|----------------------|-------------|
+| `JWT_SECRET` | Signing secret (HS256) or public key path (RS256) |
+| `JWT_ALGORITHM` | `HS256`, `RS256`, `ES256` — default `HS256` |
+| `JWT_ISSUER` | Expected `iss` claim (optional) |
+| `JWT_AUDIENCE` | Expected `aud` claim (optional) |
 
-[auth.jwt]
-secret = "${JWT_SECRET}"
-algorithm = "HS256"
-issuer = "my-api"
-audience = "my-app"
-expiry = 3600
-```
-
-### Token Structure
+### Expected token structure
 
 ```json
 {
-    "sub": "user-123",
-    "email": "user@example.com",
-    "roles": ["user", "admin"],
-    "scope": "read:User write:Post",
-    "iat": 1704067200,
-    "exp": 1704070800
+  "sub": "user-123",
+  "email": "user@example.com",
+  "roles": ["user", "admin"],
+  "scope": "read:User write:Post",
+  "iat": 1704067200,
+  "exp": 1704070800
 }
 ```
 
-### Request Headers
+### Sending a request
 
 ```bash
 curl -X POST http://localhost:8080/graphql \
-    -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
-    -H "Content-Type: application/json" \
-    -d '{"query": "{ me { email } }"}'
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ me { email } }"}'
 ```
+
+---
 
 ## Field-Level Authorization
 
-### Requiring Scopes
+### Requiring scopes
 
-Use `Annotated` to require scopes for fields:
+Use `Annotated` to require scopes for individual fields:
 
 ```python
 from typing import Annotated
@@ -62,109 +58,28 @@ class User:
     name: str
     email: str
 
-    # Protected field - requires scope
+    # Protected field — requires scope
     salary: Annotated[Decimal, fraiseql.field(requires_scope="hr:read_salary")]
 
     # Multiple required scopes (all must be present)
     ssn: Annotated[str, fraiseql.field(requires_scope="hr:read_pii admin:view")]
 ```
 
-### Scope Format
-
-```
-resource:action
-resource:action:field
-```
-
-Examples:
-- `read:User` — Read any User field
-- `read:User.email` — Read User.email specifically
-- `write:Post` — Create/update Posts
-- `admin:*` — All admin actions
-
-### Checking Scopes
-
-FraiseQL checks scopes at query resolution:
-
-```graphql
-# User has scope "read:User"
-query {
-    user(id: "...") {
-        name   # Allowed
-        email  # Allowed
-        salary # Forbidden (needs hr:read_salary)
-    }
-}
-```
-
-Response:
+When a client requests a protected field without the required scope, FraiseQL returns `null` for that field and includes an error entry:
 
 ```json
 {
-    "data": {
-        "user": {
-            "name": "John",
-            "email": "john@example.com",
-            "salary": null
-        }
-    },
-    "errors": [
-        {
-            "message": "Forbidden: missing scope hr:read_salary",
-            "path": ["user", "salary"]
-        }
-    ]
+  "data": {
+    "user": { "name": "John", "email": "john@example.com", "salary": null }
+  },
+  "errors": [{
+    "message": "Forbidden: missing scope hr:read_salary",
+    "path": ["user", "salary"]
+  }]
 }
 ```
 
-## Role-Based Access Control
-
-### Defining Roles
-
-```python
-@fraiseql.role("admin")
-class AdminRole:
-    """Full system access."""
-    scopes = [
-        "read:*",
-        "write:*",
-        "delete:*",
-        "admin:*"
-    ]
-
-@fraiseql.role("user")
-class UserRole:
-    """Standard user access."""
-    scopes = [
-        "read:User",
-        "read:Post",
-        "write:Post",
-        "write:Comment"
-    ]
-
-@fraiseql.role("analyst")
-class AnalystRole:
-    """Read-only analytics access."""
-    scopes = [
-        "read:Analytics",
-        "read:Report"
-    ]
-```
-
-### Role Hierarchy
-
-```python
-@fraiseql.role("super_admin")
-class SuperAdminRole:
-    """Inherits from admin with additional privileges."""
-    inherits = ["admin"]
-    scopes = [
-        "admin:manage_users",
-        "admin:system_config"
-    ]
-```
-
-### Query-Level Authorization
+### Query and mutation authorization
 
 ```python
 @fraiseql.query(
@@ -175,50 +90,284 @@ def all_users() -> list[User]:
     """Only admins can list all users."""
     pass
 
-@fraiseql.query(sql_source="v_user")
-def me() -> User:
-    """Any authenticated user can query themselves."""
-    pass
-```
-
-### Mutation Authorization
-
-```python
 @fraiseql.mutation(
     sql_source="fn_delete_user",
-    operation="DELETE",
     requires_scope="admin:delete_user"
 )
 def delete_user(id: ID) -> bool:
-    """Delete a user. Requires admin:delete_user scope."""
+    """Requires admin:delete_user scope."""
     pass
 ```
 
-## Row-Level Security
+---
 
-### Owner-Based Access
+## Authorization Policies (TOML-driven)
+
+For query-scoped and row-level authorization that doesn't fit field annotations, FraiseQL supports TOML-configured policies using the Elo expression language.
+
+### [security] — default policy
+
+```toml
+[security]
+default_policy = "authenticated"  # or "public"
+```
+
+### [[security.rules]] — Elo expression rules
+
+```toml
+[[security.rules]]
+name              = "owner_only"
+rule              = "user.id == object.owner_id"
+description       = "User can only access their own data"
+cacheable         = true
+cache_ttl_seconds = 300
+```
+
+### [[security.policies]] — RBAC/ABAC policies
+
+```toml
+[[security.policies]]
+name              = "admin_only"
+type              = "rbac"         # rbac | abac | custom | hybrid
+roles             = ["admin"]
+strategy          = "any"          # any | all | exactly
+cache_ttl_seconds = 600
+```
+
+### [[security.field_auth]] — per-field policy binding
+
+```toml
+[[security.field_auth]]
+type_name  = "User"
+field_name = "email"
+policy     = "admin_only"
+```
+
+---
+
+## Row-Level Filtering
+
+Use `inject=` on `@fraiseql.query` or `@fraiseql.mutation` to inject JWT claims directly into the SQL call, without a middleware layer:
 
 ```python
-@fraiseql.type
-class Post:
-    id: ID
-    title: str
-    content: str
-    author_id: ID
-
 @fraiseql.query(
     sql_source="v_post",
-    row_filter="author_id = {current_user_id}"
+    inject={"author_id": "jwt:sub"}
 )
 def my_posts() -> list[Post]:
-    """User can only see their own posts."""
+    """Returns only posts owned by the current user."""
     pass
 ```
 
-### SQL Implementation
+FraiseQL passes `author_id` as a parameter to the view. The view can use it in a `WHERE` clause:
 
 ```sql
--- Row-level security in PostgreSQL
+CREATE VIEW v_post AS
+SELECT jsonb_build_object(
+    'id',    id,
+    'title', title,
+    'body',  body
+)
+FROM tb_post
+WHERE fk_user = (current_setting('fraiseql.author_id'))::bigint;
+```
+
+`inject=` only supports `jwt:<claim>` values. Compile-time validation rejects invalid formats.
+
+See [Server-Side Injection](/features/server-side-injection) for the full reference.
+
+---
+
+## Multi-Tenancy
+
+The same `inject=` pattern applies for tenant isolation:
+
+```python
+@fraiseql.query(
+    sql_source="v_order",
+    inject={"org_id": "jwt:org_id"}
+)
+def orders() -> list[Order]:
+    pass
+```
+
+See [Multi-Tenancy](/guides/multi-tenancy) for the full guide including PostgreSQL RLS patterns.
+
+---
+
+## Error Sanitization
+
+<Aside type="note">
+Added in rc.13.
+</Aside>
+
+By default, FraiseQL returns raw error messages. Enable sanitization in production to prevent SQL errors and stack traces from reaching clients.
+
+```toml
+[security.error_sanitization]
+enabled                     = true   # disabled by default
+hide_implementation_details = true   # default: true when enabled
+sanitize_database_errors    = true   # default: true when enabled
+custom_error_message        = "An internal error occurred"
+```
+
+`ValidationError`, `Forbidden`, and `NotFound` codes are **never sanitized** — clients need these to act on errors. Only `InternalServerError` and `DatabaseError` codes are replaced with the `custom_error_message`.
+
+### Error codes reference
+
+All errors include an `extensions` object clients can switch on:
+
+```json
+{
+  "errors": [{
+    "message": "...",
+    "extensions": {
+      "code": "VALIDATION_ERROR",
+      "statusCode": 400
+    }
+  }]
+}
+```
+
+| `extensions.code` | Sanitizable | When returned | Client action |
+|---|---|---|---|
+| `VALIDATION_ERROR` | No | Invalid query input | Fix and retry |
+| `NOT_FOUND` | No | Resource does not exist | Handle gracefully |
+| `FORBIDDEN` | No | Missing scope or role | Show auth error |
+| `UNAUTHENTICATED` | No | Missing or invalid JWT | Redirect to login |
+| `RATE_LIMITED` | No | Token bucket exhausted | Retry after `Retry-After` header |
+| `DATABASE_ERROR` | Yes | DB constraint or connection failure | Show generic error |
+| `INTERNAL_SERVER_ERROR` | Yes | Unclassified server fault | Show generic error |
+| `TIMEOUT` | Yes | Request exceeded timeout | Retry or reduce query scope |
+
+<Aside type="caution">
+`[security.error_sanitization]` is **disabled by default**. Without it, raw database error messages and internal details reach clients. Enable it in every production deployment.
+</Aside>
+
+---
+
+## Rate Limiting
+
+<Aside type="note">
+Added in rc.13.
+</Aside>
+
+```toml
+[security.rate_limiting]
+enabled             = true
+requests_per_second = 100
+burst_size          = 200
+```
+
+FraiseQL applies a global token bucket to all requests and per-endpoint limits to auth routes (`/auth/start`, `/auth/callback`, `/auth/refresh`, `/auth/logout`). The current implementation is in-memory per instance.
+
+See [Rate Limiting](/features/rate-limiting) for the full configuration reference.
+
+---
+
+## OAuth State Security
+
+### State encryption
+
+<Aside type="note">
+Added in rc.13.
+</Aside>
+
+Encrypts OAuth state blobs stored between `/auth/start` and `/auth/callback`, preventing tampering.
+
+```toml
+[security.state_encryption]
+enabled    = true
+algorithm  = "chacha20-poly1305"  # or "aes-256-gcm"
+key_source = "env"
+key_env    = "STATE_ENCRYPTION_KEY"
+```
+
+Generate a key:
+
+```bash
+openssl rand -hex 32
+```
+
+Set the result in your environment as `STATE_ENCRYPTION_KEY` (64-character hex string encoding a 32-byte key).
+
+<Aside type="caution">
+If `enabled = true` and the `key_env` variable is not set, **the server refuses to start**. This is intentional — silently running without encryption would defeat the purpose of enabling it.
+
+Set `enabled = false` explicitly in CI and local dev environments that do not need state encryption. Do not rely on the env var being absent.
+</Aside>
+
+### PKCE
+
+<Aside type="note">
+Added in rc.13.
+</Aside>
+
+<Aside type="caution">
+PKCE requires `[security.state_encryption]` to also be enabled. If `pkce.enabled = true` and `state_encryption.enabled = false`, the engine emits a startup warning: "PKCE state will be stored unencrypted."
+</Aside>
+
+```toml
+[security.pkce]
+enabled               = true
+code_challenge_method = "S256"  # or "plain" (warns at startup in non-dev)
+state_ttl_secs        = 600
+```
+
+---
+
+## Audit Logging
+
+Enable the audit log via enterprise flags:
+
+```toml
+[security.enterprise]
+audit_logging_enabled = true
+audit_log_level       = "info"  # "debug" | "info" | "warn"
+```
+
+Create an audit table in PostgreSQL:
+
+```sql
+CREATE TABLE ta_audit_log (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    timestamp  TIMESTAMPTZ DEFAULT NOW(),
+    user_id    UUID,
+    operation  TEXT        NOT NULL,
+    query_name TEXT,
+    variables  JSONB,
+    ip_address INET,
+    user_agent TEXT,
+    duration_ms INTEGER,
+    success    BOOLEAN,
+    error_message TEXT
+);
+```
+
+---
+
+## CORS
+
+CORS is configured under `[server.cors]`, not `[security.cors]`:
+
+```toml
+[server.cors]
+origins     = ["https://app.example.com", "http://localhost:3000"]
+credentials = true
+```
+
+<Aside type="caution">
+Never use wildcard origins when `credentials = true`. This creates a significant security vulnerability.
+</Aside>
+
+---
+
+## SQL Row-Level Security (PostgreSQL)
+
+FraiseQL works with PostgreSQL RLS policies. Use `inject=` to pass JWT claims, then reference them in your RLS policy function:
+
+```sql
+-- Enable RLS on the table
 ALTER TABLE tb_post ENABLE ROW LEVEL SECURITY;
 
 -- Users can only see their own posts
@@ -226,7 +375,7 @@ CREATE POLICY post_owner_policy ON tb_post
     FOR ALL
     USING (fk_user = current_user_pk());
 
--- Function to get current user's pk
+-- Helper function
 CREATE FUNCTION current_user_pk() RETURNS INTEGER AS $$
 BEGIN
     RETURN current_setting('app.current_user_pk')::INTEGER;
@@ -234,480 +383,122 @@ END;
 $$ LANGUAGE plpgsql;
 ```
 
-### Setting Context
-
-FraiseQL sets the user context before queries:
-
-```sql
--- Set by FraiseQL before each request
-SET LOCAL app.current_user_pk = 123;
-SET LOCAL app.current_user_scopes = 'read:User write:Post';
-```
-
-## Organization/Tenant Isolation
-
-### Multi-Tenant Pattern
-
-```python
-@fraiseql.type
-class Organization:
-    id: ID
-    name: str
-
-@fraiseql.type
-class User:
-    id: ID
-    organization_id: ID
-    name: str
-
-@fraiseql.query(
-    sql_source="v_user",
-    row_filter="organization_id = {current_org_id}"
-)
-def users() -> list[User]:
-    """Users filtered to current organization."""
-    pass
-```
-
-### Tenant Context
-
-```python
-@fraiseql.middleware
-def set_tenant_context(request, next):
-    """Extract and set tenant context from JWT."""
-    org_id = request.auth.claims.get("org_id")
-    request.context["current_org_id"] = org_id
-    return next(request)
-```
-
-## Input Validation
-
-### Built-in Validation
-
-```python
-@fraiseql.input
-class CreateUserInput:
-    email: Annotated[str, fraiseql.validate(
-        pattern=r"^[^@]+@[^@]+\.[^@]+$",
-        message="Invalid email format"
-    )]
-    name: Annotated[str, fraiseql.validate(
-        min_length=2,
-        max_length=100
-    )]
-    age: Annotated[int, fraiseql.validate(
-        minimum=0,
-        maximum=150
-    )]
-```
-
-### Custom Validation
-
-```python
-@fraiseql.validator
-def validate_password(value: str) -> str:
-    if len(value) < 8:
-        raise ValueError("Password must be at least 8 characters")
-    if not any(c.isupper() for c in value):
-        raise ValueError("Password must contain uppercase letter")
-    if not any(c.isdigit() for c in value):
-        raise ValueError("Password must contain a digit")
-    return value
-
-@fraiseql.input
-class ChangePasswordInput:
-    password: Annotated[str, fraiseql.validate(custom=validate_password)]
-```
-
-## Rate Limiting
-
-### Configuration
-
-```toml
-[rate_limit]
-enabled = true
-window = 60  # seconds
-max_requests = 100
-
-[rate_limit.by_operation]
-createUser = 10      # 10 per minute
-resetPassword = 5    # 5 per minute
-```
-
-### Per-User Limits
-
-```toml
-[rate_limit.tiers]
-free = { requests = 100, window = 60 }
-pro = { requests = 1000, window = 60 }
-enterprise = { requests = 10000, window = 60 }
-```
-
-## Audit Logging
-
-### Automatic Audit
-
-```toml
-[audit]
-enabled = true
-log_queries = true
-log_mutations = true
-include_variables = true
-redact_fields = ["password", "ssn", "credit_card"]
-```
-
-### Audit Table
-
-```sql
-CREATE TABLE ta_audit_log (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    timestamp TIMESTAMPTZ DEFAULT NOW(),
-    user_id UUID,
-    operation TEXT NOT NULL,
-    query_name TEXT,
-    variables JSONB,
-    ip_address INET,
-    user_agent TEXT,
-    duration_ms INTEGER,
-    success BOOLEAN,
-    error_message TEXT
-);
-```
-
-### Custom Audit
-
-```python
-@fraiseql.after_mutation("delete_user")
-async def audit_user_deletion(result, context):
-    await log_audit_event(
-        event_type="user_deleted",
-        actor_id=context.current_user_id,
-        target_id=result.id,
-        metadata={"reason": context.variables.get("reason")}
-    )
-```
-
-## Security Headers
-
-### Configuration
-
-```toml
-[security.headers]
-x_frame_options = "DENY"
-x_content_type_options = "nosniff"
-x_xss_protection = "1; mode=block"
-content_security_policy = "default-src 'self'"
-strict_transport_security = "max-age=31536000; includeSubDomains"
-```
-
-## Query Complexity Limits
-
-Prevent resource exhaustion:
-
-```toml
-[graphql.security]
-max_depth = 10
-max_complexity = 1000
-max_aliases = 5
-introspection = false  # Disable in production
-```
-
-## Secrets Management
-
-### Environment Variables
-
-```toml
-[auth.jwt]
-secret = "${JWT_SECRET}"  # Never hardcode
-
-[database]
-url = "${DATABASE_URL}"
-```
-
-### Secret Rotation
-
-```python
-@fraiseql.config
-def get_jwt_secret():
-    """Fetch secret from vault."""
-    return vault_client.get_secret("jwt-secret")
-```
+---
 
 ## Security Checklist
 
 ### Authentication
-- [ ] JWT secrets are 256+ bits
-- [ ] Tokens expire appropriately
-- [ ] Refresh token rotation enabled
-- [ ] Failed login rate limiting
+- [ ] JWT secrets are 256+ bits (`openssl rand -hex 32`)
+- [ ] Tokens expire appropriately (30 min – 1 hour)
+- [ ] Failed login rate limiting enabled
 
 ### Authorization
 - [ ] All mutations require authentication
-- [ ] Sensitive fields protected by scopes
-- [ ] Row-level security where needed
-- [ ] Admin actions require admin role
+- [ ] Sensitive fields protected by `requires_scope`
+- [ ] Row-level filtering via `inject=` or PostgreSQL RLS
 
-### Input
-- [ ] All inputs validated
-- [ ] SQL injection impossible (parameterized)
-- [ ] File upload restrictions
-- [ ] Request size limits
-
-### Output
-- [ ] Sensitive fields never leaked
-- [ ] Error messages don't expose internals
-- [ ] Introspection disabled in production
+### Error handling
+- [ ] `[security.error_sanitization]` enabled in production
+- [ ] Stack traces not exposed to clients
 
 ### Infrastructure
-- [ ] TLS everywhere
-- [ ] Security headers set
-- [ ] CORS properly configured
-- [ ] Rate limiting enabled
+- [ ] TLS at load balancer or via `[server.tls]`
+- [ ] CORS configured via `[server.cors]` (not wildcard)
+- [ ] Rate limiting enabled via `[security.rate_limiting]`
 
-## Advanced RBAC Patterns
+### OAuth (if using)
+- [ ] `[security.state_encryption]` enabled
+- [ ] `STATE_ENCRYPTION_KEY` env var set in all environments where `enabled = true`
+- [ ] `enabled = false` explicit in CI/test config (not relying on env var absence)
+- [ ] `[security.pkce]` enabled with `code_challenge_method = "S256"`
 
-### Dynamic Role Assignment
+---
 
-```python
-from fraiseql import middleware
+## Authorization Error Responses
 
-@middleware
-def assign_role_from_token(request, next):
-    """Dynamically assign role based on claims."""
-    token_claims = decode_token(request.headers.get("Authorization"))
+When a client lacks the required role or scope, FraiseQL returns a structured GraphQL error:
 
-    # Map custom claims to roles
-    organization_tier = token_claims.get("org_tier")
-    roles = ["user"]
-
-    if organization_tier == "pro":
-        roles.append("pro_user")
-    if organization_tier == "enterprise":
-        roles.append("enterprise_user")
-
-    if token_claims.get("is_admin"):
-        roles.append("admin")
-
-    request.context["user_roles"] = roles
-    return next(request)
-
-@fraiseql.query(requires_role=["pro_user", "enterprise_user", "admin"])
-def premium_analytics() -> Analytics:
-    """Only premium tier users can access."""
-    pass
+**Missing authentication:**
+```json
+{
+  "errors": [{
+    "message": "Authentication required",
+    "extensions": { "code": "UNAUTHENTICATED", "statusCode": 401 }
+  }]
+}
 ```
 
-### Three-Tier RBAC System
-
-```python
-# Define roles with inheritance
-@fraiseql.role("guest")
-class GuestRole:
-    """Unauthenticated user."""
-    scopes = ["read:public"]
-
-@fraiseql.role("user")
-class UserRole:
-    """Authenticated standard user."""
-    inherits = ["guest"]
-    scopes = [
-        "read:user_profile",
-        "write:user_profile",
-        "read:posts",
-        "write:posts",
-        "read:comments",
-        "write:comments"
-    ]
-
-@fraiseql.role("moderator")
-class ModeratorRole:
-    """User with moderation privileges."""
-    inherits = ["user"]
-    scopes = [
-        "read:reports",
-        "write:reports",
-        "write:delete_posts",
-        "write:delete_comments",
-        "write:ban_user"
-    ]
-
-@fraiseql.role("admin")
-class AdminRole:
-    """Full system access."""
-    inherits = ["moderator"]
-    scopes = [
-        "read:*",
-        "write:*",
-        "delete:*",
-        "admin:user_management",
-        "admin:system_settings",
-        "admin:audit_logs"
-    ]
-
-@fraiseql.query(sql_source="v_posts")
-def posts(limit: int = 20) -> list[Post]:
-    """Any authenticated user can see non-deleted posts."""
-    pass
-
-@fraiseql.query(
-    sql_source="v_posts_including_deleted",
-    requires_role=["moderator"]
-)
-def all_posts(limit: int = 20) -> list[Post]:
-    """Moderators and admins can see all posts including deleted."""
-    pass
-
-@fraiseql.mutation(
-    requires_role="admin"
-)
-def update_system_settings(setting: str, value: str) -> bool:
-    """Only admins can change system settings."""
-    pass
+**Missing role/scope:**
+```json
+{
+  "errors": [{
+    "message": "Access denied: role 'viewer' cannot access field 'User.email'",
+    "path": ["user", "email"],
+    "extensions": {
+      "code": "FORBIDDEN",
+      "requiredRole": "admin",
+      "statusCode": 403
+    }
+  }]
+}
 ```
 
-## Advanced Field Authorization
+---
 
-### Scope Inheritance
+## Testing Security
 
-```python
-@fraiseql.type
-class User:
-    # read:User includes all user fields
-    # read:User.email includes only email field
-    id: ID
-    name: str
-    email: Annotated[str, fraiseql.field(requires_scope="read:User.email")]
-    phone: Annotated[str, fraiseql.field(requires_scope="read:User.phone")]
-    ssn: Annotated[str, fraiseql.field(requires_scope="read:User.ssn")]
-```
+<Steps>
 
-### Wildcard Scopes
+1. **Test field-level authorization:**
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $USER_TOKEN" \
+     -d '{"query": "{ user(id: \"user-123\") { name salary } }"}'
+   ```
 
-```python
-# In token scopes:
-# admin:* - All admin actions
-# read:* - All read actions
-# *:* - All actions
+   Expected: `salary` returns `null` with a `FORBIDDEN` error entry.
 
-@fraiseql.type
-class SystemLog:
-    id: ID
-    message: str
-    # Requires admin:logs or admin:* or *:*
-    details: Annotated[dict, fraiseql.field(requires_scope="admin:logs")]
-```
+2. **Test admin-only query with regular token:**
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $USER_TOKEN" \
+     -d '{"query": "{ allUsers { id name } }"}'
+   ```
 
-## Token Validation
+   Expected: `FORBIDDEN` error, no data.
 
-### JWT Validation
+3. **Test expired token:**
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $EXPIRED_TOKEN" \
+     -d '{"query": "{ me { email } }"}'
+   ```
 
-```python
-from datetime import datetime
-import jwt
+   Expected: `UNAUTHENTICATED` error with `"token expired"` message.
 
-async def validate_jwt_token(token: str) -> dict:
-    """Validate JWT token with security checks."""
-    try:
-        # Verify signature and expiration
-        payload = jwt.decode(
-            token,
-            key=JWT_SECRET,
-            algorithms=["HS256"],
-            audience=JWT_AUDIENCE,
-            issuer=JWT_ISSUER
-        )
+4. **Test row-level filtering:**
+   ```bash
+   # User A's token — should only return User A's posts
+   curl -X POST http://localhost:8080/graphql \
+     -H "Authorization: Bearer $USER_A_TOKEN" \
+     -d '{"query": "{ myPosts { title } }"}'
+   ```
 
-        # Verify token hasn't been revoked
-        if await is_token_revoked(payload["jti"]):
-            raise ValueError("Token has been revoked")
-
-        # Check claim requirements
-        if "sub" not in payload or "scopes" not in payload:
-            raise ValueError("Missing required claims")
-
-        return payload
-
-    except jwt.ExpiredSignatureError:
-        raise ValueError("Token has expired")
-    except jwt.InvalidSignatureError:
-        raise ValueError("Invalid token signature")
-    except jwt.InvalidTokenError as e:
-        raise ValueError(f"Invalid token: {e}")
-```
-
-### Token Revocation (Blacklist)
-
-```python
-from redis import Redis
-
-redis_client = Redis()
-
-async def revoke_token(jti: str, exp: int):
-    """Add token to revocation list."""
-    ttl = max(0, exp - int(datetime.utcnow().timestamp()))
-    redis_client.setex(f"revoked_token:{jti}", ttl, "true")
-
-async def is_token_revoked(jti: str) -> bool:
-    """Check if token has been revoked."""
-    return redis_client.exists(f"revoked_token:{jti}") > 0
-```
-
-## CORS Configuration
-
-```toml
-[security.cors]
-enabled = true
-allowed_origins = [
-    "https://app.example.com",
-    "https://admin.example.com"
-]
-allowed_methods = ["GET", "POST", "OPTIONS"]
-allowed_headers = ["Content-Type", "Authorization"]
-allow_credentials = true
-max_age = 3600
-```
-
-<Aside type="caution">
-Never use wildcard CORS origins (`allowed_origins = ["*"]`) in production when `allow_credentials = true`. This creates a significant security vulnerability.
-</Aside>
-
-## Expanded Security Checklist
-
-### Authentication
-- [ ] JWT secrets are 256+ bits (use `openssl rand -hex 32`)
-- [ ] Tokens expire appropriately (30 min - 1 hour)
-- [ ] Refresh token rotation enabled
-- [ ] Failed login rate limiting (5 attempts / 15 min)
-- [ ] Session timeout configured
-- [ ] Password hashing uses bcrypt/argon2
-- [ ] MFA enabled for admin accounts
-
-### Token Security
-- [ ] JWT signature verified
-- [ ] Token claims validated
-- [ ] Expired tokens rejected
-- [ ] Token revocation implemented
-- [ ] Token JTI claim present
-- [ ] Token issuer/audience verified
-
-### Secrets Management
-- [ ] Secrets in environment variables
-- [ ] Secrets rotated regularly
-- [ ] No secrets in logs
-- [ ] No secrets in version control
-- [ ] Vault used for secret storage
-- [ ] Audit logging of secret access
+</Steps>
 
 ## Next Steps
 
 <CardGrid>
-  <Card title="Authentication" icon="shield">
-    [Authentication](/guides/authentication) — Auth implementation guide
+  <Card title="Server-Side Injection" icon="shield">
+    [Server-Side Injection](/features/server-side-injection) — inject= full reference
   </Card>
-  <Card title="Deployment" icon="rocket">
-    [Deployment](/guides/deployment) — Production security
+  <Card title="Rate Limiting" icon="setting">
+    [Rate Limiting](/features/rate-limiting) — token bucket configuration
   </Card>
-  <Card title="Multi-Tenancy" icon="setting">
-    [Multi-Tenancy](/guides/multi-tenancy) — Tenant isolation patterns
+  <Card title="Multi-Tenancy" icon="rocket">
+    [Multi-Tenancy](/guides/multi-tenancy) — tenant isolation patterns
   </Card>
 </CardGrid>

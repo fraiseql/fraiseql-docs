@@ -518,21 +518,33 @@ fraiseql_nats_consumer_pending         # Messages waiting to be processed
 
 ### Database-NATS Integration
 
+In `fraiseql.toml`, enable NATS via the observers backend:
+
 ```toml
-[nats]
+[observers]
 enabled = true
-servers = ["nats://localhost:4222", "nats://backup:4222"]
-jetstream_enabled = true
+backend = "nats"
+nats_url = "${NATS_URL}"  # comma-separated for clusters: nats://n1:4222,nats://n2:4222
+```
 
-[nats.jetstream]
-storage = "file"
-storage_dir = "/data/nats"
-max_bytes = 10737418240  # 10GB
+Advanced JetStream settings belong in the observer runtime config (`fraiseql-observer.toml`):
 
-[nats.publishing]
-auto_publish = true  # Auto-publish mutations
-batch_size = 100
-batch_timeout = 1000
+```toml
+[transport]
+transport = "nats"
+
+[transport.nats]
+url = "${NATS_URL}"
+stream_name = "fraiseql_events"
+subject_prefix = "fraiseql.mutation"
+consumer_name = "fraiseql_observer_worker"
+
+[transport.nats.jetstream]
+max_bytes = 10_737_418_240  # 10 GB
+max_age_days = 7
+max_deliver = 3
+ack_wait_secs = 30
+dedup_window_minutes = 5
 ```
 
 ### Custom Event Publishing

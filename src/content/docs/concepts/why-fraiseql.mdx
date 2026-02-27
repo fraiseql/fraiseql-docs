@@ -51,7 +51,10 @@ SELECT
         'id',       p.id,
         'title',    p.title,
         'author',   vu.data,          -- pre-joined from v_user
-        'comments', jsonb_agg(vc.data) -- pre-aggregated from v_comment
+        'comments', COALESCE(
+                  jsonb_agg(vc.data) FILTER (WHERE vc.id IS NOT NULL),
+                  '[]'::jsonb
+                )                  -- pre-aggregated, empty array when no comments
     ) AS data
 FROM tb_post p
 JOIN v_user vu ON vu.id = p.fk_user

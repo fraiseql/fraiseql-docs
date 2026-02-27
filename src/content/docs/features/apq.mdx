@@ -7,6 +7,10 @@ import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/
 
 Automatic Persisted Queries (APQ) reduce bandwidth and improve latency by caching query strings on the server.
 
+<Aside type="note">
+APQ is **disabled by default**. Enable it in `fraiseql.toml` with `[graphql.apq] enabled = true`. For multi-instance deployments, a Redis backend is required so all instances share the same query cache (see [Cache Backend](#cache-backend) below).
+</Aside>
+
 ## How APQ Works
 
 Instead of sending the full query text on every request, clients send a query hash:
@@ -14,6 +18,40 @@ Instead of sending the full query text on every request, clients send a query ha
 **First Request:** The client sends the query along with its hash. The server caches the query and returns data.
 
 **Subsequent Requests:** The client sends only the hash (much smaller). The server looks up the query from cache and returns data.
+
+### Before and After
+
+Without APQ, every request carries the full query string:
+
+```bash
+# Without APQ — full query on every request (~1.2 KB body)
+curl -s -X POST https://api.example.com/graphql \
+    -H "Content-Type: application/json" \
+    -d '{
+        "query": "query GetUserProfile($id: ID!) { user(id: $id) { id name email createdAt orders(last: 5) { id total status } } }",
+        "variables": { "id": "user-123" }
+    }'
+```
+
+With APQ, after the first request only the 64-byte hash is sent:
+
+```bash
+# With APQ — hash only (~120 byte body, 90%+ smaller)
+curl -s -X POST https://api.example.com/graphql \
+    -H "Content-Type: application/json" \
+    -d '{
+        "extensions": {
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+            }
+        },
+        "variables": { "id": "user-123" }
+    }'
+
+# Response (same data, no query overhead):
+# { "data": { "user": { "id": "user-123", "name": "Alice", ... } } }
+```
 
 ## Configuration
 
@@ -29,13 +67,13 @@ ttl = 86400         # Cache TTL in seconds (24 hours)
 ### Cache Backend
 
 ```toml
-# In-memory (default)
+# In-memory (default, single instance only)
 [graphql.apq]
 enabled = true
 backend = "memory"
 cache_size = 10000
 
-# Redis (for distributed deployments)
+# Redis (required for distributed deployments)
 [graphql.apq]
 enabled = true
 backend = "redis"
@@ -43,6 +81,10 @@ redis_url = "${REDIS_URL}"
 key_prefix = "apq:"
 ttl = 86400
 ```
+
+<Aside type="caution">
+When running multiple FraiseQL instances (e.g., behind a load balancer), you **must** use `backend = "redis"`. With the default in-memory backend, a client hitting instance A may cache a query that instance B has never seen, causing spurious `PersistedQueryNotFound` errors on retries.
+</Aside>
 
 ## Client Implementation
 
@@ -67,9 +109,9 @@ APQ uses extensions to send the query hash:
 ### Flow
 
 <Steps>
-1. **First request**: Client sends hash only
+1. **First request**: Client sends hash only (no query string)
 2. **Cache miss**: Server returns `PersistedQueryNotFound` error
-3. **Retry with query**: Client sends hash + full query
+3. **Retry with query**: Client sends hash + full query string
 4. **Cached**: Server caches query, returns data
 5. **Subsequent requests**: Client sends hash only, server uses cache
 </Steps>
@@ -152,6 +194,52 @@ async function executeQuery(query, variables) {
 </TabItem>
 </Tabs>
 
+## Manual Testing with curl
+
+You can test the full APQ flow manually to verify your configuration:
+
+```bash
+# Step 1: Attempt hash-only request (expect PersistedQueryNotFound)
+curl -s -X POST http://localhost:8080/graphql \
+    -H "Content-Type: application/json" \
+    -d '{
+        "extensions": {
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": "ecf4edb46db40b5132295c0291d62fb65d6759a9aeacfe1f108c30a4740c5f71"
+            }
+        }
+    }'
+# Response: {"errors":[{"message":"PersistedQueryNotFound","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}
+
+# Step 2: Send hash + query to register it
+curl -s -X POST http://localhost:8080/graphql \
+    -H "Content-Type: application/json" \
+    -d '{
+        "query": "{ __typename }",
+        "extensions": {
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": "ecf4edb46db40b5132295c0291d62fb65d6759a9aeacfe1f108c30a4740c5f71"
+            }
+        }
+    }'
+# Response: {"data":{"__typename":"Query"}}
+
+# Step 3: Now hash-only works (query is cached)
+curl -s -X POST http://localhost:8080/graphql \
+    -H "Content-Type: application/json" \
+    -d '{
+        "extensions": {
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": "ecf4edb46db40b5132295c0291d62fb65d6759a9aeacfe1f108c30a4740c5f71"
+            }
+        }
+    }'
+# Response: {"data":{"__typename":"Query"}}
+```
+
 ## GET Requests
 
 With APQ, you can use GET requests for cached queries:
@@ -168,6 +256,53 @@ GET /graphql?extensions={"persistedQuery":{"version":1,"sha256Hash":"abc123"}}&v
 
 <Aside type="tip">
 GET requests enable HTTP caching (CDN, browser), bookmarkable URLs, and reduced server load. This is particularly useful for frequently-executed read queries.
+</Aside>
+
+## Security Considerations
+
+<Aside type="note">
+**APQ hashes do not expose query structure.** A SHA-256 hash is a one-way digest — an observer who intercepts the hash cannot reconstruct the original query text. This is safe to transmit over unencrypted channels, though TLS is still recommended for your variables and response data.
+</Aside>
+
+### Hash Verification
+
+FraiseQL verifies that the query matches the hash when both are sent together:
+
+```json
+{
+    "query": "{ users { id } }",
+    "extensions": {
+        "persistedQuery": {
+            "version": 1,
+            "sha256Hash": "wrong-hash-value-here"
+        }
+    }
+}
+```
+
+Response:
+
+```json
+{
+    "errors": [{
+        "message": "Provided sha does not match query",
+        "extensions": { "code": "BAD_USER_INPUT" }
+    }]
+}
+```
+
+### Query Allowlisting
+
+For maximum security, only allow prepopulated queries:
+
+```toml
+[graphql.apq]
+enabled = true
+require_prepopulated = true  # Reject queries not in cache
+```
+
+<Aside type="caution">
+Setting `require_prepopulated = true` prevents arbitrary queries in production, but means you must pre-register all queries before deploying changes. Build this into your CI/CD pipeline.
 </Aside>
 
 ## Prepopulating the Cache
@@ -239,50 +374,11 @@ sum(rate(fraiseql_apq_hits_total[5m])) /
 sum(rate(fraiseql_apq_bytes_saved[5m])) / 1024 / 1024
 ```
 
-## Security Considerations
-
-### Hash Verification
-
-FraiseQL verifies that the query matches the hash:
-
-```json
-// Request
-{
-    "query": "{ users { id } }",
-    "extensions": {
-        "persistedQuery": {
-            "sha256Hash": "wrong-hash"
-        }
-    }
-}
-
-// Response
-{
-    "errors": [{
-        "message": "Provided sha does not match query"
-    }]
-}
-```
-
-### Query Allowlisting
-
-For maximum security, only allow prepopulated queries:
-
-```toml
-[graphql.apq]
-enabled = true
-require_prepopulated = true  # Reject queries not in cache
-```
-
-<Aside type="caution">
-Setting `require_prepopulated = true` prevents arbitrary queries in production, but means you must pre-register all queries before deploying changes. Build this into your CI/CD pipeline.
-</Aside>
-
 ## Benefits
 
 ### Bandwidth Reduction
 
-Typical GraphQL queries are 1-10 KB. Hashes are 64 bytes.
+Typical GraphQL queries are 1–10 KB. Hashes are 64 bytes.
 
 | Query Size | With APQ | Savings |
 |------------|----------|---------|

@@ -4,8 +4,27 @@ description: Understanding FraiseQL's database-first architecture
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import EmbeddedSandbox from '../../../components/EmbeddedSandbox.astro';
 
 FraiseQL is a **database-first GraphQL framework**. You write SQL views that compose nested JSONB responses. FraiseQL maps your GraphQL types to those views. At runtime, every query resolves to a single SQL statement — no resolvers, no N+1, no DataLoader.
+
+## Why this approach exists
+
+With a traditional GraphQL framework, a schema change cascades across multiple layers:
+
+1. Alter the database table
+2. Update the ORM model
+3. Regenerate GraphQL types
+4. Update resolvers
+5. Test everything together
+
+With FraiseQL, the same change is localised:
+
+1. Update the SQL view (or add a column to it)
+2. Run `fraiseql compile`
+3. Done — the API reflects the view
+
+The compile step is the key: FraiseQL reads your views and Python decorators, validates that everything aligns, and produces a compiled description of the API that the server executes without further interpretation. The database schema and the API schema are decoupled — a view is the contract between them.
 
 ## The Three Layers
 
@@ -175,22 +194,22 @@ Define your GraphQL schema in your preferred programming language:
   </TabItem>
   <TabItem label="TypeScript">
     ```typescript title="schema.ts"
-    import fraiseql from '@fraiseql/core';
+    import { type, field } from 'fraiseql';
 
-    @fraiseql.type
+    @type()
     class User {
-      id: string;
-      name: string;
-      email: string;
-      posts: Post[];
+      @field() id!: string;
+      @field() name!: string;
+      @field() email!: string;
+      @field() posts!: Post[];
     }
 
-    @fraiseql.type
+    @type()
     class Post {
-      id: string;
-      title: string;
-      content: string;
-      author: User;
+      @field() id!: string;
+      @field() title!: string;
+      @field() content!: string;
+      @field() author!: User;
     }
     ```
   </TabItem>
@@ -328,7 +347,7 @@ The final phase produces a compiled Rust binary, migration files, and all deploy
 graph LR
     A[Compiled Query Map] --> B[Rust Code Generation]
     B --> C[Query Executor Binary]
-    B --> D[SDK Types<br/>15 languages]
+    B --> D[SDK Types<br/>6 languages]
     B --> E[Migration Files]
 ```
 
@@ -340,7 +359,7 @@ FraiseQL supports schema definition in Python, TypeScript, Go, Java, Rust, and m
 
 1. **View Mapping** — Maps each GraphQL type to its SQL view
 2. **Query Executor** — High-performance compiled query paths
-3. **SDK Types** — Schema authoring libraries in 15 languages
+3. **SDK Types** — Schema authoring libraries in 6 languages
 
 ## Configuration
 
@@ -376,6 +395,37 @@ No YAML. No JSON. Just readable TOML.
 | Performance | Variable | Predictable (you see the query) |
 | Database management | ORM migrations | 🍯 Confiture (4 strategies) |
 | Schema definition | SDL only | Any language |
+
+## See It Live
+
+Query against a running FraiseQL instance. The demo uses the same single-query architecture described above — inspect the response shape and relate it back to the `v_post` view pattern.
+
+<EmbeddedSandbox
+  endpoint="https://demo.fraiseql.dev/graphql"
+  title="FraiseQL Demo API"
+  description="One GraphQL query. One SQL SELECT. See the result."
+  height="520px"
+  preloadedQuery={`# This entire response comes from a single SQL query
+query {
+  posts(limit: 5) {
+    id
+    title
+    author {
+      name
+      email
+    }
+    tags {
+      name
+    }
+    comments {
+      body
+      author {
+        name
+      }
+    }
+  }
+}`}
+/>
 
 ## Next Steps
 

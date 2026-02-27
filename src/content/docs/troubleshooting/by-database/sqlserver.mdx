@@ -341,6 +341,10 @@ sqlcmd -S host -U sa -P password -Q "
     SELECT * FROM posts (NOLOCK) WHERE user_id = 1;"
 ```
 
+<Aside type="caution">
+`WITH (NOLOCK)` returns **uncommitted data** (dirty reads). Only use it for non-critical reporting queries where slightly stale data is acceptable. Never use it for data that feeds mutations, financial calculations, or business-critical logic.
+</Aside>
+
 ### Transaction Isolation
 
 **Problem**: Dirty reads or phantom reads
@@ -576,6 +580,20 @@ WHERE database_id = DB_ID();
 -- Disk space
 EXEC xp_fixeddrives;
 ```
+
+## Version Requirements
+
+| Feature | Minimum SQL Server Version |
+|---------|---------------------------|
+| Query Store | SQL Server 2016 |
+| Always Encrypted | SQL Server 2016 |
+| Row-Level Security | SQL Server 2016 |
+| JSON support | SQL Server 2016 |
+| FraiseQL (minimum) | SQL Server 2016 SP1 |
+
+<Aside type="note">
+**Azure SQL differences:** Some commands behave differently on Azure SQL Managed Instance or Azure SQL Database vs on-premises SQL Server. Notably: `DBCC TRACEON` is not available on Azure SQL Database, and backup/restore syntax differs. Check the [Azure SQL documentation](https://docs.microsoft.com/en-us/azure/azure-sql/) for Azure-specific variants.
+</Aside>
 
 <CardGrid>
   <Card title="Common Issues" icon="warning">

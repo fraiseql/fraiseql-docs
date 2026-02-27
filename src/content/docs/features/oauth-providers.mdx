@@ -5,6 +5,10 @@ description: Configure OAuth2 and OIDC authentication with multiple providers
 
 import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/components';
 
+<Aside type="caution">
+**TOML examples on this page are being updated.** The `[auth]` TOML namespace used throughout does not exist in the engine. JWT and OAuth configuration is done via **environment variables** (`JWT_SECRET`, `JWT_ALGORITHM`, OAuth provider credentials), not `fraiseql.toml`. See [Security](/features/security#jwt-authentication) for the correct configuration pattern.
+</Aside>
+
 FraiseQL supports multiple OAuth2/OIDC providers for authentication, with built-in support for popular identity platforms.
 
 ## Supported Providers
@@ -316,6 +320,8 @@ Login endpoint accepts provider parameter:
 
 ### Access Token in Context
 
+<Tabs syncKey="language">
+<TabItem label="Python">
 ```python
 # In resolvers, access the authenticated user
 @fraiseql.query(sql_source="v_user")
@@ -324,6 +330,40 @@ def me(context: Context) -> User:
     roles = context.roles      # Mapped roles
     email = context.email      # From claims
 ```
+</TabItem>
+<TabItem label="TypeScript">
+```typescript
+import { query, type Context } from 'fraiseql';
+
+// In resolvers, access the authenticated user
+@query({ sqlSource: 'v_user' })
+function me(context: Context): User {
+  const userId = context.userId;  // From token
+  const roles = context.roles;    // Mapped roles
+  const email = context.email;    // From claims
+}
+```
+</TabItem>
+<TabItem label="Go">
+```go
+// In resolvers, access the authenticated user from context
+func me(ctx context.Context) (*User, error) {
+    userID, ok := ctx.Value("user_id").(string)
+    if !ok {
+        return nil, fmt.Errorf("user not authenticated")
+    }
+    
+    roles, _ := ctx.Value("roles").([]string)
+    email, _ := ctx.Value("email").(string)
+    
+    return &User{
+        ID:    userID,
+        Email: email,
+    }, nil
+}
+```
+</TabItem>
+</Tabs>
 
 ### Custom Claims
 
@@ -336,9 +376,101 @@ org_id = "https://example.com/org_id"
 
 Access in context:
 
+<Tabs syncKey="language">
+<TabItem label="Python">
 ```python
 tenant_id = context.claims.get("tenant_id")
 ```
+</TabItem>
+<TabItem label="TypeScript">
+```typescript
+const tenantId = context.claims.get('tenant_id');
+```
+</TabItem>
+<TabItem label="Go">
+```go
+// Access custom claims from context
+func getTenantID(ctx context.Context) (string, error) {
+    claims, ok := ctx.Value("claims").(map[string]interface{})
+    if !ok {
+        return "", fmt.Errorf("no claims in context")
+    }
+    
+    tenantID, ok := claims["tenant_id"].(string)
+    if !ok {
+        return "", fmt.Errorf("tenant_id not found in claims")
+    }
+    
+    return tenantID, nil
+}
+```
+</TabItem>
+</Tabs>
+
+## Test the OAuth Flow
+
+After configuring a provider, verify the full authorization code exchange manually before wiring up a frontend.
+
+<Steps>
+1. **Start the login flow** — open the login URL in a browser or follow the redirect:
+
+   ```bash
+   curl -v http://localhost:8080/auth/login?provider=google
+   # Follow the Location header to the Google authorization page
+   ```
+
+2. **Authorize in the browser** — log in and approve the consent screen. Your browser is redirected back to the callback URL with a `code` parameter.
+
+3. **Exchange the authorization code** — FraiseQL handles this automatically via the callback endpoint. To test it directly:
+
+   ```bash
+   curl -X POST http://localhost:8080/auth/callback \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "code=AUTHORIZATION_CODE&state=STATE_VALUE&provider=google"
+   ```
+
+4. **Inspect the token response** — a successful exchange returns a session token:
+
+   ```json
+   {
+     "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+     "token_type": "Bearer",
+     "expires_in": 86400,
+     "refresh_token": "rt_01HV3KQBN7MXSZQZQR4F5P0G2Y",
+     "user": {
+       "id": "usr_01HV3KQBN7MXSZQZQR4F5P0G2Y",
+       "email": "alice@example.com",
+       "name": "Alice Smith",
+       "roles": ["user"]
+     }
+   }
+   ```
+
+5. **Call a protected query** using the returned token:
+
+   ```bash
+   curl http://localhost:8080/graphql \
+     -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+     -H "Content-Type: application/json" \
+     -d '{"query":"{ me { id email roles } }"}'
+   ```
+</Steps>
+
+## Common OAuth Errors
+
+| HTTP Status | Error | Cause | Fix |
+|-------------|-------|-------|-----|
+| `400 Bad Request` | `invalid_client` | Client ID or secret is wrong | Verify `client_id` and `client_secret` match the provider app settings |
+| `400 Bad Request` | `redirect_uri_mismatch` | Callback URL not registered | Add `redirect_uri` exactly as configured to the provider's allowed redirect list |
+| `400 Bad Request` | `invalid_grant` | Authorization code already used or expired | Codes are single-use and expire quickly (usually 60 seconds); do not reuse or delay exchange |
+| `401 Unauthorized` | `invalid_token` | Access token expired or revoked | Use `/auth/refresh` with the refresh token to obtain a new access token |
+| `403 Forbidden` | `access_denied` | User denied consent or lacks required scope | Check required scopes in `fraiseql.toml`; ensure the user approves all requested permissions |
+| `403 Forbidden` | `org_required` | User is not a member of `required_org` (GitHub) | Verify `required_org` value; user must be a member of that GitHub organization |
+| `500 Internal Server Error` | `token_exchange_failed` | Network error reaching the provider | Check outbound connectivity; verify issuer URL and `discovery_url` are reachable |
+
+<Aside type="tip">
+All OAuth errors are logged at `WARN` level. Run `LOG_LEVEL=debug fraiseql run` to see the full error response from the provider, which usually includes a more specific `error_description` field.
+</Aside>
 
 ## Metrics
 
@@ -370,6 +502,28 @@ Ensure redirect URI matches exactly in:
 1. Verify scopes include required claims
 2. Check provider-specific claim names
 3. Review claim mapping configuration
+
+## JWT Claims and Role Mapping
+
+FraiseQL maps JWT claims to user roles automatically. Given this token (decoded):
+
+```json
+{
+  "sub": "usr_123",
+  "email": "alice@example.com",
+  "roles": ["admin", "editor"],
+  "exp": 1740787200,
+  "iss": "https://auth.example.com"
+}
+```
+
+FraiseQL grants access to all resolvers decorated with `@role("admin")` or `@role("editor")`. The mapping is configured in `fraiseql.toml`:
+
+```toml
+[auth.jwt]
+claims_role_path = "roles"     # JWT field containing roles
+role_prefix = ""               # Optional prefix stripped from role values
+```
 
 ## Next Steps
 

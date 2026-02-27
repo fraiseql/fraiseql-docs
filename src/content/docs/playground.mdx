@@ -1,0 +1,127 @@
+---
+title: Interactive Playground
+description: Try FraiseQL queries against a live PostgreSQL database — no installation required.
+---
+
+import EmbeddedSandbox from '../../components/EmbeddedSandbox.astro';
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Try FraiseQL against a live PostgreSQL database. No installation. No account. No sign-up.
+
+The demo runs a seeded blog API — users, posts, comments, and tags — the same schema used throughout the docs. Every query executes against a real FraiseQL server backed by real PostgreSQL.
+
+<EmbeddedSandbox
+  endpoint="https://demo.fraiseql.dev/graphql"
+  title="FraiseQL Demo API"
+  description="Query users, posts, comments, and tags. Try filters, nested relationships, and pagination."
+  height="680px"
+  preloadedQuery={`# Try modifying this query — add fields, use filters, explore relationships
+query {
+  posts(limit: 5) {
+    id
+    title
+    author {
+      name
+      email
+    }
+    tags {
+      name
+    }
+    comments {
+      body
+      author {
+        name
+      }
+    }
+  }
+}`}
+/>
+
+## Example Queries
+
+Copy any of these into the playground above.
+
+**List users with their posts:**
+```graphql
+query {
+  users {
+    id
+    name
+    email
+    role
+    posts {
+      title
+      published
+    }
+  }
+}
+```
+
+**Filter posts by author:**
+```graphql
+query {
+  posts(where: { author: { email: { _eq: "alice@example.com" } } }) {
+    id
+    title
+    content
+    tags {
+      name
+    }
+  }
+}
+```
+
+**Paginated posts with total count:**
+```graphql
+query {
+  posts(limit: 3, offset: 0) {
+    id
+    title
+    author {
+      name
+    }
+  }
+}
+```
+
+**Tags with post counts:**
+```graphql
+query {
+  tags {
+    id
+    name
+    slug
+  }
+}
+```
+
+## About This Demo
+
+The demo API is **read-only** — mutations are disabled to keep the data consistent for everyone. The schema and seed data match the [SaaS Blog example](/examples/saas-blog) in the docs, so examples from the guides work directly here.
+
+## Run It Yourself
+
+To run this exact API locally:
+
+```bash
+git clone https://github.com/fraiseql/starter-blog
+cd starter-blog
+docker compose up
+```
+
+Open [http://localhost:8080/graphql](http://localhost:8080/graphql) — you get the same API with a fully mutable database you control.
+
+<CardGrid>
+  <Card title="Quick Start" icon="rocket">
+    [Build your first API in 5 minutes](/getting-started/quickstart) — install FraiseQL and serve your own schema.
+  </Card>
+  <Card title="Blog Starter" icon="external">
+    Clone the [starter-blog repo](https://github.com/fraiseql/starter-blog) — one `docker compose up` and you're running.
+  </Card>
+  <Card title="How It Works" icon="information">
+    [Architecture deep dive](/concepts/how-it-works) — understand what executes when you run a query.
+  </Card>
+  <Card title="AI-Assisted" icon="star">
+    [Generate views with AI](/ai/generating-views) — use the demo schema as your DDL input.
+  </Card>
+</CardGrid>

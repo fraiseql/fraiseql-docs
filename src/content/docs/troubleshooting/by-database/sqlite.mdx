@@ -5,6 +5,15 @@ description: Troubleshoot FraiseQL with SQLite database issues
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
+<Aside type="caution">
+**SQLite disables foreign keys by default.** Add to `fraiseql.toml` to enable them automatically:
+```toml
+[database.sqlite]
+foreign_keys = true
+```
+Or run `PRAGMA foreign_keys = ON;` on every connection. Verify with `PRAGMA foreign_keys;` — should return `1`.
+</Aside>
+
 Solutions for SQLite-specific issues with FraiseQL.
 
 ## Connection Issues
@@ -412,6 +421,10 @@ cp /backups/fraiseql-20240115.db /path/to/fraiseql.db
 
 **Problem**: Slow writes or frequent locking
 
+<Aside type="caution">
+**WAL mode does not work on network filesystems (NFS).** If deploying SQLite in Docker with a mounted volume, ensure the volume uses local storage, not NFS or similar network-attached storage. WAL mode corruption on NFS is a known SQLite limitation.
+</Aside>
+
 **Solutions**:
 ```bash
 # 1. Check current journal mode
@@ -467,6 +480,15 @@ SQLite is ideal for development but has production limitations:
 ---
 
 ## Diagnostic Queries
+
+Run `PRAGMA integrity_check;` to verify database integrity:
+
+```
+sqlite> PRAGMA integrity_check;
+ok
+```
+
+`ok` confirms the database has no corruption. Any other output indicates an issue.
 
 ```sql
 -- Database integrity

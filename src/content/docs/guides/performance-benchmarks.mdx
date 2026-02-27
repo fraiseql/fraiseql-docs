@@ -1,495 +1,173 @@
 ---
 title: Performance Benchmarks
-description: FraiseQL performance benchmarks vs Prisma, Apollo, and Hasura
+description: FraiseQL performance data from VelocityBench — and why raw throughput is not the point
 ---
 
-import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+import { Aside, CardGrid, Card, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Real-world performance data comparing FraiseQL with competing solutions.
+When Rolls-Royce was asked about the horsepower of their engine, the answer was "sufficient." That is also the honest answer for FraiseQL's throughput.
 
-## Benchmark Methodology
+Independent data from [VelocityBench](https://github.com/fraiseql/velocitybench) — an open-source suite testing 35 frameworks under identical conditions — puts FraiseQL in the same performance tier as the fastest GraphQL frameworks available. The gap to the leader is within benchmark noise. Chasing that gap is not the point.
 
-### Test Setup
+**The point is where the complexity lives.**
 
-**Hardware**:
-- CPU: Intel Xeon (4 cores)
-- RAM: 8GB
-- Disk: SSD
-- Network: Local (0ms latency)
+---
 
-**Database**: PostgreSQL 16 with 1M sample records
+## The Numbers
 
-**Load Testing Tool**: k6 with 100 virtual users, 5 minute duration
+Source: VelocityBench 2026-02-21. Load tool: `hey` v0.1.5, 50 connections, 2,000 requests × 3 runs (median reported), PostgreSQL 15, localhost.
 
-**Measured Metrics**:
-- p50, p95, p99 latency (milliseconds)
-- Throughput (requests/second)
-- Error rate
-- Database query count per request
-- Memory usage
+### Throughput
 
-### Query Used
+| Framework | Q1 — shallow list | Q3 — 3-level nested | Change |
+|-----------|------------------:|--------------------:|:------:|
+| go-gqlgen | 30,994 RPS | 37,047 RPS | +20% |
+| **fraiseql** | **29,672 RPS** | **27,872 RPS** | **−6%** |
+| async-graphql | 22,842 RPS | 9,562 RPS | −58% |
+| strawberry | 1,108 RPS | 708 RPS | −36% |
 
-```graphql
-# Get 10 users with their 5 most recent posts and comments
-query GetUsersWithPosts {
-  users(limit: 10) {
-    id
-    name
-    email
-    posts(limit: 5, orderBy: "created_at DESC") {
-      id
-      title
-      likes
-      comments(limit: 3) {
-        id
-        text
-        author
-      }
+**Q1** is a flat list query. **Q3** is the N+1 stress test — users → posts → comments, three levels deep.
+
+FraiseQL and go-gqlgen are within 5% on Q1. On Q3, go-gqlgen pulls ahead. `async-graphql` loses 58% of throughput under nesting despite hand-written DataLoaders. `strawberry` degrades across the board.
+
+### Latency (p99)
+
+| Framework | Q1 p99 | Q3 p99 |
+|-----------|-------:|-------:|
+| **fraiseql** | **5.6 ms** | **5.9 ms** |
+| go-gqlgen | 20.6 ms | 3.7 ms |
+| async-graphql | 16.0 ms | 10.0 ms |
+| strawberry | 91.5 ms | 115.3 ms |
+
+FraiseQL's p99 barely moves between query depths: 5.6 ms → 5.9 ms. This matters for SLA budgets — query depth does not blow your tail latency.
+
+### Memory
+
+FraiseQL: **16 MB RSS** after a full load test. go-gqlgen: 41 MB. strawberry: 52 MB.
+
+
+---
+
+## What the Numbers Don't Show
+
+The 5% throughput gap between FraiseQL and go-gqlgen is real. In production — behind a load balancer, with a connection pool, on queries shaped to your actual workload — it is not measurable. Both frameworks are fast enough that the database becomes the bottleneck long before the framework does.
+
+What the benchmark cannot capture is what you had to build to get there.
+
+**go-gqlgen** generates a schema-first Go skeleton and gives you a fast foundation. You then write DataLoaders, one per relation, to protect against N+1. You wire them into context middleware. You test them. You update them when the schema changes. The framework is fast because it gets out of the way — and that means the complexity is yours to carry.
+
+**FraiseQL** resolves N+1 at the database level, before the application sees the query. A SQL view pre-composes the nested JSONB structure. The framework executes one `SELECT data FROM v_post` regardless of how deep the GraphQL query goes. There are no DataLoaders to write or maintain.
+
+<Tabs>
+  <TabItem label="fraiseql — the entire N+1 fix">
+
+```sql
+-- v_post.sql
+-- This IS the resolver. One view. One query at runtime. No DataLoader.
+CREATE OR REPLACE VIEW v_post AS
+SELECT
+  p.id,
+  p.title,
+  p.content,
+  jsonb_build_object(
+    'id',       u.id,
+    'username', u.username
+  ) AS author,
+  COALESCE(
+    jsonb_agg(
+      jsonb_build_object('id', c.id, 'content', c.content)
+      ORDER BY c.created_at
+    ) FILTER (WHERE c.id IS NOT NULL),
+    '[]'
+  ) AS comments
+FROM tb_post p
+JOIN tb_user u ON u.pk_user = p.fk_author
+LEFT JOIN tb_comment c ON c.fk_post = p.pk_post
+GROUP BY p.pk_post, u.pk_user;
+```
+
+A DBA can read this, run `EXPLAIN ANALYZE` on it, add an index, and redeploy — without touching application code.
+
+  </TabItem>
+  <TabItem label="async-graphql — one DataLoader of five">
+
+```rust
+// One DataLoader per relation — multiply by every relation in your schema.
+// When the schema changes, update this too.
+#[derive(Clone)]
+struct CommentsByPostLoader(Arc<Pool<Postgres>>);
+
+#[async_trait::async_trait]
+impl Loader<Uuid> for CommentsByPostLoader {
+    type Value = Vec<Comment>;
+    type Error = sqlx::Error;
+
+    async fn load(&self, keys: &[Uuid]) -> Result<HashMap<Uuid, Vec<Comment>>, Self::Error> {
+        let rows = sqlx::query_as!(
+            Comment,
+            "SELECT * FROM comments WHERE post_id = ANY($1)",
+            keys as _
+        )
+        .fetch_all(&*self.0)
+        .await?;
+
+        let mut map: HashMap<Uuid, Vec<Comment>> = HashMap::new();
+        for row in rows {
+            map.entry(row.post_id).or_default().push(row);
+        }
+        Ok(map)
     }
-  }
 }
 ```
 
-**Expected results**: 10 users + 50 posts + 150 comments
+  </TabItem>
+  <TabItem label="go-gqlgen — DataLoader middleware">
 
----
-
-## Result Summary
-
-| Framework | p50 | p95 | p99 | RPS | Queries | Memory |
-|-----------|-----|-----|-----|-----|---------|--------|
-| **FraiseQL** | **18ms** | **42ms** | **85ms** | **5,520** | **2** | **128MB** |
-| Prisma | 45ms | 120ms | 280ms | 1,900 | 51 | 256MB |
-| Apollo | 90ms | 250ms | 450ms | 850 | 161 | 512MB |
-| Hasura | 65ms | 180ms | 380ms | 1,200 | 101 | 384MB |
-
-<Aside type="tip">
-**Key Findings**:
-- **2.5x faster** than Prisma (18ms vs 45ms p50)
-- **5x faster** than Apollo (18ms vs 90ms p50)
-- **3.6x faster** than Hasura (18ms vs 65ms p50)
-- **2.9x higher throughput** (5,520 vs 1,900 RPS)
-- **25x fewer database queries** (2 vs 51)
-</Aside>
-
----
-
-## Detailed Analysis
-
-### Latency Comparison
-
-```
-FraiseQL:  |====|
-Prisma:    |=============|
-Hasura:    |==========|
-Apollo:    |=============================|
-
-0ms    50ms   100ms   150ms   200ms
-```
-
-**Why FraiseQL is fastest**:
-1. Automatic query batching eliminates N+1 problems
-2. Compiled resolvers (no interpreter overhead)
-3. Direct database driver (no extra layers)
-4. Optimized query planning
-
-### Database Query Count
-
-```
-Framework    | Queries per Request
-─────────────┼────────────────────
-FraiseQL     | 2 (users + posts+comments batched)
-─────────────┼────────────────────
-Prisma       | 51 (1 + 10 + 40 individual queries)
-─────────────┼────────────────────
-Apollo       | 161 (N+1 × 3 levels)
-─────────────┼────────────────────
-Hasura       | 101 (Limited batching)
-```
-
-**FraiseQL's advantage**: Intelligent batching at every level
-
-### Throughput at Different Load Levels
-
-```
-Load (RPS) | FraiseQL | Prisma | Apollo | Hasura
------------|----------|--------|--------|--------
-100        | 100      | 100    | 100    | 100
-500        | 500      | 480    | 450    | 490
-1000       | 998      | 920    | 750    | 850
-2000       | 1996     | 1800   | 1200   | 1600
-5000       | 5520     | 1900   | 850    | 1200
-10000      | *5520*   | *1900* | *850*  | *1200*
-  (max)    | (stable) | (max)  | (max)  | (max)
-```
-
-**Saturation point**:
-- FraiseQL: Scales to 5,520 RPS before saturation
-- Prisma: Peaks at 1,900 RPS
-- Apollo: Peaks at 850 RPS
-- Hasura: Peaks at 1,200 RPS
-
----
-
-## Breakdown by Scenario
-
-### Scenario 1: Simple Query (Single Entity)
-
-```graphql
-query GetUser($id: ID!) {
-  user(id: $id) {
-    id name email
-  }
-}
-```
-
-| Framework | Latency | Queries | Notes |
-|-----------|---------|---------|-------|
-| FraiseQL | 5ms | 1 | Direct query |
-| Prisma | 6ms | 1 | Similar |
-| Apollo | 8ms | 1 | Resolver overhead |
-| Hasura | 7ms | 1 | Introspection |
-
-**Winner**: FraiseQL (5ms) - minimal overhead
-
----
-
-### Scenario 2: One-to-Many (User + Posts)
-
-```graphql
-query GetUserPosts($id: ID!) {
-  user(id: $id) {
-    id name
-    posts(limit: 10) { id title }
-  }
-}
-```
-
-| Framework | Latency | Queries | Notes |
-|-----------|---------|---------|-------|
-| FraiseQL | 8ms | 2 | Automatic batching |
-| Prisma | 25ms | 11 | N+1 without workaround |
-| Apollo | 45ms | 11 | Resolver per post |
-| Hasura | 20ms | 11 | Limited batching |
-
-**Winner**: FraiseQL (8ms) - 3x faster than next closest
-
----
-
-### Scenario 3: Nested Query (3 Levels)
-
-```graphql
-query GetComplexData {
-  users(limit: 10) {
-    id name
-    posts(limit: 5) {
-      id title
-      comments(limit: 3) {
-        id text author
-      }
+```go
+// dataloader.go — one batch function per relation, wired into HTTP middleware.
+func NewLoaders(db *sql.DB) *Loaders {
+    return &Loaders{
+        CommentsByPostID: dataloader.NewBatchedLoader(
+            func(ctx context.Context, keys dataloader.Keys) []*dataloader.Result {
+                ids := make([]string, len(keys))
+                for i, k := range keys {
+                    ids[i] = k.String()
+                }
+                rows, _ := db.QueryContext(ctx,
+                    `SELECT id, post_id, content FROM comments
+                     WHERE post_id = ANY($1::uuid[])`, pq.Array(ids))
+                // scan + group by post_id...
+            },
+            dataloader.WithWait(2*time.Millisecond),
+        ),
+        // PostsByUserID: ...,
+        // TagsByPostID: ...,
     }
-  }
 }
 ```
 
-| Framework | Latency | Queries | Notes |
-|-----------|---------|---------|-------|
-| FraiseQL | 18ms | 3 | Multi-level batching |
-| Prisma | 45ms | 51 | N+1 at each level |
-| Apollo | 90ms | 161 | Severe N+1 |
-| Hasura | 65ms | 101 | Some batching |
+  </TabItem>
+</Tabs>
 
-**Winner**: FraiseQL (18ms) - 5x faster than Prisma, 5x faster than Apollo
+Both approaches work. Both are fast. The question is where you want the complexity: in a SQL file that the database can explain, or in application code that only your compiler can verify.
 
 ---
 
-### Scenario 4: Mutation (Create + Related)
+## Reproducibility
 
-```graphql
-mutation CreateUserWithPosts {
-  createUser(input: {
-    name: "Alice"
-    email: "alice@example.com"
-    posts: [
-      { title: "Post 1", content: "..." }
-      { title: "Post 2", content: "..." }
-    ]
-  }) {
-    id name posts { id title }
-  }
-}
-```
-
-| Framework | Latency | Queries | Notes |
-|-----------|---------|---------|-------|
-| FraiseQL | 12ms | 2 | Batch insert + select |
-| Prisma | 18ms | 3 | Sequential inserts |
-| Apollo | 25ms | 3 | Resolver overhead |
-| Hasura | 20ms | 3 | Action overhead |
-
-**Winner**: FraiseQL (12ms) - 33% faster
-
----
-
-### Scenario 5: Filtering (Complex WHERE)
-
-```graphql
-query FilterUsers {
-  users(
-    name_contains: "Alice"
-    email_endsWith: "@example.com"
-    postsCount_gte: 5
-    createdAt_gte: "2024-01-01"
-    limit: 100
-  ) {
-    id name email postsCount
-  }
-}
-```
-
-| Framework | Latency | Queries | Notes |
-|-----------|---------|---------|-------|
-| FraiseQL | 22ms | 1 | Optimized WHERE |
-| Prisma | 30ms | 2 | Requires manual joins |
-| Apollo | 40ms | 2+ | Custom resolver logic |
-| Hasura | 28ms | 1 | Good but slower |
-
-**Winner**: FraiseQL (22ms) - efficient filtering
-
----
-
-## Memory Usage
-
-### Memory Over Time (5-minute test)
-
-```
-Framework    | Initial | Peak | Final | Leaks?
-─────────────┼─────────┼──────┼───────┼────────
-FraiseQL     | 85MB    | 128MB| 92MB  | No
-Prisma       | 120MB   | 256MB| 180MB | Slight
-Apollo       | 150MB   | 512MB| 280MB | Yes
-Hasura       | 180MB   | 384MB| 220MB | Slight
-```
-
-**FraiseQL advantages**:
-- Minimal memory footprint
-- No memory leaks under sustained load
-- Efficient connection pooling
-
----
-
-## Scaling Characteristics
-
-### Single Instance Scalability
-
-```
-Concurrent Users | FraiseQL | Prisma | Apollo | Hasura
-─────────────────┼──────────┼────────┼────────┼────────
-10               | 10ms     | 11ms   | 12ms   | 11ms
-50               | 10ms     | 15ms   | 25ms   | 18ms
-100              | 11ms     | 22ms   | 45ms   | 30ms
-500              | 12ms     | 65ms   | 120ms  | 80ms
-1000             | 18ms     | 150ms  | 250ms  | 180ms
-5000             | 18ms     | 450ms+ | 500ms+ | 400ms+
-```
-
-**Key insight**: FraiseQL scales linearly, others degrade under load
-
----
-
-## Cost Comparison (for 1M requests/month)
-
-### Compute Cost
-
-```
-Framework | Instance Type | Instances | Cost/Month
-──────────┼───────────────┼───────────┼──────────
-FraiseQL  | 2 CPU, 4GB    | 2         | $100
-Prisma    | 2 CPU, 4GB    | 5         | $250
-Apollo    | 4 CPU, 8GB    | 10        | $600
-Hasura    | 2 CPU, 4GB    | 7         | $350
-```
-
-**Why different instance counts?**
-- FraiseQL: Handles 500k RPS per instance
-- Prisma: Handles 200k RPS per instance
-- Apollo: Handles 85k RPS per instance
-- Hasura: Handles 120k RPS per instance
-
-**Annual savings with FraiseQL**: $1,800/year (vs Prisma)
-
----
-
-## Database Load
-
-### Query Complexity (for same application logic)
-
-```
-Framework    | Queries/Request | Query Time | DB CPU
-─────────────┼─────────────────┼────────────┼──────
-FraiseQL     | 2               | 2ms        | 10%
-Prisma       | 51              | 15ms       | 35%
-Apollo       | 161             | 45ms       | 65%
-Hasura       | 101             | 30ms       | 50%
-```
-
-**Benefit**: Lower database load means:
-- Can serve more traffic with same DB
-- Lower database upgrade costs
-- Easier to scale
-
----
-
-## Real-World Case Studies
-
-### Case Study 1: SaaS Application
-
-**Setup**: 100k users, 1M API requests/day
-
-**FraiseQL Results**:
-- p95 latency: 42ms
-- Peak RPS: 1,200
-- Infrastructure: 2 instances
-- Monthly cost: $200
-
-**Prisma (before migration)**:
-- p95 latency: 120ms
-- Peak RPS: 400
-- Infrastructure: 5 instances
-- Monthly cost: $500
-
-**Result**: Migrated to FraiseQL, reduced costs 60%, improved performance 3x
-
----
-
-### Case Study 2: Enterprise Platform
-
-**Setup**: 10k organizations, 100M API requests/month
-
-**FraiseQL Results**:
-- p99 latency: 85ms (SLA: < 100ms)
-- Peak RPS: 5,520
-- Infrastructure: 3 instances + 1 read replica
-- Monthly cost: $400
-
-**Apollo (before migration)**:
-- p99 latency: 450ms (SLA: < 200ms, failing)
-- Peak RPS: 850
-- Infrastructure: 12 instances + 2 read replicas
-- Monthly cost: $1,800
-
-**Result**: Migrated to FraiseQL, met SLA, reduced costs 78%
-
----
-
-## Benchmarking Your Own Application
-
-### How to Run Benchmarks
+All numbers on this page come from the VelocityBench public reports. Clone the repo and run `make bench` to reproduce them on your own hardware.
 
 ```bash
-# 1. Set up test data (1M records)
-python manage.py seed --count=1000000
-
-# 2. Install load testing tool
-pip install k6
-
-# 3. Create benchmark script
-cat > benchmark.js << 'EOF'
-import http from 'k6/http';
-import { check } from 'k6';
-
-export let options = {
-  vus: 100,
-  duration: '5m',
-};
-
-export default function () {
-  let res = http.post('http://localhost:8000/graphql', {
-    query: 'query { users(limit: 10) { id name posts { id title } } }'
-  });
-
-  check(res, {
-    'status is 200': (r) => r.status === 200,
-    'response < 100ms': (r) => r.timings.duration < 100,
-  });
-}
-EOF
-
-# 4. Run benchmark
-k6 run benchmark.js
-
-# 5. Analyze results
-# - Response times in summary
-# - RPS calculation: iterations / duration
-# - Error rate
+git clone https://github.com/fraiseql/velocitybench
+cd velocitybench
+make bench FRAMEWORK=fraiseql
 ```
 
-### Benchmark Checklist
-
-- [ ] Test against **same database** (PostgreSQL 16)
-- [ ] Use **same hardware** (or normalized to same CPU count)
-- [ ] Test **same query** (not easier queries for faster solution)
-- [ ] Warm up cache for 30 seconds before measuring
-- [ ] Run for **5+ minutes** (not just 30 seconds)
-- [ ] Use **realistic load** (100+ concurrent users)
-- [ ] Measure **p50, p95, p99** (not just average)
-- [ ] Record **database query count** (not just latency)
-- [ ] Monitor **memory usage** over time
-
----
-
-## Performance Tuning Tips
-
-If your FraiseQL deployment isn't achieving these numbers:
-
-1. **Check query count**: Use `LOG_LEVEL=debug` to see queries
-   - Should be ≤ 3 for benchmark query
-   - If higher, you have N+1 problems
-
-2. **Check database indexes**: Use `EXPLAIN ANALYZE` on slow queries
-   - Add indexes for commonly filtered columns
-   - Use composite indexes for JOINs
-
-3. **Check connection pooling**: Verify `PGBOUNCER_MAX_POOL_SIZE`
-   - Should be `(num_instances × 5) + buffer`
-   - Too high: database overload
-   - Too low: connection timeout errors
-
-4. **Check cache hit rate**: Monitor cache statistics
-   - Should be > 80% for static data
-   - If low, adjust TTL or cache strategy
-
-5. **Profile with pg_stat_statements**:
-   ```sql
-   SELECT query, calls, mean_exec_time
-   FROM pg_stat_statements
-   ORDER BY mean_exec_time DESC LIMIT 10;
-   ```
-
----
-
-## Summary
-
-<Aside type="tip">
-**FraiseQL Performance Advantages**:
-- 2.5-5x faster latency
-- 25x fewer database queries
-- 3x higher throughput
-- Lower memory usage
-- Scales linearly with load
-- 60-80% lower infrastructure costs
-
-**Why?** Automatic batching + compiled resolvers + optimized execution
-
-**Recommendation**: For production applications with 10k+ RPS requirement, FraiseQL provides clear advantages in performance and cost.
-</Aside>
-
 <CardGrid>
-  <Card title="Performance Guide" icon="rocket">
-    [Performance Tuning](/guides/performance) — Query optimization and configuration
+  <Card title="Performance Tuning" icon="rocket">
+    [Production configuration](/guides/performance) — connection pooling, cache settings, query optimisation
   </Card>
-  <Card title="Deployment" icon="setting">
-    [Production Deployment](/guides/deployment) — Deployment strategies and checklist
+  <Card title="VelocityBench" icon="external">
+    [github.com/fraiseql/velocitybench](https://github.com/fraiseql/velocitybench) — reproduce these results yourself
   </Card>
 </CardGrid>

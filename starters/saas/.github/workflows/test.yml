@@ -1,0 +1,53 @@
+name: Test SaaS Starter
+
+on:
+  push:
+    paths:
+      - "starters/saas/**"
+  pull_request:
+    paths:
+      - "starters/saas/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: starters/saas
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start services
+        run: docker compose up --detach
+
+      - name: Wait for API to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://localhost:8080/health > /dev/null 2>&1; then
+              echo "API is ready"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+      - name: Query tenants
+        run: |
+          curl --silent --fail \
+            --header "Content-Type: application/json" \
+            --data '{"query": "{ tenants { id name slug plan } }"}' \
+            http://localhost:8080/graphql \
+            | grep -q "acme"
+
+      - name: Query tenant users
+        run: |
+          curl --silent --fail \
+            --header "Content-Type: application/json" \
+            --data '{"query": "{ tenantUsers { id name email role } }"}' \
+            http://localhost:8080/graphql \
+            | grep -q "alice"
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v

@@ -3,7 +3,7 @@ title: FraiseQL vs Hasura
 description: How FraiseQL compares to Hasura GraphQL Engine
 ---
 
-import { CardGrid, Card } from '@astrojs/starlight/components';
+import { CardGrid, Card, Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
 Both FraiseQL and Hasura provide GraphQL APIs over databases. Here's how they differ.
 
@@ -27,6 +27,21 @@ Both FraiseQL and Hasura provide GraphQL APIs over databases. Here's how they di
 | **Performance** | Predictable, sub-ms | Variable, depends on query |
 | **Custom logic** | Observers (reactive events) | Actions (HTTP), Remote Schemas |
 | **Pricing** | Open source (Apache 2.0) | Open source core, paid cloud |
+
+> Pricing information accurate as of February 2026. Verify current pricing at [hasura.io/pricing](https://hasura.io/pricing).
+
+## Concept Mapping
+
+If you know Hasura, here is how its concepts map to FraiseQL equivalents:
+
+| Hasura | FraiseQL Equivalent |
+|--------|---------------------|
+| Track table | Create SQL view (`v_*`) |
+| Permissions (YAML) | PostgreSQL Row-Level Security |
+| Event triggers | Observers |
+| Actions | SQL functions + mutations |
+| Remote schemas | Federation |
+| Computed fields | SQL view expressions |
 
 ## Performance
 
@@ -99,15 +114,44 @@ Plus separate files for:
 
 ### FraiseQL: Code-First
 
-```python
-@fraiseql.type
-class User:
-    """User with posts."""
-    id: str
-    name: str
-    email: str
-    posts: list['Post']
-```
+<Tabs>
+  <TabItem label="Python">
+    ```python
+    @fraiseql.type
+    class User:
+        """User with posts."""
+        id: str
+        name: str
+        email: str
+        posts: list['Post']
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type } from 'fraiseql';
+
+    @type()
+    class User {
+        id!: string;
+        name!: string;
+        email!: string;
+        posts!: Post[];
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import "github.com/fraiseql/fraiseql-go"
+
+    type User struct {
+        ID    fraiseql.ID `fraiseql:"id"`
+        Name  string      `fraiseql:"name"`
+        Email string      `fraiseql:"email"`
+        Posts []Post      `fraiseql:"posts"`
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 - Full IDE support
 - Type checking
@@ -131,29 +175,54 @@ class User:
 
 FraiseQL uses **observers** for reactive business logic — you define conditions and actions that trigger on database changes:
 
-```python
-from fraiseql import observer, webhook, slack, email
-from fraiseql.observers import RetryConfig
+<Tabs>
+  <TabItem label="Python">
+    ```python
+    from fraiseql import observer, webhook, slack, email
+    from fraiseql.observers import RetryConfig
 
-@observer(
-    entity="Order",
-    event="INSERT",
-    condition="total > 1000",
-    actions=[
-        webhook("https://api.example.com/high-value-orders"),
-        slack("#sales", "🎉 High-value order {id}: ${total}"),
-        email(
-            to="sales@example.com",
-            subject="High-value order {id}",
-            body="Order {id} for ${total} was created",
-        ),
-    ],
-    retry=RetryConfig(max_attempts=5, backoff_strategy="exponential"),
-)
-def on_high_value_order():
-    """Triggered when a high-value order is created."""
-    pass
-```
+    @observer(
+        entity="Order",
+        event="INSERT",
+        condition="total > 1000",
+        actions=[
+            webhook("https://api.example.com/high-value-orders"),
+            slack("#sales", "High-value order {id}: ${total}"),
+            email(
+                to="sales@example.com",
+                subject="High-value order {id}",
+                body="Order {id} for ${total} was created",
+            ),
+        ],
+        retry=RetryConfig(max_attempts=5, backoff_strategy="exponential"),
+    )
+    def on_high_value_order():
+        """Triggered when a high-value order is created."""
+        pass
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { observer, webhook, slack, email } from 'fraiseql';
+
+    observer({
+        entity: 'Order',
+        event: 'INSERT',
+        condition: 'total > 1000',
+        actions: [
+            webhook('https://api.example.com/high-value-orders'),
+            slack('#sales', 'High-value order {id}: ${total}'),
+            email({
+                to: 'sales@example.com',
+                subject: 'High-value order {id}',
+                body: 'Order {id} for ${total} was created',
+            }),
+        ],
+        retry: { maxAttempts: 5, backoffStrategy: 'exponential' },
+    });
+    ```
+  </TabItem>
+</Tabs>
 
 Built-in actions for webhooks, Slack, and email. No external services required.
 
@@ -168,6 +237,91 @@ Built-in actions for webhooks, Slack, and email. No external services required.
 ```
 
 Plus a separate HTTP service to handle the logic. Hasura also has event triggers, but they require external webhook handlers.
+
+## Event Triggers vs Observers
+
+### Hasura: Event Trigger YAML
+
+```yaml
+# metadata/event_triggers/on_order_created.yaml
+- name: on_order_created
+  definition:
+    enable_manual: false
+    insert:
+      columns: "*"
+  retry_conf:
+    num_retries: 3
+    interval_sec: 30
+    timeout_sec: 60
+  webhook: https://my-service.example.com/on-order-created
+  headers:
+    - name: X-Webhook-Secret
+      value_from_env: WEBHOOK_SECRET
+```
+
+Hasura calls your external HTTP webhook. You own and deploy a separate service to handle the event.
+
+### FraiseQL: `@observer` Decorator
+
+<Tabs>
+  <TabItem label="Python">
+    ```python
+    from fraiseql import observer, webhook, slack, email
+    from fraiseql.observers import RetryConfig
+
+    @observer(
+        entity="Order",
+        event="INSERT",
+        actions=[
+            webhook("https://my-service.example.com/on-order-created",
+                    headers={"X-Webhook-Secret": "{env.WEBHOOK_SECRET}"}),
+            slack("#orders", "New order {id} received"),
+        ],
+        retry=RetryConfig(max_attempts=3, interval_sec=30, timeout_sec=60),
+    )
+    def on_order_created():
+        """Triggered when a new order is inserted."""
+        pass
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { observer, webhook, slack } from 'fraiseql';
+
+    observer({
+        entity: 'Order',
+        event: 'INSERT',
+        actions: [
+            webhook('https://my-service.example.com/on-order-created', {
+                headers: { 'X-Webhook-Secret': '{env.WEBHOOK_SECRET}' },
+            }),
+            slack('#orders', 'New order {id} received'),
+        ],
+        retry: { maxAttempts: 3, intervalSec: 30, timeoutSec: 60 },
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import "github.com/fraiseql/fraiseql-go"
+
+    func init() {
+        fraiseql.Observer(fraiseql.ObserverConfig{
+            Entity: "Order",
+            Event:  "INSERT",
+            Actions: []fraiseql.Action{
+                fraiseql.Webhook("https://my-service.example.com/on-order-created",
+                    fraiseql.WithHeader("X-Webhook-Secret", "{env.WEBHOOK_SECRET}")),
+                fraiseql.Slack("#orders", "New order {id} received"),
+            },
+            Retry: fraiseql.RetryConfig{MaxAttempts: 3, IntervalSec: 30, TimeoutSec: 60},
+        })
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+The key difference: Hasura event triggers require you to host an external HTTP service. FraiseQL observers are declared inline in your schema code — actions like `webhook`, `slack`, and `email` are built-in, with no separate service required.
 
 ## Input Validation
 
@@ -234,6 +388,90 @@ FraiseQL is a better choice when:
 - **You want simple deployment** — Single Rust binary, no orchestration
 - **You value readability** — TOML over YAML, one file over many
 
+## Quick Test: Hasura vs FraiseQL
+
+<Steps>
+
+1. **Start Hasura locally**:
+   ```bash
+   docker run -d --name hasura \
+     -p 8080:8080 \
+     -e HASURA_GRAPHQL_DATABASE_URL=postgresql://user:pass@host/db \
+     hasura/graphql-engine:latest
+   ```
+   
+   Open the console at http://localhost:8080/console
+   
+   **Manual steps required:**
+   - Click "Data" → "Manage"
+   - Track each table manually
+   - Configure relationships in UI
+   - Set permissions via YAML
+   - Export metadata for version control
+
+2. **Create the same API with FraiseQL**:
+   ```toml
+   # fraiseql.toml - single file
+   [database]
+   url = "${DATABASE_URL}"
+   
+   [schema]
+   source = "schema.py"
+   ```
+   
+   ```python
+   # schema.py - code-first
+   import fraiseql
+   
+   @fraiseql.type
+   class User:
+       id: str
+       name: str
+       email: str
+       posts: list['Post']
+   
+   @fraiseql.type
+   class Post:
+       id: str
+       title: str
+       author: User
+   ```
+   
+   ```bash
+   fraiseql run
+   ```
+   
+   **No manual configuration** — schema derived from code automatically.
+
+3. **Compare query performance**:
+   
+   Hasura generates SQL at runtime:
+   ```sql
+   -- Generated per request
+   SELECT * FROM users WHERE ...;
+   SELECT * FROM posts WHERE user_id IN (...);
+   ```
+   
+   FraiseQL uses pre-built views:
+   ```sql
+   -- Single view query
+   SELECT data FROM v_user WHERE id = $1;
+   ```
+
+4. **Test GraphQL introspection**:
+   ```bash
+   # Both expose same introspection
+   curl -X POST http://localhost:8080/v1/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ __schema { types { name } } }"}'
+   
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ __schema { types { name } } }"}'
+   ```
+
+</Steps>
+
 ## Migration from Hasura
 
 ### Step 1: Export Your Schema
@@ -246,7 +484,7 @@ hasura metadata export
 ### Step 2: Convert to FraiseQL Types
 
 Hasura table:
-```
+```yaml
 # tables.yaml
 - table:
     name: users
@@ -261,20 +499,63 @@ Hasura table:
 ```
 
 FraiseQL equivalent:
-```python
-@fraiseql.type
-class User:
-    id: str
-    name: str
-    email: str
-    posts: list['Post']
 
-@fraiseql.type
-class Post:
-    id: str
-    title: str
-    author: User
-```
+<Tabs>
+  <TabItem label="Python">
+    ```python
+    @fraiseql.type
+    class User:
+        id: str
+        name: str
+        email: str
+        posts: list['Post']
+
+    @fraiseql.type
+    class Post:
+        id: str
+        title: str
+        author: User
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type } from 'fraiseql';
+
+    @type()
+    class User {
+        id!: string;
+        name!: string;
+        email!: string;
+        posts!: Post[];
+    }
+
+    @type()
+    class Post {
+        id!: string;
+        title!: string;
+        author!: User;
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import "github.com/fraiseql/fraiseql-go"
+
+    type User struct {
+        ID    fraiseql.ID `fraiseql:"id"`
+        Name  string      `fraiseql:"name"`
+        Email string      `fraiseql:"email"`
+        Posts []Post      `fraiseql:"posts"`
+    }
+
+    type Post struct {
+        ID     fraiseql.ID `fraiseql:"id"`
+        Title  string      `fraiseql:"title"`
+        Author User        `fraiseql:"author"`
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ### Step 3: Migrate Actions to Observers
 
@@ -301,6 +582,51 @@ def on_pending_payment():
     """Process payment when order status changes."""
     pass
 ```
+
+## Quick Migration
+
+Already on Hasura and want to try FraiseQL? Here are the three core steps:
+
+<Steps>
+
+1. **Install the FraiseQL CLI**
+
+   ```bash
+   # Download the FraiseQL binary
+   curl -fsSL https://install.fraiseql.dev | sh
+
+   # Verify installation
+   fraiseql --version
+   ```
+
+2. **Convert your Hasura YAML to a FraiseQL schema**
+
+   Export your Hasura metadata, then rewrite each table definition as a FraiseQL type and write the corresponding SQL views (`v_*`) to enforce permissions:
+
+   ```bash
+   # Export existing Hasura configuration
+   hasura metadata export
+
+   # Inspect generated metadata
+   ls metadata/databases/default/tables/
+   ```
+
+   For each Hasura table, create a FraiseQL type and a SQL view. See the examples above for the conversion pattern, or refer to the [full migration guide](/migrations/from-hasura).
+
+3. **Run FraiseQL**
+
+   ```bash
+   # Start the FraiseQL server pointing at your existing database
+   fraiseql run --config fraiseql.toml
+   ```
+
+   FraiseQL will read your schema types, connect to your database, and serve the GraphQL API on the configured port. You can keep Hasura running in parallel during the transition.
+
+</Steps>
+
+For a complete walkthrough including subscription migration and permission replication, see the [Migrating from Hasura](/migrations/from-hasura) guide.
+
+Migrating from Hasura? See the [step-by-step migration guide](/migrations/from-hasura).
 
 ## Summary
 

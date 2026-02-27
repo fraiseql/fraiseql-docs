@@ -448,7 +448,163 @@ async def create_post(info, title: str, content: str) -> Post:
    ```bash
    open http://localhost:8000/graphql
    ```
+
+7. **Test the API**
+
+   Create a tenant:
+   ```graphql
+   mutation {
+     createTenant(name: "Demo Blog", identifier: "demo") {
+       id
+       name
+     }
+   }
+   ```
+
+   Create a user:
+   ```graphql
+   mutation {
+     createUser(
+       tenantId: "demo"
+       email: "admin@example.com"
+       name: "Admin User"
+       role: "admin"
+     ) {
+       id
+       email
+       role
+     }
+   }
+   ```
+
+   Create a post:
+   ```graphql
+   mutation {
+     createPost(
+       tenantId: "demo"
+       title: "Hello World"
+       content: "My first blog post with FraiseQL!"
+       published: true
+     ) {
+       id
+       title
+       published
+       author {
+         name
+       }
+     }
+   }
+   ```
+
+8. **Verify tenant isolation**
+
+   Query posts from the first tenant:
+   ```graphql
+   query {
+     posts(tenantId: "demo", limit: 10) {
+       id
+       title
+     }
+   }
+   ```
+
+   Create a second tenant and verify isolation:
+   ```graphql
+   mutation {
+     createTenant(name: "Another Blog", identifier: "another") {
+       id
+     }
+   }
+   ```
+
+   Query posts from second tenant (should be empty):
+   ```graphql
+   query {
+     posts(tenantId: "another", limit: 10) {
+       id
+       title
+     }
+   }
+   ```
+
+9. **Run tests**
+
+   ```bash
+   pytest tests/ -v
+   ```
+
+   Expected output:
+   ```
+   tests/test_tenancy.py::test_tenant_isolation PASSED
+   tests/test_posts.py::test_create_post PASSED
+   tests/test_posts.py::test_soft_delete PASSED
+   tests/test_auth.py::test_role_based_access PASSED
+   tests/test_subscriptions.py::test_live_updates PASSED
+   ```
+
 </Steps>
+
+## Troubleshooting
+
+### Database Connection Error
+
+```bash
+Error: Cannot connect to database
+```
+
+**Solutions:**
+1. Start PostgreSQL: `docker-compose up -d postgres`
+2. Verify connection: `pg_isready -h localhost -p 5432`
+3. Check DATABASE_URL in .env file
+
+### RLS Blocking Queries
+
+If you get permission errors:
+
+1. Ensure RLS policy is created:
+   ```sql
+   CREATE POLICY tenant_isolation ON tb_post 
+   USING (fk_tenant = current_setting('app.tenant_id')::int);
+   ```
+
+2. Verify tenant_id is being set in request context
+
+### Schema Compilation Errors
+
+```bash
+fraiseql compile
+Error: Unknown type 'Post'
+```
+
+**Check:**
+1. All imports are correct in schema.py
+2. Forward references use string literals: `'Post'`
+3. Run: `fraiseql validate`
+
+### Subscription Not Working
+
+If live updates don't appear:
+
+1. Check WebSocket endpoint: `wscat -c ws://localhost:8080/ws`
+2. Verify subscription is defined in schema
+3. Check browser console for WebSocket errors
+
+### Performance Issues
+
+If queries are slow:
+
+1. Add indexes:
+   ```sql
+   CREATE INDEX idx_post_tenant_created ON tb_post(fk_tenant, created_at DESC);
+   CREATE INDEX idx_post_published ON tb_post(published) WHERE published = true;
+   ```
+
+2. Enable caching in fraiseql.toml:
+   ```toml
+   [caching]
+   enabled = true
+   backend = "redis"
+   ```
 
 ## Learning Path
 

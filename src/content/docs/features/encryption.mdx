@@ -3,9 +3,18 @@ title: Field-Level Encryption
 description: Encrypt sensitive data at rest with automatic key rotation
 ---
 
-import { Aside, Steps, CardGrid, Card } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/components';
 
 FraiseQL provides transparent field-level encryption for sensitive data, with automatic key rotation and compliance features.
+
+<Aside type="caution">
+Field-level encryption uses **PostgreSQL's pgcrypto extension** and is only supported with a PostgreSQL database. Other database backends do not support this feature.
+
+Ensure pgcrypto is enabled before enabling encryption:
+```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+```
+</Aside>
 
 ## Overview
 
@@ -47,7 +56,77 @@ class User:
     phone: Annotated[str, fraiseql.field(encrypted=True)]
 ```
 
+## What Clients See
+
+Even though encrypted fields are stored as ciphertext in PostgreSQL, the GraphQL response always contains the decrypted plaintext value. Clients have no awareness of encryption:
+
+```graphql
+query {
+    user(id: "user-123") {
+        id
+        name
+        email
+        ssn
+    }
+}
+```
+
+Response:
+
+```json
+{
+    "data": {
+        "user": {
+            "id": "user-123",
+            "name": "Alice Smith",
+            "email": "alice@example.com",
+            "ssn": "123-45-6789"
+        }
+    }
+}
+```
+
+Meanwhile, the raw database row stores:
+
+```
+id    | name        | email                                          | ssn
+------+-------------+------------------------------------------------+------------------------------------------------
+123   | Alice Smith | \x0102...EncryptedBase64Blob...==              | \x0102...AnotherEncryptedBlob...==
+```
+
 ## Key Management
+
+### Comparison
+
+Choose a key management approach based on your compliance requirements:
+
+| Approach | Setup Complexity | Security | Key Rotation | Best For |
+|----------|-----------------|----------|--------------|----------|
+| **Local key** (env var) | Low | Medium | Manual | Development, small teams |
+| **HashiCorp Vault** | Medium | High | Automatic | Self-hosted production |
+| **AWS KMS / Azure Key Vault / GCP KMS** | Medium | Very High | Automatic | Cloud-native production |
+
+<Aside type="caution">
+Never store encryption keys in source code, configuration files committed to git, or plain text environment files. Use HashiCorp Vault, AWS KMS / Azure Key Vault / GCP KMS, or Kubernetes secrets with encryption at rest.
+</Aside>
+
+### Local Key (Development Only)
+
+```toml
+[encryption]
+enabled = true
+algorithm = "AES-256-GCM"
+
+[encryption.keys]
+current = "${ENCRYPTION_KEY}"
+```
+
+Generate a key:
+
+```bash
+openssl rand -base64 32
+# Example output: 7K9mN2pQrStUvWxYz0AbCdEfGhIjKlMn4oPqRsTuVwXy=
+```
 
 ### HashiCorp Vault Integration
 
@@ -65,6 +144,60 @@ secret_path = "secret/data/fraiseql/encryption"
 key_name = "field-encryption-key"
 ```
 
+### AWS KMS
+
+```toml
+[encryption]
+enabled = true
+provider = "aws_kms"
+
+[encryption.aws_kms]
+key_id = "${AWS_KMS_KEY_ID}"
+region = "${AWS_REGION}"
+```
+
+## Verifying Encryption is Working
+
+After enabling encryption, confirm that sensitive fields are stored as ciphertext and not plaintext:
+
+```bash
+# Connect directly to PostgreSQL and inspect the raw column
+psql "$DATABASE_URL" -c \
+    "SELECT id, email FROM tb_user LIMIT 3;"
+```
+
+Expected output (encrypted):
+
+```
+  id  | email
+------+--------------------------------------------------
+  1   | \x01020000001234...EncryptedBlob...5678==
+  2   | \x01020000009abc...AnotherBlob...def0==
+  3   | \x010200000056ef...ThirdBlob...ab12==
+```
+
+If you see plaintext email addresses, encryption is not active. Check that:
+1. `[encryption] enabled = true` is set in `fraiseql.toml`
+2. `ENCRYPTION_KEY` environment variable is set
+3. The `pgcrypto` extension is installed in PostgreSQL
+4. The server was restarted after configuration changes
+
+You can also use the built-in verification command:
+
+```bash
+fraiseql-cli encryption verify
+# Output:
+# Checking 3 encrypted field(s) across 1 table(s)...
+# ✓ tb_user.email: encrypted (AES-256-GCM)
+# ✓ tb_user.ssn: encrypted (AES-256-GCM)
+# ✓ tb_user.phone: encrypted (AES-256-GCM)
+# All fields verified.
+```
+
+## Key Rotation
+
+Regular key rotation limits the exposure window if a key is compromised.
+
 ### Automatic Key Rotation
 
 Configure automatic key rotation:
@@ -80,13 +213,55 @@ notify_before_days = 14
 auto_rotate = true
 ```
 
-### Manual Key Rotation
+### Manual Key Rotation Process
 
-Trigger rotation via CLI:
+<Steps>
+1. **Generate a new key** and store it in your secrets manager.
 
-```bash
-fraiseql-cli encryption rotate --confirm
-```
+2. **Update `fraiseql.toml`**: move the current key to `previous` and set the new key as `current`:
+   ```toml
+   [encryption.keys]
+   current = "${ENCRYPTION_KEY_NEW}"
+   previous = ["${ENCRYPTION_KEY_OLD}"]
+   ```
+
+3. **Dry run** to validate the rotation without committing changes:
+   ```bash
+   fraiseql-cli encryption rotate --dry-run
+   # Output:
+   # Would re-encrypt 12,450 rows across 3 fields
+   # Estimated time: ~45 seconds
+   # No changes made (dry run)
+   ```
+
+4. **Apply the rotation**:
+   ```bash
+   fraiseql-cli encryption rotate --confirm
+   # Output:
+   # Re-encrypting tb_user.email... done (12,450 rows)
+   # Re-encrypting tb_user.ssn... done (12,450 rows)
+   # Re-encrypting tb_user.phone... done (12,450 rows)
+   # Rotation complete. Old key can be removed in 24h.
+   ```
+
+5. **Verify** all data decrypts correctly with the new key:
+   ```bash
+   fraiseql-cli encryption verify
+   ```
+
+6. **Remove the old key** from `previous` after confirming no errors for 24 hours.
+</Steps>
+
+### How Lazy Re-encryption Works
+
+FraiseQL does not require a bulk re-encryption job. When a record encrypted with an old key is read, FraiseQL:
+
+1. Detects the key version in the ciphertext header
+2. Decrypts using the matching previous key
+3. Re-encrypts with the current key
+4. Writes the updated ciphertext back to the database
+
+This means key rotation completes organically as records are accessed. Use `fraiseql-cli encryption rotate --confirm` to force-rotate all records at once before removing old keys.
 
 ## Supported Field Types
 
@@ -254,24 +429,6 @@ class User:
 interval_days = 90  # Every 90 days
 ```
 
-### Test Key Rotation
-
-Before production rotation:
-
-```bash
-# Test rotation in staging
-fraiseql-cli encryption rotate --dry-run
-
-# Verify all data can be re-encrypted
-fraiseql-cli encryption verify
-```
-
-### Secure Key Storage
-
-<Aside type="caution">
-Never store encryption keys in source code, configuration files committed to git, or plain text environment files. Use HashiCorp Vault, AWS KMS / Azure Key Vault / GCP KMS, or Kubernetes secrets with encryption at rest.
-</Aside>
-
 ## Troubleshooting
 
 ### "Decryption failed" Errors
@@ -291,6 +448,32 @@ Never store encryption keys in source code, configuration files committed to git
 1. Check Vault connectivity
 2. Verify permissions for key operations
 3. Review audit logs for errors
+
+## Verify Transparent Decryption
+
+Encryption is transparent to GraphQL clients — they always receive decrypted values:
+
+```bash
+curl -s http://localhost:8080/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"query": "{ me { email ssn } }"}'
+```
+
+```json
+{
+  "data": {
+    "me": {
+      "email": "alice@example.com",
+      "ssn": null
+    }
+  }
+}
+```
+
+<Aside type="note">
+`email` is returned decrypted — the AES-256-GCM ciphertext stored in the database is never exposed to clients. `ssn` is `null` because the caller's role lacks `read:ssn` permission — field-level access control is enforced before decryption.
+</Aside>
 
 ## Next Steps
 

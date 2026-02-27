@@ -25,6 +25,93 @@ Order Service  ──── events.order.created ────►  Inventory Serv
                                             events.order.shipped
 ```
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant OS as Order Service
+    participant INV as Inventory Service
+    participant PAY as Payment Service
+    participant SHP as Shipping Service
+    participant N as NATS
+
+    C->>OS: createOrder(items, total)
+    OS->>N: events.order.created
+    OS-->>C: Order{status: "pending"}
+
+    N->>INV: events.order.created
+    INV->>N: events.inventory.reserved
+    Note over INV: Reserve stock
+
+    N->>PAY: events.inventory.reserved
+    PAY->>N: events.payment.charged
+    Note over PAY: Charge card
+
+    N->>OS: events.payment.charged
+    OS->>OS: status = "paid"
+
+    N->>SHP: events.payment.charged
+    SHP->>N: events.order.shipped
+    Note over SHP: Create label
+
+    N->>OS: events.order.shipped
+    OS->>OS: status = "shipped"
+```
+
+## Running the Full System
+
+```yaml title="docker-compose.yml"
+version: '3.9'
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: fraiseql
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+
+  nats:
+    image: nats:latest
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+
+  order-service:
+    build: ./order-service
+    depends_on: [postgres, nats]
+    environment:
+      DATABASE_URL: postgresql://fraiseql:password@postgres:5432/orders
+      NATS_URL: nats://nats:4222
+
+  inventory-service:
+    build: ./inventory-service
+    depends_on: [postgres, nats]
+    environment:
+      DATABASE_URL: postgresql://fraiseql:password@postgres:5432/orders
+      NATS_URL: nats://nats:4222
+
+  payment-service:
+    build: ./payment-service
+    depends_on: [postgres, nats]
+    environment:
+      DATABASE_URL: postgresql://fraiseql:password@postgres:5432/orders
+      NATS_URL: nats://nats:4222
+
+  shipping-service:
+    build: ./shipping-service
+    depends_on: [postgres, nats]
+    environment:
+      DATABASE_URL: postgresql://fraiseql:password@postgres:5432/orders
+      NATS_URL: nats://nats:4222
+```
+
+Start all services with:
+
+```bash
+docker-compose up -d
+```
+
 ## Order Service (Initiator)
 
 <Aside type="tip">
@@ -443,6 +530,252 @@ async def test_payment_failure_compensation():
 4. **Compensation**: Services can undo work if downstream fails
 5. **Idempotency**: Each event handler is idempotent (safe to replay)
 6. **Visibility**: Event log provides complete audit trail
+
+## Verify It Works
+
+<Steps>
+
+1. **Start all services with Docker Compose**:
+   ```bash
+   docker-compose up -d
+   ```
+   
+   Verify services are running:
+   ```bash
+   docker-compose ps
+   ```
+   
+   Expected output:
+   ```
+   NAME                           STATUS         PORTS
+   microservices-choreography-postgres-1      Up (healthy)   0.0.0.0:5432->5432/tcp
+   microservices-choreography-nats-1          Up (healthy)   0.0.0.0:4222->4222/tcp
+   microservices-choreography-order-service-1   Up           0.0.0.0:8080->8080/tcp
+   microservices-choreography-inventory-service-1 Up           
+   microservices-choreography-payment-service-1   Up           
+   microservices-choreography-shipping-service-1  Up           
+   ```
+
+2. **Check NATS is ready**:
+   ```bash
+   # Verify NATS JetStream is enabled
+   docker-compose exec nats nats server info
+   ```
+   
+   Look for `jetstream: enabled: true` in output.
+
+3. **Create a test order**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{
+       "query": "mutation { createOrder(userId: \"user-123\", items: [{sku: \"WIDGET\", quantity: 2}], total: 49.99) { id status } }"
+     }'
+   ```
+   
+   Expected response:
+   ```json
+   {
+     "data": {
+       "createOrder": {
+         "id": "ord-abc123",
+         "status": "pending"
+       }
+     }
+   }
+   ```
+
+4. **Wait for choreography to complete** (5-10 seconds for all services):
+   ```bash
+   sleep 5
+   ```
+
+5. **Verify order reached final state**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{
+       "query": "query { order(id: \"ord-abc123\") { id status trackingNumber } }"
+     }'
+   ```
+   
+   Expected response:
+   ```json
+   {
+     "data": {
+       "order": {
+         "id": "ord-abc123",
+         "status": "shipped",
+         "trackingNumber": "TRK-789XYZ"
+       }
+     }
+   }
+   ```
+
+6. **Check event log for complete flow**:
+   ```bash
+   docker-compose exec postgres psql -U fraiseql -d orders -c \
+     "SELECT event_type, order_id, recorded_at FROM tb_event_log WHERE order_id = 'ord-abc123' ORDER BY recorded_at;"
+   ```
+   
+   Expected output:
+   ```
+         event_type         |  order_id   |         recorded_at
+   ------------------------+-------------+----------------------------
+   events.order.created   | ord-abc123  | 2024-01-15 10:30:00
+   events.inventory.reserved | ord-abc123 | 2024-01-15 10:30:01
+   events.payment.charged | ord-abc123  | 2024-01-15 10:30:02
+   events.order.shipped   | ord-abc123  | 2024-01-15 10:30:05
+   ```
+
+7. **Test compensation (failure scenario)**:
+   ```bash
+   # Create order with insufficient inventory
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{
+       "query": "mutation { createOrder(userId: \"user-123\", items: [{sku: \"OUTOFSTOCK\", quantity: 999}], total: 9999.99) { id } }"
+     }'
+   ```
+   
+   Wait and verify order failed:
+   ```bash
+   sleep 2
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "query { order(id: \"ord-failed\") { status } }"}'
+   ```
+   
+   Expected: `{"status": "failed"}`
+
+8. **Run integration tests**:
+   ```bash
+   pytest tests/test_choreography.py -v
+   ```
+   
+   Expected output:
+   ```
+   tests/test_choreography.py::test_full_order_choreography PASSED
+   tests/test_choreography.py::test_payment_failure_compensation PASSED
+   tests/test_choreography.py::test_inventory_failure PASSED
+   ```
+
+</Steps>
+
+## Troubleshooting
+
+### Services Won't Start
+
+```bash
+docker-compose up -d
+docker-compose logs order-service
+```
+
+**Common issues:**
+1. **Port already in use**: Change ports in docker-compose.yml
+2. **Database not ready**: Services have `depends_on` but PostgreSQL needs time to initialize
+3. **NATS connection failed**: Verify NATS is running: `docker-compose logs nats`
+
+### Order Stuck in "pending"
+
+If order doesn't progress:
+
+1. **Check NATS consumers**:
+   ```bash
+   docker-compose exec nats nats consumer report
+   ```
+
+2. **Verify consumers are connected**:
+   ```bash
+   docker-compose exec nats nats consumer info events inventory_processors
+   ```
+
+3. **Check service logs**:
+   ```bash
+   docker-compose logs inventory-service | tail -20
+   docker-compose logs payment-service | tail -20
+   ```
+
+4. **Manual event inspection**:
+   ```bash
+   docker-compose exec nats nats sub events.order.created
+   ```
+
+### Events Not Being Published
+
+If `tb_event_log` is empty:
+
+1. Verify NATS publishing is working:
+   ```python
+   # In Python console
+   import asyncio
+   from fraiseql import nats
+   await nats.publish("test.subject", {"test": "data"})
+   ```
+
+2. Check NATS stream exists:
+   ```bash
+   docker-compose exec nats nats stream report
+   ```
+
+### Compensation Not Working
+
+If payment failure doesn't release inventory:
+
+1. Check compensation handler is registered:
+   ```bash
+   docker-compose logs payment-service | grep "compensation"
+   ```
+
+2. Verify events.payment.failed subject:
+   ```bash
+   docker-compose exec nats nats sub events.payment.failed
+   ```
+
+### Performance Issues
+
+If choreography is slow:
+
+1. **Check consumer lag**:
+   ```bash
+   docker-compose exec nats nats consumer info events inventory_processors
+   ```
+   Look for `num_pending` (should be near 0)
+
+2. **Increase concurrency**:
+   ```python
+   @fraiseql.nats.subscribe(
+       subject="events.order.created",
+       consumer_group="inventory_processors",
+       max_concurrent=20  # Increase from 10
+   )
+   ```
+
+3. **Monitor database connections**:
+   ```bash
+   docker-compose exec postgres psql -U fraiseql -c \
+     "SELECT count(*) FROM pg_stat_activity;"
+   ```
+
+### Testing Failures
+
+If tests fail:
+
+1. Ensure all services are healthy:
+   ```bash
+   docker-compose ps
+   ```
+
+2. Clear test data between runs:
+   ```bash
+   docker-compose exec postgres psql -U fraiseql -d orders -c \
+     "TRUNCATE tb_order, tb_event_log CASCADE;"
+   ```
+
+3. Increase sleep time in tests if services are slow:
+   ```python
+   await asyncio.sleep(2.0)  # Instead of 1.0
+   ```
 
 ## Production Considerations
 

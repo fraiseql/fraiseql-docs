@@ -44,15 +44,10 @@ type = "postgresql"
 url = "${SHARED_DB_URL}"
 pool_max = 10
 
-[nats]
+[observers]
 enabled = true
-servers = ["nats://localhost:4222"]
-jetstream_enabled = true
-
-[nats.publishing]
-auto_publish = true
-batch_size = 50
-batch_timeout = 1000
+backend = "nats"
+nats_url = "${NATS_URL}"
 ```
 
 ## Database Schema
@@ -402,17 +397,289 @@ fraiseql_nats_events_processed{tenant_id="acme_corp", event_type="project_create
 fraiseql_nats_consumer_lag{consumer="analytics_sync"}
 ```
 
+## Verify It Works
+
+<Steps>
+
+1. **Set up environment**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your database credentials
+   ```
+
+2. **Start services**:
+   ```bash
+   docker-compose up -d postgres nats
+   ```
+
+3. **Create tenant databases** (for database-per-tenant strategy):
+   ```bash
+   docker-compose exec postgres psql -U postgres -c \
+     "CREATE DATABASE tenant_acme_corp;"
+   docker-compose exec postgres psql -U postgres -c \
+     "CREATE DATABASE tenant_global_corp;"
+   ```
+
+4. **Run migrations for each tenant**:
+   ```bash
+   export TENANT_ID=acme_corp
+   confiture migrate
+   
+   export TENANT_ID=global_corp
+   confiture migrate
+   ```
+
+5. **Start FraiseQL server**:
+   ```bash
+   fraiseql run
+   ```
+   
+   Expected output:
+   ```
+   🍓 FraiseQL v0.9.0
+      GraphQL endpoint: http://localhost:8080/graphql
+      Multi-tenancy: database_per_tenant
+      NATS: connected
+      Tenants: 2 configured
+   ```
+
+6. **Create organization as tenant A**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -H "X-Tenant-ID: acme_corp" \
+     -H "Authorization: Bearer $TOKEN_A" \
+     -d '{
+       "query": "mutation { createOrganization(name: \"Acme Corp\") { id name subscriptionTier } }"
+     }'
+   ```
+   
+   Expected response:
+   ```json
+   {
+     "data": {
+       "createOrganization": {
+         "id": "org-abc123",
+         "name": "Acme Corp",
+         "subscriptionTier": "free"
+       }
+     }
+   }
+   ```
+
+7. **Verify tenant isolation** (tenant B cannot see tenant A's data):
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -H "X-Tenant-ID: global_corp" \
+     -H "Authorization: Bearer $TOKEN_B" \
+     -d '{
+       "query": "query { organizations { id name } }"
+     }'
+   ```
+   
+   Expected response (empty list):
+   ```json
+   {
+     "data": {
+       "organizations": []
+     }
+   }
+   ```
+
+8. **Create project and verify event is published**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -H "X-Tenant-ID: acme_corp" \
+     -H "Authorization: Bearer $TOKEN_A" \
+     -d '{
+       "query": "mutation { createProject(orgId: \"org-abc123\", name: \"Project Alpha\") { id name taskCount } }"
+     }'
+   ```
+   
+   Wait for NATS event:
+   ```bash
+   sleep 1
+   ```
+
+9. **Verify event in analytics**:
+   ```bash
+   docker-compose exec postgres psql -U postgres -d shared_analytics -c \
+     "SELECT * FROM tb_analytics_event WHERE tenant_id = 'acme_corp';"
+   ```
+   
+   Expected output:
+   ```
+        event_type      |  tenant_id   |          data          | recorded_at
+   ---------------------+--------------+------------------------+--------------
+   analytics.project_created | acme_corp | {"project_id": ...} | 2024-01-15...
+   ```
+
+10. **Run tests**:
+    ```bash
+    pytest tests/test_tenant_isolation.py -v
+    pytest tests/test_nats_events.py -v
+    ```
+    
+    Expected output:
+    ```
+    tests/test_tenant_isolation.py::test_tenant_isolation PASSED
+    tests/test_tenant_isolation.py::test_cross_tenant_access_blocked PASSED
+    tests/test_nats_events.py::test_project_creation_event PASSED
+    tests/test_nats_events.py::test_analytics_sync PASSED
+    ```
+
+</Steps>
+
+## Troubleshooting
+
+### Tenant Database Not Found
+
+```bash
+Error: Database tenant_acme_corp does not exist
+```
+
+**Solution**:
+```bash
+# Create database manually
+docker-compose exec postgres psql -U postgres -c "CREATE DATABASE tenant_acme_corp;"
+
+# Or use the tenant provisioning script
+./scripts/create-tenant.sh acme_corp
+```
+
+### NATS Connection Failed
+
+```bash
+Error: Cannot connect to NATS at nats://localhost:4222
+```
+
+**Check**:
+1. Verify NATS is running:
+   ```bash
+   docker-compose ps nats
+   ```
+
+2. Check NATS URL in configuration:
+   ```toml
+   [nats]
+   servers = ["nats://nats:4222"]  # Use service name, not localhost in Docker
+   ```
+
+3. Test NATS connection:
+   ```bash
+   docker-compose exec nats nats server info
+   ```
+
+### Events Not Being Published
+
+If analytics table remains empty:
+
+1. Check NATS consumer is running:
+   ```bash
+   docker-compose logs fraiseql | grep "analytics_sync"
+   ```
+
+2. Verify stream exists:
+   ```bash
+   docker-compose exec nats nats stream report
+   ```
+
+3. Check consumer group:
+   ```bash
+   docker-compose exec nats nats consumer report
+   ```
+
+### RLS Not Working
+
+If tenant B can see tenant A's data:
+
+1. Verify RLS is enabled:
+   ```sql
+   \d tb_organization
+   -- Look for "Policies:"
+   ```
+
+2. Check policy is active:
+   ```sql
+   SELECT * FROM pg_policies WHERE tablename = 'tb_organization';
+   ```
+
+3. Verify tenant_id is being set:
+   ```bash
+   # Check HTTP headers are being passed
+   curl -v http://localhost:8080/graphql -H "X-Tenant-ID: acme_corp" ...
+   ```
+
+### Performance Issues
+
+If queries are slow with multiple tenants:
+
+1. Check database connection pool:
+   ```toml
+   [databases.tenant]
+   pool_max = 50  # Increase if needed
+   ```
+
+2. Enable connection pooling at PostgreSQL level:
+   ```sql
+   ALTER SYSTEM SET max_connections = 200;
+   ```
+
+3. Monitor per-tenant metrics:
+   ```bash
+   curl http://localhost:8080/metrics | grep fraiseql_tenant
+   ```
+
+### Federation Queries Failing
+
+If cross-database queries fail:
+
+1. Verify all databases are accessible:
+   ```bash
+   fraiseql config validate
+   ```
+
+2. Check foreign data wrappers (if using PostgreSQL FDW):
+   ```sql
+   \des  -- List foreign servers
+   ```
+
+3. Test individual database connections:
+   ```bash
+   psql $DATABASE_URL_TENANT_A -c "SELECT 1"
+   psql $DATABASE_URL_TENANT_B -c "SELECT 1"
+   ```
+
+### Testing Failures
+
+If tenant isolation tests fail:
+
+1. Clear test data:
+   ```bash
+   docker-compose exec postgres psql -U postgres -d tenant_acme_corp -c \
+     "TRUNCATE tb_organization, tb_project, tb_member CASCADE;"
+   ```
+
+2. Ensure test client sets tenant correctly:
+   ```python
+   client.set_tenant("tenant-a")  # Must be called before each test
+   ```
+
+3. Check test database is separate from dev database
+
 ## Production Checklist
 
 - [ ] Database per tenant created and configured
 - [ ] RLS policies enabled on all tables
 - [ ] NATS cluster deployed and replicated
 - [ ] Consumer groups configured for reliability
-- [ ] Monitoring and alerting configured
+- [ ] Monitoring and alerting configured (per-tenant metrics)
 - [ ] Backup strategy for each tenant DB
 - [ ] Failover procedures documented
-- [ ] Load testing completed
-- [ ] Security audit passed
+- [ ] Load testing completed with multiple tenants
+- [ ] Security audit passed (tenant isolation verified)
 - [ ] Documentation updated
 
 <CardGrid>

@@ -3,7 +3,7 @@ title: Observability
 description: Prometheus metrics, OpenTelemetry tracing, and structured logging
 ---
 
-import { Aside, Tabs, TabItem, CardGrid, Card } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
 FraiseQL provides comprehensive observability through metrics, distributed tracing, and structured logging.
 
@@ -423,6 +423,208 @@ group_by_type = true
 1. Adjust log levels per component
 2. Enable sampling for high-volume logs
 3. Filter in log aggregator
+
+## Verify It Works
+
+<Steps>
+
+1. **Enable metrics in `fraiseql.toml`**:
+   ```toml
+   [metrics]
+   enabled = true
+   endpoint = "/metrics"
+   port = 9090
+   ```
+
+2. **Start FraiseQL**:
+   ```bash
+   fraiseql run
+   ```
+
+3. **Test metrics endpoint**:
+   ```bash
+   curl http://localhost:9090/metrics
+   ```
+   
+   Expected output (partial):
+   ```
+   # HELP fraiseql_http_requests_total Total HTTP requests
+   # TYPE fraiseql_http_requests_total counter
+   fraiseql_http_requests_total{method="POST",status="200"} 42
+   fraiseql_http_requests_total{method="POST",status="400"} 3
+   
+   # HELP fraiseql_graphql_queries_total Total GraphQL queries
+   # TYPE fraiseql_graphql_queries_total counter
+   fraiseql_graphql_queries_total{type="query"} 38
+   fraiseql_graphql_queries_total{type="mutation"} 4
+   
+   # HELP fraiseql_db_connections_active Active database connections
+   # TYPE fraiseql_db_connections_active gauge
+   fraiseql_db_connections_active 5
+   ```
+
+4. **Execute some queries to generate metrics**:
+   ```bash
+   # Run a few queries
+   for i in {1..10}; do
+     curl -s -X POST http://localhost:8080/graphql \
+       -H "Content-Type: application/json" \
+       -d '{"query": "{ __typename }"}' > /dev/null
+   done
+   ```
+
+5. **Verify metrics updated**:
+   ```bash
+   curl http://localhost:9090/metrics | grep fraiseql_graphql_queries_total
+   ```
+   
+   Expected output:
+   ```
+   fraiseql_graphql_queries_total{type="query"} 48
+   ```
+
+6. **Test health endpoints**:
+   ```bash
+   # Basic health
+   curl http://localhost:8080/health
+   ```
+   
+   Expected output:
+   ```json
+   {"status": "ok"}
+   ```
+   
+   ```bash
+   # Detailed health
+   curl http://localhost:8080/health/detailed
+   ```
+   
+   Expected output:
+   ```json
+   {
+     "status": "ok",
+     "checks": {
+       "database": {
+         "status": "ok",
+         "latency_ms": 2
+       },
+       "schema": {
+         "status": "ok",
+         "version": "1.0.0"
+       }
+     },
+     "version": "2.0.0",
+     "uptime_seconds": 3600
+   }
+   ```
+
+7. **Verify structured logging**:
+   ```bash
+   # Make a request and check logs
+   curl -s -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ me { id } }"}'
+   ```
+   
+   Check FraiseQL stdout for JSON log lines:
+   ```json
+   {
+     "timestamp": "2024-01-15T10:30:00.123Z",
+     "level": "INFO",
+     "target": "fraiseql_server::graphql",
+     "message": "Query executed",
+     "span": {
+       "request_id": "abc-123",
+       "user_id": "user-456"
+     },
+     "fields": {
+       "operation": "me",
+       "duration_ms": 12,
+       "cache_hit": false
+     }
+   }
+   ```
+
+8. **Test OpenTelemetry tracing** (if enabled):
+   ```toml
+   [tracing]
+   enabled = true
+   service_name = "fraiseql-api"
+   
+   [tracing.otlp]
+   endpoint = "http://localhost:4317"
+   ```
+   
+   After making requests, check your tracing backend (Jaeger, Zipkin, etc.) for spans.
+
+</Steps>
+
+## Troubleshooting
+
+### No Metrics Available
+
+If `/metrics` returns empty:
+
+1. Verify metrics are enabled:
+   ```bash
+   grep -A5 '\[metrics\]' fraiseql.toml
+   ```
+
+2. Check FraiseQL logs for startup errors:
+   ```bash
+   fraiseql run 2>&1 | grep -i metrics
+   ```
+
+3. Ensure port 9090 is not in use:
+   ```bash
+   lsof -i :9090
+   ```
+
+### Missing Database Metrics
+
+If database connection metrics are absent:
+
+1. Verify database connectivity:
+   ```bash
+   curl http://localhost:8080/health/detailed | jq .checks.database
+   ```
+
+2. Check pool configuration:
+   ```toml
+   [databases.primary]
+   pool_size = 10
+   ```
+
+### High Cardinality Warnings
+
+If Prometheus shows cardinality warnings:
+
+```toml
+[metrics]
+# Exclude high-cardinality labels
+exclude_labels = ["user_id", "request_id", "session_id"]
+```
+
+### Traces Not Appearing
+
+If traces don't show up in your backend:
+
+1. Verify OTLP endpoint connectivity:
+   ```bash
+   curl http://otel-collector:4317
+   ```
+
+2. Check sampling configuration:
+   ```toml
+   [tracing.sampling]
+   ratio = 1.0  # Sample 100% for testing
+   ```
+
+3. Ensure trace context propagation:
+   ```bash
+   curl -H "traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" \
+     http://localhost:8080/graphql
+   ```
 
 ## Next Steps
 

@@ -1,0 +1,35 @@
+[project]
+name    = "demo"
+version = "1.0.0"
+description = "FraiseQL live demo — read-only public API"
+database_target = "postgresql"
+
+[database]
+url = "${DATABASE_URL}"
+pool_min = 5
+pool_max = 20
+ssl_mode = "prefer"
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[server.cors]
+origins = [
+  "https://fraiseql.dev",
+  "http://localhost:4321",
+]
+credentials = false
+
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[fraiseql.security.rate_limiting]
+enabled = true
+auth_start_max_requests = 60
+auth_start_window_secs = 60
+
+[fraiseql.security.audit_logging]
+enabled = true
+log_level = "info"

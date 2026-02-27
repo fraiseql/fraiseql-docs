@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install FraiseQL
+        run: curl -fsSL https://fraiseql.dev/install.sh | sh
+
+      - name: Add FraiseQL to PATH
+        run: echo "$HOME/.fraiseql/bin" >> "$GITHUB_PATH"
+
+      - name: Compile schema
+        run: fraiseql compile
+
+      - name: Start server
+        run: fraiseql run &
+
+      - name: Wait for server to be ready
+        run: sleep 5
+
+      - name: Health check
+        run: |
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/health

@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS tb_tag (
+    pk_tag BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id     UUID   NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    name   TEXT   NOT NULL UNIQUE,
+    slug   TEXT   NOT NULL UNIQUE
+);

@@ -5,6 +5,10 @@ description: Implement multi-tenant SaaS applications with FraiseQL's native mul
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
+<Aside type="note">
+This page covers features that require **PostgreSQL**. Some capabilities (JSONB, Row-Level Security, materialized views, pg_trgm) are not available in MySQL, SQLite, or SQL Server. See the [database guides](/databases/) for alternatives.
+</Aside>
+
 FraiseQL has **native multi-tenancy support**. Configure a strategy in `fraiseql.toml` and FraiseQL handles tenant routing, context injection, and data isolation automatically — no manual session-setting code required.
 
 ## Choose a Strategy
@@ -178,21 +182,69 @@ GRANT SELECT, INSERT, UPDATE, DELETE
 
 ### Provisioning New Tenants
 
-```python
-@fraiseql.mutation
-@requires_scope("admin:tenants")
-async def provision_tenant(info, name: str, plan: str) -> Tenant:
-    """Create schema, tables, and register the new tenant."""
-    tenant_id = generate_id()
-    # 1. Create schema via admin connection
-    await info.context["admin_db"].execute(
-        f"CREATE SCHEMA tenant_{tenant_id}"
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.mutation
+    @requires_scope("admin:tenants")
+    async def provision_tenant(info, name: str, plan: str) -> Tenant:
+        """Create schema, tables, and register the new tenant."""
+        tenant_id = generate_id()
+        # 1. Create schema via admin connection
+        await info.context["admin_db"].execute(
+            f"CREATE SCHEMA tenant_{tenant_id}"
+        )
+        # 2. Run migrations into new schema
+        await run_migrations(schema=f"tenant_{tenant_id}")
+        # 3. Register in tenants table
+        return await create_tenant_record(tenant_id, name, plan)
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { mutation, requiresScope } from 'fraiseql';
+
+    @mutation({ sqlFunction: 'fn_provision_tenant' })
+    @requiresScope('admin:tenants')
+    async function provisionTenant(name: string, plan: string): Promise<Tenant> {
+      const tenantId = generateId();
+      // 1. Create schema via admin connection
+      await adminDb.query(`CREATE SCHEMA tenant_${tenantId}`);
+      // 2. Run migrations into new schema
+      await runMigrations({ schema: `tenant_${tenantId}` });
+      // 3. Register in tenants table
+      return createTenantRecord(tenantId, name, plan);
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package mutations
+
+    import (
+        "context"
+        "fmt"
+
+        "github.com/fraiseql/fraiseql-go"
     )
-    # 2. Run migrations into new schema
-    await run_migrations(schema=f"tenant_{tenant_id}")
-    # 3. Register in tenants table
-    return await create_tenant_record(tenant_id, name, plan)
-```
+
+    func ProvisionTenant(ctx context.Context, name, plan string) (*Tenant, error) {
+        tenantID := generateID()
+        // 1. Create schema via admin connection
+        if _, err := adminDB.ExecContext(ctx,
+            fmt.Sprintf("CREATE SCHEMA tenant_%s", tenantID)); err != nil {
+            return nil, err
+        }
+        // 2. Run migrations into new schema
+        if err := runMigrations(ctx, fmt.Sprintf("tenant_%s", tenantID)); err != nil {
+            return nil, err
+        }
+        // 3. Register in tenants table
+        return createTenantRecord(ctx, tenantID, name, plan)
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 <Aside type="tip">
 Keep a `public.tenants` table as a registry. FraiseQL looks up tenant schemas from there when routing requests.
@@ -233,27 +285,189 @@ FraiseQL caches the routing table in memory and refreshes it on a configurable i
 
 ### Provisioning New Databases
 
-```python
-@fraiseql.mutation
-@requires_scope("admin:tenants")
-async def provision_tenant(info, name: str, plan: str) -> Tenant:
-    """Provision a new tenant database and register it."""
-    tenant_id = generate_id()
-    db_name = f"fraiseql_tenant_{tenant_id}"
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.mutation
+    @requires_scope("admin:tenants")
+    async def provision_tenant(info, name: str, plan: str) -> Tenant:
+        """Provision a new tenant database and register it."""
+        tenant_id = generate_id()
+        db_name = f"fraiseql_tenant_{tenant_id}"
 
-    # 1. Create and migrate new database
-    await create_database(db_name)
-    await run_migrations(database=db_name)
+        # 1. Create and migrate new database
+        await create_database(db_name)
+        await run_migrations(database=db_name)
 
-    # 2. Register in routing table
-    db_url = f"postgresql://app:{SECRET}@{HOST}/{db_name}"
-    await registry_db.execute(
-        "INSERT INTO tenant_databases (tenant_id, database_url) VALUES ($1, $2)",
-        tenant_id, db_url,
+        # 2. Register in routing table
+        db_url = f"postgresql://app:{SECRET}@{HOST}/{db_name}"
+        await registry_db.execute(
+            "INSERT INTO tenant_databases (tenant_id, database_url) VALUES ($1, $2)",
+            tenant_id, db_url,
+        )
+
+        return Tenant(id=tenant_id, name=name, plan=plan)
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { mutation, requiresScope } from 'fraiseql';
+
+    @mutation({ sqlFunction: 'fn_provision_tenant_db' })
+    @requiresScope('admin:tenants')
+    async function provisionTenant(name: string, plan: string): Promise<Tenant> {
+      const tenantId = generateId();
+      const dbName = `fraiseql_tenant_${tenantId}`;
+
+      // 1. Create and migrate new database
+      await createDatabase(dbName);
+      await runMigrations({ database: dbName });
+
+      // 2. Register in routing table
+      const dbUrl = `postgresql://app:${SECRET}@${HOST}/${dbName}`;
+      await registryDb.query(
+        'INSERT INTO tenant_databases (tenant_id, database_url) VALUES ($1, $2)',
+        [tenantId, dbUrl],
+      );
+
+      return { id: tenantId, name, plan };
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package mutations
+
+    import (
+        "context"
+        "fmt"
     )
 
-    return Tenant(id=tenant_id, name=name, plan=plan)
+    func ProvisionTenantDB(ctx context.Context, name, plan string) (*Tenant, error) {
+        tenantID := generateID()
+        dbName := fmt.Sprintf("fraiseql_tenant_%s", tenantID)
+
+        // 1. Create and migrate new database
+        if err := createDatabase(ctx, dbName); err != nil {
+            return nil, err
+        }
+        if err := runMigrations(ctx, dbName); err != nil {
+            return nil, err
+        }
+
+        // 2. Register in routing table
+        dbURL := fmt.Sprintf("postgresql://app:%s@%s/%s", secret, host, dbName)
+        _, err := registryDB.ExecContext(ctx,
+            "INSERT INTO tenant_databases (tenant_id, database_url) VALUES ($1, $2)",
+            tenantID, dbURL,
+        )
+        if err != nil {
+            return nil, err
+        }
+
+        return &Tenant{ID: tenantID, Name: name, Plan: plan}, nil
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+---
+
+## Verify Tenant Isolation
+
+Before deploying, confirm that your RLS policies actually prevent cross-tenant access. A simple curl test is the fastest way to check:
+
+```bash
+# Request as Tenant A — should return only Tenant A's posts
+curl -s http://localhost:8080/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TENANT_A_JWT" \
+  -d '{"query":"{ posts { id title } }"}' | jq .
+
+# Request as Tenant B — should return only Tenant B's posts, never Tenant A's
+curl -s http://localhost:8080/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TENANT_B_JWT" \
+  -d '{"query":"{ posts { id title } }"}' | jq .
 ```
+
+The two responses must contain disjoint sets of IDs. If any ID appears in both responses, your RLS policy is not enforcing isolation correctly.
+
+### Test isolation in code
+
+Write a test that seeds data for two tenants and asserts neither can see the other's records:
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+
+```python
+import pytest
+import fraiseql
+
+@pytest.mark.asyncio
+async def test_tenant_isolation(test_client, tenant_a_token, tenant_b_token):
+    # Seed a post for Tenant A
+    await test_client.mutate(
+        "mutation { createPost(title: \"A's post\", content: \"...\") { id } }",
+        headers={"Authorization": f"Bearer {tenant_a_token}"},
+    )
+
+    # Query as Tenant B — must not see Tenant A's post
+    result = await test_client.query(
+        "{ posts { id title } }",
+        headers={"Authorization": f"Bearer {tenant_b_token}"},
+    )
+    titles = [p["title"] for p in result["posts"]]
+    assert "A's post" not in titles
+```
+
+  </TabItem>
+  <TabItem label="TypeScript">
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { createTestClient } from 'fraiseql/testing';
+
+describe('tenant isolation', () => {
+  it('prevents Tenant B from seeing Tenant A data', async () => {
+    const client = createTestClient();
+
+    // Seed a post for Tenant A
+    await client.mutate(
+      `mutation { createPost(title: "A's post", content: "...") { id } }`,
+      { headers: { Authorization: `Bearer ${TENANT_A_TOKEN}` } },
+    );
+
+    // Query as Tenant B — must not see Tenant A's post
+    const { posts } = await client.query(
+      `{ posts { id title } }`,
+      { headers: { Authorization: `Bearer ${TENANT_B_TOKEN}` } },
+    );
+    const titles = posts.map((p: { title: string }) => p.title);
+    expect(titles).not.toContain("A's post");
+  });
+});
+```
+
+  </TabItem>
+</Tabs>
+
+### What happens if the tenant ID is missing
+
+If a request arrives without a valid tenant context — no JWT, or a JWT missing the `tenant_id` claim — FraiseQL returns a `401 Unauthorized` response before the query reaches PostgreSQL:
+
+```json
+{
+  "errors": [
+    {
+      "message": "Missing tenant context",
+      "extensions": { "code": "UNAUTHORIZED" }
+    }
+  ]
+}
+```
+
+This is enforced by the middleware. If the middleware raises `PermissionError`, FraiseQL converts it to a GraphQL error and stops execution. The database is never queried.
 
 ---
 
@@ -262,50 +476,149 @@ async def provision_tenant(info, name: str, plan: str) -> Tenant:
 ### 1. Derive Tenant from JWT, Not User Input
 
 <Aside type="caution">
-Never trust a `tenant_id` value supplied directly by the client. Derive it from a verified JWT claim.
+Never trust a `tenant_id` value supplied directly by the client in a GraphQL argument or request header. Any user can forge a header value. Derive the tenant ID exclusively from a server-verified JWT claim — FraiseQL validates the JWT signature before your middleware runs.
 </Aside>
 
-```python
-# Good: tenant_id comes from server-verified JWT
-@fraiseql.middleware
-def extract_tenant(request, next):
-    tenant_id = request.auth.claims.get("tenant_id")  # JWT verified by FraiseQL
-    request.context["tenant_id"] = tenant_id
-    return next(request)
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    # Good: tenant_id comes from server-verified JWT
+    @fraiseql.middleware
+    def extract_tenant(request, next):
+        tenant_id = request.auth.claims.get("tenant_id")  # JWT verified by FraiseQL
+        request.context["tenant_id"] = tenant_id
+        return next(request)
 
-# Bad: tenant_id comes from a GraphQL argument (user-controlled)
-@fraiseql.query
-def posts(info, tenant_id: str) -> list[Post]:  # Don't do this
-    ...
-```
+    # Bad: tenant_id comes from a GraphQL argument (user-controlled)
+    @fraiseql.query
+    def posts(info, tenant_id: str) -> list[Post]:  # Don't do this
+        ...
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { fraiseqlMiddleware } from 'fraiseql';
+
+    // Good: tenantId comes from server-verified JWT
+    fraiseqlMiddleware(async (request, next) => {
+      const tenantId = request.auth.claims?.tenant_id; // JWT verified by FraiseQL
+      request.context.tenantId = tenantId;
+      return next(request);
+    });
+
+    // Bad: tenantId comes from a GraphQL argument (user-controlled)
+    // @query() function posts(tenantId: string): Post[] {} // Don't do this
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    // Good: tenantID comes from server-verified JWT
+    func ExtractTenantMiddleware(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            claims := fraiseql.ClaimsFromContext(r.Context())
+            tenantID, _ := claims["tenant_id"].(string) // JWT verified by FraiseQL
+            ctx := context.WithValue(r.Context(), fraiseql.TenantIDKey, tenantID)
+            next.ServeHTTP(w, r.WithContext(ctx))
+        })
+    }
+    // Bad: tenantID comes from a GraphQL argument (user-controlled) — don't do this
+    ```
+  </TabItem>
+</Tabs>
 
 ### 2. Validate Tenant Exists
 
-```python
-@fraiseql.middleware
-async def validate_tenant(request, next):
-    tenant_id = request.auth.claims.get("tenant_id")
-    tenant = await get_tenant(tenant_id)
-    if not tenant or tenant.suspended:
-        raise PermissionError(f"Tenant not found or suspended: {tenant_id}")
-    request.context["tenant_id"] = tenant_id
-    return next(request)
-```
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.middleware
+    async def validate_tenant(request, next):
+        tenant_id = request.auth.claims.get("tenant_id")
+        tenant = await get_tenant(tenant_id)
+        if not tenant or tenant.suspended:
+            raise PermissionError(f"Tenant not found or suspended: {tenant_id}")
+        request.context["tenant_id"] = tenant_id
+        return next(request)
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    fraiseqlMiddleware(async (request, next) => {
+      const tenantId = request.auth.claims?.tenant_id;
+      const tenant = await getTenant(tenantId);
+      if (!tenant || tenant.suspended) {
+        throw new Error(`Tenant not found or suspended: ${tenantId}`);
+      }
+      request.context.tenantId = tenantId;
+      return next(request);
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    func ValidateTenantMiddleware(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            tenantID := fraiseql.TenantIDFromContext(r.Context())
+            tenant, err := getTenant(r.Context(), tenantID)
+            if err != nil || tenant == nil || tenant.Suspended {
+                http.Error(w, fmt.Sprintf("tenant not found or suspended: %s", tenantID),
+                    http.StatusForbidden)
+                return
+            }
+            next.ServeHTTP(w, r)
+        })
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ### 3. Audit Tenant Data Access
 
-```python
-@fraiseql.middleware
-async def audit_tenant_access(request, next):
-    result = await next(request)
-    await audit_log.record(
-        tenant_id=request.context.get("tenant_id"),
-        user_id=request.auth.claims.get("sub"),
-        operation=request.operation_name,
-        timestamp=datetime.utcnow(),
-    )
-    return result
-```
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.middleware
+    async def audit_tenant_access(request, next):
+        result = await next(request)
+        await audit_log.record(
+            tenant_id=request.context.get("tenant_id"),
+            user_id=request.auth.claims.get("sub"),
+            operation=request.operation_name,
+            timestamp=datetime.utcnow(),
+        )
+        return result
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    fraiseqlMiddleware(async (request, next) => {
+      const result = await next(request);
+      await auditLog.record({
+        tenantId: request.context.tenantId,
+        userId: request.auth.claims?.sub,
+        operation: request.operationName,
+        timestamp: new Date(),
+      });
+      return result;
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    func AuditTenantMiddleware(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            next.ServeHTTP(w, r)
+            auditLog.Record(r.Context(), AuditEntry{
+                TenantID:  fraiseql.TenantIDFromContext(r.Context()),
+                UserID:    fraiseql.UserIDFromContext(r.Context()),
+                Operation: r.Header.Get("X-Operation-Name"),
+                Timestamp: time.Now().UTC(),
+            })
+        })
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ---
 

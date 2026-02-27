@@ -5,6 +5,10 @@ description: Configure FraiseQL with a simple, readable TOML file
 
 import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
 
+<Aside type="caution">
+**This page is being updated.** Some TOML sections shown here (`[auth]`, `[compilation]`, `[rate_limit]`) do not exist in the engine and will cause a hard "unknown field" error at `fraiseql compile`. For the authoritative, engine-verified reference, see [TOML Configuration](/reference/toml-config).
+</Aside>
+
 FraiseQL uses a single `fraiseql.toml` file for all configuration. TOML is human-readable, git-friendly, and has no YAML gotchas.
 
 ## Minimal Configuration
@@ -164,15 +168,13 @@ tracing_sample_rate = 0.1  # 10% sampling
 # ============================================
 # Caching
 # ============================================
-[cache]
+[caching]
 enabled = true
-type = "memory"  # memory, redis
+backend = "memory"  # memory, redis, postgresql
 
 # Redis settings
-# type = "redis"
-# url = "${REDIS_URL}"
-# prefix = "fraiseql:"
-# ttl = 300  # seconds
+# backend = "redis"
+# redis_url = "${REDIS_URL}"
 
 # ============================================
 # Rate Limiting

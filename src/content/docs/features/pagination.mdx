@@ -1,316 +1,326 @@
 ---
 title: Pagination
-description: Automatic LIMIT/OFFSET, cursor pagination, and total counts
+description: Offset and Relay-spec cursor pagination for list queries
 ---
 
 import { Aside, Tabs, TabItem, CardGrid, Card } from '@astrojs/starlight/components';
 
-FraiseQL provides automatic pagination for list queries, supporting both offset-based and cursor-based patterns.
+FraiseQL supports two pagination modes:
+
+- **Offset** — `limit` / `offset`, simple, good for small datasets
+- **Relay** — cursor-based, spec-compliant, stable at scale
+
+Both are enabled with a single flag on `@fraiseql.query()`. No manual Connection/Edge/PageInfo types to define.
+
+---
 
 ## Offset Pagination
 
-### Enabling Pagination
+The default for all list queries. Since rc.13, `limit`, `offset`, `where`, and `orderBy` are automatically available on any query that returns `list[T]`:
 
 ```python
-@fraiseql.query(
-    sql_source="v_post",
-    auto_params={"limit": True, "offset": True}
-)
-def posts(limit: int = 20, offset: int = 0) -> list[Post]:
-    """Query posts with pagination."""
+@fraiseql.query(sql_source="v_post")
+def posts() -> list[Post]:
     pass
+```
+
+That's it. The compiled schema exposes:
+
+```graphql
+posts(
+  where: PostWhereInput
+  orderBy: [PostOrderByInput!]
+  limit: Int
+  offset: Int
+): [Post!]!
 ```
 
 ### Usage
 
 ```graphql
-# First page
-query {
-    posts(limit: 20, offset: 0) {
-        id
-        title
-    }
-}
+# Page 1
+query { posts(limit: 20, offset: 0) { id title } }
 
-# Second page
-query {
-    posts(limit: 20, offset: 20) {
-        id
-        title
-    }
-}
+# Page 2
+query { posts(limit: 20, offset: 20) { id title } }
 
-# Third page
+# Filtered and sorted
 query {
-    posts(limit: 20, offset: 40) {
-        id
-        title
-    }
+  posts(
+    where: { is_published: { _eq: true } }
+    orderBy: [{ created_at: DESC }]
+    limit: 10
+  ) { id title created_at }
 }
 ```
 
-### Resulting Query
+### Opt out of auto params
 
-```sql
-SELECT data FROM v_post
-ORDER BY data->>'created_at' DESC
-LIMIT 20 OFFSET 40
+If you don't want any of the four automatic arguments:
+
+```python
+@fraiseql.query(sql_source="v_post", auto_params=False)
+def posts() -> list[Post]:
+    pass
 ```
 
-## Configuration
+### Opt out of auto params globally
 
-### Default Limits
+If your project uses Relay pagination exclusively and you never want `limit`/`offset` on list queries, set project-wide defaults in `fraiseql.toml` instead of opting out per-query:
 
 ```toml
-[graphql.pagination]
-default_limit = 20
-max_limit = 100
+[query_defaults]
+limit  = false
+offset = false
 ```
 
-If a client requests `limit > max_limit`, it is automatically capped.
-
-### Per-Query Limits
+Individual queries can still re-enable specific params:
 
 ```python
-@fraiseql.query(
-    sql_source="v_user",
-    auto_params={"limit": True, "offset": True},
-    max_limit=50,
-    default_limit=10
-)
-def users(limit: int = 10, offset: int = 0) -> list[User]:
-    pass
+# Re-enables limit/offset for this one admin query only
+@fraiseql.query(sql_source="v_admin_log", auto_params={"limit": True, "offset": True})
+def admin_logs() -> list[AdminLog]: ...
 ```
 
-## Total Counts
+### Offset limitations
 
-### Enabling Counts
-
-```python
-@fraiseql.query(
-    sql_source="v_post",
-    auto_params={"limit": True, "offset": True, "total_count": True}
-)
-def posts(
-    limit: int = 20,
-    offset: int = 0,
-    include_count: bool = False
-) -> PostsResult:
-    pass
-
-@fraiseql.type
-class PostsResult:
-    items: list[Post]
-    total_count: int | None
-```
-
-### Usage
-
-```graphql
-query {
-    posts(limit: 20, offset: 0, includeCount: true) {
-        items {
-            id
-            title
-        }
-        totalCount  # Total matching records
-    }
-}
-```
-
-### Response
-
-```json
-{
-    "data": {
-        "posts": {
-            "items": [],
-            "totalCount": 1547
-        }
-    }
-}
-```
-
-## Cursor Pagination
-
-For large datasets, cursor pagination is more efficient than offset:
-
-### Defining Connections
-
-```python
-@fraiseql.type
-class PageInfo:
-    has_next_page: bool
-    has_previous_page: bool
-    start_cursor: str | None
-    end_cursor: str | None
-
-@fraiseql.type
-class PostEdge:
-    node: Post
-    cursor: str
-
-@fraiseql.type
-class PostConnection:
-    edges: list[PostEdge]
-    page_info: PageInfo
-    total_count: int | None
-
-@fraiseql.query(
-    sql_source="v_post",
-    pagination="cursor"
-)
-def posts(
-    first: int | None = None,
-    after: str | None = None,
-    last: int | None = None,
-    before: str | None = None
-) -> PostConnection:
-    pass
-```
-
-### Usage
-
-```graphql
-# First page
-query {
-    posts(first: 20) {
-        edges {
-            node {
-                id
-                title
-            }
-            cursor
-        }
-        pageInfo {
-            hasNextPage
-            endCursor
-        }
-    }
-}
-
-# Next page (using cursor)
-query {
-    posts(first: 20, after: "eyJpZCI6IjEyMyIsImNyZWF0ZWRfYXQiOiIyMDI0LTAxLTE1In0=") {
-        edges {
-            node {
-                id
-                title
-            }
-            cursor
-        }
-        pageInfo {
-            hasNextPage
-            endCursor
-        }
-    }
-}
-```
-
-### Cursor Format
-
-Cursors are base64-encoded JSON:
-
-```json
-{
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "created_at": "2024-01-15T10:30:00Z"
-}
-```
-
-### SQL Implementation
+Large offsets require PostgreSQL to scan and discard rows:
 
 ```sql
--- First page
-SELECT data FROM v_post
-ORDER BY created_at DESC, id DESC
-LIMIT 21  -- +1 to check hasNextPage
-
--- After cursor
-SELECT data FROM v_post
-WHERE (created_at, id) < ($cursor_created_at, $cursor_id)
-ORDER BY created_at DESC, id DESC
-LIMIT 21
+-- Must scan 1,000,000 rows to return 20
+SELECT data FROM v_post OFFSET 1000000 LIMIT 20
 ```
 
-## Relay Specification
+For datasets above ~100k rows, use Relay pagination instead.
 
-FraiseQL implements **keyset-based pagination** fully compatible with the [Relay specification](https://relay.dev/docs/guides/graphql-server/), providing standard cursor pagination format for JavaScript clients.
+---
 
-<Aside type="note">
-Relay pagination (for queries) and GraphQL Cascade (for mutations) work together seamlessly. While Relay handles cache-friendly pagination for list queries, Cascade handles automatic cache updates from mutations. See [GraphQL Cascade](/features/function-shapes#graphql-cascade-advanced-mutations-with-side-effects) for mutation cache updates.
-</Aside>
+## Relay Pagination
 
-### Why Relay Specification?
+Relay pagination is opt-in with `relay=True`. It replaces `limit`/`offset` with `first`/`after`/`last`/`before`, generates the standard `Connection`, `Edge`, and `PageInfo` types automatically, and adds a global `node(id: ID!)` lookup — all without any extra type definitions from you.
 
-- **Standard format** — `edges`, `pageInfo`, `cursor` follow Relay spec
-- **Client library support** — Works with Apollo Client, Relay, URQL, and other GraphQL clients
-- **Cache-friendly** — Relay client caches queries automatically
-- **Bidirectional** — Forward (`first`/`after`) and backward (`last`/`before`) pagination
-- **Scale-safe** — No OFFSET performance degradation at scale
+### Requirements
 
-### Relay Pagination Interface
+Relay pagination relies on the FraiseQL CQRS naming convention:
 
-The Relay-compatible interface automatically available on all cursor-paginated queries:
+```sql
+-- Write table
+CREATE TABLE tb_post (
+  pk_post    BIGINT  PRIMARY KEY,   -- sequential, internal, never in GraphQL
+  id         UUID    UNIQUE NOT NULL, -- public identifier for node(id: ID!)
+  -- ... other columns
+);
+
+-- Read view (used by FraiseQL)
+CREATE VIEW v_post AS
+  SELECT jsonb_build_object(
+    'pk_post', pk_post,   -- included so FraiseQL can build cursors
+    'id',      id,
+    'title',   title
+    -- ...
+  ) AS data
+  FROM tb_post;
+```
+
+`pk_post` drives keyset pagination — it stays in `data` JSONB for cursor generation, but is always stripped before being returned to the client.
+
+`fraiseql compile` validates this at build time: missing `pk_{entity}` in the view is a hard error, not a runtime surprise.
+
+### Enabling
+
+Mark the type and the query:
+
+```python
+@fraiseql.type(relay=True)
+class Post:
+    id: UUID
+    title: str
+    created_at: datetime
+
+@fraiseql.query(sql_source="v_post", relay=True)
+def posts() -> list[Post]:
+    pass
+```
+
+That produces:
 
 ```graphql
-# Relay compliant connection interface
-type PostConnection {
-  edges: [PostEdge!]!        # Array of nodes + cursors
-  pageInfo: PageInfo!        # Navigation metadata
-  totalCount: Int            # Optional: total matching records
+interface Node {
+  id: ID!
+}
+
+type Post implements Node {
+  id: ID!
+  title: String!
+  createdAt: DateTime!
 }
 
 type PostEdge {
-  node: Post!                # The actual data
-  cursor: String!            # Opaque cursor for next page
+  node: Post!
+  cursor: String!
+}
+
+type PostConnection {
+  edges: [PostEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
 }
 
 type PageInfo {
-  hasNextPage: Boolean!      # More records forward
-  hasPreviousPage: Boolean!  # More records backward
-  startCursor: String        # Cursor of first edge
-  endCursor: String          # Cursor of last edge
+  hasNextPage:     Boolean!
+  hasPreviousPage: Boolean!
+  startCursor:     String
+  endCursor:       String
+}
+
+type Query {
+  posts(first: Int, after: String, last: Int, before: String): PostConnection!
+  node(id: ID!): Node
 }
 ```
 
-### JavaScript Client Example
+All synthetic types are generated once per type — multiple relay queries on the same type share the same `PostConnection`.
+
+### Forward pagination
+
+```graphql
+# First page
+query {
+  posts(first: 20) {
+    edges {
+      node { id title }
+      cursor
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+
+# Next page
+query {
+  posts(first: 20, after: "NDI=") {
+    edges {
+      node { id title }
+      cursor
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+### Backward pagination
+
+```graphql
+query {
+  posts(last: 20) {
+    edges {
+      node { id title }
+    }
+    pageInfo { hasPreviousPage startCursor }
+  }
+}
+
+query {
+  posts(last: 20, before: "MjE=") {
+    edges {
+      node { id title }
+    }
+    pageInfo { hasPreviousPage startCursor }
+  }
+}
+```
+
+### Node lookup
+
+`node(id: ID!)` is automatically available whenever at least one type uses `relay=True`:
+
+```graphql
+query {
+  node(id: "UG9zdDo1NTBl...") {
+    ... on Post { id title }
+    ... on User { id name }
+  }
+}
+```
+
+The global ID encodes the type name and UUID (`base64("Post:uuid-value")`). The cursor is a separate encoding of the internal `pk_post` column — either a BIGINT (`base64("42")`) or UUID (`base64("550e…")`), depending on the column type.
+
+<Aside type="note">
+`pk_post` is never returned to clients. FraiseQL reads it from the `data` JSONB to construct cursors, then strips it from every edge's `node` before serialization.
+</Aside>
+
+### UUID primary keys
+
+Since rc.13, the cursor column (`pk_{entity}`) can be either `BIGINT` or `UUID`. FraiseQL detects the column type at compile time and selects the appropriate cursor encoding automatically.
+
+```sql
+-- BIGINT pk (original, most common)
+pk_post BIGINT PRIMARY KEY
+
+-- UUID pk (now also supported)
+pk_post UUID PRIMARY KEY DEFAULT gen_random_uuid()
+```
+
+Both produce opaque base64 cursors on the wire — clients handle them identically. The encoding differs internally: BIGINT cursors encode a decimal string, UUID cursors encode the UUID string.
+
+### totalCount
+
+`PostConnection` (and all generated Connection types) include a nullable `totalCount: Int` field. It returns the total number of rows matching the current `where` filter, ignoring cursor position:
+
+```graphql
+query {
+  posts(first: 20, where: { is_published: { _eq: true } }) {
+    totalCount        # total matching rows, e.g. 847
+    edges {
+      node { id title }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+`totalCount` runs a separate `COUNT(*)` query. Omit it from your selection if you don't need it to avoid the extra round-trip.
+
+### How cursors work
+
+| Value | Encoding | Purpose |
+|-------|----------|---------|
+| `pk_post = 42` (BIGINT) | `base64("42")` → `"NDI="` | Cursor (`after` / `before`) |
+| `pk_post = "550e…"` (UUID) | `base64("550e…")` | Cursor (`after` / `before`) |
+| `id = "550e…"` | `base64("Post:550e…")` | Global node ID |
+
+Keyset pagination on the primary key column means:
+- `WHERE pk_post > 42 ORDER BY pk_post ASC LIMIT 21` (forward)
+- `WHERE pk_post < 42 ORDER BY pk_post DESC LIMIT 21` (backward, reversed in Rust)
+
+The `+1` trick detects `hasNextPage` / `hasPreviousPage` without a COUNT query.
+
+### Client examples
 
 <Tabs syncKey="client">
 <TabItem label="Relay">
 ```javascript
 import { usePaginationFragment } from 'react-relay';
 
-function PostList() {
+function PostList({ queryRef }) {
   const { data, loadNext, hasNext } = usePaginationFragment(
     graphql`
-      fragment PostList_posts on Query
+      fragment PostList_query on Query
       @refetchable(queryName: "PostListPaginationQuery") {
-        posts(first: 20, after: $after) {
-          edges {
-            node {
-              id
-              title
-            }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
+        posts(first: 20, after: $after) @connection(key: "PostList_posts") {
+          edges { node { id title } }
+          pageInfo { hasNextPage endCursor }
         }
       }
     `,
-    relay_data
+    queryRef
   );
 
   return (
     <>
-      {data.posts.edges.map(edge => (
-        <div key={edge.node.id}>{edge.node.title}</div>
+      {data.posts.edges.map(({ node }) => (
+        <div key={node.id}>{node.title}</div>
       ))}
-      {hasNext && (
-        <button onClick={() => loadNext(20)}>Load more</button>
-      )}
+      {hasNext && <button onClick={() => loadNext(20)}>Load more</button>}
     </>
   );
 }
@@ -318,46 +328,27 @@ function PostList() {
 </TabItem>
 <TabItem label="Apollo Client">
 ```javascript
-import { useQuery } from '@apollo/client';
-
 const POSTS_QUERY = gql`
   query GetPosts($first: Int, $after: String) {
     posts(first: $first, after: $after) {
-      edges {
-        node {
-          id
-          title
-        }
-        cursor
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
+      edges { node { id title } cursor }
+      pageInfo { hasNextPage endCursor }
     }
   }
 `;
 
 function Posts() {
-  const { data, loading, fetchMore } = useQuery(POSTS_QUERY, {
-    variables: { first: 20 }
-  });
+  const { data, fetchMore } = useQuery(POSTS_QUERY, { variables: { first: 20 } });
 
   return (
     <>
-      {data?.posts.edges.map(edge => (
-        <div key={edge.node.id}>{edge.node.title}</div>
+      {data?.posts.edges.map(({ node }) => (
+        <div key={node.id}>{node.title}</div>
       ))}
       {data?.posts.pageInfo.hasNextPage && (
-        <button
-          onClick={() =>
-            fetchMore({
-              variables: {
-                after: data.posts.pageInfo.endCursor
-              }
-            })
-          }
-        >
+        <button onClick={() => fetchMore({
+          variables: { after: data.posts.pageInfo.endCursor }
+        })}>
           Load more
         </button>
       )}
@@ -368,197 +359,99 @@ function Posts() {
 </TabItem>
 </Tabs>
 
-### Key Advantages over Offset Pagination
+### Relay vs offset comparison
 
-| Aspect | Offset | Relay (Keyset) |
-|--------|--------|---|
-| **Performance at 1M+ rows** | Slow (must skip rows) | Consistent O(limit) |
-| **Reliable order** | Ties cause skips | Stable with keyset |
-| **Concurrent updates** | Shifts results | Unaffected by inserts |
-| **Client caching** | Manual cache busting | Automatic with Relay |
+| | Offset | Relay (keyset) |
+|---|--------|----------------|
+| Performance at 1M+ rows | Degrades (`OFFSET` scans) | Consistent `O(limit)` |
+| Stable under concurrent inserts | No — rows shift | Yes — keyset unaffected |
+| Client cache support | Manual | Automatic with Relay |
+| Bidirectional | No | Yes (`last`/`before`) |
+| Global object lookup | No | `node(id: ID!)` |
+| Setup | Zero (auto_params) | `relay=True` on type + query |
+
+---
 
 ## Ordering
 
-### Automatic Order By
+`orderBy` is available on offset queries automatically. For relay queries, the sort order is fixed to `pk_{entity} ASC` (forward) or `pk_{entity} DESC` (backward) — relay keyset pagination does not support custom sort columns in the current release.
 
-```python
-@fraiseql.query(
-    sql_source="v_post",
-    auto_params={"limit": True, "offset": True, "order_by": True}
-)
-def posts(
-    limit: int = 20,
-    offset: int = 0,
-    order_by: PostOrderByInput | None = None
-) -> list[Post]:
-    pass
+```graphql
+# Offset query with custom sort
+query {
+  posts(orderBy: [{ created_at: DESC }], limit: 20) {
+    id title created_at
+  }
+}
 ```
 
 Generated input type:
 
 ```graphql
 input PostOrderByInput {
-    id: OrderDirection
-    title: OrderDirection
-    created_at: OrderDirection
-    updated_at: OrderDirection
+  id:         OrderDirection
+  title:      OrderDirection
+  created_at: OrderDirection
 }
 
 enum OrderDirection {
-    ASC
-    DESC
-    ASC_NULLS_FIRST
-    ASC_NULLS_LAST
-    DESC_NULLS_FIRST
-    DESC_NULLS_LAST
+  ASC
+  DESC
+  ASC_NULLS_FIRST
+  ASC_NULLS_LAST
+  DESC_NULLS_FIRST
+  DESC_NULLS_LAST
 }
 ```
 
-### Usage
+---
 
-```graphql
-query {
-    posts(
-        limit: 20
-        orderBy: { created_at: DESC }
-    ) {
-        id
-        title
-        created_at
-    }
-}
-```
-
-### Multiple Sort Fields
-
-```graphql
-query {
-    posts(
-        limit: 20
-        orderBy: [
-            { is_featured: DESC }
-            { created_at: DESC }
-        ]
-    ) {
-        id
-        title
-    }
-}
-```
-
-## Combining Pagination with Filters
-
-```graphql
-query {
-    posts(
-        where: {
-            is_published: { _eq: true }
-            tags: { _contains: "tutorial" }
-        }
-        orderBy: { view_count: DESC }
-        limit: 10
-        offset: 0
-    ) {
-        id
-        title
-        view_count
-        tags
-    }
-}
-```
-
-## Performance
-
-### Offset Pagination Issues
-
-Large offsets are slow:
+## Indexing
 
 ```sql
--- Slow: PostgreSQL must scan 1,000,000 rows
-SELECT * FROM posts OFFSET 1000000 LIMIT 20
-```
+-- Relay: index on pk_{entity} (likely already the PK clustered index)
+CREATE INDEX idx_post_pk ON tb_post(pk_post);
 
-For large datasets, use cursor pagination instead.
-
-### Indexing for Pagination
-
-```sql
--- Index for common ordering
+-- Offset with custom ordering
 CREATE INDEX idx_post_created ON tb_post(created_at DESC);
 
--- Composite index for cursor pagination
-CREATE INDEX idx_post_cursor ON tb_post(created_at DESC, id DESC);
-
--- Index for filtered + ordered queries
-CREATE INDEX idx_post_published_created ON tb_post(is_published, created_at DESC)
-WHERE is_published = true;
+-- Filtered + ordered offset queries
+CREATE INDEX idx_post_published_created
+  ON tb_post(is_published, created_at DESC)
+  WHERE is_published = true;
 ```
 
-## Best Practices
+---
 
-### Always Paginate
+## Troubleshooting
 
-Never return unbounded lists:
+### Relay compile error: missing `pk_{entity}`
 
-```python
-# Good: Has default limit
-@fraiseql.query(auto_params={"limit": True})
-def posts(limit: int = 20) -> list[Post]: pass
-
-# Bad: No limit
-@fraiseql.query()
-def posts() -> list[Post]: pass  # Could return millions
+```
+error: relay=True on query "posts" but pk_post not found in view v_post
 ```
 
-### Use Cursor for Large Datasets
+Add `pk_post` to the view's JSONB output — FraiseQL needs it to generate cursors.
 
-| Dataset Size | Recommendation |
-|--------------|----------------|
-| < 10,000 | Offset OK |
-| 10,000 - 100,000 | Consider cursor |
-| > 100,000 | Use cursor |
+### `relay=True` on a non-list query
 
-### Stable Sort Keys
-
-Always include a unique field in sort:
-
-```graphql
-# Good: id ensures stable order
-orderBy: [{ created_at: DESC }, { id: DESC }]
-
-# Bad: Ties cause inconsistent pagination
-orderBy: { created_at: DESC }
+```
+error: relay=True requires a list return type; "post() -> Post" is not a list
 ```
 
-### Count Carefully
+Relay only applies to list queries. Single-item lookups use `node(id: ID!)` instead.
 
-Total counts require a full table scan:
+### `node(id: ID!)` returns null
 
-```python
-# Only request count when needed
-query {
-    posts(includeCount: false) {  # Skip count for performance
-        items { id }
-    }
-}
-```
+Verify the global ID was generated by FraiseQL — it encodes `TypeName:uuid`. Manually constructed IDs or IDs from an offset-pagination query won't work.
 
-For approximate counts:
-
-```sql
--- Approximate count (fast)
-SELECT reltuples::bigint AS estimate
-FROM pg_class
-WHERE relname = 'tb_post';
-```
-
-## Next Steps
+---
 
 <CardGrid>
   <Card title="Filtering" icon="setting">
-    [Automatic Where](/features/automatic-where) — Filtering
+    [Automatic Where](/features/automatic-where) — `where` input and operators
   </Card>
   <Card title="Performance" icon="rocket">
-    [Performance](/guides/performance) — Query optimization
+    [Performance](/guides/performance) — query optimization
   </Card>
 </CardGrid>

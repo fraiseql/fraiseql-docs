@@ -141,19 +141,20 @@ Prevent cascading failures:
 [federation.circuit_breaker]
 enabled = true
 
-# Fail-open after N consecutive failures
+# Open the circuit after this many consecutive failures
 failure_threshold = 5
 
-# How long to stay open before trying again
-timeout = "60s"
+# Seconds to stay open before probing recovery
+recovery_timeout_secs = 60
 
-# Half-open state: allow N requests to test recovery
-half_open_requests = 3
+# Successful probes required to close the circuit
+success_threshold = 2
 
-# Per-database override
-[federation.circuit_breaker.per_database.orders_db]
+# Per-database override (array of tables)
+[[federation.circuit_breaker.per_database]]
+database = "orders_db"
 failure_threshold = 10
-timeout = "120s"
+recovery_timeout_secs = 120
 ```
 
 ### Retry Policy

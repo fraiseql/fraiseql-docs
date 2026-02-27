@@ -12,8 +12,8 @@ Learn FraiseQL by exploring complete, production-ready example applications.
 Before running any example:
 - FraiseQL installed:
   ```bash
-  uv add fraiseql
-  # or: pip install fraiseql
+  curl -fsSL https://fraiseql.dev/install.sh | sh
+  # or: brew install fraiseql / cargo install fraiseql
   ```
 - PostgreSQL 14+ running locally or via Docker (`docker run -p 5432:5432 postgres:16`)
 - Node.js 18+ (for frontend examples)
@@ -28,6 +28,34 @@ INFO  Connected to PostgreSQL at localhost:5432/mydb
 INFO  GraphQL endpoint: http://localhost:8000/graphql
 INFO  GraphiQL playground: http://localhost:8000/graphiql
 ```
+
+## Start from a Template
+
+Not sure where to begin? Clone a working starter and extend it:
+
+<CardGrid>
+  <Card title="Minimal" icon="rocket">
+    SQLite, one table, no Docker. Boots in 10 seconds.
+    ```bash
+    git clone https://github.com/fraiseql/starter-minimal
+    cd starter-minimal && fraiseql run
+    ```
+  </Card>
+  <Card title="Blog API" icon="document">
+    PostgreSQL — users, posts, comments, tags, mutations. The schema used throughout the docs.
+    ```bash
+    git clone https://github.com/fraiseql/starter-blog
+    cd starter-blog && docker compose up
+    ```
+  </Card>
+  <Card title="SaaS Multi-Tenant" icon="shield">
+    PostgreSQL + RLS + JWT. Two isolated tenants out of the box.
+    ```bash
+    git clone https://github.com/fraiseql/starter-saas
+    cd starter-saas && docker compose up
+    ```
+  </Card>
+</CardGrid>
 
 ## Example Catalog
 

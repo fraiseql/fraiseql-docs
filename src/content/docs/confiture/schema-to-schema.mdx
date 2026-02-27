@@ -5,6 +5,25 @@ description: "Zero-downtime schema refactoring for production databases"
 
 import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
 
+<Aside type="caution" title="PostgreSQL only">
+Schema-to-Schema migration uses [PostgreSQL Foreign Data Wrappers (FDW)](https://www.postgresql.org/docs/current/postgres-fdw.html) to bridge the old and new databases. This strategy is **PostgreSQL-only** and requires:
+
+1. The `postgres_fdw` extension enabled on the source database:
+
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+   ```
+
+2. A database user with `USAGE` on the foreign server and `SELECT` on the source tables:
+
+   ```sql
+   GRANT USAGE ON FOREIGN SERVER prod_to_prod_new TO migration_user;
+   GRANT SELECT ON ALL TABLES IN SCHEMA public TO migration_user;
+   ```
+
+MySQL, SQLite, and other databases are not supported by this migration medium. Use [Incremental Migrations](/confiture/migrate) for those engines.
+</Aside>
+
 The Schema-to-Schema medium handles major schema refactoring on production databases with zero downtime. It runs old and new schemas side-by-side using PostgreSQL Foreign Data Wrapper (FDW), migrates data in the background, and cuts over when ready.
 
 ## When You Need This
@@ -22,61 +41,63 @@ These operations lock tables, block writes, and can cause minutes of downtime on
 
 The process runs in 5 steps:
 
-**Step 1: Setup** — Create a new database with the new schema alongside the existing one:
+<Steps>
+1. **Setup** — Create a new database with the new schema alongside the existing one:
 
-```bash
-confiture migrate schema-to-schema setup --source prod --target prod_new
-```
+   ```bash
+   confiture migrate schema-to-schema setup --source prod --target prod_new
+   ```
 
-This creates `prod_new`, applies your updated DDL files to it, and sets up a PostgreSQL FDW connection from `prod` to `prod_new`. Your application continues running against `prod` throughout.
+   This creates `prod_new`, applies your updated DDL files to it, and sets up a PostgreSQL FDW connection from `prod` to `prod_new`. Your application continues running against `prod` throughout.
 
-**Step 2: Migrate Data** — Copy data from the old schema to the new one in the background:
+2. **Migrate Data** — Copy data from the old schema to the new one in the background:
 
-```bash
-confiture migrate schema-to-schema migrate --target prod_new
-```
+   ```bash
+   confiture migrate schema-to-schema migrate --target prod_new
+   ```
 
-Confiture automatically selects the best strategy per table:
+   Confiture automatically selects the best strategy per table:
 
-| Strategy | Throughput | Best For |
-|----------|-----------|----------|
-| **FDW** | ~500K rows/sec | Tables under 10M rows, complex SQL transformations |
-| **COPY** | ~6M rows/sec | Tables over 10M rows, bulk data |
+   | Strategy | Throughput | Best For |
+   |----------|-----------|----------|
+   | **FDW** | ~500K rows/sec | Tables under 10M rows, complex SQL transformations |
+   | **COPY** | ~6M rows/sec | Tables over 10M rows, bulk data |
 
-Your application stays on the old schema while this runs.
+   Your application stays on the old schema while this runs.
 
-**Step 3: Verify** — Check data integrity before cutting over:
+3. **Verify** — Check data integrity before cutting over:
 
-```bash
-confiture migrate schema-to-schema verify --target prod_new
-```
+   ```bash
+   confiture migrate schema-to-schema verify --target prod_new
+   ```
 
-```
-✓ Row counts match
-  → tb_user: 12,450 (source) = 12,450 (target)
-  → tb_post: 45,230 (source) = 45,230 (target)
-✓ Checksum verification passed
-✓ Foreign key integrity verified
-```
+   ```
+   ✓ Row counts match
+     → tb_user: 12,450 (source) = 12,450 (target)
+     → tb_post: 45,230 (source) = 45,230 (target)
+   ✓ Checksum verification passed
+   ✓ Foreign key integrity verified
+   ```
 
-**Step 4: Cutover** — Update your application to point to the new database:
+4. **Cutover** — Update your application to point to the new database:
 
-```
-# Update environment variable or config
-DATABASE_URL=postgresql://prod_new_host:5432/prod_new
+   ```
+   # Update environment variable or config
+   DATABASE_URL=postgresql://prod_new_host:5432/prod_new
 
-# Restart application (0-5s downtime)
-```
+   # Restart application (0-5s downtime)
+   ```
 
-The cutover is a config change — the only downtime is the application restart.
+   The cutover is a config change — the only downtime is the application restart.
 
-**Step 5: Cleanup** — After monitoring the new database for a period:
+5. **Cleanup** — After monitoring the new database for a period:
 
-```bash
-confiture migrate schema-to-schema cleanup --target prod_new
-```
+   ```bash
+   confiture migrate schema-to-schema cleanup --target prod_new
+   ```
 
-This removes the FDW connection and (optionally) the old database.
+   This removes the FDW connection and (optionally) the old database.
+</Steps>
 
 ## Column Mapping
 

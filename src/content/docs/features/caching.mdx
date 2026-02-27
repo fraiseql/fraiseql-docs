@@ -1,408 +1,332 @@
 ---
 title: Caching
-description: Response caching and cache invalidation with graphql-cascade
+description: Response caching with Redis or in-memory backends, cache invalidation rules, and TTL configuration
 ---
 
-import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-FraiseQL provides intelligent response caching with automatic invalidation based on data dependencies.
+FraiseQL supports response caching for GraphQL queries. Caching can reduce database load dramatically for read-heavy workloads. Caching is configured globally in `fraiseql.toml` under the `[caching]` section.
 
-## Overview
+<Aside type="note">
+Caching is disabled by default. Enabling it requires an explicit `[caching]` block in `fraiseql.toml` with `enabled = true`. Until that block is present, every GraphQL request goes directly to the database with no caching applied.
+</Aside>
 
-FraiseQL caching:
-- Caches GraphQL responses
-- Tracks entity dependencies
-- Automatically invalidates on mutations
-- Supports Redis and in-memory backends
+## Cache Backends
 
-## Configuration
+FraiseQL supports three caching backends:
 
-### Enable Caching
+| Backend | Use Case | Persistence |
+|---------|----------|-------------|
+| `redis` | Production, multi-instance | Survives restarts, shared across instances |
+| `memory` | Development, single-instance | Per-process, lost on restart |
+| `postgresql` | Fallback when Redis unavailable | Stored in database table |
+
+<Aside type="caution">
+The `memory` backend is not shared between instances. If you run multiple FraiseQL replicas behind a load balancer, each instance maintains its own cache, and mutations on one instance will not invalidate cache entries on the others. Use `redis` for multi-instance deployments.
+</Aside>
+
+## Redis Cache Setup
+
+<Steps>
+
+1. **Start a Redis instance**
+
+   ```bash
+   docker run -d --name redis -p 6379:6379 redis:7-alpine
+   ```
+
+2. **Configure the `[caching]` block**
+
+   ```toml
+   [caching]
+   enabled = true
+   backend = "redis"
+   redis_url = "redis://localhost:6379"
+   ```
+
+3. **Start FraiseQL**
+
+   ```bash
+   fraiseql run
+   ```
+
+   On startup, FraiseQL connects to Redis and logs:
+
+   ```
+   [caching] backend: redis (redis://localhost:6379)
+   [caching] enabled: true
+   ```
+
+</Steps>
+
+## In-Memory Cache Setup
+
+For local development or single-instance deployments:
 
 ```toml
-[cache]
+[caching]
 enabled = true
-provider = "memory"
-ttl = 300  # 5 minutes default
-
-[cache.memory]
-max_size = 10000  # Max cached responses
+backend = "memory"
 ```
 
-### Redis Backend
+The in-memory backend requires no external services but:
+- Cache is lost when FraiseQL restarts
+- Each instance has independent cache in multi-instance setups
+- Limited by available heap memory
+
+## Cache Rules and TTL
+
+Cache rules define which queries to cache and for how long. Rules use glob patterns to match query names.
 
 ```toml
-[cache]
+[caching]
 enabled = true
-provider = "redis"
-ttl = 300
+backend = "redis"
+redis_url = "redis://localhost:6379"
 
-[cache.redis]
-url = "${REDIS_URL}"
-prefix = "fraiseql:cache:"
+[[caching.rules]]
+query = "posts*"           # Cache all queries starting with "posts"
+ttl_seconds = 300        # Cache for 5 minutes
+invalidation_triggers = ["Post", "Comment"]  # Invalidate on these mutations
+
+[[caching.rules]]
+query = "user*"
+ttl_seconds = 60
+invalidation_triggers = ["User"]
+
+[[caching.rules]]
+query = "config*"        # Static configuration queries
+ttl_seconds = 3600       # Cache for 1 hour
+invalidation_triggers = []  # Never invalidate (manual only)
 ```
 
-### Per-Query TTL
+### Rule Structure
 
-```python
-@fraiseql.query(
-    sql_source="v_user",
-    cache_ttl=3600  # Cache for 1 hour
-)
-def user(id: ID) -> User | None:
-    pass
+| Field | Type | Description |
+|-------|------|-------------|
+| `query` | string | Glob pattern for query names (e.g., `posts*`, `*List`, `userById`) |
+| `ttl_seconds` | integer | Time-to-live in seconds |
+| `invalidation_triggers` | array | Entity names that invalidate this cache when mutated |
 
-@fraiseql.query(
-    sql_source="v_post",
-    cache_ttl=60  # Cache for 1 minute (frequently updated)
-)
-def posts(limit: int = 20) -> list[Post]:
-    pass
-```
+### Pattern Matching
 
-### Disable Caching
+- `posts*` matches `posts`, `postsByCategory`, `postsCount`
+- `*List` matches `userList`, `productList`
+- `userById` matches exactly `userById`
 
-```python
-@fraiseql.query(
-    sql_source="v_user",
-    cache=False  # Never cache this query
-)
-def me() -> User:
-    """Current user - always fresh."""
-    pass
-```
+### TTL Guidelines
 
-## Cache Keys
+| Data type | Recommended TTL | Rationale |
+|-----------|-----------------|-----------|
+| Public static content (site config, feature flags) | 3600 s (1 hour) | Changes rarely, safe to cache long |
+| Product listings, post feeds | 300 s (5 min) | Moderate freshness requirement |
+| User-specific data | 60 s (1 min) | May change across sessions |
+| Real-time or financial data | No caching | Staleness is not acceptable |
 
-Cache keys are computed from:
-- Query name
-- Variables
-- User context (if relevant)
+## Cache Invalidation
 
-```
-fraiseql:cache:user:{"id":"123"}
-fraiseql:cache:posts:{"limit":20,"offset":0}
-```
+FraiseQL invalidates cache entries automatically when mutations change data. When a mutation runs, FraiseQL checks the `invalidation_triggers` of each cache rule and purges matching entries.
 
-### User-Scoped Caching
+### Automatic Invalidation
 
-For user-specific data:
-
-```python
-@fraiseql.query(
-    sql_source="v_order",
-    cache_scope="user"  # Cache per-user
-)
-def my_orders() -> list[Order]:
-    pass
-```
-
-Cache key includes user ID:
-
-```
-fraiseql:cache:my_orders:user:456:{"limit":20}
-```
-
-## Automatic Invalidation
-
-### Entity Tracking
-
-FraiseQL tracks which entities are in each cached response:
-
-```graphql
-query {
-    post(id: "123") {
-        id
-        title
-        author { id name }
-        comments { id content }
-    }
-}
-```
-
-Tracked entities:
-- `Post:123`
-- `User:456` (author)
-- `Comment:789`, `Comment:790` (comments)
-
-### Mutation Invalidation
-
-When entities are mutated, related caches are invalidated:
-
-```graphql
-# This mutation
-mutation {
-    updatePost(id: "123", title: "New Title") { id }
-}
-
-# Invalidates all caches containing Post:123
-```
-
-### Cascade Rules
-
-Configure how invalidation cascades:
+Given this configuration:
 
 ```toml
-[cache.invalidation]
-cascade = true
-
-[cache.invalidation.rules]
-# When a Comment is added, invalidate parent Post
-Comment = ["Post"]
-
-# When a Post is updated, invalidate author's stats
-Post = ["User"]
+[[caching.rules]]
+query = "posts*"
+ttl_seconds = 300
+invalidation_triggers = ["Post", "Comment"]
 ```
 
-## graphql-cascade Integration
+When a `Post` or `Comment` mutation executes:
+1. FraiseQL detects the entity change
+2. Finds all cache rules with that entity in `invalidation_triggers`
+3. Purges cache entries matching those rules
+4. Subsequent queries fetch fresh data from the database
 
-FraiseQL uses graphql-cascade for fine-grained cache control.
+### Manual Invalidation
 
-### Cache Hints
+In some cases, you may need to invalidate cache manually (e.g., administrative changes):
 
-Add cache hints in responses:
-
-```python
-@fraiseql.query(sql_source="v_post")
-def posts() -> list[Post]:
-    """
-    Cache hints:
-    - max-age: 300
-    - stale-while-revalidate: 60
-    - entities: Post, User
-    """
-    pass
-```
-
-### Response Headers
-
-```
-Cache-Control: max-age=300, stale-while-revalidate=60
-X-Cache-Tags: Post:123,User:456,Comment:789
-```
-
-### CDN Integration
-
-Configure CDN cache headers:
-
-```toml
-[cache.cdn]
-enabled = true
-vary = ["Authorization"]
-surrogate_keys = true  # For Fastly/Cloudflare
-```
-
-## Cache Warming
-
-### Startup Warming
-
-Warm cache on server startup:
-
-```toml
-[cache.warm]
-enabled = true
-queries = [
-    "popularPosts",
-    "featuredProducts",
-    "siteConfig"
-]
-```
-
-### Background Refresh
-
-Refresh cache before expiry:
-
-```toml
-[cache.background_refresh]
-enabled = true
-threshold = 0.8  # Refresh when 80% of TTL elapsed
-```
-
-## Cache Patterns
-
-### Read-Through
-
-Default behavior — cache miss triggers database query:
-
-Client sends request → FraiseQL checks cache → cache miss → query database → store in cache → return result.
-
-### Write-Through
-
-Update cache on mutations:
-
-```python
-@fraiseql.mutation(
-    sql_source="fn_update_user",
-    operation="UPDATE",
-    cache_update=True  # Update cache after mutation
-)
-def update_user(id: ID, name: str) -> User:
-    pass
-```
-
-### Cache-Aside
-
-Manually manage cache:
+<Tabs syncKey="language">
+<TabItem label="Python">
 
 ```python
 from fraiseql import cache
 
-async def get_user_with_cache(id: str):
-    # Check cache
-    cached = await cache.get(f"user:{id}")
-    if cached:
-        return cached
+# Invalidate all entries matching a pattern
+await cache.invalidate_pattern("posts:*")
 
-    # Fetch from database
-    user = await fetch_user(id)
-
-    # Update cache
-    await cache.set(f"user:{id}", user, ttl=3600)
-
-    return user
+# Invalidate specific entity cache
+await cache.invalidate_entity("Post", post_id="123")
 ```
 
-## Stale-While-Revalidate
+</TabItem>
+<TabItem label="TypeScript">
 
-Serve stale data while refreshing in the background:
+```typescript
+import { cache } from 'fraiseql';
 
-```toml
-[cache]
-stale_while_revalidate = 60  # Serve stale for 60s while refreshing
+// Invalidate all entries matching a pattern
+await cache.invalidatePattern('posts:*');
+
+// Invalidate specific entity cache
+await cache.invalidateEntity('Post', { postId: '123' });
 ```
 
-| Time Window | Behavior |
-|-------------|----------|
-| 0 - 300s (TTL) | Serve from cache (fresh) |
-| 300 - 360s (SWR window) | Serve stale, refresh in background |
-| > 360s (Expired) | Fetch fresh, then serve |
+</TabItem>
+</Tabs>
 
-## Metrics
+## Environment Variable Overrides
 
-Monitor cache performance:
+All caching settings can be overridden via environment variables:
 
-| Metric | Description |
-|--------|-------------|
-| `fraiseql_cache_hits_total` | Cache hits |
-| `fraiseql_cache_misses_total` | Cache misses |
-| `fraiseql_cache_invalidations_total` | Invalidations |
-| `fraiseql_cache_size_bytes` | Current cache size |
-| `fraiseql_cache_latency_seconds` | Cache operation latency |
+| Variable | Overrides |
+|----------|-----------|
+| `FRAISEQL_CACHING_ENABLED` | `caching.enabled` |
+| `FRAISEQL_CACHING_BACKEND` | `caching.backend` |
+| `FRAISEQL_REDIS_URL` | `caching.redis_url` |
 
-### Hit Rate
-
-```
-# Cache hit rate
-sum(rate(fraiseql_cache_hits_total[5m])) /
-(sum(rate(fraiseql_cache_hits_total[5m])) + sum(rate(fraiseql_cache_misses_total[5m])))
-```
-
-Target: greater than 80% hit rate for read-heavy workloads.
-
-## Debugging
-
-### Cache Status Header
-
-```toml
-[cache]
-debug_header = true
-```
-
-Response includes:
-
-```
-X-Cache: HIT
-X-Cache-TTL: 245
-X-Cache-Key: posts:{"limit":20}
-```
-
-### CLI Commands
+Example:
 
 ```bash
-# View cache stats
-fraiseql cache stats
+export FRAISEQL_CACHING_ENABLED=true
+export FRAISEQL_REDIS_URL=redis://prod-redis:6379
+fraiseql run
+```
 
-# Inspect a key
-fraiseql cache get --key "user:123"
+## Cache Metrics
 
-# Clear specific key
-fraiseql cache delete --key "user:123"
+FraiseQL exposes Prometheus metrics for cache performance at the `/metrics` endpoint:
 
-# Clear all cache
-fraiseql cache clear
+| Metric | Type | Description |
+|--------|------|-------------|
+| `fraiseql_cache_hits_total` | Counter | Total cache hits across all queries |
+| `fraiseql_cache_misses_total` | Counter | Total cache misses |
+| `fraiseql_cache_invalidations_total` | Counter | Total cache entries invalidated |
 
-# Clear by pattern
-fraiseql cache clear --pattern "posts:*"
+### Useful PromQL Expressions
+
+Cache hit rate over a 5-minute window:
+
+```txt
+sum(rate(fraiseql_cache_hits_total[5m]))
+  /
+(
+  sum(rate(fraiseql_cache_hits_total[5m]))
+  + sum(rate(fraiseql_cache_misses_total[5m]))
+)
+```
+
+A healthy read-heavy API typically achieves a hit rate above 80%. Values below 50% indicate that:
+- TTLs are too short relative to request frequency
+- Mutations are invalidating entries too aggressively
+- The query patterns don't match the cache rules
+
+Invalidation rate relative to hits:
+
+```txt
+rate(fraiseql_cache_invalidations_total[5m])
+  /
+rate(fraiseql_cache_hits_total[5m])
+```
+
+If this ratio exceeds 0.1 (10%), review your invalidation triggers — they may be too broad.
+
+## Troubleshooting
+
+**"Caching enabled but no cache hits"**
+
+Verify caching is active and rules match your queries:
+
+```bash
+# Check caching is enabled
+grep -A5 '\[caching\]' fraiseql.toml
+
+# Verify rules match query names
+# If your query is named `getPosts`, the rule should be `query = "getPosts*"` or `query = "*Posts*"`
+```
+
+**"Cache invalidation not working"**
+
+1. Check that the mutation returns the correct entity type name
+2. Verify `invalidation_triggers` includes that exact entity name (case-sensitive)
+3. Ensure the entity name in the rule matches the name in your schema
+
+**"Out of memory with in-memory cache"**
+
+The in-memory backend has no automatic eviction. For production use cases, switch to Redis:
+
+```toml
+[caching]
+backend = "redis"
+redis_url = "redis://localhost:6379"
+```
+
+**"Redis connection errors"**
+
+Verify Redis is accessible:
+
+```bash
+redis-cli -h localhost -p 6379 ping
+# Should return: PONG
+```
+
+Check the connection URL format:
+
+```toml
+# Standard format
+redis_url = "redis://localhost:6379"
+
+# With password
+redis_url = "redis://:password@localhost:6379"
+
+# With database number
+redis_url = "redis://localhost:6379/0"
 ```
 
 ## Best Practices
 
-### Set Appropriate TTLs
-
-| Data Type | TTL | Reason |
-|-----------|-----|--------|
-| User profiles | 1 hour | Changes infrequently |
-| Posts list | 5 minutes | Updates occasionally |
-| Real-time data | 0 (no cache) | Must be fresh |
-| Static config | 24 hours | Rarely changes |
-
-### Use Redis for Production
+**Use specific invalidation triggers.** Broad triggers (e.g., invalidating all `posts*` on any `User` change) reduce cache effectiveness:
 
 ```toml
-# Development
-[cache]
-provider = "memory"
+# Good: Only invalidate when Post or Comment changes
+invalidation_triggers = ["Post", "Comment"]
 
-# Production
-[cache]
-provider = "redis"
+# Avoid: Invalidating on unrelated entity changes
+invalidation_triggers = ["Post", "User", "Config", "Settings"]
 ```
 
-<Aside type="tip">
-Redis cache is shared across instances, survives restarts, and provides better eviction policies than in-memory caching.
-</Aside>
+**Choose TTLs based on data change frequency.** Static data can cache longer; frequently changing data needs shorter TTLs or no caching.
 
-### Monitor Invalidation Rate
+**Use Redis for production.** The in-memory backend is convenient for development but unsuitable for production multi-instance deployments.
 
-High invalidation rate indicates over-caching mutable data, too-aggressive cascade rules, or ineffective caching:
+**Monitor hit rates.** Alert when cache hit rate drops below your threshold (typically 70-80%).
 
-```
-rate(fraiseql_cache_invalidations_total[5m]) / rate(fraiseql_cache_hits_total[5m]) < 0.1
-```
+**Test invalidation.** After implementing caching, verify that mutations correctly invalidate cache entries by:
+1. Executing a cached query (should hit cache)
+2. Running a mutation that should invalidate it
+3. Executing the same query again (should hit database, not cache)
 
-## Troubleshooting
+## Limitations
 
-### Cache Not Working
+Current caching implementation has these limitations:
 
-1. Verify caching is enabled: `fraiseql cache stats`
-2. Check query doesn't have `cache=False`
-3. Verify TTL isn't 0
-4. Check Redis connection (if using Redis)
-
-### Low Hit Rate
-
-1. TTL too short?
-2. High mutation rate?
-3. Too many unique queries?
-4. User-scoped caching spreading cache thin?
-
-### Stale Data
-
-1. Invalidation not triggering?
-2. Check cascade rules
-3. Verify entity tracking
-4. Check mutation hooks
+1. **No cache key customization**: Cache keys are automatically derived from query name and arguments. You cannot customize the key pattern.
+2. **No per-query cache headers**: Unlike some GraphQL servers, FraiseQL does not add `X-Cache-Status` headers to responses.
+3. **No cache warming**: There is no built-in mechanism to pre-populate the cache.
+4. **PostgreSQL backend limitations**: The PostgreSQL cache backend is slower than Redis and not recommended for high-throughput scenarios.
 
 ## Next Steps
 
 <CardGrid>
   <Card title="APQ" icon="rocket">
-    [APQ](/features/apq) — Reduce query overhead
+    [Automatic Persisted Queries](/features/apq) — Reduce query payload size with client-side query hashing
+  </Card>
+  <Card title="Observers" icon="document">
+    [Observers](/guides/observers) — Trigger cache invalidation via database events
   </Card>
   <Card title="Performance" icon="setting">
-    [Performance](/guides/performance) — Overall optimization
-  </Card>
-  <Card title="Deployment" icon="document">
-    [Deployment](/guides/deployment) — Production cache setup
+    [Performance Guide](/guides/performance) — N+1 elimination, projection tables, and query optimization
   </Card>
 </CardGrid>

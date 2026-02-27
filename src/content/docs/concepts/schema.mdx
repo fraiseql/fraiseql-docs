@@ -57,6 +57,34 @@ class User:
     nicknames: list[str] | None  # Optional list
 ```
 
+## The Trinity Pattern — Three Identifiers Per Entity
+
+FraiseQL's convention is to give every entity three distinct identifiers. This is called the **Trinity Pattern**.
+
+```sql
+pk_user    BIGINT   -- internal join key, never leaves the database
+id         UUID     -- public API identifier, safe to expose
+identifier TEXT     -- human-readable (email, username), can change
+```
+
+### Why three identifiers?
+
+Most systems conflate internal keys, public identifiers, and human-readable handles. When they're the same column, you face trade-offs:
+
+| If you use... | Problem when... |
+|---|---|
+| Auto-increment int as public ID | Users can enumerate records by incrementing |
+| UUID as join key | Foreign keys are 36 bytes; index bloat at scale |
+| Email as primary key | User changes email → cascading FK updates |
+
+The Trinity Pattern uses each identifier for what it's good at:
+
+- `pk_user BIGINT` — fast joins, compact indexes, never leaves the database
+- `id UUID` — public API identifier, safe to expose, non-enumerable
+- `identifier TEXT` — human input (email, username), can change without touching foreign keys
+
+FraiseQL enforces this at compile time when `relay=True` is set: the view must include `pk_{entity}` in its JSONB output. The pk is used for cursor generation and stripped before the response leaves the server.
+
 ## Relationships
 
 ### One-to-Many
@@ -192,6 +220,10 @@ async def search_posts(info, query: str) -> list[Post]:
     )
 ```
 
+<Aside type="caution">
+**Low-level escape hatch.** The `info.context.db` API bypasses FraiseQL's SQL view mapping. Prefer `@fraiseql.query(sql_source="v_your_view")` for standard queries. Use raw database access only when you need dynamic SQL that cannot be expressed as a view.
+</Aside>
+
 ## Mutations
 
 ### Default Mutations
@@ -236,6 +268,11 @@ class User:
     password_hash: str = fraiseql.field(exclude=True)  # Never exposed
 ```
 
+| Option | Effect | Use Case |
+|--------|--------|----------|
+| `private=True` | Field exists in the schema but requires authentication | Internal fields, PII |
+| `exclude=True` | Field excluded from the GraphQL schema entirely | DB-only columns |
+
 ### Computed Fields
 
 ```python
@@ -266,20 +303,49 @@ class User:
 
 ```typescript
 // schema.ts
-import { type, input, query } from 'fraiseql';
+import { type, input, query, enumType } from 'fraiseql';
 
+// Enum
+@enumType()
+enum UserRole {
+  ADMIN = 'admin',
+  USER = 'user',
+  GUEST = 'guest',
+}
+
+// Object types with relationships
 @type()
 class User {
   id: string;
   name: string;
   email: string;
+  role: UserRole;
+  posts: Post[];               // one-to-many
+  bio?: string;                // optional field
+}
+
+@type()
+class Post {
+  id: string;
+  title: string;
+  content: string;
+  author: User;                // many-to-one
+  tags: Tag[];                 // many-to-many
+}
+
+@type()
+class Tag {
+  id: string;
+  name: string;
   posts: Post[];
 }
 
+// Input type
 @input()
 class CreateUserInput {
   name: string;
   email: string;
+  role?: UserRole;
 }
 ```
 
@@ -289,13 +355,239 @@ class CreateUserInput {
 // schema.go
 package schema
 
+// Enum — use a typed string constant group
+type UserRole string
+
+const (
+    UserRoleAdmin UserRole = "admin"
+    UserRoleUser  UserRole = "user"
+    UserRoleGuest UserRole = "guest"
+)
+
+// Object types with relationships
 type User struct {
+    ID    string   `fraiseql:"id"`
+    Name  string   `fraiseql:"name"`
+    Email string   `fraiseql:"email"`
+    Role  UserRole `fraiseql:"role"`
+    Posts []Post   `fraiseql:"posts"`   // one-to-many
+    Bio   *string  `fraiseql:"bio"`     // optional (pointer = nullable)
+}
+
+type Post struct {
+    ID      string `fraiseql:"id"`
+    Title   string `fraiseql:"title"`
+    Content string `fraiseql:"content"`
+    Author  User   `fraiseql:"author"`  // many-to-one
+    Tags    []Tag  `fraiseql:"tags"`    // many-to-many
+}
+
+type Tag struct {
     ID    string `fraiseql:"id"`
     Name  string `fraiseql:"name"`
-    Email string `fraiseql:"email"`
     Posts []Post `fraiseql:"posts"`
 }
 ```
+
+## Verify It Works
+
+<Steps>
+
+1. **Define a simple type in your schema**:
+   ```python
+   import fraiseql
+
+   @fraiseql.type
+   class Product:
+       """A product in the catalog."""
+       id: str
+       name: str
+       price: float
+       in_stock: bool
+   ```
+
+2. **Compile the schema**:
+   ```bash
+   fraiseql compile
+   ```
+   
+   You should see output like:
+   ```
+   Compiling schema...
+   ✓ Parsed 1 types
+   ✓ Generated GraphQL schema
+   ✓ Wrote schema.compiled.json
+   ```
+
+3. **Start FraiseQL and introspect**:
+   ```bash
+   fraiseql run &
+   
+   # Introspect the schema
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ __type(name: \"Product\") { fields { name type { name } } } }"}'
+   ```
+   
+   Expected response:
+   ```json
+   {
+     "data": {
+       "__type": {
+         "fields": [
+           {"name": "id", "type": {"name": "String"}},
+           {"name": "name", "type": {"name": "String"}},
+           {"name": "price", "type": {"name": "Float"}},
+           {"name": "inStock", "type": {"name": "Boolean"}}
+         ]
+       }
+     }
+   }
+   ```
+
+4. **Test a relationship**:
+   ```python
+   @fraiseql.type
+   class Category:
+       id: str
+       name: str
+       products: list['Product']
+
+   @fraiseql.type
+   class Product:
+       id: str
+       name: str
+       category: Category
+   ```
+   
+   Compile again and verify:
+   ```bash
+   fraiseql compile
+   fraiseql run
+   ```
+
+5. **Test queries are generated**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ __schema { queryType { fields { name } } } }"}' | jq '.data.__schema.queryType.fields[].name'
+   ```
+   
+   Should include:
+   ```
+   "product"
+   "products"
+   "category"
+   "categories"
+   ```
+
+</Steps>
+
+## Best Practices
+
+### Schema Organization
+
+Organize your schema into logical modules:
+
+```
+schema/
+├── __init__.py
+├── users.py       # User, Profile, Authentication
+├── products.py    # Product, Category, Inventory
+├── orders.py      # Order, LineItem, Payment
+└── common.py      # Shared types, scalars
+```
+
+### Type Documentation
+
+Always include docstrings for complex types:
+
+```python
+@fraiseql.type
+class Order:
+    """
+    Represents a customer order.
+    
+    The order lifecycle:
+    1. Created (pending)
+    2. Payment processed
+    3. Shipped
+    4. Delivered (or Cancelled)
+    
+    Use the `status` field to track order state.
+    """
+    id: str
+    status: OrderStatus  # pending, processing, shipped, delivered, cancelled
+    total: Decimal
+    line_items: list['LineItem']
+```
+
+### Field Naming Conventions
+
+Follow GraphQL conventions (camelCase in GraphQL, snake_case in Python):
+
+```python
+@fraiseql.type
+class User:
+    # Python: snake_case
+    created_at: DateTime  # Maps to createdAt in GraphQL
+    first_name: str       # Maps to firstName in GraphQL
+    is_active: bool       # Maps to isActive in GraphQL
+```
+
+### Validation
+
+Add validation at the schema level:
+
+```python
+from typing import Annotated
+
+@fraiseql.input
+class CreateUserInput:
+    email: Annotated[str, fraiseql.validate(
+        pattern=r'^[^@]+@[^@]+\.[^@]+$',
+        message="Invalid email format"
+    )]
+    age: Annotated[int, fraiseql.validate(
+        minimum=13,
+        maximum=120
+    )]
+```
+
+## Troubleshooting
+
+### Compilation Errors
+
+**"Type not found"**:
+```
+Error: Type 'Product' referenced but not defined
+```
+- Ensure type is defined before use
+- Check for circular imports
+- Use forward references with string literals: `'Product'`
+
+**"Field has no type annotation"**:
+```
+Error: Field 'name' in User has no type annotation
+```
+- All fields must have type hints
+- Use `str`, `int`, `float`, `bool` for basic types
+
+### Runtime Errors
+
+**"Cannot resolve field"**:
+```
+Error: Cannot resolve field 'category' on type 'Product'
+```
+- Check the SQL view (`v_product`) has the field
+- Verify foreign key relationships in database
+
+**"Type mismatch"**:
+```
+Error: Expected String, got Int for field 'price'
+```
+- Ensure Python types match database types
+- Use `Decimal` for monetary values, not `float`
 
 ## Next Steps
 

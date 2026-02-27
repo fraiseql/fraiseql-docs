@@ -308,6 +308,144 @@ FraiseQL is a better choice when:
 - **You want simple configuration** — TOML over multiple files
 - **You trust your SQL** — Write the queries you know are optimal
 
+## Quick Test: Prisma vs FraiseQL
+
+<Steps>
+
+1. **Create a Prisma project**:
+   ```bash
+   npm init -y
+   npm install @prisma/client prisma
+   npx prisma init
+   ```
+   
+   Edit `schema.prisma`:
+   ```prisma
+   generator client {
+     provider = "prisma-client-js"
+   }
+   
+   datasource db {
+     provider = "postgresql"
+     url      = env("DATABASE_URL")
+   }
+   
+   model User {
+     id    String @id @default(uuid())
+     email String @unique
+     name  String
+     posts Post[]
+   }
+   
+   model Post {
+     id       String @id @default(uuid())
+     title    String
+     author   User   @relation(fields: [authorId], references: [id])
+     authorId String
+   }
+   ```
+   
+   ```bash
+   npx prisma migrate dev --name init
+   npx prisma generate
+   ```
+
+2. **Build the API layer manually**:
+   ```javascript
+   // server.js - You must build this yourself
+   const { PrismaClient } = require('@prisma/client');
+   const express = require('express');
+   
+   const prisma = new PrismaClient();
+   const app = express();
+   
+   app.get('/users', async (req, res) => {
+     const users = await prisma.user.findMany({
+       include: { posts: true }  // Remember this or get N+1!
+     });
+     res.json(users);
+   });
+   
+   app.get('/users/:id', async (req, res) => {
+     const user = await prisma.user.findUnique({
+       where: { id: req.params.id },
+       include: { posts: true }
+     });
+     res.json(user);
+   });
+   
+   app.listen(3000);
+   ```
+   
+   Test: `curl http://localhost:3000/users`
+
+3. **Now try the same with FraiseQL**:
+   ```python
+   # schema.py
+   import fraiseql
+   
+   @fraiseql.type
+   class User:
+       id: str
+       email: str
+       name: str
+       posts: list['Post']
+   
+   @fraiseql.type
+   class Post:
+       id: str
+       title: str
+       author: User
+   ```
+   
+   ```sql
+   -- Create the SQL view (write once)
+   CREATE VIEW v_user AS
+   SELECT u.id, u.email, u.name,
+     COALESCE(json_agg(p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS posts
+   FROM tb_user u
+   LEFT JOIN tb_post p ON p.user_id = u.id
+   GROUP BY u.id;
+   ```
+   
+   ```bash
+   fraiseql run
+   
+   # GraphQL API is ready - no REST endpoints to write
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ users { name posts { title } } }"}'
+   ```
+
+4. **Compare N+1 handling**:
+   
+   With Prisma, you must remember `include`:
+   ```javascript
+   // Without include: N+1 queries!
+   const users = await prisma.user.findMany();
+   for (const user of users) {
+     user.posts = await prisma.post.findMany({ where: { authorId: user.id } });
+   }
+   ```
+   
+   With FraiseQL, N+1 is **impossible** — the view already JOINs the data.
+
+5. **Compare deployment complexity**:
+   
+   Prisma deployment:
+   - Node.js runtime
+   - Express/Fastify server
+   - Prisma Client
+   - Database connection pool management
+   - Your custom API code
+   
+   FraiseQL deployment:
+   - Single Rust binary
+   - Pre-built SQL views
+   - That's it
+
+</Steps>
+
 ## Using Them Together
 
 You can use Prisma's migration tooling alongside FraiseQL's API server:

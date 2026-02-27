@@ -1,26 +1,90 @@
 ---
 title: Decorators
-description: Complete reference for FraiseQL Python decorators
+description: Complete reference for FraiseQL Python and TypeScript decorators
 ---
 
-import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+import { Aside, CardGrid, Card, Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-FraiseQL uses Python decorators to define GraphQL schema elements. This reference covers all available decorators.
+FraiseQL uses decorators (Python) and decorator functions (TypeScript) to define GraphQL schema elements. This reference covers all available decorators, the GraphQL SDL they generate, and how to handle errors within decorated functions.
+
+<Aside type="note">
+This page documents Python decorators. TypeScript uses `@type()`, `@input()`, `@query()`, `@mutation()` from `import { type, input, query, mutation } from 'fraiseql'`. Go uses struct tags: `fraiseql:"fieldname"`. See [TypeScript SDK](/sdk/typescript) and [Go SDK](/sdk/go).
+</Aside>
+
+## Decorator Execution Order
+
+When a request arrives, FraiseQL processes it through a fixed pipeline:
+
+```
+Request
+  → Middleware (in registration order)
+  → Authentication (JWT/API key verification)
+  → Authorization (role + scope checks)
+  → Resolver (SQL view or function execution)
+  → Response
+```
+
+When multiple decorators protect the same resolver, they execute in this order:
+
+1. `@authenticated` — JWT validation (fails fast if not logged in)
+2. `@requires_scope` — OAuth scope check
+3. `@role` — Role-based access check
+4. **Resolver executes**
+5. `@after_mutation` or `@observer` — Post-execution side effects
+
+**Note:** `@before_mutation` exceptions abort the mutation and roll back the database transaction.
+
+This means:
+- `@middleware` functions run before any authentication check — they can read or modify the raw request
+- Authentication failures short-circuit before reaching authorization or resolvers
+- `@query`/`@mutation` `requires_scope` checks run after the token is verified
+- `@before_mutation` hooks run inside the resolver phase, after all auth checks pass
+- `@after_mutation` hooks run after the SQL function completes successfully
 
 ## @type
 
 Defines a GraphQL object type.
 
-```python
-import fraiseql
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    import fraiseql
 
-@fraiseql.type
-class User:
-    """A user in the system."""
-    id: ID
-    name: str
-    email: str
-    created_at: DateTime
+    @fraiseql.type
+    class User:
+        """A user in the system."""
+        id: ID
+        name: str
+        email: str
+        created_at: DateTime
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type } from 'fraiseql';
+
+    @type()
+    class User {
+        /** A user in the system. */
+        id!: ID;
+        name!: string;
+        email!: string;
+        createdAt!: Date;
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+**Generated GraphQL SDL:**
+
+```graphql
+type User {
+  """A user in the system."""
+  id: ID!
+  name: String!
+  email: String!
+  createdAt: DateTime!
+}
 ```
 
 ### Options
@@ -30,106 +94,199 @@ class User:
 | `database` | `str` | Database for federated types |
 | `dataplane` | `str` | Data plane (`"graphql"` or `"arrow"`) |
 | `implements` | `list[str]` | Interfaces to implement |
+| `relay` | `bool` | Implement the `Node` interface and enable keyset cursor generation |
 
-```python
-@fraiseql.type(database="analytics", implements=["Node"])
-class UserAnalytics:
-    id: ID
-    page_views: int
-```
+When `relay=True`, the type implements the `Node` interface, the global `node(id: ID!)` query is added to the schema, and `fraiseql compile` validates that `pk_{entity}` is present in the corresponding SQL view.
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.type(database="analytics", implements=["Node"])
+    class UserAnalytics:
+        id: ID
+        page_views: int
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    @type({ database: 'analytics', implements: ['Node'] })
+    class UserAnalytics {
+        id!: ID;
+        pageViews!: number;
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ### Field Options
 
-Use `Annotated` for field-level options:
+Use `Annotated` (Python) or field decorators (TypeScript) for field-level options:
 
-```python
-from typing import Annotated
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from typing import Annotated
 
-@fraiseql.type
-class User:
-    id: ID
-    email: str
+    @fraiseql.type
+    class User:
+        id: ID
+        email: str
 
-    # Protected field
-    salary: Annotated[Decimal, fraiseql.field(requires_scope="hr:read")]
+        # Protected field
+        salary: Annotated[Decimal, fraiseql.field(requires_scope="hr:read")]
 
-    # Deprecated field
-    username: Annotated[str, fraiseql.field(deprecated="Use email instead")]
+        # Deprecated field
+        username: Annotated[str, fraiseql.field(deprecated="Use email instead")]
 
-    # Non-nullable with default
-    role: Annotated[str, fraiseql.field(default="user")]
+        # Non-nullable with default
+        role: Annotated[str, fraiseql.field(default="user")]
 
-    # Computed field (not from database)
-    display_name: Annotated[str, fraiseql.field(computed=True)]
-```
+        # Computed field (not from database)
+        display_name: Annotated[str, fraiseql.field(computed=True)]
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type, field } from 'fraiseql';
+
+    @type()
+    class User {
+        id!: ID;
+        email!: string;
+
+        @field({ requiresScope: 'hr:read' })
+        salary!: number;
+
+        @field({ deprecated: 'Use email instead' })
+        username!: string;
+
+        @field({ default: 'user' })
+        role!: string;
+
+        @field({ computed: true })
+        displayName!: string;
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ## @query
 
 Defines a GraphQL query.
 
-```python
-@fraiseql.query(sql_source="v_user")
-def user(id: ID) -> User | None:
-    """Get a user by ID."""
-    pass
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.query(sql_source="v_user")
+    def user(id: ID) -> User | None:
+        """Get a user by ID."""
+        pass
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { query, ID } from 'fraiseql';
+
+    @query({ sqlSource: 'v_user' })
+    function user(id: ID): Promise<User | null> {
+        return Promise.resolve(null);
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+**Generated GraphQL SDL:**
+
+```graphql
+type Query {
+  user(id: ID!): User
+}
 ```
 
 ### Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `sql_source` | `str` | View or table to query |
-| `auto_params` | `dict` | Auto-generate parameters |
-| `cache_ttl` | `int` | Cache duration in seconds |
-| `cache` | `bool` | Enable/disable caching |
-| `requires_role` | `str` | Required role |
-| `requires_scope` | `str` | Required scope |
-| `max_limit` | `int` | Maximum limit value |
-| `default_limit` | `int` | Default limit value |
-
-```python
-@fraiseql.query(
-    sql_source="v_post",
-    auto_params={
-        "limit": True,
-        "offset": True,
-        "where": True,
-        "order_by": True,
-        "total_count": True
-    },
-    cache_ttl=300,
-    max_limit=100,
-    default_limit=20
-)
-def posts(
-    limit: int = 20,
-    offset: int = 0,
-    where: PostWhereInput | None = None,
-    order_by: PostOrderByInput | None = None
-) -> list[Post]:
-    """List posts with filtering and pagination."""
-    pass
-```
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `sql_source` | `str` | — | View or table to query |
+| `relay` | `bool` | `False` | Enable Relay spec (Connection/Edge/PageInfo, keyset cursors) |
+| `auto_params` | `bool \| dict` | inferred | `True` = all four params; `False` = none; dict for partial overrides (e.g. `{"limit": True, "offset": False}`). Partial dicts merge with `[query_defaults]` in `fraiseql.toml`. |
+| `inject` | `dict[str, str]` | — | Server-side JWT claim injection. Keys are SQL param names; values are `"jwt:<claim>"`. See [Server-Side Injection](/features/server-side-injection). |
+| `cache_ttl` | `int` | — | Cache duration in seconds |
+| `cache` | `bool` | — | Enable/disable caching |
+| `requires_role` | `str` | — | Required role |
+| `requires_scope` | `str` | — | Required scope |
 
 ### Auto Params
 
-| Param | Generated Type | Description |
-|-------|----------------|-------------|
-| `limit` | `Int` | LIMIT clause |
-| `offset` | `Int` | OFFSET clause |
-| `where` | `{Type}WhereInput` | Filter conditions |
-| `order_by` | `{Type}OrderByInput` | Sort order |
-| `total_count` | Result wrapper | Include total count |
+For list queries (`-> list[T]`), all four params are enabled automatically since rc.13. Pass `auto_params=False` to opt out:
+
+| Param | GraphQL argument | SQL |
+|-------|-----------------|-----|
+| `where` | `where: {Type}WhereInput` | `WHERE …` |
+| `orderBy` | `orderBy: [{Type}OrderByInput!]` | `ORDER BY …` |
+| `limit` | `limit: Int` | `LIMIT …` |
+| `offset` | `offset: Int` | `OFFSET …` |
+
+```python
+# All four auto-enabled (list return type)
+@fraiseql.query(sql_source="v_post")
+def posts() -> list[Post]:
+    pass
+
+# Opt out entirely
+@fraiseql.query(sql_source="v_post", auto_params=False)
+def posts() -> list[Post]:
+    pass
+```
+
+### Relay mode
+
+When `relay=True`, the query generates a Relay-spec `{Type}Connection` instead of `[Type!]!`, and `limit`/`offset` are replaced by `first`/`after`/`last`/`before`. Requires `@fraiseql.type(relay=True)` on the return type and `pk_{entity}` in the SQL view.
+
+```python
+@fraiseql.type(relay=True)
+class Post:
+    id: UUID
+    title: str
+
+@fraiseql.query(sql_source="v_post", relay=True)
+def posts() -> list[Post]:
+    pass
+```
+
+See [Relay Pagination](/features/pagination#relay-pagination) for full details.
 
 ## @mutation
 
 Defines a GraphQL mutation.
 
-```python
-@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
-def create_user(email: str, name: str) -> User:
-    """Create a new user."""
-    pass
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+    def create_user(email: str, name: str) -> User:
+        """Create a new user."""
+        pass
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { mutation } from 'fraiseql';
+
+    @mutation({ sqlSource: 'fn_create_user', operation: 'CREATE' })
+    function createUser(email: string, name: string): Promise<User> {
+        return Promise.resolve({} as User);
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+**Generated GraphQL SDL:**
+
+```graphql
+type Mutation {
+  createUser(email: String!, name: String!): User!
+}
 ```
 
 ### Options
@@ -138,30 +295,117 @@ def create_user(email: str, name: str) -> User:
 |--------|------|-------------|
 | `sql_source` | `str` | SQL function to call |
 | `operation` | `str` | `"CREATE"`, `"UPDATE"`, `"DELETE"` |
+| `inject` | `dict[str, str]` | Server-side JWT claim injection. Keys are SQL param names; values are `"jwt:<claim>"`. Injected params are never exposed to clients. See [Server-Side Injection](/features/server-side-injection). |
 | `requires_role` | `str` | Required role |
 | `requires_scope` | `str` | Required scope |
 | `cache_update` | `bool` | Update cache after mutation |
 
-```python
-@fraiseql.mutation(
-    sql_source="fn_delete_user",
-    operation="DELETE",
-    requires_scope="admin:delete_user"
-)
-def delete_user(id: ID) -> bool:
-    """Delete a user. Requires admin scope."""
-    pass
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.mutation(
+        sql_source="fn_delete_user",
+        operation="DELETE",
+        requires_scope="admin:delete_user"
+    )
+    def delete_user(id: ID) -> bool:
+        """Delete a user. Requires admin scope."""
+        pass
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    @mutation({
+        sqlSource: 'fn_delete_user',
+        operation: 'DELETE',
+        requiresScope: 'admin:delete_user',
+    })
+    function deleteUser(id: ID): Promise<boolean> {
+        return Promise.resolve(true);
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+### Error Handling
+
+Raise errors from within `@before_mutation` hooks or `@after_mutation` hooks to abort or signal failures:
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from fraiseql.errors import FraiseQLError
+
+    @fraiseql.before_mutation("delete_user")
+    async def before_delete_user(id: ID, context):
+        user = await get_user(id)
+        if user is None:
+            raise FraiseQLError("NOT_FOUND", f"User {id} does not exist")
+        if user.is_system_user:
+            raise FraiseQLError("FORBIDDEN", "Cannot delete system users")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { beforeMutation, FraiseQLError } from 'fraiseql';
+
+    beforeMutation('deleteUser', async (args, context) => {
+        const user = await getUser(args.id);
+        if (!user) {
+            throw new FraiseQLError('NOT_FOUND', `User ${args.id} does not exist`);
+        }
+        if (user.isSystemUser) {
+            throw new FraiseQLError('FORBIDDEN', 'Cannot delete system users');
+        }
+    });
+    ```
+  </TabItem>
+</Tabs>
+
+`FraiseQLError` produces a structured GraphQL error with an `extensions.code` field:
+
+```json
+{
+  "errors": [
+    {
+      "message": "Cannot delete system users",
+      "extensions": { "code": "FORBIDDEN" }
+    }
+  ]
+}
 ```
 
 ## @subscription
 
 Defines a GraphQL subscription.
 
-```python
-@fraiseql.subscription(entity_type="User", topic="user_created")
-def user_created() -> User:
-    """Subscribe to new users."""
-    pass
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.subscription(entity_type="User", topic="user_created")
+    def user_created() -> User:
+        """Subscribe to new users."""
+        pass
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { subscription } from 'fraiseql';
+
+    @subscription({ entityType: 'User', topic: 'user_created' })
+    function userCreated(): AsyncIterator<User> {
+        return {} as AsyncIterator<User>;
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+**Generated GraphQL SDL:**
+
+```graphql
+type Subscription {
+  userCreated: User!
+}
 ```
 
 ### Options
@@ -175,16 +419,32 @@ def user_created() -> User:
 | `jetstream` | `bool` | Use JetStream |
 | `replay` | `bool` | Allow replay |
 
-```python
-@fraiseql.subscription(
-    entity_type="Order",
-    operation="UPDATE",
-    filter="status == 'shipped'"
-)
-def order_shipped(customer_id: ID | None = None) -> Order:
-    """Subscribe to shipped orders."""
-    pass
-```
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.subscription(
+        entity_type="Order",
+        operation="UPDATE",
+        filter="status == 'shipped'"
+    )
+    def order_shipped(customer_id: ID | None = None) -> Order:
+        """Subscribe to shipped orders."""
+        pass
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    @subscription({
+        entityType: 'Order',
+        operation: 'UPDATE',
+        filter: "status == 'shipped'",
+    })
+    function orderShipped(customerId?: ID): AsyncIterator<Order> {
+        return {} as AsyncIterator<Order>;
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ## @input
 
@@ -198,6 +458,18 @@ class CreateUserInput:
     name: str
     bio: str | None = None
     role: str = "user"
+```
+
+**Generated GraphQL SDL:**
+
+```graphql
+input CreateUserInput {
+  """Input for creating a user."""
+  email: String!
+  name: String!
+  bio: String
+  role: String!
+}
 ```
 
 ### Validation
@@ -385,31 +657,6 @@ slack(
 )
 ```
 
-## @role
-
-Defines a role with scopes.
-
-```python
-@fraiseql.role("admin")
-class AdminRole:
-    """Administrator with full access."""
-    scopes = [
-        "read:*",
-        "write:*",
-        "delete:*",
-        "admin:*"
-    ]
-
-@fraiseql.role("user")
-class UserRole:
-    """Standard user access."""
-    scopes = [
-        "read:User",
-        "read:Post",
-        "write:Post"
-    ]
-```
-
 ## @middleware
 
 Defines request middleware.
@@ -448,6 +695,78 @@ async def before_delete_user(id: ID, context):
     if user.is_system_user:
         raise ValueError("Cannot delete system user")
 ```
+
+## Typed Error Unions (Planned)
+
+<Aside type="caution">
+The FraiseQL compiler supports typed mutation error unions at the IR level (rc.13). The Python SDK decorator (`@fraiseql.error`) is not yet available. This section documents the planned API.
+
+For now, use `RAISE EXCEPTION` in your PostgreSQL function with a `HINT` code, or raise `FraiseQLError` in a `@before_mutation` hook — both produce structured GraphQL errors that clients can act on.
+</Aside>
+
+The planned API for typed error returns:
+
+```python
+# Planned — not yet available in rc.13
+@fraiseql.error
+class InsufficientFundsError:
+    code: str
+    required_amount: float
+    available_amount: float
+
+@fraiseql.mutation(sql_source="fn_transfer_funds")
+def transfer_funds(
+    from_id: str,
+    to_id: str,
+    amount: float
+) -> Transfer | InsufficientFundsError:
+    ...
+```
+
+This would generate a GraphQL union return type instead of raising a GraphQL error — allowing clients to handle domain errors as typed data rather than error extensions. Track progress in the FraiseQL Python SDK repository.
+
+## @observer and @after_mutation: Choosing the Right Hook
+
+Both `@observer` and `@after_mutation` can react to data changes. They serve different purposes:
+
+`@after_mutation` runs **synchronously in the same transaction** (blocks the response until it completes). `@observer` runs **asynchronously after commit** (fire-and-forget via NATS — does not block the response).
+
+| | `@after_mutation` | `@observer` |
+|---|---|---|
+| **Trigger** | Specific named mutation | Any insert/update/delete on an entity |
+| **Runs** | In-process, synchronously after mutation | Asynchronously via NATS event |
+| **Use for** | Tightly-coupled side effects (audit log, cache bust) | Loosely-coupled notifications (email, webhook, Slack) |
+| **Access to context** | Full request context (user, headers) | Entity data only |
+| **Retries** | No built-in retry | Configurable retry with backoff |
+
+**Use `@after_mutation`** when you need the full request context and want the side effect to be part of the same request lifecycle:
+
+```python
+@fraiseql.after_mutation("create_user")
+async def after_create_user(user: User, context):
+    """Bust cache for user lists immediately after creation."""
+    await context.cache.invalidate("users:*")
+```
+
+**Use `@observer`** when you need reliable delivery, retries, or want to decouple the side effect from the mutation:
+
+```python
+@observer(
+    entity="User",
+    event="INSERT",
+    actions=[
+        email(to="{email}", subject="Welcome!", body="Hi {name}"),
+    ],
+    retry=RetryConfig(max_attempts=3, backoff_strategy="exponential"),
+)
+def on_user_created():
+    """Send welcome email — retried on failure, decoupled from mutation."""
+    pass
+```
+
+<Aside type="tip">
+If both `@after_mutation` and `@observer` are registered for the same event, `@after_mutation` runs first (synchronously), then the observer fires asynchronously via NATS.
+</Aside>
 
 ## @arrow_query
 
@@ -530,10 +849,230 @@ class User:
 Export schema to JSON:
 
 ```python
-if __name__ == "__main__":
-    fraiseql.export_schema("schema.json")
-    print("Schema exported!")
+## Quick Reference
+
+### Decorator Cheat Sheet
+
+| Decorator | Purpose | Key Options |
+|-----------|---------|-------------|
+| `@type` | Define object type | `database`, `implements` |
+| `@input` | Define input type | — |
+| `@query` | Define query | `sql_source`, `auto_params`, `cache_ttl` |
+| `@mutation` | Define mutation | `sql_source`, `operation`, `requires_scope` |
+| `@subscription` | Define subscription | `entity_type`, `filter`, `topic` |
+| `@enum` | Define enum | — |
+| `@interface` | Define interface | — |
+| `@union` | Define union | `members` |
+| `@scalar` | Define custom scalar | — |
+| `@observer` | Event observer | `entity`, `event`, `condition`, `actions` |
+| `@role` | Define role | — |
+| `@middleware` | Request middleware | — |
+| `@before_mutation` | Pre-mutation hook | — |
+| `@after_mutation` | Post-mutation hook | — |
+| `@arrow_query` | Arrow Flight query | `sql_source` |
+
+### Common Auto Params
+
+```python
+@fraiseql.query(
+    sql_source="v_user",
+    auto_params={
+        "limit": True,        # Add limit: Int parameter
+        "offset": True,       # Add offset: Int parameter  
+        "where": True,        # Add where: UserWhereInput
+        "order_by": True,     # Add orderBy: UserOrderByInput
+        "total_count": True,  # Wrap result with totalCount
+    }
+)
 ```
+
+### Field Options
+
+```python
+# With Annotated
+from typing import Annotated
+
+@fraiseql.type
+class User:
+    id: ID
+    email: Annotated[str, fraiseql.field(
+        requires_scope="user:read_email",  # Require scope
+        deprecated="Use contactEmail instead",  # Deprecation
+        default="",  # Default value
+        computed=True,  # Computed field
+    )]
+```
+
+### Validation Rules
+
+```python
+@fraiseql.input
+class CreateUserInput:
+    email: Annotated[str, fraiseql.validate(
+        pattern=r"^[^@]+@[^@]+\.[^@]+$",
+        message="Invalid email format"
+    )]
+    name: Annotated[str, fraiseql.validate(
+        min_length=2,
+        max_length=100
+    )]
+    age: Annotated[int, fraiseql.validate(
+        minimum=13,
+        maximum=120
+    )]
+```
+
+## Verify It Works
+
+<Steps>
+
+1. **Define a simple type with decorators**:
+   ```python
+   import fraiseql
+
+   @fraiseql.type
+   class Product:
+       id: str
+       name: str
+       price: float
+   ```
+
+2. **Add a query decorator**:
+   ```python
+   @fraiseql.query(sql_source="v_product")
+   def product(id: str) -> Product:
+       pass
+   ```
+
+3. **Compile the schema**:
+   ```bash
+   fraiseql compile
+   ```
+   
+   Expected output:
+   ```
+   ✓ Schema validated (1 types, 1 queries)
+   ✓ Compiled to schema.compiled.json
+   ```
+
+4. **Introspect the generated schema**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ __type(name: \"Product\") { fields { name } } }"}' | jq
+   ```
+   
+   Expected response:
+   ```json
+   {
+     "data": {
+       "__type": {
+         "fields": [
+           {"name": "id"},
+           {"name": "name"},
+           {"name": "price"}
+         ]
+       }
+     }
+   }
+   ```
+
+5. **Test the query**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ product(id: \"123\") { id name price } }"}'
+   ```
+
+6. **Test with authorization**:
+   ```python
+   @fraiseql.mutation(
+       sql_source="fn_create_product",
+       requires_scope="admin:products"
+   )
+   def create_product(name: str, price: float) -> Product:
+       pass
+   ```
+   
+   Test without scope (should fail):
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Authorization: Bearer $USER_TOKEN" \
+     -d '{"query": "mutation { createProduct(name: \"Widget\", price: 9.99) { id } }"}'
+   ```
+   
+   Expected error:
+   ```json
+   {
+     "errors": [{
+       "message": "Forbidden: missing scope admin:products"
+     }]
+   }
+   ```
+
+</Steps>
+
+## Troubleshooting
+
+### Decorator Not Found
+
+```python
+@fraiseql.type
+class User:
+    pass
+# Error: module 'fraiseql' has no attribute 'type'
+```
+
+**Solution:** Use correct import:
+```python
+import fraiseql
+
+@fraiseql.type  # Correct
+class User:
+    pass
+```
+
+### Type Not Generated
+
+```bash
+$ fraiseql compile
+Warning: Type 'User' has no fields
+```
+
+**Check:**
+1. All fields have type annotations
+2. No syntax errors in class definition
+3. Class is properly indented under decorator
+
+### Forward Reference Error
+
+```python
+@fraiseql.type
+class User:
+    posts: list[Post]  # Error: Post not defined
+```
+
+**Solution:** Use string literal for forward reference:
+```python
+@fraiseql.type
+class User:
+    posts: list['Post']  # Forward reference as string
+```
+
+### Mutation Not Working
+
+```python
+@fraiseql.mutation(sql_source="fn_create_user")
+def create_user(name: str) -> User:
+    pass
+```
+
+**Check:**
+1. SQL function exists: `SELECT * FROM pg_proc WHERE proname = 'fn_create_user'`
+2. Function returns correct type
+3. Input parameters match function signature
+
+## Next Steps
 
 <CardGrid>
   <Card title="Type System" icon="list-format">

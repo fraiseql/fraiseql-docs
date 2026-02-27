@@ -120,22 +120,20 @@ Submit a PR to the examples repository with a link to your repo.
    ```bash
    git clone https://github.com/fraiseql/fraiseql.git
    cd fraiseql
-   python -m venv venv
-   source venv/bin/activate
-   pip install -e ".[dev]"
+   uv sync --all-extras
    ```
 
 2. Run tests:
 
    ```bash
-   pytest tests/
+   uv run pytest tests/
    ```
 
 3. Check code quality:
 
    ```bash
-   ruff check --fix
-   ruff format
+   uv run ruff check --fix
+   uv run ruff format
    ```
 
 4. Build docs:
@@ -147,9 +145,10 @@ Submit a PR to the examples repository with a link to your repo.
 </Steps>
 
 **Code style:**
-- Python: PEP 8, type hints required
+- Python: PEP 8, type hints required, managed with `uv` (not `pip`)
 - Docstrings: Google style
-- Tests: pytest, aim for 80%+ coverage
+- Tests: pytest (run with `uv run pytest`), aim for 80%+ coverage
+- SQL: lowercase keywords (`select`, `insert`), `snake_case` identifiers, explicit type casts (`value::text` not implicit coercion)
 - Commit messages: `feat:`, `fix:`, `docs:`, `test:` prefixes
 
 **Submit code PR:**
@@ -161,8 +160,8 @@ git checkout -b feature/amazing-feature
 # Make changes, add tests and documentation
 
 # Verify quality
-pytest tests/
-ruff check --fix
+uv run pytest tests/
+uv run ruff check --fix
 
 # Commit with clear message
 git commit -m "feat: add support for X
@@ -337,7 +336,7 @@ When reviewing others' contributions:
 ### Finding Tasks
 
 Look for issues labeled:
-- `good first issue` — Start here!
+- [`good first issue`](https://github.com/fraiseql/fraiseql/labels/good-first-issue) — Start here!
 - `help wanted` — Contributors needed
 - `documentation` — Docs improvement
 

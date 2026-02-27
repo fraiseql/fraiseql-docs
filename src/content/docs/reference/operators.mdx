@@ -104,16 +104,20 @@ SELECT data FROM v_user WHERE data->>'avatar_url' IS NOT NULL
 
 ## String Operators
 
-| Operator | Description | SQL |
-|----------|-------------|-----|
-| `_like` | Pattern match (case-sensitive) | `LIKE $pattern` |
-| `_ilike` | Pattern match (case-insensitive) | `ILIKE $pattern` |
-| `_nlike` | Not like | `NOT LIKE $pattern` |
-| `_nilike` | Not ilike | `NOT ILIKE $pattern` |
-| `_regex` | Regular expression | `~ $pattern` |
-| `_iregex` | Case-insensitive regex | `~* $pattern` |
-| `_nregex` | Not regex | `!~ $pattern` |
-| `_niregex` | Not iregex | `!~* $pattern` |
+| Operator | Description | SQL | Database Support |
+|----------|-------------|-----|-----------------|
+| `_like` | Pattern match (case-sensitive) | `LIKE $pattern` | All |
+| `_ilike` | Pattern match (case-insensitive) | `ILIKE $pattern` | **PostgreSQL only** |
+| `_nlike` | Not like | `NOT LIKE $pattern` | All |
+| `_nilike` | Not ilike | `NOT ILIKE $pattern` | **PostgreSQL only** |
+| `_regex` | Regular expression | `~ $pattern` | **PostgreSQL only** |
+| `_iregex` | Case-insensitive regex | `~* $pattern` | **PostgreSQL only** |
+| `_nregex` | Not regex | `!~ $pattern` | **PostgreSQL only** |
+| `_niregex` | Not iregex | `!~* $pattern` | **PostgreSQL only** |
+
+<Aside type="note">
+Operators marked **PostgreSQL only** are not available in MySQL, SQLite, or SQL Server. Using them with a non-PostgreSQL database will result in a compilation error.
+</Aside>
 
 ### Pattern Matching
 
@@ -172,13 +176,13 @@ SELECT data FROM v_user WHERE data->>'status' IN ('active', 'pending')
 
 For array fields (`list[T]`):
 
-| Operator | Description | SQL |
-|----------|-------------|-----|
-| `_contains` | Array contains value | `@> ARRAY[$value]` |
-| `_contained_in` | Array is contained in | `<@ $array` |
-| `_has_any` | Has any of values | `&& $array` |
-| `_has_all` | Has all of values | `@> $array` |
-| `_is_empty` | Array is empty | `= '{}'` |
+| Operator | Description | SQL | Database Support |
+|----------|-------------|-----|-----------------|
+| `_contains` | Array contains value | `@> ARRAY[$value]` | **PostgreSQL only** |
+| `_contained_in` | Array is contained in | `<@ $array` | **PostgreSQL only** |
+| `_has_any` | Has any of values | `&& $array` | **PostgreSQL only** |
+| `_has_all` | Has all of values | `@> $array` | **PostgreSQL only** |
+| `_is_empty` | Array is empty | `= '{}'` | **PostgreSQL only** |
 
 ```graphql
 query {
@@ -215,13 +219,17 @@ WHERE (data->'tags')::text[] @> ARRAY['graphql', 'tutorial']
 
 For `Json` fields:
 
-| Operator | Description | SQL |
-|----------|-------------|-----|
-| `_contains` | Contains JSON | `@> $json` |
-| `_contained_in` | Contained in JSON | `<@ $json` |
-| `_has_key` | Has key | `? $key` |
-| `_has_keys_any` | Has any key | `?| $keys` |
-| `_has_keys_all` | Has all keys | `?& $keys` |
+| Operator | Description | SQL | Database Support |
+|----------|-------------|-----|-----------------|
+| `_contains` | Contains JSON | `@> $json` | **PostgreSQL only** |
+| `_contained_in` | Contained in JSON | `<@ $json` | **PostgreSQL only** |
+| `_has_key` | Has key | `? $key` | **PostgreSQL only** |
+| `_has_keys_any` | Has any key | `?| $keys` | **PostgreSQL only** |
+| `_has_keys_all` | Has all keys | `?& $keys` | **PostgreSQL only** |
+
+<Aside type="note">
+All JSONB operators are **PostgreSQL only**. They rely on PostgreSQL's native JSONB type and operators. Using them with a non-PostgreSQL database will result in a compilation error.
+</Aside>
 
 ```graphql
 query {

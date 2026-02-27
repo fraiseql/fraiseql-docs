@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: saas
+      POSTGRES_PASSWORD: saas
+      POSTGRES_DB: saas
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saas -d saas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ghcr.io/fraiseql/fraiseql:latest
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql://saas:saas@db:5432/saas
+      PORT: 8080
+    volumes:
+      - ./fraiseql.toml:/app/fraiseql.toml:ro
+      - ./schema.py:/app/schema.py:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

@@ -1,122 +1,132 @@
 ---
 title: Rate Limiting
-description: Protect your API with configurable rate limiting
+description: Token bucket rate limiting for FraiseQL APIs
 ---
 
 import { Aside, Tabs, TabItem, CardGrid, Card } from '@astrojs/starlight/components';
 
-FraiseQL includes built-in rate limiting to protect your API from abuse and ensure fair resource usage.
+<Aside type="note">
+Rate limiting in rc.13 applies a global token bucket to all requests, per-endpoint limits to auth routes, and a per-authenticated-user limit (default: 10× the global rate). The rate limiter is in-memory per process — distributed Redis coordination for multi-replica deployments is planned for a future release.
+</Aside>
+
+FraiseQL includes built-in rate limiting via a **token bucket** algorithm, configured under `[security.rate_limiting]`.
 
 ## Overview
 
-Rate limiting uses a **token bucket algorithm** with configurable limits per:
-- IP address
-- Authenticated user
-- API key
-- Custom identifiers
+The rate limiter operates at two levels:
+
+- **Global** — a single token bucket applies to all incoming requests
+- **Per-endpoint** — stricter limits on `/auth/start`, `/auth/callback`, `/auth/refresh`, `/auth/logout` to prevent brute-force attacks
+
+Rate limiting is **disabled by default**. Enable it explicitly in production.
 
 ## Configuration
 
-### Basic Setup
+### Basic setup
 
 ```toml
-[rate_limiting]
-enabled = true
-
-[rate_limiting.default]
-requests_per_second = 100
-burst_size = 500
+[security.rate_limiting]
+enabled                      = true
+requests_per_second          = 100
+requests_per_second_per_user = 500   # default: 10× requests_per_second
+burst_size                   = 200
 ```
 
-### Per-IP Limits
+**Per-user limit**: Authenticated users receive 10× the global rate by default. This reflects that authenticated requests are identifiable (abuse is traceable) and service accounts legitimately call at higher rates. Override with `requests_per_second_per_user` when the default is too permissive — for example, on public-facing APIs where "authenticated" just means "has an account."
+
+### Auth endpoint limits
 
 ```toml
-[rate_limiting.per_ip]
-enabled = true
-requests_per_second = 100
-burst_size = 200
-cleanup_interval_secs = 300
+[security.rate_limiting]
+enabled                    = true
+requests_per_second        = 100
+burst_size                 = 200
+
+# /auth/start
+auth_start_max_requests    = 5
+auth_start_window_secs     = 60
+
+# /auth/callback
+auth_callback_max_requests = 10
+auth_callback_window_secs  = 60
+
+# /auth/refresh
+auth_refresh_max_requests  = 20
+auth_refresh_window_secs   = 300
+
+# /auth/logout
+auth_logout_max_requests   = 30
+auth_logout_window_secs    = 60
 ```
 
-### Per-User Limits
+### Failed login protection
 
 ```toml
-[rate_limiting.per_user]
-enabled = true
-requests_per_second = 1000
-burst_size = 2000
+[security.rate_limiting]
+enabled                   = true
+failed_login_max_attempts = 10
+failed_login_lockout_secs = 900  # 15-minute lockout after 10 failures
 ```
 
-### Authentication Rate Limits
+---
 
-Protect login endpoints from brute force:
+## Burst Allowance
 
-```toml
-[rate_limiting.auth]
-enabled = true
+The burst size lets clients send a short burst of requests above the steady-state rate without being throttled. This is important for page loads and app startups where many requests fire simultaneously.
 
-# Failed login attempts
-[rate_limiting.auth.failed_login]
-max_attempts = 5
-window_secs = 3600  # 1 hour lockout after 5 failures
-```
+**How it works:** Tokens accumulate in the bucket at `requests_per_second`. At any moment, a client can consume up to `burst_size` tokens at once. Once the bucket empties, requests return HTTP 429 until tokens refill.
 
-## Strategies
+Example behavior:
 
-### Standard
-
-Default rate limiting for general API access:
-
-```toml
-[rate_limiting.strategies.standard]
-requests_per_second = 100
-burst_size = 500
-```
-
-### Strict
-
-Tighter limits for sensitive operations:
-
-```toml
-[rate_limiting.strategies.strict]
-requests_per_second = 50
-burst_size = 100
-```
-
-### Custom Per-Operation
-
-Apply different limits to specific operations:
-
-```toml
-[rate_limiting.operations]
-# Expensive analytics queries
-"salesAggregate" = { requests_per_second = 10, burst_size = 20 }
-
-# Bulk mutations
-"importProducts" = { requests_per_second = 5, burst_size = 10 }
-```
-
-## Redis Backend
-
-For distributed deployments, use Redis for shared rate limit state:
-
-```toml
-[rate_limiting]
-enabled = true
-backend = "redis"
-
-[rate_limiting.redis]
-url = "${REDIS_URL}"
-key_prefix = "fraiseql:ratelimit:"
-```
+| Time | Tokens Available | Requests Sent | Result |
+|------|-----------------|---------------|--------|
+| 0s | 200 (full) | 200 | All allowed |
+| 0s | 0 | 1 | Rate limited (429) |
+| 1s | 100 | 100 | All allowed (refilled) |
+| 2s | 100 | 50 | Allowed; 50 tokens remain |
 
 <Aside type="tip">
-Using Redis ensures consistent limits across multiple server instances. Without Redis, each instance maintains its own rate limit state.
+Set `burst_size` to roughly 2x your `requests_per_second` for a balanced buffer. For APIs with very bursty traffic patterns (many parallel requests on page load), increase to 3–5x.
 </Aside>
+
+---
+
+## Multi-Instance (Distributed Rate Limits)
+
+The current implementation is **in-memory per instance**. When running multiple FraiseQL instances behind a load balancer, each instance maintains its own token bucket independently — a client can send requests across instances without hitting a shared limit.
+
+A Redis backend is planned for a future release. If you configure `redis_url` today, the server logs a warning and falls back to in-memory:
+
+```toml
+[security.rate_limiting]
+enabled  = true
+# redis_url = "redis://localhost:6379"  # Not yet enforced — logs a warning
+```
+
+For production deployments that require distributed rate limiting before the Redis backend ships, apply rate limiting at your load balancer or API gateway layer.
+
+---
+
+## Default Values
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Rate limiting is opt-in |
+| `requests_per_second` | `100` | Global token bucket refill rate |
+| `requests_per_second_per_user` | `requests_per_second × 10` | Per-authenticated-user limit |
+| `burst_size` | `200` | Maximum burst |
+| `auth_start_max_requests` | `5` | Per 60s window |
+| `auth_callback_max_requests` | `10` | Per 60s window |
+| `auth_refresh_max_requests` | `20` | Per 300s window |
+| `auth_logout_max_requests` | `30` | Per 60s window |
+| `failed_login_max_attempts` | `10` | Before lockout |
+| `failed_login_lockout_secs` | `900` | 15-minute lockout |
+
+---
 
 ## Response Headers
 
-FraiseQL includes rate limit headers in responses:
+FraiseQL includes rate limit headers on all responses:
 
 ```
 X-RateLimit-Limit: 100
@@ -124,7 +134,7 @@ X-RateLimit-Remaining: 95
 X-RateLimit-Reset: 1704067260
 ```
 
-When rate limited:
+When rate limited (HTTP 429):
 
 ```
 HTTP/1.1 429 Too Many Requests
@@ -132,26 +142,29 @@ Retry-After: 5
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 0
 X-RateLimit-Reset: 1704067260
+Content-Type: application/json
 ```
-
-## GraphQL Error Response
 
 ```json
 {
-    "errors": [{
-        "message": "Rate limit exceeded",
-        "extensions": {
-            "code": "RATE_LIMITED",
-            "retryAfter": 5
-        }
-    }]
+  "errors": [{
+    "message": "Rate limit exceeded. Try again in 5 seconds.",
+    "extensions": {
+      "code": "RATE_LIMITED",
+      "retryAfter": 5,
+      "limit": 100,
+      "reset": 1704067260
+    }
+  }]
 }
 ```
+
+---
 
 ## Client Handling
 
 <Tabs syncKey="language">
-<TabItem label="JavaScript">
+<TabItem label="JavaScript/TypeScript">
 ```javascript
 async function executeWithRetry(query, variables, maxRetries = 3) {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -195,104 +208,93 @@ def execute_with_retry(query: str, variables: dict, max_retries: int = 3):
     raise Exception("Rate limit exceeded after retries")
 ```
 </TabItem>
+<TabItem label="Go">
+```go
+func executeWithRetry(query string, variables map[string]interface{}, maxRetries int) (map[string]interface{}, error) {
+    payload := map[string]interface{}{"query": query, "variables": variables}
+    jsonPayload, _ := json.Marshal(payload)
+
+    for attempt := 0; attempt < maxRetries; attempt++ {
+        resp, err := http.Post(
+            "http://localhost:8080/graphql",
+            "application/json",
+            bytes.NewBuffer(jsonPayload),
+        )
+        if err != nil {
+            return nil, err
+        }
+        defer resp.Body.Close()
+
+        if resp.StatusCode == 429 {
+            retryAfter := resp.Header.Get("Retry-After")
+            seconds, _ := strconv.Atoi(retryAfter)
+            if seconds == 0 {
+                seconds = 5
+            }
+            time.Sleep(time.Duration(seconds) * time.Second)
+            continue
+        }
+
+        var result map[string]interface{}
+        json.NewDecoder(resp.Body).Decode(&result)
+        return result, nil
+    }
+
+    return nil, fmt.Errorf("rate limit exceeded after %d retries", maxRetries)
+}
+```
+</TabItem>
 </Tabs>
 
-## Bypass for Internal Services
+---
 
-Allow internal services to bypass rate limits:
+## Health Check Exemptions
 
-```toml
-[rate_limiting.bypass]
-# Trusted IP ranges
-ip_allowlist = ["10.0.0.0/8", "172.16.0.0/12"]
-
-# API keys that bypass limits
-api_keys = ["${INTERNAL_API_KEY}"]
-```
-
-## Metrics
-
-Monitor rate limiting effectiveness:
-
-| Metric | Description |
-|--------|-------------|
-| `fraiseql_rate_limit_hits_total` | Requests that hit rate limit |
-| `fraiseql_rate_limit_allowed_total` | Requests allowed through |
-| `fraiseql_rate_limit_bucket_size` | Current token bucket size |
-
-### Grafana Query
+The following paths are always exempt from rate limiting:
 
 ```
-# Rate limit hit ratio
+GET /health   → always 200 OK
+GET /ready    → always 200 OK
+GET /metrics  → always 200 OK (Prometheus scrape endpoint)
+```
+
+These endpoints are not configurable — they are always exempt to ensure load balancer health checks and Kubernetes probes are never blocked.
+
+---
+
+## Prometheus Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `fraiseql_rate_limit_hits_total` | Counter | Requests rejected by rate limiter |
+| `fraiseql_rate_limit_allowed_total` | Counter | Requests allowed through |
+
+### Grafana queries
+
+```
+# Rate limit hit ratio (% of requests blocked)
 sum(rate(fraiseql_rate_limit_hits_total[5m])) /
 sum(rate(fraiseql_rate_limit_allowed_total[5m]) + rate(fraiseql_rate_limit_hits_total[5m]))
+
+# Alert: more than 5% of requests rate limited
+sum(rate(fraiseql_rate_limit_hits_total[5m])) /
+sum(rate(fraiseql_rate_limit_hits_total[5m]) + rate(fraiseql_rate_limit_allowed_total[5m])) > 0.05
 ```
 
-## Best Practices
-
-### Start Conservative
-
-Begin with strict limits and relax as needed:
-
-```toml
-[rate_limiting.per_ip]
-requests_per_second = 50  # Start low
-burst_size = 100
-```
-
-### Monitor Before Tuning
-
-Use metrics to understand traffic patterns before adjusting:
-
-```
-# Peak request rate by IP
-topk(10, sum by (ip) (rate(fraiseql_requests_total[5m])))
-```
-
-### Separate Limits by Operation Type
-
-```toml
-[rate_limiting.operations]
-# Reads are cheaper
-"users" = { requests_per_second = 200 }
-"posts" = { requests_per_second = 200 }
-
-# Mutations are more expensive
-"createUser" = { requests_per_second = 20 }
-"updatePost" = { requests_per_second = 50 }
-```
-
-### Use Redis for Production
-
-```toml
-# Development
-[rate_limiting]
-backend = "memory"
-
-# Production
-[rate_limiting]
-backend = "redis"
-```
+---
 
 ## Troubleshooting
 
-### Rate Limits Too Aggressive
+**Rate limits seem too aggressive**
+- Increase `burst_size` — the default (200) may be too small for page-load traffic patterns
+- Check if `requests_per_second` needs adjusting for your traffic volume
 
-1. Check metrics for actual usage patterns
-2. Increase `burst_size` for bursty traffic
-3. Consider per-user vs per-IP limits
+**Rate limiting not triggering**
+- Verify `enabled = true`
+- Check that `requests_per_second` is lower than your actual peak traffic
 
-### Rate Limits Not Working
-
-1. Verify `enabled = true`
-2. Check Redis connection (if using Redis backend)
-3. Confirm middleware is applied to routes
-
-### Legitimate Users Being Limited
-
-1. Review per-user limits vs per-IP
-2. Check for shared IPs (NAT, proxies)
-3. Consider API key-based limits for power users
+**Legitimate users being limited in multi-instance deployments**
+- Apply rate limiting at the load balancer layer instead, until the Redis backend ships
 
 ## Next Steps
 
@@ -300,10 +302,10 @@ backend = "redis"
   <Card title="Security" icon="shield">
     [Security](/features/security) — Authentication and authorization
   </Card>
-  <Card title="Deployment" icon="rocket">
-    [Deployment](/guides/deployment) — Production configuration
+  <Card title="TOML Reference" icon="setting">
+    [TOML Config](/reference/toml-config#securityrate_limiting) — Full field reference
   </Card>
-  <Card title="Performance" icon="setting">
+  <Card title="Performance" icon="rocket">
     [Performance](/guides/performance) — Optimization strategies
   </Card>
 </CardGrid>

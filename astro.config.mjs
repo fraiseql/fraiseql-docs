@@ -13,6 +13,7 @@ export default defineConfig({
       tagline: 'Schema. Compile. Serve.',
       components: {
         Hero: './src/components/Hero.astro',
+        SiteTitle: './src/components/SiteTitle.astro',
       },
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/fraiseql/fraiseql' },
@@ -56,6 +57,7 @@ export default defineConfig({
             { label: 'Quick Start', slug: 'getting-started/quickstart' },
             { label: 'Your First API', slug: 'getting-started/first-api' },
             { label: 'Adding Mutations', slug: 'getting-started/adding-mutations' },
+            { label: 'Playground', slug: 'playground' },
           ],
         },
         {
@@ -185,6 +187,7 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Security', slug: 'features/security' },
+                { label: 'Server-Side Injection', slug: 'features/server-side-injection' },
                 { label: 'Encryption', slug: 'features/encryption' },
                 { label: 'OAuth Providers', slug: 'features/oauth-providers' },
                 { label: 'Audit Logging', slug: 'features/audit-logging' },
@@ -324,6 +327,7 @@ export default defineConfig({
             { label: 'Contributing', slug: 'community/contributing' },
             { label: 'Code of Conduct', slug: 'community/code-of-conduct' },
             { label: 'Getting Support', slug: 'community/support' },
+            { label: 'Changelog', slug: 'changelog' },
           ],
         },
       ],

@@ -3,7 +3,7 @@ title: FraiseQL vs Apollo
 description: How FraiseQL compares to Apollo GraphQL Server
 ---
 
-import { CardGrid, Card } from '@astrojs/starlight/components';
+import { CardGrid, Card, Tabs, TabItem, Aside, Steps } from '@astrojs/starlight/components';
 
 Apollo is the most popular GraphQL framework. Here's how FraiseQL differs — and when each is the right choice.
 
@@ -23,9 +23,10 @@ Apollo is the most popular GraphQL framework. Here's how FraiseQL differs — an
 | **Configuration** | TOML | JavaScript/TypeScript |
 | **Schema definition** | Code (Python, TS, Go...) | SDL or code-first |
 | **Performance** | Predictable, sub-ms | Depends on resolvers |
+| **Subscriptions** | Native (WebSocket + NATS) | Requires Apollo Server + PubSub setup |
+| **Schema federation** | Built-in multi-database | Apollo Federation (separate package) |
 | **Learning curve** | Lower | Higher |
 | **Flexibility** | Database-centric | Unlimited |
-| **Federation** | Built-in | Apollo Federation (separate) |
 
 ## The Resolver Tax
 
@@ -82,29 +83,84 @@ const resolvers = {
 
 ### FraiseQL: Define Schema Only
 
-```python
-# FraiseQL
-@fraiseql.type
-class User:
-    id: str
-    name: str
-    posts: list['Post']
+<Tabs>
+  <TabItem label="Python">
+    ```python
+    # FraiseQL
+    @fraiseql.type
+    class User:
+        id: str
+        name: str
+        posts: list['Post']
 
-@fraiseql.type
-class Post:
-    id: str
-    title: str
-    author: User
-    comments: list['Comment']
+    @fraiseql.type
+    class Post:
+        id: str
+        title: str
+        author: User
+        comments: list['Comment']
 
-@fraiseql.type
-class Comment:
-    id: str
-    content: str
-    author: User
-```
+    @fraiseql.type
+    class Comment:
+        id: str
+        content: str
+        author: User
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type } from 'fraiseql';
 
-**Lines of code: 15**
+    @type()
+    class User {
+        id!: string;
+        name!: string;
+        posts!: Post[];
+    }
+
+    @type()
+    class Post {
+        id!: string;
+        title!: string;
+        author!: User;
+        comments!: Comment[];
+    }
+
+    @type()
+    class Comment {
+        id!: string;
+        content!: string;
+        author!: User;
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import "github.com/fraiseql/fraiseql-go"
+
+    type User struct {
+        ID    fraiseql.ID `fraiseql:"id"`
+        Name  string      `fraiseql:"name"`
+        Posts []Post      `fraiseql:"posts"`
+    }
+
+    type Post struct {
+        ID       fraiseql.ID `fraiseql:"id"`
+        Title    string      `fraiseql:"title"`
+        Author   User        `fraiseql:"author"`
+        Comments []Comment   `fraiseql:"comments"`
+    }
+
+    type Comment struct {
+        ID      fraiseql.ID `fraiseql:"id"`
+        Content string      `fraiseql:"content"`
+        Author  User        `fraiseql:"author"`
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+**Lines of code: 15 (Python) / 24 (TypeScript) / 21 (Go)**
 **Potential N+1 queries: 0**
 **DataLoaders needed: 0**
 
@@ -215,6 +271,111 @@ class Post:
 
 Queries and mutations are derived from your SQL views and functions.
 
+## Subscriptions
+
+### Apollo: Manual PubSub Setup
+
+```typescript
+// Apollo Server subscriptions require a PubSub implementation
+import { PubSub } from 'graphql-subscriptions';
+const pubsub = new PubSub();
+
+const resolvers = {
+  Subscription: {
+    userCreated: {
+      subscribe: () => pubsub.asyncIterator(['USER_CREATED']),
+    },
+  },
+  Mutation: {
+    createUser: async (_, { input }) => {
+      const user = await db.createUser(input);
+      // Must manually publish to subscribers
+      pubsub.publish('USER_CREATED', { userCreated: user });
+      return user;
+    },
+  },
+};
+```
+
+For production, `graphql-subscriptions` must be replaced with a scalable PubSub backend (Redis, MQTT, etc.) and managed separately.
+
+### FraiseQL: Native Subscriptions
+
+```python
+@fraiseql.subscription(entity_type="User", topic="user_created")
+def user_created() -> User:
+    """Subscribe to new users via NATS."""
+    pass
+```
+
+FraiseQL subscriptions are backed by NATS messaging. When a PostgreSQL function (`fn_*`) completes a write, FraiseQL automatically publishes the event — no manual `pubsub.publish()` calls needed.
+
+## Federation
+
+### Apollo Federation: Composing Multiple GraphQL Services
+
+Apollo Federation is designed to compose **multiple independent GraphQL subgraph services** into a unified supergraph. Each subgraph is a separate process with its own schema, and the Apollo Router stitches them together at the gateway layer.
+
+```graphql
+# users-subgraph/schema.graphql
+type User @key(fields: "id") {
+  id: ID!
+  name: String!
+}
+
+# posts-subgraph/schema.graphql
+type Post {
+  id: ID!
+  title: String!
+  author: User @provides(fields: "name")
+}
+
+extend type User @key(fields: "id") {
+  id: ID! @external
+  posts: [Post!]!
+}
+```
+
+Each subgraph is a **separate deployed service**. You run an Apollo Router instance in front of them. Federation resolves cross-service references at the gateway level with additional network hops.
+
+### FraiseQL Federation: Connecting Multiple Databases in One Process
+
+FraiseQL federation connects **multiple databases** (PostgreSQL, MySQL, SQLite, SQL Server) inside a single compiled Rust binary. There is no gateway layer, no inter-service network calls, and no subgraph protocol.
+
+```toml
+# fraiseql.toml
+[[databases]]
+name = "users_db"
+url = "${USERS_DB_URL}"
+
+[[databases]]
+name = "analytics_db"
+url = "${ANALYTICS_DB_URL}"
+```
+
+```python
+@fraiseql.type
+class User:
+    id: str
+    name: str
+    # analytics field resolved from analytics_db at SQL level
+    page_views: int
+```
+
+FraiseQL joins across databases at the SQL view layer — the result is a single query executed by the Rust binary, with no inter-process communication.
+
+### Key Difference
+
+| | Apollo Federation | FraiseQL Federation |
+|-|-------------------|---------------------|
+| **Unit of federation** | GraphQL subgraph services | Databases |
+| **Architecture** | Distributed (multiple processes + gateway) | Single process |
+| **Cross-unit join** | Network hop through Router | SQL JOIN in view |
+| **Deployment** | Router + N subgraph services | Single Rust binary |
+| **Use case** | Independent teams, polyglot services | Multiple databases, monolithic backend |
+
+Use Apollo Federation when you need to compose independently deployed services owned by separate teams. Use FraiseQL federation when your data lives in multiple databases but you want a single cohesive backend.
+
 ## Input Validation
 
 ### Apollo: Runtime + Decorators
@@ -276,6 +437,10 @@ status = { enum = ["active", "inactive"] }
 | Cross-field validation | ✅ Yes | ❌ Custom code required |
 | Learning curve | Low | High |
 
+<Aside type="note">
+Performance comparisons in this page reflect architectural differences — FraiseQL executes pre-built SQL views while Apollo resolvers generate queries at runtime. Actual numbers depend on hardware, database size, query complexity, and resolver implementation. See [Performance Benchmarks](/guides/performance-benchmarks) for controlled benchmark results.
+</Aside>
+
 ## When to Use Apollo
 
 Apollo is a better choice when:
@@ -296,6 +461,108 @@ FraiseQL is a better choice when:
 - **You prefer less code** — 15 lines vs 40+ lines
 - **You want simple deployment** — Single Rust binary vs Node.js + DataLoaders
 
+## Quick Test: Apollo vs FraiseQL
+
+<Steps>
+
+1. **Create a simple Apollo Server**:
+   ```bash
+   npm init -y
+   npm install apollo-server graphql
+   ```
+   
+   Create `index.js`:
+   ```javascript
+   const { ApolloServer, gql } = require('apollo-server');
+   
+   const typeDefs = gql`
+     type User {
+       id: ID!
+       name: String!
+       posts: [Post!]!
+     }
+     type Post {
+       id: ID!
+       title: String!
+       author: User!
+     }
+     type Query {
+       users: [User!]!
+     }
+   `;
+   
+   const resolvers = {
+     Query: {
+       users: () => [{ id: "1", name: "Alice", posts: [] }]
+     },
+     User: {
+       posts: (user) => [{ id: "p1", title: "Hello", author: user }]
+     },
+     Post: {
+       author: (post) => ({ id: "1", name: "Alice", posts: [] })
+     }
+   };
+   
+   const server = new ApolloServer({ typeDefs, resolvers });
+   server.listen().then(({ url }) => {
+     console.log(`Server ready at ${url}`);
+   });
+   ```
+
+2. **Test the Apollo API**:
+   ```bash
+   node index.js &
+   
+   curl -X POST http://localhost:4000 \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ users { name posts { title } } }"}'
+   ```
+   
+   Works, but requires 30+ lines of resolver code for simple types.
+
+3. **Now try the same with FraiseQL**:
+   ```python
+   # schema.py - just 10 lines
+   import fraiseql
+   
+   @fraiseql.type
+   class User:
+       id: str
+       name: str
+       posts: list['Post']
+   
+   @fraiseql.type
+   class Post:
+       id: str
+       title: str
+       author: User
+   ```
+   
+   ```bash
+   fraiseql run
+   
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ users { name posts { title } } }"}'
+   ```
+   
+   Same result, **zero resolver code**, automatic database integration.
+
+4. **Verify N+1 handling**:
+   
+   In Apollo, you'd need DataLoader to avoid N+1:
+   ```javascript
+   // Apollo requires manual DataLoader setup
+   const DataLoader = require('dataloader');
+   const userLoader = new DataLoader(async (ids) => {
+     // Batch load users
+   });
+   ```
+   
+   In FraiseQL, N+1 is **impossible by design** — the SQL view already JOINs the data.
+
+</Steps>
+
 ## Migration from Apollo
 
 ### Step 1: Identify Your Types
@@ -312,13 +579,40 @@ type User {
 
 ### Step 2: Convert to FraiseQL
 
-```python
-@fraiseql.type
-class User:
-    id: str
-    name: str
-    posts: list['Post']
-```
+<Tabs>
+  <TabItem label="Python">
+    ```python
+    @fraiseql.type
+    class User:
+        id: str
+        name: str
+        posts: list['Post']
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type } from 'fraiseql';
+
+    @type()
+    class User {
+        id!: string;
+        name!: string;
+        posts!: Post[];
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import "github.com/fraiseql/fraiseql-go"
+
+    type User struct {
+        ID    fraiseql.ID `fraiseql:"id"`
+        Name  string      `fraiseql:"name"`
+        Posts []Post      `fraiseql:"posts"`
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ### Step 3: Move Custom Logic to Observers
 
@@ -354,6 +648,8 @@ def on_user_created():
 ### Step 4: Remove DataLoaders
 
 They're not needed. Delete them.
+
+Migrating from Apollo? See the [step-by-step migration guide](/migrations/from-apollo).
 
 ## Summary
 

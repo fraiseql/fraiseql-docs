@@ -3,9 +3,59 @@ title: Troubleshooting
 description: Debug common issues and errors in FraiseQL applications
 ---
 
-import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
+
+<Aside type="tip">
+This page covers **development-time** issues: schema compilation errors, IDE setup, and first-run problems. For runtime errors (connection failures, query errors, performance issues), see [Common Issues](/troubleshooting/common-issues).
+</Aside>
 
 This guide helps you diagnose and fix common issues in FraiseQL applications.
+
+<Aside type="note" title="Collect diagnostics first">
+Before searching this guide or opening an issue, gather the following information — it will narrow down the cause immediately and is required for any support request:
+
+- **FraiseQL version**: `fraiseql --version`
+- **Database type and version**: `psql --version` or `SELECT version();`
+- **Full error message**: include the complete stack trace, not just the headline
+- **Request ID**: present in error responses as `extensions.requestId` — use it to correlate server logs
+- **Minimal reproduction**: the smallest query or mutation that triggers the error
+</Aside>
+
+## Quick Diagnostic Checklist
+
+If FraiseQL isn't working, run through this checklist first:
+
+<Steps>
+
+1. **Check the FraiseQL version**
+   ```bash
+   fraiseql --version
+   ```
+
+2. **Validate configuration**
+   ```bash
+   fraiseql validate
+   ```
+   Expected output when everything is correct:
+   ```
+   ✓ fraiseql.toml is valid
+   ✓ Database connection successful
+   ✓ Schema compiles without errors
+   ✓ All views exist in database
+   ```
+
+3. **Test database connection**
+   ```bash
+   fraiseql ping
+   ```
+   Expected: `Database: connected (PostgreSQL 16.1)`
+
+4. **Compile schema with verbose output**
+   ```bash
+   fraiseql compile --verbose
+   ```
+
+</Steps>
 
 ## Compilation Errors
 
@@ -76,6 +126,59 @@ class Post:
     author: 'User'  # Forward reference
 ```
 
+### Common Schema Errors by Language
+
+<Tabs syncKey="lang">
+<TabItem label="Python">
+```python
+# Error: Missing colon after class definition
+@fraiseql.type
+class User  # ← SyntaxError: expected ':'
+    id: str
+
+# Fix:
+@fraiseql.type
+class User:
+    id: str
+
+# Error: Wrong annotation syntax
+@fraiseql.type
+class Post:
+    tags: List[str]  # ← NameError: 'List' not defined
+
+# Fix: use built-in list
+@fraiseql.type
+class Post:
+    tags: list[str]
+```
+</TabItem>
+<TabItem label="TypeScript">
+```typescript
+// Error: Missing resolver return type
+@ObjectType()
+class User {
+  @Field()
+  id: string;  // ← Error: field type must be explicit
+
+  // Fix: use explicit Field type decorator
+  @Field(() => String)
+  id: string;
+}
+
+// Error: Nullable field not declared
+@ObjectType()
+class Post {
+  @Field()
+  publishedAt: Date;  // ← Error: cannot return null for non-nullable field
+
+  // Fix: mark as nullable
+  @Field(() => Date, { nullable: true })
+  publishedAt?: Date;
+}
+```
+</TabItem>
+</Tabs>
+
 ## Database Errors
 
 ### Connection Failed
@@ -91,17 +194,29 @@ Error: Failed to connect to database
 2. Wrong connection URL
 3. Network/firewall issues
 
-**Fix:**
-```bash
-# Check PostgreSQL is running
-pg_isready -h localhost -p 5432
+<Tabs syncKey="db">
+<TabItem label="PostgreSQL">
+<Steps>
+1. Check the server is running:
 
-# Test connection
-psql $DATABASE_URL -c "SELECT 1"
+   ```bash
+   pg_isready -h localhost -p 5432
+   ```
 
-# Check URL format
-# postgresql://user:pass@host:port/dbname
-```
+2. Test the connection string directly:
+
+   ```bash
+   psql $DATABASE_URL -c "SELECT 1"
+   ```
+
+3. Verify the URL format:
+
+   ```
+   postgresql://user:pass@host:port/dbname
+   ```
+</Steps>
+</TabItem>
+</Tabs>
 
 ### Migration Failed
 
@@ -113,17 +228,25 @@ Error: Migration failed
 
 **Cause:** Table already exists from previous migration.
 
-**Fix:**
-```bash
-# Check migration status
-fraiseql migrate status
+<Steps>
+1. Check migration status to understand what has already been applied:
 
-# Reset if needed (CAUTION: drops data)
-fraiseql migrate reset
+   ```bash
+   fraiseql migrate status
+   ```
 
-# Or manually fix
-psql $DATABASE_URL -c "DROP TABLE IF EXISTS tb_user CASCADE"
-```
+2. If the state is inconsistent, reset the migration history (CAUTION: drops data in development only):
+
+   ```bash
+   fraiseql migrate reset
+   ```
+
+3. Alternatively, remove the conflicting object manually:
+
+   ```bash
+   psql $DATABASE_URL -c "DROP TABLE IF EXISTS tb_user CASCADE"
+   ```
+</Steps>
 
 ### View Creation Failed
 
@@ -153,18 +276,23 @@ Error: function fn_create_user(unknown, unknown) does not exist
 
 **Cause:** Function signature mismatch.
 
-**Fix:** Check parameter types match:
-```sql
--- Check function exists
-\df fn_create_user
+<Steps>
+1. Inspect the existing function signatures:
 
--- Recreate with correct types
-CREATE OR REPLACE FUNCTION fn_create_user(
-    user_email TEXT,  -- Explicit type
-    user_name TEXT
-) RETURNS UUID AS $$
-...
-```
+   ```sql
+   \df fn_create_user
+   ```
+
+2. Recreate the function with explicit parameter types:
+
+   ```sql
+   CREATE OR REPLACE FUNCTION fn_create_user(
+       user_email TEXT,
+       user_name TEXT
+   ) RETURNS UUID AS $$
+   ...
+   ```
+</Steps>
 
 ## Query Errors
 
@@ -536,8 +664,16 @@ If you can't resolve an issue:
     Production configuration and deployment best practices.
     [Deployment Guide](/guides/deployment)
   </Card>
-  <Card title="Troubleshooting Index" icon="open-book">
-    Comprehensive troubleshooting reference organized by error type and symptom.
-    [Troubleshooting Index](/troubleshooting)
+  <Card title="GitHub Issues" icon="github">
+    Search for known bugs and report new ones with your diagnostics bundle.
+    [Open an Issue](https://github.com/fraiseql/fraiseql/issues)
+  </Card>
+  <Card title="Discord Community" icon="discord">
+    Get real-time help from maintainers and community members.
+    [Join Discord](https://discord.gg/fraiseql)
+  </Card>
+  <Card title="Common Issues" icon="open-book">
+    Comprehensive reference organised by error type and symptom.
+    [Common Issues](/guides/faq)
   </Card>
 </CardGrid>

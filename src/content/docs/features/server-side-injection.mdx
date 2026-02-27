@@ -1,0 +1,125 @@
+---
+title: Server-Side Injection
+description: Inject JWT claims as implicit server-side parameters into queries and mutations
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+The `inject` parameter on `@fraiseql.query` and `@fraiseql.mutation` binds JWT claim values to SQL parameters server-side. The injected value is resolved from the verified JWT — the client never supplies it and cannot override it.
+
+## Why use `inject`?
+
+Without injection, filtering by the current user requires either:
+- Passing `owner_id` as a client-visible GraphQL argument (user could supply any value)
+- Writing a separate SQL view per user context
+
+With `inject`, the filter is invisible to GraphQL clients and cryptographically tied to the JWT:
+
+```python
+# Without inject — owner_id is a client argument (insecure without extra validation)
+@fraiseql.query(sql_source="v_documents")
+def documents(owner_id: str) -> list[Document]: ...
+
+# With inject — owner_id comes from jwt.sub, clients cannot influence it
+@fraiseql.query(sql_source="v_documents", inject={"owner_id": "jwt:sub"})
+def my_documents() -> list[Document]: ...
+```
+
+## Usage
+
+### Queries
+
+```python
+@fraiseql.query(
+    sql_source="v_documents",
+    inject={"owner_id": "jwt:sub"}
+)
+def my_documents() -> list[Document]: ...
+```
+
+The compiled SQL will include `WHERE owner_id = <jwt.sub>` using the value from the verified token. The `owner_id` column must exist in the view.
+
+### Mutations
+
+```python
+@fraiseql.mutation(
+    sql_source="fn_create_document",
+    inject={"created_by": "jwt:sub"}
+)
+def create_document(title: str) -> Document: ...
+```
+
+Injected values are appended to the function call arguments alongside the explicit GraphQL arguments.
+
+### Multi-tenant queries
+
+```python
+@fraiseql.query(
+    sql_source="v_orders",
+    inject={"tenant_id": "jwt:tenant_id"}
+)
+def orders() -> list[Order]: ...
+```
+
+## Supported sources
+
+Only `jwt:<claim_name>` is supported. The claim name must be a valid identifier (`[A-Za-z_][A-Za-z0-9_]*`):
+
+| Source string | Resolves from JWT claim | Typical use |
+|---|---|---|
+| `jwt:sub` | `sub` (subject) | Current user ID |
+| `jwt:tenant_id` | `tenant_id` | Multi-tenant isolation |
+| `jwt:org_id` | `org_id` | Organisation scoping |
+| `jwt:<any_claim>` | Any claim present in the token | Custom attributes |
+
+## Rules and validation
+
+**Compile-time checks (`fraiseql compile`):**
+
+- Inject key must be a valid identifier: `^[A-Za-z_][A-Za-z0-9_]*$`
+- Source value must match `^jwt:[A-Za-z_][A-Za-z0-9_]*$` — other formats (e.g. `header:`) are rejected
+- Inject key must not conflict with a declared GraphQL argument on the same query or mutation
+
+**Runtime:**
+
+- Unauthenticated requests to queries or mutations with `inject` are rejected with a validation error. There is no anonymous bypass.
+- If the specified claim is absent from the JWT, the request is rejected.
+
+## Example: Row-Level Security without PostgreSQL RLS
+
+`inject` is an alternative to PostgreSQL `ROW LEVEL SECURITY` policies for simpler setups:
+
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    inject={"author_id": "jwt:sub"}
+)
+def my_posts() -> list[Post]: ...
+```
+
+```sql
+-- v_post filters to the injected author_id automatically
+CREATE VIEW v_post AS
+  SELECT jsonb_build_object('id', id, 'title', title, 'author_id', author_id) AS data
+  FROM tb_post;
+```
+
+The SQL layer receives `author_id = '<value from jwt.sub>'` appended to the query, equivalent to `WHERE author_id = $1` with a parameterized value.
+
+<Aside type="note">
+`inject` works with PostgreSQL (primary), MySQL, and SQL Server. It is not supported on SQLite connections.
+</Aside>
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Security" icon="shield">
+    [Security](/features/security) — Authentication, RBAC, and field-level authorization
+  </Card>
+  <Card title="Multi-Tenancy" icon="setting">
+    [Multi-Tenancy](/guides/multi-tenancy) — Tenant isolation patterns
+  </Card>
+  <Card title="Decorators" icon="open-book">
+    [Decorators](/reference/decorators) — Full decorator reference
+  </Card>
+</CardGrid>

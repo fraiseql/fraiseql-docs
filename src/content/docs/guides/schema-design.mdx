@@ -7,30 +7,60 @@ import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/compone
 
 This guide covers both general GraphQL best practices and FraiseQL-specific patterns for designing effective, maintainable APIs.
 
+<Aside type="note">
+The SQL layer (views, tables, functions) is the same regardless of which SDK you use. Only the schema definition syntax differs between Python and TypeScript. See [Schema Concepts](/concepts/schema) for a deep dive into the type system.
+</Aside>
+
 ## Part 1: GraphQL Design Principles
 
 ### Design for the Client
 
 Your GraphQL schema is a contract with your clients. Design it around client needs, not database structure:
 
-```python
-from fraiseql.scalars import ID, Decimal
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from fraiseql.scalars import ID, Decimal
 
-# Good: Client-focused
-@fraiseql.type
-class Order:
-    id: ID
-    customer: Customer
-    items: list[OrderItem]
-    total: Decimal
-    status: OrderStatus
+    # Good: Client-focused
+    @fraiseql.type
+    class Order:
+        id: ID
+        customer: Customer
+        items: list[OrderItem]
+        total: Decimal
+        status: OrderStatus
 
-# Avoid: Database-focused
-@fraiseql.type
-class TbOrder:
-    pk_order: int      # Exposes internals
-    fk_customer: int   # Meaningless to clients
-```
+    # Avoid: Database-focused
+    @fraiseql.type
+    class TbOrder:
+        pk_order: int      # Exposes internals
+        fk_customer: int   # Meaningless to clients
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type } from 'fraiseql';
+
+    // Good: Client-focused
+    @type()
+    class Order {
+      id: string;
+      customer: Customer;
+      items: OrderItem[];
+      total: number;
+      status: OrderStatus;
+    }
+
+    // Avoid: Database-focused
+    @type()
+    class TbOrder {
+      pkOrder: number;    // Exposes internals
+      fkCustomer: number; // Meaningless to clients
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ### Naming Conventions
 
@@ -76,29 +106,59 @@ def cancel_order(...) -> Order: ...
 
 **Be intentional.** Null should have meaning:
 
-```python
-from fraiseql.scalars import Email, DateTime
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from fraiseql.scalars import Email, DateTime
 
-@fraiseql.type
-class User:
-    email: Email                  # Required - every user has email
-    bio: str | None               # Optional - not everyone writes a bio
-    deleted_at: DateTime | None   # Null = not deleted (meaningful)
-```
+    @fraiseql.type
+    class User:
+        email: Email                  # Required - every user has email
+        bio: str | None               # Optional - not everyone writes a bio
+        deleted_at: DateTime | None   # Null = not deleted (meaningful)
+    ```
 
-**Never use nullable collections:**
+    **Never use nullable collections:**
 
-```python
-posts: list[Post]        # Good: empty list if none
-posts: list[Post] | None # Bad: null vs [] is confusing
-```
+    ```python
+    posts: list[Post]        # Good: empty list if none
+    posts: list[Post] | None # Bad: null vs [] is confusing
+    ```
 
-**List item nullability:**
+    **List item nullability:**
 
-```python
-tags: list[Tag]    # [Tag!]! - list required, items required (most common)
-tags: list[Tag | None]  # [Tag]! - allows null items (rare, avoid)
-```
+    ```python
+    tags: list[Tag]         # [Tag!]! - list required, items required (most common)
+    tags: list[Tag | None]  # [Tag]! - allows null items (rare, avoid)
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type } from 'fraiseql';
+
+    @type()
+    class User {
+      email: string;           // Required - every user has email
+      bio?: string;            // Optional - not everyone writes a bio
+      deletedAt?: Date;        // undefined = not deleted (meaningful)
+    }
+    ```
+
+    **Never use nullable collections:**
+
+    ```typescript
+    posts: Post[];             // Good: empty array if none
+    posts?: Post[];            // Bad: undefined vs [] is confusing
+    ```
+
+    **List item nullability:**
+
+    ```typescript
+    tags: Tag[];               // [Tag!]! - list required, items required (most common)
+    tags: (Tag | null)[];      // [Tag]! - allows null items (rare, avoid)
+    ```
+  </TabItem>
+</Tabs>
 
 ### ID Design
 
@@ -175,47 +235,120 @@ class PostEdge:
 
 **Use input types for complex mutations:**
 
-```python
-@fraiseql.input
-class CreatePostInput:
-    title: str
-    content: str
-    tags: list[str] | None = None
-    is_draft: bool = True
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.input
+    class CreatePostInput:
+        title: str
+        content: str
+        tags: list[str] | None = None
+        is_draft: bool = True
 
-@fraiseql.mutation(sql_source="fn_create_post", operation="CREATE")
-def create_post(input: CreatePostInput) -> Post: ...
-```
+    @fraiseql.mutation(sql_source="fn_create_post")
+    def create_post(input: CreatePostInput) -> Post: ...
+    ```
 
-**Partial updates with optional fields:**
+    **Partial updates with optional fields:**
 
-```python
-from fraiseql.scalars import URL
+    ```python
+    from fraiseql.scalars import URL
 
-@fraiseql.input
-class UpdateUserInput:
-    name: str | None = None
-    bio: str | None = None
-    avatar_url: URL | None = None
-    # Only provided fields are updated
-```
+    @fraiseql.input
+    class UpdateUserInput:
+        name: str | None = None
+        bio: str | None = None
+        avatar_url: URL | None = None
+        # Only provided fields are updated
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { input, mutation } from 'fraiseql';
+
+    @input()
+    class CreatePostInput {
+      title: string;
+      content: string;
+      tags?: string[];
+      isDraft: boolean = true;
+    }
+
+    @mutation()
+    function createPost(input: CreatePostInput): Post {}
+    ```
+
+    **Partial updates with optional fields:**
+
+    ```typescript
+    @input()
+    class UpdateUserInput {
+      name?: string;
+      bio?: string;
+      avatarUrl?: string;
+      // Only provided fields are updated
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ### Enums
 
 Use for truly fixed values only:
 
-```python
-@fraiseql.enum
-class OrderStatus(Enum):
-    PENDING = "pending"
-    SHIPPED = "shipped"
-    DELIVERED = "delivered"
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.enum
+    class OrderStatus(Enum):
+        PENDING = "pending"
+        SHIPPED = "shipped"
+        DELIVERED = "delivered"
 
-# Don't use enums for:
-# - Categories (change over time)
-# - Tags (user-created)
-# - Roles (configurable)
-```
+    # Don't use enums for:
+    # - Categories (change over time)
+    # - Tags (user-created)
+    # - Roles (configurable)
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { fraiseqlEnum } from '@fraiseql/sdk';
+
+    @fraiseqlEnum()
+    enum OrderStatus {
+      PENDING = 'pending',
+      SHIPPED = 'shipped',
+      DELIVERED = 'delivered',
+    }
+
+    // Don't use enums for:
+    // - Categories (change over time)
+    // - Tags (user-created)
+    // - Roles (configurable)
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package schema
+
+    import "github.com/fraiseql/fraiseql-go"
+
+    type OrderStatus string
+
+    const (
+        OrderStatusPending   OrderStatus = "pending"
+        OrderStatusShipped   OrderStatus = "shipped"
+        OrderStatusDelivered OrderStatus = "delivered"
+    )
+
+    func init() {
+        fraiseql.RegisterEnum[OrderStatus]()
+        // Don't use enums for categories, tags, or configurable roles
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ### Schema Evolution
 
@@ -249,19 +382,60 @@ class User:
 
 FraiseQL provides 47+ domain-specific scalar types with built-in validation and specialized filter operators. Use them instead of generic `str`:
 
-```python
-from fraiseql.scalars import Email, URL, PhoneNumber, CountryCode, DateTime, Decimal
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from fraiseql.scalars import Email, URL, PhoneNumber, CountryCode, DateTime, Decimal
 
-@fraiseql.type
-class Customer:
-    id: ID
-    email: Email            # RFC 5322 validated, filters: _domain_eq, _is_corporate
-    website: URL | None     # RFC 3986 validated, filters: _domain_eq, _is_secure
-    phone: PhoneNumber      # E.164 format, filters: _country_code_eq, _is_mobile
-    country: CountryCode    # ISO 3166-1, filters: _in_eu, _gdpr_applicable
-    created_at: DateTime
-    balance: Decimal        # Arbitrary precision for financial data
-```
+    @fraiseql.type
+    class Customer:
+        id: ID
+        email: Email            # RFC 5322 validated, filters: _domain_eq, _is_corporate
+        website: URL | None     # RFC 3986 validated, filters: _domain_eq, _is_secure
+        phone: PhoneNumber      # E.164 format, filters: _country_code_eq, _is_mobile
+        country: CountryCode    # ISO 3166-1, filters: _in_eu, _gdpr_applicable
+        created_at: DateTime
+        balance: Decimal        # Arbitrary precision for financial data
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type, field } from '@fraiseql/sdk';
+
+    @type()
+    class Customer {
+      @field() id!: string;
+      @field() email!: string;           // RFC 5322 validated
+      @field() website?: string;         // RFC 3986 validated
+      @field() phone!: string;           // E.164 format
+      @field() country!: string;         // ISO 3166-1
+      @field() createdAt!: Date;
+      @field() balance!: string;         // Arbitrary precision for financial data
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package schema
+
+    import "github.com/fraiseql/fraiseql-go"
+
+    type Customer struct {
+        ID        string  `fraiseql:"id"`
+        Email     string  `fraiseql:"email"`      // RFC 5322 validated
+        Website   *string `fraiseql:"website"`    // RFC 3986 validated
+        Phone     string  `fraiseql:"phone"`      // E.164 format
+        Country   string  `fraiseql:"country"`    // ISO 3166-1
+        CreatedAt string  `fraiseql:"created_at"`
+        Balance   string  `fraiseql:"balance"`    // Arbitrary precision for financial data
+    }
+
+    func init() {
+        fraiseql.RegisterType[Customer]()
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 **Benefits:**
 - **Automatic validation** at API boundary
@@ -277,22 +451,49 @@ FraiseQL separates reads and writes. Design your schema accordingly:
 
 **Queries read from views (`v_`, `tv_`):**
 
-```python
-@fraiseql.query(sql_source="v_user")  # Reads from view
-def user(id: ID) -> User: ...
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.query(sql_source="v_user")   # Reads from view
+    def user(id: ID) -> User: ...
 
-@fraiseql.query(sql_source="tv_user")  # Reads from materialized table
-def users(limit: int = 20) -> list[User]: ...
-```
+    @fraiseql.query(sql_source="tv_user")  # Reads from materialized table
+    def users(limit: int = 20) -> list[User]: ...
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { query } from 'fraiseql';
+
+    @query({ sqlSource: 'v_user' })    // Reads from view
+    function user(id: string): User {}
+
+    @query({ sqlSource: 'tv_user' })   // Reads from materialized table
+    function users(limit: number = 20): User[] {}
+    ```
+  </TabItem>
+</Tabs>
 
 **Mutations write through functions (`fn_`):**
 
-```python
-from fraiseql.scalars import Email
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from fraiseql.scalars import Email
 
-@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
-def create_user(email: Email, name: str) -> User: ...
-```
+    @fraiseql.mutation(sql_source="fn_create_user")
+    def create_user(email: Email, name: str) -> User: ...
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { mutation } from 'fraiseql';
+
+    @mutation()
+    function createUser(email: string, name: string): User {}
+    ```
+  </TabItem>
+</Tabs>
 
 **Implication:** Your read types can be more denormalized than your write inputs. The view handles the denormalization.
 
@@ -318,24 +519,49 @@ class User:
 
 Every entity has three identifiers. Only expose two:
 
-```python
-from fraiseql.scalars import ID, Slug
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from fraiseql.scalars import ID, Slug
 
-@fraiseql.type
-class User:
-    id: ID           # UUID - external, exposed in API
-    identifier: Slug # Human-readable (username, slug)
-    # pk_user: int   # NEVER expose - internal only
-```
+    @fraiseql.type
+    class User:
+        id: ID           # UUID - external, exposed in API
+        identifier: Slug # Human-readable (username, slug)
+        # pk_user: int   # NEVER expose - internal only
+    ```
 
-Design queries to support both:
+    Design queries to support both:
 
-```python
-@fraiseql.query(sql_source="v_user")
-def user(id: ID | None = None, identifier: Slug | None = None) -> User | None:
-    """Fetch by UUID or human-readable identifier."""
-    pass
-```
+    ```python
+    @fraiseql.query(sql_source="v_user")
+    def user(id: ID | None = None, identifier: Slug | None = None) -> User | None:
+        """Fetch by UUID or human-readable identifier."""
+        pass
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type, query } from 'fraiseql';
+
+    @type()
+    class User {
+      id: string;         // UUID - external, exposed in API
+      identifier: string; // Human-readable (username, slug)
+      // pkUser: number   // NEVER expose - internal only
+    }
+    ```
+
+    Design queries to support both:
+
+    ```typescript
+    @query({ sqlSource: 'v_user' })
+    function user(id?: string, identifier?: string): User | null {
+      /** Fetch by UUID or human-readable identifier. */
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ### Automatic Where Types
 
@@ -357,7 +583,7 @@ class Post:
 # - created_at_gt, created_at_lt, created_at_gte, created_at_lte
 ```
 
-**Index accordingly:**
+**Index accordingly** (SQL applies to all SDKs — the database layer is the same regardless of whether you use Python or TypeScript for schema authoring):
 
 ```sql
 -- Index fields you expect to filter on
@@ -426,26 +652,78 @@ FraiseQL compiles your schema to SQL. There are no runtime resolvers:
 **Every field must map to SQL.** Unlike traditional GraphQL servers with per-field resolvers, FraiseQL generates a single SQL query from your schema. All data must come from the database — computed fields, aggregations, and derived values must be defined in your views.
 </Aside>
 
-```python
-from fraiseql.scalars import ID, Email
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from fraiseql.scalars import ID, Email
 
-# Good: All fields come from the view
-@fraiseql.type
-class User:
-    id: ID
-    name: str
-    email: Email
-    post_count: int  # Computed in the view
+    # Good: All fields come from the view
+    @fraiseql.type
+    class User:
+        id: ID
+        name: str
+        email: Email
+        post_count: int  # Computed in the view
 
-# Cannot do: Runtime-computed fields
-@fraiseql.type
-class User:
-    id: ID
-    name: str
-    greeting: str  # "Hello, {name}" - no runtime resolvers!
-```
+    # Cannot do: Runtime-computed fields
+    @fraiseql.type
+    class User:
+        id: ID
+        name: str
+        greeting: str  # "Hello, {name}" - no runtime resolvers!
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type, field } from '@fraiseql/sdk';
 
-**Solution:** Compute in the view:
+    // Good: All fields come from the view
+    @type()
+    class User {
+      @field() id!: string;
+      @field() name!: string;
+      @field() email!: string;
+      @field() postCount!: number;  // Computed in the view
+    }
+
+    // Cannot do: Runtime-computed fields
+    // @type()
+    // class User {
+    //   @field() id!: string;
+    //   @field() name!: string;
+    //   @field() greeting!: string;  // No runtime resolvers!
+    // }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package schema
+
+    import "github.com/fraiseql/fraiseql-go"
+
+    // Good: All fields come from the view
+    type User struct {
+        ID        string `fraiseql:"id"`
+        Name      string `fraiseql:"name"`
+        Email     string `fraiseql:"email"`
+        PostCount int    `fraiseql:"post_count"` // Computed in the view
+    }
+
+    // Cannot do: fields not backed by SQL columns
+    // type User struct {
+    //     ID       string `fraiseql:"id"`
+    //     Name     string `fraiseql:"name"`
+    //     Greeting string `fraiseql:"greeting"` // No runtime resolvers!
+    // }
+
+    func init() {
+        fraiseql.RegisterType[User]()
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+**Solution:** Compute in the view (this SQL is SDK-agnostic — write it the same way whether you use Python or TypeScript):
 
 ```sql
 CREATE VIEW v_user AS
@@ -554,6 +832,31 @@ def create_order(input: CreateOrderInput) -> Order:
 ```
 
 ---
+
+## When to Follow the Pattern Strictly vs. When to Relax It
+
+The `tb_*` / `v_*` / `fn_*` convention is a recommendation, not a constraint. The compile step accepts any SQL source you point it at.
+
+### Follow the pattern strictly when:
+
+- Multi-team projects where the database schema and API evolve independently
+- APIs that external clients depend on (stability matters over time)
+- When PostgreSQL RLS or complex joins are in play
+- When you want `fraiseql compile` to auto-discover views with zero config
+
+### When the pattern is lighter:
+
+For small projects or prototypes, you can point `sql_source` at a table directly — no view required:
+
+```python
+# Direct table reference — no v_ view needed for simple cases
+@fraiseql.query(sql_source="posts")  # points at the posts table
+def posts() -> list[Post]: ...
+```
+
+FraiseQL treats a table and a view identically at compile time. The compile step will warn if the source doesn't return JSONB-shaped data, but for simple flat tables this works immediately.
+
+You can also mix conventions — use `v_*` views for complex queries and point directly at tables for admin-only or internal endpoints.
 
 ## Checklist
 

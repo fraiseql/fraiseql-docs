@@ -3,7 +3,11 @@ title: Installation
 description: Install FraiseQL and set up your development environment
 ---
 
-import { Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution">
+FraiseQL is currently in release-candidate status (rc.13). The core query and mutation APIs are stable. Configuration field names and CLI flags may change between rc versions.
+</Aside>
 
 FraiseQL is distributed as a **pre-compiled Rust binary** — no runtime, no dependencies. Download and run.
 
@@ -21,7 +25,7 @@ FraiseQL is distributed as a **pre-compiled Rust binary** — no runtime, no dep
 curl -fsSL https://fraiseql.dev/install.sh | sh
 ```
 
-This installs the latest binary to `~/.local/bin/fraiseql`.
+This installs the latest binary to `/usr/local/bin` (or `~/.local/bin` if that is not writable).
 
   </TabItem>
   <TabItem label="Homebrew (macOS)">
@@ -48,7 +52,7 @@ Download from [GitHub Releases](https://github.com/fraiseql/fraiseql/releases):
 |----------|------|
 | macOS (Apple Silicon) | `fraiseql-aarch64-apple-darwin.tar.gz` |
 | macOS (Intel) | `fraiseql-x86_64-apple-darwin.tar.gz` |
-| Linux x86\_64 | `fraiseql-x86_64-unknown-linux-musl.tar.gz` |
+| Linux x86\_64 | `fraiseql-x86_64-unknown-linux-gnu.tar.gz` |
 | Windows | `fraiseql-x86_64-pc-windows-msvc.zip` |
 
   </TabItem>
@@ -226,7 +230,7 @@ COPY . /app
 WORKDIR /app
 
 RUN fraiseql compile
-CMD ["fraiseql", "serve", "--host", "0.0.0.0"]
+CMD ["fraiseql", "run", "--host", "0.0.0.0"]
 ```
 
   </TabItem>
@@ -242,7 +246,7 @@ COPY . /app
 WORKDIR /app
 
 RUN fraiseql compile
-CMD ["fraiseql", "serve", "--host", "0.0.0.0"]
+CMD ["fraiseql", "run", "--host", "0.0.0.0"]
 ```
 
   </TabItem>

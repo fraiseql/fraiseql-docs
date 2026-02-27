@@ -1,436 +1,414 @@
 ---
 title: Federation
-description: Multi-database federation and saga patterns in FraiseQL
+description: Query across multiple databases with FraiseQL's multi-database federation support
 ---
 
-import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-FraiseQL supports federation across multiple databases, enabling distributed data access and saga patterns for cross-database transactions.
+FraiseQL supports two federation modes:
 
-## Overview
+1. **Multi-Database Federation** — A single FraiseQL process connects to multiple databases simultaneously and routes queries to the appropriate database
+2. **Apollo Federation v2** — FraiseQL acts as a GraphQL subgraph that can be composed with other services in an Apollo Federation gateway
 
-Federation allows you to:
-- Query data from multiple databases in a single GraphQL request
-- Join entities across database boundaries
-- Implement saga patterns for distributed transactions
-- Maintain data consistency across services
+This page covers multi-database federation. For Apollo Federation, see [Apollo Federation Support](#apollo-federation-support) below.
 
-## Configuring Multiple Databases
+## Multi-Database Federation
 
-### Database Configuration
+FraiseQL Federation lets you expose data from multiple databases — PostgreSQL, MySQL, SQLite — through a single GraphQL endpoint. Each database is a named connection in `fraiseql.toml`. Queries that touch different databases are resolved in parallel and merged before the response leaves the server.
 
-Define multiple databases in `fraiseql.toml`:
+<Aside type="note">
+**Multi-database federation is not Apollo Federation.** Apollo Federation is a protocol for composing multiple GraphQL subgraph services. FraiseQL multi-database federation is a single FraiseQL process that holds connections to multiple databases. There are no subgraph schemas, no `@key` directives, and no gateway involved when using multi-database federation.
+</Aside>
+
+## When to Use Multi-Database Federation
+
+Multi-database federation is a good fit when:
+
+- You have **microservices** where each service owns its own database, but you want a unified API layer
+- You are **migrating a legacy database** to a new schema and need to serve both simultaneously
+- You have a **dedicated analytics database** (read replica or separate OLAP store) alongside your transactional database
+- You are running **PostgreSQL + MySQL** together and do not want two separate APIs
+
+## Configuration
+
+Declare each database as a named entry under `[databases]` in `fraiseql.toml`:
 
 ```toml
 [databases.primary]
+url = "${DATABASE_URL}"
 type = "postgresql"
-url = "${PRIMARY_DATABASE_URL}"
-pool_max = 50
 
 [databases.analytics]
+url = "${ANALYTICS_DB_URL}"
 type = "postgresql"
-url = "${ANALYTICS_DATABASE_URL}"
-pool_max = 20
 
 [databases.legacy]
-type = "postgresql"
-url = "${LEGACY_DATABASE_URL}"
-pool_max = 10
+url = "${LEGACY_DB_URL}"
+type = "mysql"
 ```
 
-### Schema Assignment
+FraiseQL reads `type` to choose the correct driver. Supported values: `"postgresql"`, `"mysql"`, `"sqlite"`, `"sqlserver"`.
 
-Assign types to databases:
+<Aside type="caution">
+If you configure any non-PostgreSQL database, the **Arrow Flight DataPlane is unavailable** for that connection. Only PostgreSQL connections support the `[analytics]` Flight endpoint. The standard GraphQL endpoint works with all configured databases.
+</Aside>
 
+## Defining Federated Queries
+
+Assign each query to its database with the `database` parameter:
+
+<Tabs>
+<TabItem label="Python SDK">
 ```python
 import fraiseql
+from dataclasses import dataclass
 
-@fraiseql.type(database="primary")
+@fraiseql.type
 class User:
-    id: ID
+    """User record from the primary transactional database."""
+    id: str
     name: str
     email: str
 
-@fraiseql.type(database="analytics")
+@fraiseql.type
 class UserAnalytics:
-    user_id: ID
-    page_views: int
-    sessions: int
-    last_active: DateTime
+    """Engagement metrics from the analytics database."""
+    user_id: str
+    total_orders: int
+    lifetime_value: float
+    last_order_date: str
 
-@fraiseql.type(database="legacy")
-class LegacyCustomer:
-    customer_id: str
-    name: str
+@fraiseql.query(sql_source="v_user", database="primary")
+def user(id: str) -> User:
+    """Fetch a user from the primary database."""
+    pass
+
+@fraiseql.query(sql_source="v_user_analytics", database="analytics")
+def user_analytics(user_id: str) -> UserAnalytics:
+    """Fetch engagement metrics from the analytics database."""
+    pass
 ```
+</TabItem>
+<TabItem label="TypeScript SDK">
+```typescript
+import { type, query } from 'fraiseql';
 
-## Cross-Database Queries
+@type()
+class User {
+  id!: string;
+  name!: string;
+  email!: string;
+}
 
-### Federated Fields
+@type()
+class UserAnalytics {
+  userId!: string;
+  totalOrders!: number;
+  lifetimeValue!: number;
+  lastOrderDate!: string;
+}
 
-Reference types from other databases:
+@query({ sqlSource: 'v_user', database: 'primary' })
+async user(id: string): Promise<User> {
+  return {} as User;
+}
 
-```python
-@fraiseql.type(database="primary")
-class User:
-    id: ID
-    name: str
-    email: str
-
-    # Federated field from analytics database
-    analytics: 'UserAnalytics' = fraiseql.federated(
-        database="analytics",
-        lookup="user_id"  # Field in UserAnalytics that matches
-    )
+@query({ sqlSource: 'v_user_analytics', database: 'analytics' })
+async userAnalytics(userId: string): Promise<UserAnalytics> {
+  return {} as UserAnalytics;
+}
 ```
+</TabItem>
+</Tabs>
 
-### Query Resolution
+## Querying Across Databases
 
-FraiseQL resolves federated queries efficiently:
+A single GraphQL operation can reference resolvers backed by different databases. FraiseQL dispatches the sub-queries in parallel and assembles the result:
 
 ```graphql
-query {
-    user(id: "...") {
-        name
-        email
-        analytics {  # Fetched from analytics database
-            page_views
-            sessions
-        }
-    }
+query UserDashboard($id: ID!) {
+  user(id: $id) {
+    id
+    name
+    email
+  }
+  userAnalytics(userId: $id) {
+    totalOrders
+    lifetimeValue
+    lastOrderDate
+  }
 }
 ```
 
-Execution:
-1. Fetch `User` from primary database
-2. Fetch `UserAnalytics` from analytics database (using `user_id`)
-3. Combine results
+Expected response:
 
-### Batched Lookups
-
-For list queries, FraiseQL batches federated lookups:
-
-```graphql
-query {
-    users(limit: 100) {
-        name
-        analytics { page_views }
+```json
+{
+  "data": {
+    "user": {
+      "id": "usr_123",
+      "name": "Alice",
+      "email": "alice@example.com"
+    },
+    "userAnalytics": {
+      "totalOrders": 47,
+      "lifetimeValue": 3240.50,
+      "lastOrderDate": "2024-01-10"
     }
+  }
 }
 ```
 
-Instead of 100 individual queries to the analytics database, FraiseQL:
-1. Fetches all users from primary
-2. Batches user IDs
-3. Single query to analytics for all matching records
+`user` is resolved against `v_user` on the `primary` PostgreSQL connection. `userAnalytics` is resolved against `v_user_analytics` on the `analytics` PostgreSQL connection. Both queries run concurrently. The client receives a single merged response.
 
-## Entity References
+## Cross-Database Joins
 
-### Defining References
+FraiseQL does not execute SQL `JOIN`s across database boundaries — that would require moving data between servers. Instead, FraiseQL resolves each database segment independently and joins results in application memory before sending the response.
 
-Reference entities by ID across databases:
+**What this means in practice:**
 
-```python
-@fraiseql.type(database="primary")
-class Order:
-    id: ID
-    total: Decimal
+| Scenario | Behaviour |
+|----------|-----------|
+| Two fields from the same database | Single SQL query with a real `JOIN` |
+| Two fields from different databases | Two parallel queries; joined in FraiseQL memory |
+| Filtering by a field from another database | Not pushable to SQL; filter applied in memory |
+| Ordering by a field from another database | Not pushable to SQL; sort applied in memory |
 
-    # Reference to user (same database)
-    customer: User
+For list queries, FraiseQL batches lookups automatically. A query for 500 users followed by their analytics records produces two SQL queries — not 501:
 
-    # Reference to inventory (different database)
-    items: list['InventoryItem'] = fraiseql.federated(
-        database="inventory",
-        lookup="order_id"
-    )
-
-@fraiseql.type(database="inventory")
-class InventoryItem:
-    id: ID
-    order_id: ID  # Reference back
-    product_sku: str
-    quantity: int
+```graphql
+query {
+  users(limit: 500) {
+    id
+    name
+  }
+  # userAnalytics is fetched for all 500 users in a single batched query
+}
 ```
 
-### Resolution Keys
+## Cross-Service Events with NATS
 
-Customize how entities are matched:
+When a write on one database needs to trigger an event consumed by another service, FraiseQL can integrate with [NATS](/features/nats) for durable cross-service messaging.
 
-```python
-@fraiseql.type(database="legacy")
-class LegacyCustomer:
-    customer_id: str  # Legacy uses string IDs
-    name: str
+<Aside type="note">
+NATS integration is **optional** — multi-database federation works without it. NATS is only required when you need cross-service event fanout or event-driven communication between microservices.
+</Aside>
 
-@fraiseql.type(database="primary")
-class User:
-    id: ID
-    legacy_customer_id: str  # Link to legacy
+To enable NATS integration:
 
-    legacy_data: 'LegacyCustomer' = fraiseql.federated(
-        database="legacy",
-        local_key="legacy_customer_id",  # Field on User
-        remote_key="customer_id"          # Field on LegacyCustomer
-    )
+```toml
+[observers]
+transport = "nats"
+
+[observers.nats]
+url = "nats://localhost:4222"
 ```
 
-## Saga Patterns
+When a mutation executes, FraiseQL can publish events to NATS via the observer system. Downstream services subscribe to these events independently of their database connection.
 
-### Distributed Transactions
+## Handling Partial Failures
 
-For operations spanning multiple databases, use sagas:
+When one database is unavailable, FraiseQL returns data from the healthy databases and `null` for fields backed by the unavailable one. The response includes a structured error:
 
+```json
+{
+  "data": {
+    "user": { "id": "usr_123", "name": "Alice", "email": "alice@example.com" },
+    "userAnalytics": null
+  },
+  "errors": [
+    {
+      "message": "Database 'analytics' unavailable",
+      "path": ["userAnalytics"],
+      "extensions": { "code": "DATABASE_UNAVAILABLE", "database": "analytics" }
+    }
+  ]
+}
+```
+
+This allows read-heavy UIs to degrade gracefully. The client receives partial data rather than a complete failure.
+
+## Migration Pattern: Legacy + New Schema in Parallel
+
+A common use of federation is serving a legacy MySQL database alongside a new PostgreSQL schema during a migration. Both databases are exposed through the same API, and the client is unaware of the boundary:
+
+```toml
+[databases.primary]
+url = "${NEW_POSTGRES_URL}"
+type = "postgresql"
+
+[databases.legacy]
+url = "${OLD_MYSQL_URL}"
+type = "mysql"
+```
+
+<Tabs>
+<TabItem label="Python SDK">
 ```python
-from fraiseql import saga, compensate
+@fraiseql.query(sql_source="v_order", database="primary")
+def order(id: str) -> Order:
+    """New orders in PostgreSQL."""
+    pass
 
-@fraiseql.mutation(operation="CREATE")
-@saga(steps=["create_order", "reserve_inventory", "process_payment"])
-def create_order(
-    customer_id: ID,
-    items: list[OrderItemInput]
-) -> Order:
-    """
-    Saga steps:
-    1. Create order in primary database
-    2. Reserve inventory in inventory database
-    3. Process payment in payment database
-
-    If any step fails, previous steps are compensated.
-    """
+@fraiseql.query(sql_source="v_legacy_order", database="legacy")
+def legacy_order(id: str) -> LegacyOrder:
+    """Orders not yet migrated, still in MySQL."""
     pass
 ```
+</TabItem>
+<TabItem label="TypeScript SDK">
+```typescript
+@query({ sqlSource: 'v_order', database: 'primary' })
+async order(id: string): Promise<Order> {
+  return {} as Order;
+}
 
-### Saga Steps
-
-Define individual saga steps:
-
-```python
-@saga.step("create_order", database="primary")
-def step_create_order(ctx, customer_id, items):
-    """Create the order record."""
-    return fn_create_order(customer_id, items)
-
-@saga.step("reserve_inventory", database="inventory")
-def step_reserve_inventory(ctx, order_id, items):
-    """Reserve inventory for order items."""
-    return fn_reserve_inventory(order_id, items)
-
-@saga.step("process_payment", database="payments")
-def step_process_payment(ctx, order_id, amount):
-    """Charge customer payment method."""
-    return fn_process_payment(order_id, amount)
+@query({ sqlSource: 'v_legacy_order', database: 'legacy' })
+async legacyOrder(id: string): Promise<LegacyOrder> {
+  return {} as LegacyOrder;
+}
 ```
+</TabItem>
+</Tabs>
 
-### Compensation
+Once migration is complete, remove the `legacy` database from `fraiseql.toml` and deprecate the `legacyOrder` query.
 
-Define compensation for rollback:
+## Apollo Federation Support
 
-```python
-@compensate("create_order")
-def compensate_create_order(ctx, order_id):
-    """Cancel the order if later steps fail."""
-    fn_cancel_order(order_id)
+In addition to multi-database federation, FraiseQL supports Apollo Federation v2. This allows FraiseQL to participate in a larger GraphQL architecture where multiple services expose their schemas through a gateway.
 
-@compensate("reserve_inventory")
-def compensate_reserve_inventory(ctx, reservation_id):
-    """Release reserved inventory."""
-    fn_release_inventory(reservation_id)
-
-# Payment step has no compensation - it's the final step
-```
-
-### Saga Execution Flow
-
-```
-create_order → reserve_inventory → process_payment
-      |              |                   |
-   SUCCESS        SUCCESS            FAILURE
-      |              |                   |
-      |              |     compensate_reserve_inventory
-      |              |                   |
-      |         compensate_create_order  |
-      |              |                   |
-   ROLLBACK  <-------+-------------------+
-```
-
-## Federated Mutations
-
-### Cross-Database Writes
-
-```python
-@fraiseql.mutation(operation="CREATE")
-def create_user_with_analytics(
-    name: str,
-    email: str
-) -> User:
-    """
-    Creates user in primary database and
-    initializes analytics in analytics database.
-    """
-    pass
-```
-
-SQL implementation spans databases:
-
-```sql
--- Primary database
-CREATE FUNCTION fn_create_user_federated(
-    user_name TEXT,
-    user_email TEXT
-) RETURNS UUID AS $$
-DECLARE
-    new_user_id UUID;
-BEGIN
-    -- Create user locally
-    INSERT INTO tb_user (name, email, identifier)
-    VALUES (user_name, user_email, user_email)
-    RETURNING id INTO new_user_id;
-
-    -- Signal analytics database (via NOTIFY or direct call)
-    PERFORM pg_notify('user_created', new_user_id::text);
-
-    RETURN new_user_id;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-Analytics database listener:
-
-```sql
--- Analytics database
-CREATE FUNCTION init_user_analytics() RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO tb_user_analytics (user_id, page_views, sessions)
-    VALUES (NEW.id, 0, 0);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-## Consistency Patterns
-
-### Eventual Consistency
-
-For non-critical data, accept eventual consistency:
-
-```python
-@fraiseql.type(database="primary")
-class User:
-    id: ID
-    name: str
-
-    # May be slightly stale
-    analytics: UserAnalytics = fraiseql.federated(
-        database="analytics",
-        consistency="eventual"  # Default
-    )
-```
-
-### Strong Consistency
-
-For critical data, require strong consistency:
-
-```python
-@fraiseql.type(database="primary")
-class Account:
-    id: ID
-    balance: Decimal
-
-    # Must be consistent
-    transactions: list[Transaction] = fraiseql.federated(
-        database="ledger",
-        consistency="strong"  # Uses distributed locks
-    )
-```
-
-## Configuration Options
+### Enabling Apollo Federation
 
 ```toml
 [federation]
 enabled = true
-default_timeout = 5000  # ms
-batch_size = 100
+apollo_version = 2
 
-[federation.retry]
-max_attempts = 3
-backoff = "exponential"
+[[federation.entities]]
+name = "User"
+key_fields = ["id"]
 
+[[federation.entities]]
+name = "Order"
+key_fields = ["id"]
+```
+
+### Entity Resolvers
+
+When using Apollo Federation, define entity resolvers that the gateway can call to resolve references:
+
+<Tabs>
+<TabItem label="Python SDK">
+```python
+@fraiseql.entity_resolver(entity="User", key_fields=["id"])
+def resolve_user(id: str) -> User:
+    """Resolve a User entity by ID for the Apollo gateway."""
+    pass
+```
+</TabItem>
+<TabItem label="TypeScript SDK">
+```typescript
+@entityResolver({ entity: 'User', keyFields: ['id'] })
+async resolveUser(id: string): Promise<User> {
+  return {} as User;
+}
+```
+</TabItem>
+</Tabs>
+
+### When to Use Apollo Federation vs. Multi-Database
+
+| Use Case | Recommended Approach |
+|----------|---------------------|
+| Single team, multiple databases | Multi-database federation |
+| Multiple teams, service boundaries | Apollo Federation |
+| Migrating from Apollo Gateway | Apollo Federation |
+| Maximum query performance | Multi-database federation (no gateway hop) |
+| Independent service deployment | Apollo Federation |
+
+## Circuit Breaker (Apollo Federation)
+
+When FraiseQL acts as a subgraph in an Apollo Federation setup, a per-entity circuit breaker prevents cascading failures. After a configured number of consecutive errors the circuit opens: further calls to that entity are rejected immediately with `503 Service Unavailable` and a `Retry-After` header rather than waiting for a timeout.
+
+The circuit moves through three states:
+
+| State | Behaviour |
+|-------|-----------|
+| **Closed** | Normal operation — requests pass through |
+| **Open** | Tripped after `failure_threshold` consecutive errors — requests rejected with 503 |
+| **HalfOpen** | Recovery probe — `success_threshold` successes closes the circuit |
+
+### Configuration
+
+```toml
 [federation.circuit_breaker]
-enabled = true
-failure_threshold = 5
-reset_timeout = 30000  # ms
+enabled           = true
+failure_threshold = 5      # open after N consecutive errors (default: 5)
+recovery_timeout_secs = 30 # probe after this many seconds (default: 30)
+success_threshold = 2      # successes in HalfOpen needed to close (default: 2)
 ```
 
-## Monitoring
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the circuit breaker |
+| `failure_threshold` | integer | `5` | Consecutive errors before opening |
+| `recovery_timeout_secs` | integer | `30` | Seconds before attempting a probe |
+| `success_threshold` | integer | `2` | Successes in HalfOpen before closing |
 
-### Federation Metrics
+### Per-entity overrides
 
-| Metric | Description |
-|--------|-------------|
-| `fraiseql_federation_requests_total` | Total federated requests |
-| `fraiseql_federation_latency_seconds` | Cross-database latency |
-| `fraiseql_federation_errors_total` | Federation errors |
-| `fraiseql_saga_steps_total` | Saga step executions |
-| `fraiseql_saga_compensations_total` | Saga compensations |
+Apply stricter thresholds to specific entities:
 
-### Tracing
-
-Federation adds spans for cross-database calls:
-
-```json
-[request] user(id: "...")
-├── [span] primary.v_user
-└── [span] analytics.v_user_analytics (federated)
+```toml
+[[federation.circuit_breaker.per_database]]
+database          = "Order"   # name must match the federation entity
+failure_threshold = 3         # stricter: open after 3 errors
+recovery_timeout_secs = 60
 ```
+
+Multiple `[[federation.circuit_breaker.per_database]]` entries are allowed — each with its own `database` name.
+
+### Observability
+
+FraiseQL exposes a Prometheus gauge for the circuit state of each entity:
+
+```
+fraiseql_federation_circuit_breaker_state{entity="Order"} 1
+# 0 = Closed, 1 = Open, 2 = HalfOpen
+```
+
+---
+
+## Limitations
+
+Multi-database federation has these limitations:
+
+1. **No cross-database transactions**: Each database operation is independent. There is no two-phase commit or distributed transaction coordinator.
+2. **No cross-database foreign keys**: Referential integrity must be enforced at the application level.
+3. **In-memory joins**: Cross-database field resolution happens in FraiseQL memory, which can be slower than database-level joins for large result sets.
+4. **Consistency**: Different databases may have different replication lags. Data returned from multiple databases may not be point-in-time consistent.
 
 ## Best Practices
 
-### Minimize Cross-Database Joins
+**Minimize cross-database queries.** If two fields are frequently requested together, consider:
+- Moving them to the same database
+- Using materialized views to replicate data
+- Accepting the in-memory join performance tradeoff
 
-```python
-# Avoid: Many federated fields
-@fraiseql.type
-class Order:
-    customer: User = fraiseql.federated(...)
-    payment: Payment = fraiseql.federated(...)
-    shipping: Shipping = fraiseql.federated(...)
-    items: list[Item] = fraiseql.federated(...)
+**Handle partial failures gracefully.** When a database is unavailable, your client should be prepared to receive `null` for fields from that database with appropriate error handling.
 
-# Better: Denormalize critical data
-@fraiseql.type
-class Order:
-    customer_name: str  # Denormalized
-    payment_status: str  # Denormalized
-    items: list[Item] = fraiseql.federated(...)
-```
-
-### Handle Partial Failures
-
-```python
-@fraiseql.query(sql_source="v_user")
-def user_with_analytics(id: ID) -> UserWithAnalytics:
-    """
-    Returns user even if analytics database is unavailable.
-    analytics field will be null.
-    """
-    pass
-```
-
-<Aside type="tip">
-Use sagas for financial transactions, inventory management, and user registration across services. Skip sagas for analytics updates, cache invalidation, and non-critical notifications.
-</Aside>
+**Document your database boundaries.** Make it clear in your schema which types come from which databases. This helps developers understand potential consistency and performance implications.
 
 ## Next Steps
 
 <CardGrid>
   <Card title="NATS Integration" icon="random">
-    [NATS Integration](/features/nats) — Real-time across databases
+    [NATS Integration](/features/nats) — Durable cross-service event streaming
   </Card>
-  <Card title="Security" icon="shield">
-    [Security](/features/security) — Cross-database authorization
+  <Card title="Multi-Database" icon="setting">
+    [Multi-Database](/features/multi-database) — Configuration reference for multiple databases
   </Card>
-  <Card title="Performance" icon="setting">
-    [Performance](/guides/performance) — Federation optimization
+  <Card title="Observers" icon="document">
+    [Observers](/guides/observers) — React to cross-database changes
   </Card>
 </CardGrid>

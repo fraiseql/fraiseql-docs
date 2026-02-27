@@ -1,617 +1,421 @@
 ---
-title: Analytics
-description: Aggregations, measures, dimensions, and analytical queries
+title: Analytics & Arrow Flight DataPlane
+description: High-throughput columnar data access via Apache Arrow Flight for analytics workloads
 ---
 
-import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-FraiseQL supports analytical queries with aggregations, dimensions, and measures for building dashboards and reports.
+FraiseQL exposes an Apache Arrow Flight DataPlane alongside the standard GraphQL endpoint, enabling analytics clients to stream columnar data at wire speed — bypassing row-by-row serialization for aggregate and reporting queries that return millions of rows.
 
-## Concepts
+The Arrow Flight DataPlane is ideal for dashboards, BI tools, data pipelines, and any workload where throughput matters more than the flexibility of a GraphQL query.
 
-### Dimensions
-
-Categorical attributes for grouping:
-
-```python
-@fraiseql.dimension
-class ProductCategory:
-    """Product category for grouping."""
-    id: ID
-    name: str
-    parent: 'ProductCategory | None'
-```
-
-Common dimensions:
-- Time (day, week, month, year)
-- Geography (country, region, city)
-- Category (product, customer type)
-- Status (order status, user state)
-
-### Measures
-
-Numeric values to aggregate:
-
-```python
-@fraiseql.measure
-class OrderMetrics:
-    """Order-related measures."""
-    order_count: int
-    total_revenue: Decimal
-    avg_order_value: Decimal
-    items_sold: int
-```
-
-Common measures:
-- Counts (orders, users, events)
-- Sums (revenue, quantity)
-- Averages (order value, response time)
-- Percentiles (p50, p95, p99)
-
-## Calendar Dimension Table
-
-### tb_calendar Structure
-
-Master calendar table providing pre-computed temporal dimensions for all fact tables:
-
-```sql
-CREATE TABLE tb_calendar (
-    id UUID DEFAULT gen_random_uuid() UNIQUE,
-    reference_date DATE PRIMARY KEY,
-
-    -- Time period numbers
-    week INT,
-    week_n_days INT,                    -- Always 7
-    half_month INT,                     -- 1 or 2
-    half_month_n_days INT,              -- Days in this half
-    month INT,
-    month_n_days INT,                   -- 28-31
-    quarter INT,                        -- 1-4
-    quarter_n_days INT,                 -- 90-92
-    semester INT,                       -- 1 or 2
-    semester_n_days INT,                -- 181-184
-    year INT,
-    year_n_days INT,                    -- 365 or 366
-
-    -- Pre-computed JSONB for each granularity
-    date_info JSONB,
-    week_info JSONB,
-    half_month_info JSONB,
-    month_info JSONB,
-    quarter_info JSONB,
-    semester_info JSONB,
-    year_info JSONB,
-
-    -- Reference dates (first day of each period)
-    week_reference_date DATE,           -- Monday of week
-    half_month_reference_date DATE,     -- 1st or 16th
-    month_reference_date DATE,          -- 1st of month
-    quarter_reference_date DATE,        -- 1st of quarter
-    semester_reference_date DATE,       -- Jan 1 or Jul 1
-    year_reference_date DATE,           -- Jan 1
-
-    -- Boolean flags for reference dates
-    is_week_reference_date BOOLEAN,
-    is_half_month_reference_date BOOLEAN,
-    is_month_reference_date BOOLEAN,
-    is_quarter_reference_date BOOLEAN,
-    is_semester_reference_date BOOLEAN,
-    is_year_reference_date BOOLEAN
-);
-```
-
-### date_info JSONB Structure
-
-```json
-{
-    "date": "2024-03-15",
-    "week": 11,
-    "half_month": 1,
-    "month": 3,
-    "quarter": 1,
-    "semester": 1,
-    "year": 2024
-}
-```
-
-### Seed Data Generation
-
-```sql
-INSERT INTO tb_calendar (reference_date, week, month, quarter, semester, year, date_info, ...)
-SELECT
-    d::DATE AS reference_date,
-    EXTRACT(WEEK FROM d)::INT AS week,
-    EXTRACT(MONTH FROM d)::INT AS month,
-    EXTRACT(QUARTER FROM d)::INT AS quarter,
-    CASE WHEN EXTRACT(MONTH FROM d) <= 6 THEN 1 ELSE 2 END AS semester,
-    EXTRACT(YEAR FROM d)::INT AS year,
-    jsonb_build_object(
-        'date', d::text,
-        'week', EXTRACT(WEEK FROM d),
-        'half_month', CASE WHEN EXTRACT(DAY FROM d) <= 15 THEN 1 ELSE 2 END,
-        'month', EXTRACT(MONTH FROM d),
-        'quarter', EXTRACT(QUARTER FROM d),
-        'semester', CASE WHEN EXTRACT(MONTH FROM d) <= 6 THEN 1 ELSE 2 END,
-        'year', EXTRACT(YEAR FROM d)
-    ) AS date_info,
-    DATE_TRUNC('month', d)::DATE AS month_reference_date,
-    (EXTRACT(DAY FROM d) = 1) AS is_month_reference_date
-FROM generate_series('2015-01-01'::date, '2035-12-31'::date, '1 day') AS d;
-```
-
-## Fact Tables
-
-### tf_ Table Structure
-
-Fact tables use the `tf_` prefix and join to `tb_calendar`:
-
-```sql
-CREATE TABLE tf_sales (
-    pk_sales BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-
-    -- Measures (direct columns for fast aggregation)
-    quantity INT NOT NULL,
-    revenue DECIMAL(12,2) NOT NULL,
-    cost DECIMAL(12,2) NOT NULL,
-    discount DECIMAL(12,2) DEFAULT 0,
-
-    -- Dimension data (JSONB for flexibility)
-    data JSONB NOT NULL,
-
-    -- Calendar foreign key (joins to tb_calendar)
-    occurred_at DATE NOT NULL,
-
-    -- Denormalized columns for indexed filtering
-    customer_id UUID NOT NULL,
-    product_id UUID NOT NULL,
-    product_category TEXT,
-    customer_region TEXT
-);
-
-CREATE INDEX idx_tf_sales_occurred ON tf_sales(occurred_at);
-CREATE INDEX idx_tf_sales_category ON tf_sales(product_category);
-CREATE INDEX idx_tf_sales_data ON tf_sales USING GIN(data);
-```
-
-### Query-Side View with Calendar JOIN
-
-```sql
-CREATE VIEW v_sales AS
-SELECT
-    s.pk_sales,
-    jsonb_build_object(
-        'dimensions', s.data || jsonb_build_object('date_info', cal.date_info),
-        'measures', jsonb_build_object(
-            'quantity', s.quantity,
-            'revenue', s.revenue,
-            'cost', s.cost
-        )
-    ) AS data
-FROM tf_sales s
-LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at;
-```
-
-### Dimension Data (`data` column)
-
-Flexible dimension data stored as JSONB:
-
-```json
-{
-    "category": "electronics",
-    "region": "US",
-    "channel": "online",
-    "product": {
-        "id": "prod-123",
-        "name": "Widget Pro",
-        "category": "Electronics"
-    },
-    "customer": {
-        "id": "cust-456",
-        "name": "Acme Corp",
-        "type": "Enterprise"
-    }
-}
-```
-
-### Performance Impact
-
-Using the `tb_calendar` JOIN provides **10-16x faster** temporal aggregations:
-
-| Query | Runtime DATE_TRUNC | Pre-computed calendar | Speedup |
-|-------|---------------------|----------------------|---------|
-| `GROUP BY month` (1M rows) | 500ms | 30ms | 16x |
-| `GROUP BY quarter` (10M rows) | 5000ms | 300ms | 16x |
-
-<Aside type="tip">
-The `tb_calendar` approach provides a single source of truth for all temporal dimensions. `*_n_days` columns enable weighted averages, and the calendar is computed once rather than per fact row.
+<Aside type="caution">
+The Arrow Flight DataPlane requires **PostgreSQL**. If your FraiseQL instance connects to MySQL, SQLite, or SQL Server, analytics clients must use the standard GraphQL endpoint instead. The `[analytics]` configuration block has no effect on non-PostgreSQL databases.
 </Aside>
 
-## Defining Analytics Types
+## Prerequisites
 
-### Aggregate Type
+Before enabling the Arrow Flight DataPlane:
+
+- PostgreSQL 14 or later
+- FraiseQL running with a PostgreSQL `DATABASE_URL`
+- Client library for your language:
+  - **Python**: `pyarrow` (`pip install pyarrow`)
+  - **TypeScript/Node**: `apache-arrow` (`npm install apache-arrow`)
+  - **Rust**: `arrow` and `arrow-flight` crates
+
+## Configuration
+
+Enable the DataPlane in `fraiseql.toml`:
+
+```toml
+[analytics]
+enabled = true
+```
+
+The Arrow Flight service starts on port **8815** by default. This port is in addition to the standard GraphQL port (8080).
+
+### Available Options
+
+```toml
+[analytics]
+enabled = true
+# flight_port = 8815        # gRPC Flight service port (optional)
+# max_batch_size = 65536  # Maximum rows per Arrow record batch (optional)
+# compression = "lz4"       # Compression: "lz4", "zstd", or "none" (optional)
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `false` | Enable the Arrow Flight DataPlane |
+| `flight_port` | `8815` | Port for the gRPC Flight service |
+| `max_batch_size` | `65536` | Maximum rows per Arrow record batch |
+| `compression` | `"lz4"` | Compression codec for data transfer |
+
+<Aside type="note">
+The GraphQL endpoint continues to serve on its normal port (default 8080). The Flight port is additive — both services run simultaneously.
+</Aside>
+
+## Setup
+
+<Steps>
+
+1. **Enable the DataPlane**
+
+   Add the `[analytics]` block to `fraiseql.toml`:
+
+   ```toml
+   [analytics]
+   enabled = true
+   ```
+
+2. **Start FraiseQL**
+
+   ```bash
+   fraiseql run
+   ```
+
+   You should see a log line confirming the Flight service has started:
+
+   ```
+   INFO fraiseql::flight: Arrow Flight DataPlane listening on 0.0.0.0:8815
+   ```
+
+3. **Connect a client**
+
+   Point your Arrow Flight client at `grpc://localhost:8815`. The service accepts unauthenticated connections on development instances. In production, configure TLS via `[analytics.tls]` in `fraiseql.toml`.
+
+</Steps>
+
+## Querying Analytics Data
+
+The Flight DataPlane reads any `v_*` view exposed by FraiseQL. Define your aggregation logic in SQL and register the query in your schema.
+
+### Defining Analytics Views
+
+<Steps>
+
+1. **Create the SQL view**
+
+   ```sql
+   CREATE VIEW v_analytics_sales AS
+   SELECT
+       product_id,
+       SUM(revenue)               AS revenue,
+       COUNT(*)                   AS orders,
+       ROUND(AVG(revenue), 2)     AS avg_order_value
+   FROM tf_sales
+   GROUP BY product_id
+   ORDER BY revenue DESC;
+   ```
+
+2. **Register in your schema**
+
+   <Tabs syncKey="language">
+   <TabItem label="Python SDK">
+   
+   ```python
+   import fraiseql
+   from dataclasses import dataclass
+   from decimal import Decimal
+   
+   @fraiseql.type
+   class SalesAggregate:
+       """Aggregated sales metrics by product."""
+       product_id: str
+       revenue: Decimal
+       orders: int
+       avg_order_value: Decimal
+   
+   @fraiseql.query(sql_source="v_analytics_sales")
+   def analytics_sales() -> list[SalesAggregate]:
+       """Sales aggregates — available via both GraphQL and Arrow Flight."""
+       pass
+   ```
+   
+   </TabItem>
+   <TabItem label="TypeScript SDK">
+   
+   ```typescript
+   import { type, query } from 'fraiseql';
+   
+   @type()
+   class SalesAggregate {
+     productId!: string;
+     revenue!: number;
+     orders!: number;
+     avgOrderValue!: number;
+   }
+   
+   @query({ sqlSource: 'v_analytics_sales' })
+   async analyticsSales(): Promise<SalesAggregate[]> {
+     return [];
+   }
+   ```
+   
+   </TabItem>
+   </Tabs>
+
+3. **Query via Flight**
+
+   Any view registered with `@fraiseql.query` or `@query()` is automatically accessible through both the GraphQL endpoint and the Arrow Flight DataPlane.
+
+</Steps>
+
+## Python Client Example
 
 ```python
-import fraiseql
-from fraiseql.scalars import Decimal, Date
+import pyarrow.flight as flight
 
-@fraiseql.type
-class SalesAggregate:
-    """Aggregated sales metrics."""
-    period: str           # Day, week, month
-    product_category: str
-    customer_region: str
-    order_count: int
-    revenue: Decimal
-    avg_order_value: Decimal
-    items_sold: int
-```
+# Connect to the Flight service
+client = flight.connect("grpc://localhost:8815")
 
-### Analytics Query
-
-```python
-@fraiseql.query(sql_source="va_sales_by_period")
-def sales_by_period(
-    start_date: Date,
-    end_date: Date,
-    granularity: str = "day",  # day, week, month
-    product_category: str | None = None,
-    customer_region: str | None = None
-) -> list[SalesAggregate]:
-    """Query sales aggregates by time period."""
-    pass
-```
-
-### Supporting View
-
-```sql
-CREATE VIEW va_sales_by_period AS
-SELECT
-    date_trunc('day', order_date) AS period,
-    product_category,
-    customer_region,
-    COUNT(*) AS order_count,
-    SUM(revenue) AS revenue,
-    AVG(revenue) AS avg_order_value,
-    SUM(quantity) AS items_sold
-FROM tf_sales
-GROUP BY 1, 2, 3;
-```
-
-## Time-Based Analytics
-
-### Time Granularity
-
-```sql
--- Daily aggregates
-CREATE VIEW va_metrics_daily AS
-SELECT
-    date_trunc('day', created_at) AS day,
-    COUNT(*) AS count,
-    SUM(value) AS total
-FROM ta_events
-GROUP BY 1;
-
--- Weekly aggregates
-CREATE VIEW va_metrics_weekly AS
-SELECT
-    date_trunc('week', created_at) AS week,
-    COUNT(*) AS count,
-    SUM(value) AS total
-FROM ta_events
-GROUP BY 1;
-
--- Monthly aggregates
-CREATE VIEW va_metrics_monthly AS
-SELECT
-    date_trunc('month', created_at) AS month,
-    COUNT(*) AS count,
-    SUM(value) AS total
-FROM ta_events
-GROUP BY 1;
-```
-
-### Rolling Windows
-
-```sql
--- 7-day rolling average
-CREATE VIEW va_rolling_7d AS
-SELECT
-    day,
-    revenue,
-    AVG(revenue) OVER (
-        ORDER BY day
-        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
-    ) AS rolling_avg_7d
-FROM va_metrics_daily;
-
--- 30-day rolling sum
-CREATE VIEW va_rolling_30d AS
-SELECT
-    day,
-    orders,
-    SUM(orders) OVER (
-        ORDER BY day
-        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
-    ) AS rolling_sum_30d
-FROM va_metrics_daily;
-```
-
-### Period Comparisons
-
-```sql
--- Year-over-year comparison
-CREATE VIEW va_yoy_comparison AS
-SELECT
-    current.month,
-    current.revenue AS current_revenue,
-    previous.revenue AS previous_revenue,
-    ROUND(
-        (current.revenue - previous.revenue) / previous.revenue * 100,
-        2
-    ) AS yoy_growth_pct
-FROM va_metrics_monthly current
-LEFT JOIN va_metrics_monthly previous
-    ON previous.month = current.month - INTERVAL '1 year';
-```
-
-## Common Analytics Patterns
-
-### Top N
-
-```python
-@fraiseql.query(sql_source="va_top_products")
-def top_products(
-    limit: int = 10,
-    metric: str = "revenue"  # revenue, quantity, orders
-) -> list[ProductRanking]:
-    """Get top products by specified metric."""
-    pass
-```
-
-```sql
-CREATE VIEW va_top_products AS
-SELECT
-    product_id,
-    product_name,
-    SUM(revenue) AS revenue,
-    SUM(quantity) AS quantity,
-    COUNT(*) AS orders,
-    ROW_NUMBER() OVER (ORDER BY SUM(revenue) DESC) AS revenue_rank,
-    ROW_NUMBER() OVER (ORDER BY SUM(quantity) DESC) AS quantity_rank
-FROM tf_sales
-GROUP BY product_id, product_name;
-```
-
-### Distribution
-
-```sql
--- Revenue distribution by bucket
-CREATE VIEW va_order_distribution AS
-SELECT
-    CASE
-        WHEN revenue < 50 THEN 'Under $50'
-        WHEN revenue < 100 THEN '$50-$100'
-        WHEN revenue < 250 THEN '$100-$250'
-        WHEN revenue < 500 THEN '$250-$500'
-        ELSE 'Over $500'
-    END AS revenue_bucket,
-    COUNT(*) AS order_count,
-    SUM(revenue) AS total_revenue
-FROM tf_sales
-GROUP BY 1
-ORDER BY MIN(revenue);
-```
-
-### Percentiles
-
-```sql
-CREATE VIEW va_latency_percentiles AS
-SELECT
-    date_trunc('hour', created_at) AS hour,
-    percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms) AS p50,
-    percentile_cont(0.90) WITHIN GROUP (ORDER BY latency_ms) AS p90,
-    percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95,
-    percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms) AS p99
-FROM ta_request_logs
-GROUP BY 1;
-```
-
-### Cohort Analysis
-
-```sql
-CREATE VIEW va_retention_cohorts AS
-WITH first_action AS (
-    SELECT
-        user_id,
-        date_trunc('week', MIN(created_at)) AS cohort_week
-    FROM ta_events
-    WHERE event_type = 'signup'
-    GROUP BY 1
-),
-weekly_activity AS (
-    SELECT
-        user_id,
-        date_trunc('week', created_at) AS activity_week
-    FROM ta_events
-    WHERE event_type = 'login'
+# Create a Flight descriptor for your query
+descriptor = flight.FlightDescriptor.for_command(
+    b'{"query": "SELECT data FROM v_analytics_sales"}'
 )
-SELECT
-    fa.cohort_week,
-    EXTRACT(WEEK FROM wa.activity_week - fa.cohort_week) AS weeks_since_signup,
-    COUNT(DISTINCT wa.user_id) AS active_users,
-    COUNT(DISTINCT fa.user_id) AS cohort_size,
-    ROUND(
-        COUNT(DISTINCT wa.user_id)::numeric /
-        COUNT(DISTINCT fa.user_id) * 100,
-        2
-    ) AS retention_pct
-FROM first_action fa
-LEFT JOIN weekly_activity wa ON wa.user_id = fa.user_id
-    AND wa.activity_week >= fa.cohort_week
-GROUP BY 1, 2;
+
+# Get flight info and read the data
+info = client.get_flight_info(descriptor)
+reader = client.do_get(info.endpoints[0].ticket)
+table = reader.read_all()
+
+# Convert to pandas for analysis
+print(table.to_pandas())
 ```
 
-## Funnel Analysis
+Expected output:
+
+```
+   product_id  revenue  orders  avg_order_value
+0    prod_001  45231.5     312          145.0
+1    prod_002  38920.0     287          135.6
+2    prod_003  29118.0     201          144.9
+```
+
+The returned object is a PyArrow `Table`. From there you can:
+- Convert to pandas: `table.to_pandas()`
+- Convert to polars: `pl.from_arrow(table)`
+- Write to Parquet: `pq.write_table(table, 'output.parquet')`
+- Stream to DuckDB: Direct Arrow integration
+
+## TypeScript Client Example
+
+```typescript
+import { tableFromIPC } from 'apache-arrow';
+import { FlightClient } from '@apache-arrow/flight';
+
+const client = new FlightClient({ host: 'localhost', port: 8815 });
+
+const descriptor = {
+  query: 'SELECT data FROM v_analytics_sales'
+};
+
+const info = await client.getFlightInfo(descriptor);
+const reader = await client.doGet(info.endpoints[0].ticket);
+
+const batches = [];
+for await (const batch of reader) {
+  batches.push(batch);
+}
+
+const table = tableFromIPC(batches);
+console.table(table.toArray().slice(0, 5));
+```
+
+## Filtering with Parameters
+
+Pass filter parameters in the query JSON to push predicates down to PostgreSQL:
 
 ```python
-@fraiseql.type
-class FunnelStep:
-    step_name: str
-    users: int
-    conversion_rate: Decimal
+import json
+import pyarrow.flight as flight
 
-@fraiseql.query(sql_source="va_checkout_funnel")
-def checkout_funnel(
-    start_date: Date,
-    end_date: Date
-) -> list[FunnelStep]:
-    """Analyze checkout funnel conversion."""
-    pass
+client = flight.connect("grpc://localhost:8815")
+
+command = json.dumps({
+    "query": "SELECT data FROM v_analytics_sales",
+    "params": {
+        "start_date": "2024-01-01",
+        "end_date": "2024-03-31",
+        "region": "US"
+    }
+}).encode()
+
+info = client.get_flight_info(flight.FlightDescriptor.for_command(command))
+reader = client.do_get(info.endpoints[0].ticket)
+table = reader.read_all()
 ```
 
-```sql
-CREATE VIEW va_checkout_funnel AS
-WITH funnel AS (
-    SELECT
-        session_id,
-        MAX(CASE WHEN event_type = 'product_view' THEN 1 ELSE 0 END) AS viewed,
-        MAX(CASE WHEN event_type = 'add_to_cart' THEN 1 ELSE 0 END) AS added,
-        MAX(CASE WHEN event_type = 'checkout_start' THEN 1 ELSE 0 END) AS started,
-        MAX(CASE WHEN event_type = 'purchase' THEN 1 ELSE 0 END) AS purchased
-    FROM ta_events
-    GROUP BY session_id
-)
-SELECT
-    'Product View' AS step_name,
-    SUM(viewed) AS users,
-    100.0 AS conversion_rate
+## Performance: Arrow Flight vs. GraphQL
 
-UNION ALL
+Arrow Flight sends data in Apache Arrow's columnar binary format with optional LZ4 or Zstd compression. GraphQL sends JSON. For analytical payloads, the difference is substantial:
 
-SELECT
-    'Add to Cart' AS step_name,
-    SUM(added) AS users,
-    ROUND(SUM(added)::numeric / NULLIF(SUM(viewed), 0) * 100, 2)
+| Workload | GraphQL (JSON) | Arrow Flight (LZ4) | Speedup |
+|----------|----------------|-------------------|---------|
+| 100k rows, 6 columns | ~2,800 ms | ~180 ms | ~15x |
+| 1M rows, 6 columns | ~28,000 ms | ~1,400 ms | ~20x |
+| 10M rows, 6 columns | Timeout | ~12,000 ms | — |
+| Pandas load (1M rows) | ~9,200 ms | ~420 ms | ~22x |
 
-UNION ALL
+<Aside type="tip">
+These are illustrative benchmarks. Actual performance varies by:
+- Query complexity and PostgreSQL execution time
+- Network bandwidth and latency
+- Client hardware and Arrow library version
+- Concurrent load on the FraiseQL server
 
-SELECT
-    'Checkout Start' AS step_name,
-    SUM(started) AS users,
-    ROUND(SUM(started)::numeric / NULLIF(SUM(added), 0) * 100, 2)
+Always benchmark with your actual workload before deciding between GraphQL and Arrow Flight.
+</Aside>
 
-UNION ALL
+### When to Use Each Endpoint
 
-SELECT
-    'Purchase' AS step_name,
-    SUM(purchased) AS users,
-    ROUND(SUM(purchased)::numeric / NULLIF(SUM(started), 0) * 100, 2)
+| Use Case | Recommendation |
+|----------|----------------|
+| Transactional reads | **GraphQL** — ACID semantics, mutations, subscriptions |
+| Real-time updates | **GraphQL** — Subscriptions over WebSocket |
+| Small result sets (less than 10k rows) | **GraphQL** — Simpler client libraries, HTTP caching |
+| Large aggregations | **Arrow Flight** — Columnar format, compression |
+| Data pipelines | **Arrow Flight** — Stream processing, Parquet export |
+| BI tool integration | **Arrow Flight** — Standard Arrow ecosystem |
 
-FROM funnel;
-```
+## Real-Time Analytics with Streaming
 
-## Real-Time Analytics
-
-### Streaming Aggregates
-
-For real-time dashboards, maintain incremental aggregates:
-
-```sql
--- Incremental counter table
-CREATE TABLE ta_counters (
-    counter_key TEXT PRIMARY KEY,
-    value BIGINT DEFAULT 0,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Increment function
-CREATE FUNCTION increment_counter(key TEXT, amount INT DEFAULT 1)
-RETURNS VOID AS $$
-BEGIN
-    INSERT INTO ta_counters (counter_key, value)
-    VALUES (key, amount)
-    ON CONFLICT (counter_key)
-    DO UPDATE SET
-        value = ta_counters.value + amount,
-        updated_at = NOW();
-END;
-$$ LANGUAGE plpgsql;
-```
-
-### Live Dashboards
+For continuously updated dashboards, use the streaming endpoint. The Flight service keeps the gRPC stream open and pushes new record batches as the underlying view refreshes:
 
 ```python
-@fraiseql.subscription(entity_type="Counter", topic="counter_updated")
-def counter_updates(counter_keys: list[str]) -> Counter:
-    """Subscribe to real-time counter updates."""
-    pass
+import pyarrow.flight as flight
+
+client = flight.connect("grpc://localhost:8815")
+
+command = b'{"query": "SELECT data FROM v_realtime_counters", "stream": true}'
+descriptor = flight.FlightDescriptor.for_command(command)
+
+# Blocks and yields batches as data arrives
+for batch in client.do_get(client.get_flight_info(descriptor).endpoints[0].ticket):
+    df = batch.data.to_pandas()
+    print(f"[{batch.data.num_rows} rows] {df['event_count'].sum()} total events")
 ```
 
-## Performance
+<Aside type="caution">
+Streaming requires `v_*` views that read from live tables, not materialized views. Materialized views require an explicit `REFRESH` to pick up new data. For real-time counters, use regular views backed by `tb_*` tables updated by `fn_*` mutation functions.
+</Aside>
 
-### Pre-Aggregation
+## TLS Configuration
 
-Pre-compute aggregates for common queries:
+In production, enable TLS for the Flight service:
 
-```sql
--- Daily summary table (populated by cron/observer)
-CREATE TABLE ta_daily_summary (
-    summary_date DATE PRIMARY KEY,
-    total_orders INT,
-    total_revenue DECIMAL(12,2),
-    unique_customers INT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+```toml
+[analytics]
+enabled = true
 
--- Populate function
-CREATE FUNCTION refresh_daily_summary(for_date DATE) RETURNS VOID AS $$
-BEGIN
-    INSERT INTO ta_daily_summary (summary_date, total_orders, total_revenue, unique_customers)
-    SELECT
-        for_date,
-        COUNT(*),
-        SUM(revenue),
-        COUNT(DISTINCT customer_id)
-    FROM tf_sales
-    WHERE order_date = for_date
-    ON CONFLICT (summary_date) DO UPDATE SET
-        total_orders = EXCLUDED.total_orders,
-        total_revenue = EXCLUDED.total_revenue,
-        unique_customers = EXCLUDED.unique_customers,
-        created_at = NOW();
-END;
-$$ LANGUAGE plpgsql;
+[analytics.tls]
+enabled = true
+cert_file = "/certs/server.pem"
+key_file = "/certs/server.key"
+ca_file = "/certs/ca.pem"  # Optional: for client cert verification
 ```
 
-### Materialized Views
+Client connection with TLS:
+
+```python
+import pyarrow.flight as flight
+
+# TLS enabled — use grpcs scheme
+client = flight.connect("grpcs://analytics.example.com:8815")
+```
+
+## Monitoring
+
+The Arrow Flight service exposes Prometheus metrics:
+
+| Metric | Description |
+|--------|-------------|
+| `fraiseql_flight_requests_total` | Total Flight requests |
+| `fraiseql_flight_rows_streamed_total` | Total rows streamed |
+| `fraiseql_flight_latency_seconds` | Request latency histogram |
+| `fraiseql_flight_errors_total` | Error count by type |
+
+Health check endpoint:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Includes Flight service status:
+
+```json
+{
+  "status": "ok",
+  "analytics": {
+    "enabled": true,
+    "port": 8815,
+    "connections": 12
+  }
+}
+```
+
+## Limitations
+
+Current Arrow Flight implementation has these limitations:
+
+1. **PostgreSQL only**: MySQL, SQLite, and SQL Server are not supported
+2. **No Flight SQL**: Uses custom JSON descriptors, not standard Flight SQL protocol
+3. **No authentication**: Unauthenticated in development; use TLS and network policies in production
+4. **Read-only**: Mutations must use the GraphQL endpoint
+5. **No subscriptions**: Streaming is pull-based, not push-based like GraphQL subscriptions
+
+## Troubleshooting
+
+**"Connection refused" on port 8815**
+
+1. Verify the DataPlane is enabled in `fraiseql.toml`:
+   ```toml
+   [analytics]
+   enabled = true
+   ```
+
+2. Check FraiseQL logs for the startup message:
+   ```
+   INFO fraiseql::flight: Arrow Flight DataPlane listening on 0.0.0.0:8815
+   ```
+
+3. Confirm the port is not blocked by a firewall
+
+**"View not found" errors**
+
+Ensure the view name in your Flight query matches the `sql_source` in your schema definition exactly (case-sensitive).
+
+**Slow query performance**
+
+Arrow Flight is only as fast as the underlying PostgreSQL query. Check:
 
 ```sql
--- Materialized for heavy aggregations
-CREATE MATERIALIZED VIEW mv_product_stats AS
-SELECT
-    product_id,
-    COUNT(*) AS total_orders,
-    SUM(quantity) AS total_sold,
-    SUM(revenue) AS total_revenue,
-    AVG(revenue) AS avg_order_value
-FROM tf_sales
-GROUP BY product_id;
+EXPLAIN ANALYZE SELECT * FROM v_analytics_sales WHERE ...;
+```
 
--- Refresh periodically
-CREATE UNIQUE INDEX ON mv_product_stats (product_id);
-REFRESH MATERIALIZED VIEW CONCURRENTLY mv_product_stats;
+Missing indexes on filter columns are the most common cause of slow analytics queries.
+
+**Large memory usage**
+
+The `max_batch_size` setting (default 65,536 rows) controls how many rows are buffered in memory. Reduce it for memory-constrained environments:
+
+```toml
+[analytics]
+enabled = true
+max_batch_size = 10000
 ```
 
 ## Next Steps
 
 <CardGrid>
-  <Card title="Arrow Flight" icon="rocket">
-    [Arrow Flight](/features/arrow-dataplane) — High-performance columnar data access
-  </Card>
   <Card title="Performance" icon="setting">
-    [Performance](/guides/performance) — Query optimization
+    [Performance Guide](/guides/performance) — Query optimization and indexes for analytics views
   </Card>
   <Card title="Caching" icon="random">
-    [Caching](/features/caching) — Cache analytics results
+    [Caching](/features/caching) — Cache heavy aggregations
+  </Card>
+  <Card title="Federation" icon="open-book">
+    [Federation](/features/federation) — Combine analytics from multiple databases
   </Card>
 </CardGrid>

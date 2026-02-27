@@ -5,6 +5,13 @@ description: Troubleshoot FraiseQL with MySQL database issues
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
+<Aside type="note">
+FraiseQL requires **MySQL 8.0 or later** (or **MariaDB 10.4+**). Key differences from MySQL 5.7:
+- `JSON_TABLE()` and JSON path operators (`->`, `->>`) require MySQL 8.0+
+- `InnoDB` is required (MyISAM is not supported — no transactions)
+- `utf8mb4` charset is required for full Unicode support
+</Aside>
+
 Solutions for MySQL-specific issues with FraiseQL.
 
 ## Connection Issues
@@ -586,6 +593,22 @@ SHOW STATUS WHERE variable_name IN ('Innodb_buffer_pool_read_requests', 'Innodb_
 
 -- Slow queries (if slow_query_log enabled)
 SELECT * FROM mysql.slow_log ORDER BY start_time DESC LIMIT 20;
+```
+
+## FraiseQL Configuration for MySQL
+
+In `fraiseql.toml`, tune MySQL-specific settings:
+
+```toml
+[database]
+url = "mysql://user:password@localhost:3306/mydb"
+pool_size = 10
+pool_timeout = 30
+statement_timeout = "5000ms"
+
+[database.mysql]
+charset = "utf8mb4"
+collation = "utf8mb4_unicode_ci"
 ```
 
 <CardGrid>

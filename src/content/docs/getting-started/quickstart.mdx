@@ -4,6 +4,7 @@ description: Get a FraiseQL GraphQL API running in 5 minutes
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import EmbeddedSandbox from '../../../components/EmbeddedSandbox.astro';
 
 Get a FraiseQL GraphQL API running in 5 minutes. This guide assumes you have a PostgreSQL database with tables already set up. For the full workflow including database setup with 🍯 Confiture, see [Your First API](/getting-started/first-api).
 
@@ -58,6 +59,12 @@ The schema SDK lets you define GraphQL types in your preferred language using de
 </Tabs>
 
 ## Step 2: Write Your SQL Views
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip">
+The `tb_`/`v_`/`fn_` prefixes aren't mandatory, but FraiseQL uses them to find your objects automatically. `fraiseql compile` scans for views matching `v_{query_name}` and functions matching `fn_{mutation_name}`. If you already have a different naming convention, you can override it with `sql_source="my_posts_view"` on the decorator — but following the convention means less config everywhere.
+</Aside>
 
 Create SQL views that follow the `.data` JSONB pattern. Each view has an `id` column and a `data` column:
 
@@ -401,6 +408,29 @@ If a query references a field that doesn't exist, FraiseQL returns a structured 
 4. **API served** — Every GraphQL query resolves to a single SQL statement
 
 No resolvers. No N+1 problems. No generated SQL you can't read.
+
+## Try It Without Installing
+
+Query the same schema — users, posts, comments, tags — against a live FraiseQL server backed by real PostgreSQL. No account required.
+
+<EmbeddedSandbox
+  endpoint="https://demo.fraiseql.dev/graphql"
+  title="FraiseQL Demo API"
+  description="Try the schema from this guide against a live server."
+  height="520px"
+  preloadedQuery={`query {
+  posts(limit: 3) {
+    id
+    title
+    author {
+      name
+    }
+    tags {
+      name
+    }
+  }
+}`}
+/>
 
 ## Next Steps
 

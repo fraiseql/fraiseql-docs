@@ -1,0 +1,25 @@
+[project]
+name    = "minimal"
+version = "0.1.0"
+description = "A minimal FraiseQL project"
+database_target = "sqlite"
+
+[database]
+url = "${DATABASE_URL:-sqlite://./dev.db}"
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[fraiseql.security.rate_limiting]
+enabled = true
+auth_start_max_requests = 100
+auth_start_window_secs = 60
+
+[fraiseql.security.audit_logging]
+enabled = true
+log_level = "info"

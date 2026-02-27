@@ -23,6 +23,32 @@ This guide covers migrating from Hasura (auto-generated GraphQL from database in
 | **Runtime** | Node.js / Haskell | Rust binary |
 | **Learning Curve** | Low (UI-driven) | Medium (code-driven) |
 
+## Concept Mapping
+
+Use this table as a translation guide as you work through the migration:
+
+| Hasura | FraiseQL Equivalent |
+|--------|---------------------|
+| Track table | Create SQL view (`v_*`) |
+| Permissions (YAML) | PostgreSQL Row-Level Security via SQL view `WHERE` clause |
+| Event triggers | Observers (`@observer` decorator) |
+| Actions | SQL functions (`fn_*`) + mutations |
+| Remote schemas | Federation (multi-database in one binary) |
+| Computed fields | SQL view expressions |
+| Relationships (YAML) | Typed fields on `@fraiseql.type` backed by SQL JOIN |
+| Hasura Console | `fraiseql.toml` + SDK decorators |
+
+## What changes
+
+FraiseQL asks you to write views. In exchange:
+
+- **Your database schema is decoupled from your API.** Hasura exposes tables directly — a table rename breaks the API. FraiseQL exposes views — a table rename is invisible to clients.
+- **You control exactly what the API exposes.** No `_aggregate`, `_by_pk`, `_stream` variants you didn't ask for.
+- **Complex queries are SQL, not YAML permission rules** or nested filter objects.
+- **Row-level filtering uses SQL `WHERE` clauses** instead of Hasura's permission rule engine.
+
+The migration involves creating `v_*` views that match your existing data model. For a simple case this is 30–60 minutes of SQL. For a complex case with permissions it replaces Hasura's YAML rules with SQL `WHERE` conditions on the view.
+
 ## Architecture Difference
 
 **Hasura** auto-generates a GraphQL schema by introspecting your database tables. Every column and relationship becomes a queryable field automatically.
@@ -91,6 +117,43 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
            pass
        ```
      </TabItem>
+     <TabItem label="FraiseQL (TypeScript)">
+       ```typescript
+       import { type, query, ID } from 'fraiseql';
+
+       @type()
+       class User {
+           id!: ID;
+           email!: string;
+           name!: string;
+           posts!: Post[];
+       }
+
+       @query({ sqlSource: 'v_user', requiresScope: 'read:User' })
+       function user(id: ID): Promise<User> {
+           return Promise.resolve({} as User);
+       }
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (Go)">
+       ```go
+       import "github.com/fraiseql/fraiseql-go"
+
+       type User struct {
+           ID    fraiseql.ID `fraiseql:"id"`
+           Email string      `fraiseql:"email"`
+           Name  string      `fraiseql:"name"`
+           Posts []Post      `fraiseql:"posts"`
+       }
+
+       func init() {
+           fraiseql.Query("user", fraiseql.QueryConfig{
+               SQLSource:     "v_user",
+               RequiresScope: "read:User",
+           }, func(args fraiseql.Args) (User, error) { return User{}, nil })
+       }
+       ```
+     </TabItem>
    </Tabs>
 
 3. **Replicate Permissions via SQL Views**
@@ -109,7 +172,7 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
                  _eq: X-Hasura-User-Id
        ```
      </TabItem>
-     <TabItem label="FraiseQL (SQL view)">
+     <TabItem label="FraiseQL (Python)">
        ```python
        @fraiseql.query(sql_source="v_user_filtered", requires_scope="read:User")
        def my_profile() -> User:
@@ -124,7 +187,65 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
        WHERE id = current_setting('app.current_user_id')::uuid;
        ```
      </TabItem>
+     <TabItem label="FraiseQL (TypeScript)">
+       ```typescript
+       import { query, requiresScope, ID } from 'fraiseql';
+
+       @query({ sqlSource: 'v_user_filtered' })
+       @requiresScope('read:User')
+       function myProfile(): Promise<User> {
+           return Promise.resolve({} as User);
+       }
+       ```
+
+       ```sql
+       -- v_user_filtered enforces row-level access in SQL
+       CREATE VIEW v_user_filtered AS
+       SELECT * FROM tb_user
+       WHERE id = current_setting('app.current_user_id')::uuid;
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (Go)">
+       ```go
+       fraiseql.Query("myProfile", fraiseql.QueryConfig{
+           SQLSource:     "v_user_filtered",
+           RequiresScope: "read:User",
+       }, func(args fraiseql.Args) (User, error) { return User{}, nil })
+       ```
+
+       ```sql
+       -- v_user_filtered enforces row-level access in SQL
+       CREATE VIEW v_user_filtered AS
+       SELECT * FROM tb_user
+       WHERE id = current_setting('app.current_user_id')::uuid;
+       ```
+     </TabItem>
    </Tabs>
+
+   Verify your permission migration works correctly by testing with both an admin token and a viewer token:
+
+   ```bash
+   # Admin role: full access — should return all users
+   curl -X POST http://localhost:8080/graphql \
+     -H "Authorization: Bearer $ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ users { id name email } }"}' | jq '.data.users | length'
+   # Expect: total user count (e.g. 42)
+
+   # Viewer role: filtered access — should return only the viewer's own profile
+   curl -X POST http://localhost:8080/graphql \
+     -H "Authorization: Bearer $VIEWER_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ myProfile { id name email } }"}' | jq '.data.myProfile'
+   # Expect: single user object matching the viewer's own account
+
+   # Viewer role: cross-user access — should be filtered out by the SQL view
+   curl -X POST http://localhost:8080/graphql \
+     -H "Authorization: Bearer $VIEWER_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ user(id: \"other-user-id\") { id name } }"}' | jq '.data.user'
+   # Expect: null (filtered by SQL view WHERE clause — not an authorization error)
+   ```
 
 4. **Migrate Custom Actions to PostgreSQL Functions**
 
@@ -147,7 +268,7 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
              timeout: 30
        ```
      </TabItem>
-     <TabItem label="FraiseQL (mutation + PostgreSQL function)">
+     <TabItem label="FraiseQL (Python)">
        ```python
        @fraiseql.input
        class SendEmailInput:
@@ -166,6 +287,67 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
        RETURNS TABLE(success BOOL, message TEXT) AS $$
        BEGIN
            -- Insert into outbox for async processing
+           INSERT INTO tb_email_outbox (recipient, body) VALUES (p_email, p_message);
+           RETURN QUERY SELECT true, 'Email queued'::TEXT;
+       END;
+       $$ LANGUAGE plpgsql;
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (TypeScript)">
+       ```typescript
+       import { input, mutation } from 'fraiseql';
+
+       @input()
+       class SendEmailInput {
+           email!: string;
+           message!: string;
+       }
+
+       @mutation({ sqlSource: 'fn_send_email' })
+       function sendEmail(input: SendEmailInput): Promise<ActionOutput> {
+           return Promise.resolve({} as ActionOutput);
+       }
+       ```
+
+       ```sql
+       -- Business logic lives in the database
+       CREATE FUNCTION fn_send_email(p_email TEXT, p_message TEXT)
+       RETURNS TABLE(success BOOL, message TEXT) AS $$
+       BEGIN
+           INSERT INTO tb_email_outbox (recipient, body) VALUES (p_email, p_message);
+           RETURN QUERY SELECT true, 'Email queued'::TEXT;
+       END;
+       $$ LANGUAGE plpgsql;
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (Go)">
+       ```go
+       import "github.com/fraiseql/fraiseql-go"
+
+       type SendEmailInput struct {
+           Email   string `fraiseql:"email"`
+           Message string `fraiseql:"message"`
+       }
+
+       type ActionOutput struct {
+           Success bool   `fraiseql:"success"`
+           Message string `fraiseql:"message"`
+       }
+
+       func init() {
+           fraiseql.Mutation("sendEmail", fraiseql.MutationConfig{
+               SQLSource: "fn_send_email",
+           }, func(input SendEmailInput) (ActionOutput, error) {
+               return ActionOutput{}, nil
+           })
+       }
+       ```
+
+       ```sql
+       -- Business logic lives in the database
+       CREATE FUNCTION fn_send_email(p_email TEXT, p_message TEXT)
+       RETURNS TABLE(success BOOL, message TEXT) AS $$
+       BEGIN
            INSERT INTO tb_email_outbox (recipient, body) VALUES (p_email, p_message);
            RETURN QUERY SELECT true, 'Email queued'::TEXT;
        END;
@@ -294,15 +476,17 @@ FraiseQL query (10 users with posts):
 
 ## Cost Comparison
 
+<Aside type="caution">
+Pricing changes frequently. The figures below are illustrative. Always check the official pricing pages before making a decision: [Hasura Cloud pricing](https://hasura.io/pricing/) and your chosen hosting provider's current rates for FraiseQL self-hosting.
+</Aside>
+
 | | Hasura Cloud | FraiseQL (Self-hosted) |
 |---|---|---|
-| **Starter** | $25/month | — |
-| **Professional** | $99/month | — |
-| **Server** | Included in price | $20-50/month |
-| **Database** | Extra | Existing |
-| **Total** | $99-200+/month | $20-50/month |
+| **GraphQL engine** | Paid tier required for production features | Open source (Apache 2.0) |
+| **Server hosting** | Included in cloud plan | Your own server or cloud VM |
+| **Database** | Extra (managed database add-on) | Existing or separate managed DB |
 
-**Typical savings: 50-80%** on hosting costs, plus better performance.
+FraiseQL is self-hosted, so your total cost depends on your infrastructure. For many teams, running a single Rust binary alongside an existing PostgreSQL instance results in significantly lower costs than a managed GraphQL cloud service, but your mileage will vary.
 
 ## Migration Checklist
 
@@ -339,3 +523,199 @@ FraiseQL query (10 users with posts):
     [Read guide](/getting-started/introduction)
   </Card>
 </CardGrid>
+
+## Migration Verification
+
+<Steps>
+
+1. **Export and compare schemas**:
+   ```bash
+   # Export Hasura metadata
+   hasura metadata export
+   
+   # Compile FraiseQL schema
+   fraiseql compile --output schema.fraiseql.json
+   
+   # Compare type counts
+   cat metadata/databases/default/tables/*.yaml | grep "^table:" | wc -l
+   cat schema.fraiseql.json | jq '.types | length'
+   ```
+
+2. **Test query parity**:
+   ```bash
+   # Hasura query
+   curl -X POST http://localhost:8080/v1/graphql \
+     -H "Content-Type: application/json" \
+     -H "X-Hasura-Admin-Secret: secret" \
+     -d '{"query": "{ users { id name } }"}' \
+     > hasura_result.json
+   
+   # FraiseQL query
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ users { id name } }"}' \
+     > fraiseql_result.json
+   
+   # Compare field structure
+   diff <(jq '.data.users[0] | keys' hasura_result.json) \
+        <(jq '.data.users[0] | keys' fraiseql_result.json)
+   ```
+
+3. **Verify RLS equivalence**:
+   ```bash
+   # Test with user token
+   curl -X POST http://localhost:8080/graphql \
+     -H "Authorization: Bearer $USER_TOKEN" \
+     -d '{"query": "{ users { id email } }"}'
+   
+   # Verify user only sees their own data
+   # (same behavior as Hasura with permissions)
+   ```
+
+4. **Test event triggers → observers**:
+   ```bash
+   # Create a record
+   curl -X POST http://localhost:8080/graphql \
+     -d '{"query": "mutation { createUser(...) { id } }"}'
+   
+   # Check webhook was called (in FraiseQL observer)
+   tail -f /var/log/fraiseql/observers.log
+   ```
+
+5. **Performance comparison**:
+   ```bash
+   # Benchmark Hasura
+   ab -n 1000 -c 10 -p query.json \
+     -H "X-Hasura-Admin-Secret: secret" \
+     http://localhost:8080/v1/graphql
+   
+   # Benchmark FraiseQL
+   ab -n 1000 -c 10 -p query.json \
+     http://localhost:8080/graphql
+   ```
+
+</Steps>
+
+## Common Migration Issues
+
+### Issue: Permissions not working
+
+**Symptoms:**
+Users can see all data instead of just their own.
+
+**Solution:**
+1. Verify RLS is enabled on tables:
+   ```sql
+   SELECT relname, relrowsecurity FROM pg_class WHERE relname LIKE 'tb_%';
+   ```
+   
+2. Check policy exists:
+   ```sql
+   SELECT * FROM pg_policies WHERE tablename = 'tb_user';
+   ```
+   
+3. Ensure `tenant_id` is being set:
+   ```python
+   # Check context in resolver
+   print(ctx.tenant_id)  # Should not be None
+   ```
+
+### Issue: Event triggers not firing
+
+**Symptoms:**
+Observers don't execute when data changes.
+
+**Solution:**
+1. Verify observer is registered:
+   ```python
+   # Check logs during startup
+   fraiseql run 2>&1 | grep "observer"
+   ```
+   
+2. Check observer syntax:
+   ```python
+   @fraiseql.observer(
+       entity="User",  # Must match table name
+       event="INSERT"
+   )
+   ```
+   
+3. Test NATS connection:
+   ```bash
+   docker-compose exec nats nats server info
+   ```
+
+### Issue: Schema too permissive
+
+**Symptoms:**
+Hasura had field-level permissions, FraiseQL exposes everything.
+
+**Solution:**
+1. Use field-level decorators:
+   ```python
+   @fraiseql.type
+   class User:
+       id: str
+       email: str
+       # Hide sensitive fields
+       password_hash: Annotated[str, fraiseql.field(exclude=True)]
+   ```
+   
+2. Or create separate views for different roles:
+   ```sql
+   CREATE VIEW v_user_public AS
+   SELECT id, name FROM tb_user;
+   
+   CREATE VIEW v_user_admin AS
+   SELECT id, name, email, created_at FROM tb_user;
+   ```
+
+### Issue: Relationships not resolving
+
+**Symptoms:**
+Nested queries return null or empty arrays.
+
+**Solution:**
+1. Check SQL view has JOIN:
+   ```sql
+   -- View should JOIN related tables
+   SELECT ... FROM tb_user u
+   LEFT JOIN tb_post p ON p.user_id = u.id
+   ```
+   
+2. Verify foreign keys exist:
+   ```sql
+   SELECT conname, conrelid::regclass, confrelid::regclass
+   FROM pg_constraint WHERE contype = 'f';
+   ```
+   
+3. Test the view directly:
+   ```sql
+   SELECT data FROM v_user WHERE id = '123';
+   -- Should include nested posts
+   ```
+
+### Issue: Performance regression
+
+**Symptoms:**
+FraiseQL is slower than Hasura.
+
+**Solution:**
+1. Check for missing indexes (Hasura auto-creates, FraiseQL doesn't):
+   ```sql
+   -- List all indexes
+   SELECT indexname, tablename FROM pg_indexes 
+   WHERE tablename LIKE 'tb_%' ORDER BY tablename;
+   ```
+   
+2. Create necessary indexes:
+   ```sql
+   CREATE INDEX idx_user_email ON tb_user(email);
+   CREATE INDEX idx_post_user_id ON tb_post(user_id);
+   ```
+   
+3. Analyze query plans:
+   ```sql
+   EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+   SELECT data FROM v_user WHERE email = 'test@test.com';
+   ```

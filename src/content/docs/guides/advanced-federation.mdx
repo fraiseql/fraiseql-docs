@@ -514,19 +514,11 @@ SET app.current_tenant_id = 'tenant-123';
 ### Circuit Breaker Pattern
 
 ```toml
-[federation.resilience]
+[federation.circuit_breaker]
 enabled = true
-
-[federation.resilience.circuit_breaker]
-enabled = true
-failure_threshold = 5  # Fail after 5 errors
-success_threshold = 2  # Recover after 2 successes
-timeout = 30000  # 30 second timeout
-
-[federation.resilience.retry]
-max_attempts = 3
-backoff = "exponential"
-backoff_multiplier = 2
+failure_threshold = 5        # Open after 5 consecutive failures
+recovery_timeout_secs = 30   # Seconds in open state before probing
+success_threshold = 2        # Successful probes required to close
 ```
 
 ### Graceful Degradation

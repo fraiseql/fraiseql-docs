@@ -3,7 +3,7 @@ title: CQRS Pattern
 description: Understanding Command Query Responsibility Segregation in FraiseQL
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
 
 FraiseQL uses **Command Query Responsibility Segregation (CQRS)** at the database level. You separate read and write operations into distinct structures that you design and own: normalized tables (`tb_*`) for writes, JSONB views (`v_*`) for reads.
 
@@ -33,6 +33,16 @@ graph LR
     TV --> V[v_* Views]
     V --> R[Read Path]
 ```
+
+### What this separation buys you
+
+- **Adding a GraphQL field** = add a column to the view. No migration needed, no type regeneration.
+- **Renaming a field** = rename in the view, not in the table. No data change, no FK cascade.
+- **A slow query** = add an index or rewrite the view. The API surface stays stable.
+- **A FraiseQL upgrade** = recompile. Your SQL doesn't change.
+- **A table schema change** = invisible to API clients, who only see what the view exposes.
+
+The cost: you write views. The payoff: the API is decoupled from the storage schema, and you can evolve both independently.
 
 ## CQRS Separation
 
@@ -913,6 +923,156 @@ def create_user(name: str, email: str) -> User:
     """Write through create_user function"""
     pass
 ```
+
+## Verify It Works
+
+<Steps>
+
+1. **Create the write table and read view**:
+   ```sql
+   -- PostgreSQL example
+   CREATE TABLE tb_test_item (
+       pk_item INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+       id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+       name TEXT NOT NULL,
+       value INTEGER NOT NULL
+   );
+
+   CREATE OR REPLACE VIEW v_test_item AS
+   SELECT
+       id,
+       jsonb_build_object(
+           'id', id::text,
+           'name', name,
+           'value', value
+       ) AS data
+   FROM tb_test_item;
+   ```
+
+2. **Create a write function**:
+   ```sql
+   CREATE OR REPLACE FUNCTION fn_create_test_item(p_input jsonb)
+   RETURNS SETOF v_test_item
+   LANGUAGE plpgsql AS $$
+   DECLARE
+       v_item_id UUID;
+   BEGIN
+       INSERT INTO tb_test_item (name, value)
+       VALUES (p_input->>'name', (p_input->>'value')::INTEGER)
+       RETURNING id INTO v_item_id;
+       
+       RETURN QUERY SELECT * FROM v_test_item WHERE id = v_item_id;
+   END;
+   $$;
+   ```
+
+3. **Test the write path**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{
+       "query": "mutation { createTestItem(input: { name: \"Test\", value: 42 }) { id name value } }"
+     }'
+   ```
+   
+   Expected response:
+   ```json
+   {
+     "data": {
+       "createTestItem": {
+         "id": "550e8400-e29b-41d4-a716-446655440000",
+         "name": "Test",
+         "value": 42
+       }
+     }
+   }
+   ```
+
+4. **Verify data in write table**:
+   ```sql
+   SELECT * FROM tb_test_item;
+   -- Should show the normalized row
+   ```
+
+5. **Verify data in read view**:
+   ```sql
+   SELECT data FROM v_test_item WHERE id = '550e8400-...';
+   -- Should return JSONB: {"id": "...", "name": "Test", "value": 42}
+   ```
+
+6. **Test the read query**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ testItems { id name value } }"}'
+   ```
+   
+   Expected response:
+   ```json
+   {
+     "data": {
+       "testItems": [
+         {
+           "id": "550e8400-e29b-41d4-a716-446655440000",
+           "name": "Test",
+           "value": 42
+         }
+       ]
+     }
+   }
+   ```
+
+</Steps>
+
+## Troubleshooting
+
+### View Returns No Data
+
+1. **Check view definition**:
+   ```sql
+   -- PostgreSQL
+   \d+ v_test_item
+   
+   -- Check the query plan
+   EXPLAIN ANALYZE SELECT data FROM v_test_item;
+   ```
+
+2. **Verify the data column**:
+   ```sql
+   SELECT data FROM v_test_item LIMIT 1;
+   -- Should return valid JSON/JSONB, not NULL
+   ```
+
+### Write Function Fails
+
+1. **Test function directly in SQL**:
+   ```sql
+   SELECT * FROM fn_create_test_item('{"name": "Test", "value": 42}'::jsonb);
+   ```
+
+2. **Check for constraint violations**:
+   ```sql
+   -- Check if UUID already exists
+   SELECT id FROM tb_test_item WHERE id = 'conflicting-uuid';
+   ```
+
+### Performance Issues
+
+1. **Check for missing indexes** on `tb_*` tables:
+   ```sql
+   -- For UUID lookups
+   CREATE INDEX idx_tb_item_id ON tb_test_item(id);
+   
+   -- For foreign keys
+   CREATE INDEX idx_tb_item_fk ON tb_test_item(fk_other);
+   ```
+
+2. **Analyze query plans**:
+   ```sql
+   EXPLAIN (ANALYZE, BUFFERS)
+   SELECT data FROM v_test_item
+   WHERE data->>'name' = 'Test';
+   ```
 
 ## Next Steps
 

@@ -20,6 +20,17 @@ Each layer has its own type representation:
 | `str \| None` | `String` | `TEXT` | `"string"` or `null` |
 | `list[str]` | `[String!]!` | `TEXT[]` | `["a", "b"]` |
 
+### Cross-Database Type Mapping
+
+| TypeScript | GraphQL | PostgreSQL | MySQL | SQLite |
+|-----------|---------|-----------|-------|--------|
+| `string` | `String` | `TEXT` | `VARCHAR(255)` | `TEXT` |
+| `number` (int) | `Int` | `INTEGER` | `INT` | `INTEGER` |
+| `number` (float) | `Float` | `FLOAT8` | `DOUBLE` | `REAL` |
+| `boolean` | `Boolean` | `BOOLEAN` | `TINYINT(1)` | `INTEGER` |
+| `Date` | `DateTime` | `TIMESTAMPTZ` | `DATETIME` | `TEXT` |
+| `string[]` | `[String!]!` | `TEXT[]` | `JSON` | `TEXT` (JSON) |
+
 ## Defining Types
 
 ### Basic Types
@@ -136,6 +147,10 @@ from fraiseql.scalars import (
     Vector,    # pgvector
 )
 ```
+
+<Aside type="note">
+The `Vector` scalar is **PostgreSQL-specific** and requires the [`pgvector`](https://github.com/pgvector/pgvector) extension (`CREATE EXTENSION vector`). Use the dimension syntax to specify vector size, for example `Vector[1024]` for 1024-dimensional embeddings. This scalar is not available when targeting MySQL, SQLite, or SQL Server.
+</Aside>
 
 ### Custom Scalars
 
@@ -408,6 +423,10 @@ class User:
     # Computed from other fields
     full_name: Annotated[str, fraiseql.field(computed=True)]
 ```
+
+<Aside type="note">
+Prefer `@fraiseql.computed` for computed fields added at the schema level — it expresses intent more clearly and works with IDE autocompletion. Use `fraiseql.field(computed=True)` only when defining computed fields inline inside a `@fraiseql.type` class definition using `Annotated`.
+</Aside>
 
 SQL implementation:
 

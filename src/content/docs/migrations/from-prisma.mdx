@@ -24,6 +24,101 @@ This guide walks through migrating a Prisma-based application to FraiseQL, inclu
 | **Caching** | Manual or plugins | Built-in federation-aware caching |
 | **Multi-database** | Via relationships only | Native federation support |
 
+## What changes
+
+FraiseQL asks you to write views. In exchange:
+
+- **Your database schema is decoupled from your API.** Prisma exposes models directly from your database tables — a model rename means changing client code. FraiseQL exposes views — a table rename is invisible to clients.
+- **N+1 is structurally eliminated.** Prisma's `include` still produces one query per relation. FraiseQL builds JSONB nesting into the view, so every request is a single SQL query regardless of depth.
+- **You control exactly what the API exposes.** No leaking of internal columns, no default `findMany`/`findUnique` variants you didn't ask for.
+- **Complex filtering is SQL**, not a chain of `.where()` calls.
+
+The migration involves: creating `v_*` views for your Prisma models, writing `fn_*` functions for your mutations, and replacing Prisma Client calls with a standard GraphQL client.
+
+## Schema Mapping
+
+Prisma users think in terms of models and relations. FraiseQL maps those same concepts to typed classes backed by SQL views. Here is the same `User` and `Post` model expressed in both:
+
+<Tabs>
+  <TabItem label="Prisma Schema">
+    ```prisma
+    model User {
+      id    String  @id @default(cuid())
+      name  String
+      email String  @unique
+      posts Post[]
+    }
+
+    model Post {
+      id       String @id @default(cuid())
+      title    String
+      content  String
+      author   User   @relation(fields: [authorId], references: [id])
+      authorId String
+    }
+    ```
+  </TabItem>
+  <TabItem label="FraiseQL (TypeScript)">
+    ```typescript
+    import { type, field, ID } from 'fraiseql';
+
+    @type()
+    class User {
+        @field() id!: string;
+        @field() name!: string;
+        @field() email!: string;
+        @field() posts!: Post[];
+    }
+
+    @type()
+    class Post {
+        @field() id!: string;
+        @field() title!: string;
+        @field() content!: string;
+        @field() author!: User;
+    }
+    ```
+  </TabItem>
+  <TabItem label="FraiseQL (Python)">
+    ```python
+    @fraiseql.type
+    class User:
+        id: ID
+        name: str
+        email: str
+        posts: list['Post']
+
+    @fraiseql.type
+    class Post:
+        id: ID
+        title: str
+        content: str
+        author: User
+    ```
+  </TabItem>
+  <TabItem label="FraiseQL (Go)">
+    ```go
+    import "github.com/fraiseql/fraiseql-go"
+
+    type User struct {
+        ID    fraiseql.ID `fraiseql:"id"`
+        Name  string      `fraiseql:"name"`
+        Email string      `fraiseql:"email"`
+        Posts []Post      `fraiseql:"posts"`
+    }
+
+    type Post struct {
+        ID      fraiseql.ID `fraiseql:"id"`
+        Title   string      `fraiseql:"title"`
+        Content string      `fraiseql:"content"`
+        Author  User        `fraiseql:"author"`
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+The relationship (`posts`, `author`) is backed by a SQL JOIN inside your `v_user` and `v_post` views. FraiseQL never generates SQL at runtime — you write the view once, and all queries against it are pre-compiled into the Rust binary.
+
 ## Feature Mapping
 
 ### Queries
@@ -228,7 +323,7 @@ This guide walks through migrating a Prisma-based application to FraiseQL, inclu
        }
        ```
      </TabItem>
-     <TabItem label="FraiseQL Schema">
+     <TabItem label="FraiseQL (Python)">
        ```python
        from fraiseql import FraiseQL, ID
        from datetime import datetime
@@ -265,6 +360,77 @@ This guide walks through migrating a Prisma-based application to FraiseQL, inclu
            user: User
        ```
      </TabItem>
+     <TabItem label="FraiseQL (TypeScript)">
+       ```typescript
+       import { type, ID } from 'fraiseql';
+
+       @type()
+       class User {
+           id!: ID;
+           email!: string;
+           name!: string;
+           posts!: Post[];
+           createdAt!: Date;
+           updatedAt!: Date;
+       }
+
+       @type()
+       class Post {
+           id!: ID;
+           title!: string;
+           content!: string;
+           published!: boolean;
+           userId!: ID;
+           user!: User;
+           comments!: Comment[];
+           createdAt!: Date;
+       }
+
+       @type()
+       class Comment {
+           id!: ID;
+           text!: string;
+           postId!: ID;
+           userId!: ID;
+           post!: Post;
+           user!: User;
+       }
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (Go)">
+       ```go
+       import "github.com/fraiseql/fraiseql-go"
+
+       type User struct {
+           ID        fraiseql.ID `fraiseql:"id"`
+           Email     string      `fraiseql:"email"`
+           Name      string      `fraiseql:"name"`
+           Posts     []Post      `fraiseql:"posts"`
+           CreatedAt time.Time   `fraiseql:"created_at"`
+           UpdatedAt time.Time   `fraiseql:"updated_at"`
+       }
+
+       type Post struct {
+           ID        fraiseql.ID `fraiseql:"id"`
+           Title     string      `fraiseql:"title"`
+           Content   string      `fraiseql:"content"`
+           Published bool        `fraiseql:"published"`
+           UserID    fraiseql.ID `fraiseql:"user_id"`
+           User      User        `fraiseql:"user"`
+           Comments  []Comment   `fraiseql:"comments"`
+           CreatedAt time.Time   `fraiseql:"created_at"`
+       }
+
+       type Comment struct {
+           ID     fraiseql.ID `fraiseql:"id"`
+           Text   string      `fraiseql:"text"`
+           PostID fraiseql.ID `fraiseql:"post_id"`
+           UserID fraiseql.ID `fraiseql:"user_id"`
+           Post   Post        `fraiseql:"post"`
+           User   User        `fraiseql:"user"`
+       }
+       ```
+     </TabItem>
    </Tabs>
 
 4. **Define Queries backed by SQL Views**
@@ -282,7 +448,7 @@ This guide walks through migrating a Prisma-based application to FraiseQL, inclu
        });
        ```
      </TabItem>
-     <TabItem label="FraiseQL">
+     <TabItem label="FraiseQL (Python)">
        ```python
        @fraiseql.query(sql_source="v_users_with_posts")
        def users(
@@ -292,6 +458,41 @@ This guide walks through migrating a Prisma-based application to FraiseQL, inclu
        ) -> list[User]:
            """Get users, optionally with posts."""
            pass
+       ```
+
+       ```sql
+       -- The backing SQL view
+       CREATE VIEW v_users_with_posts AS
+       SELECT u.* FROM tb_user u
+       WHERE (SELECT COUNT(*) FROM tb_post p WHERE p.user_id = u.id) > 0;
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (TypeScript)">
+       ```typescript
+       import { query } from 'fraiseql';
+
+       @query({ sqlSource: 'v_users_with_posts' })
+       function users(limit: number = 10, offset: number = 0, hasPosts: boolean = false): Promise<User[]> {
+           return Promise.resolve([]);
+       }
+       ```
+
+       ```sql
+       -- The backing SQL view
+       CREATE VIEW v_users_with_posts AS
+       SELECT u.* FROM tb_user u
+       WHERE (SELECT COUNT(*) FROM tb_post p WHERE p.user_id = u.id) > 0;
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (Go)">
+       ```go
+       import "github.com/fraiseql/fraiseql-go"
+
+       func init() {
+           fraiseql.Query("users", fraiseql.QueryConfig{
+               SQLSource: "v_users_with_posts",
+           }, func(args fraiseql.Args) ([]User, error) { return nil, nil })
+       }
        ```
 
        ```sql
@@ -318,7 +519,7 @@ This guide walks through migrating a Prisma-based application to FraiseQL, inclu
        });
        ```
      </TabItem>
-     <TabItem label="FraiseQL">
+     <TabItem label="FraiseQL (Python)">
        ```python
        @fraiseql.input
        class CreateUserInput:
@@ -329,6 +530,60 @@ This guide walks through migrating a Prisma-based application to FraiseQL, inclu
        def create_user(input: CreateUserInput) -> User:
            """Create user via PostgreSQL function."""
            pass
+       ```
+
+       ```sql
+       -- The backing PostgreSQL function
+       CREATE FUNCTION fn_create_user(p_email TEXT, p_name TEXT)
+       RETURNS SETOF v_user AS $$
+       BEGIN
+           INSERT INTO tb_user (email, name) VALUES (p_email, p_name);
+           RETURN QUERY SELECT * FROM v_user WHERE email = p_email;
+       END;
+       $$ LANGUAGE plpgsql;
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (TypeScript)">
+       ```typescript
+       import { input, mutation } from 'fraiseql';
+
+       @input()
+       class CreateUserInput {
+           email!: string;
+           name!: string;
+       }
+
+       @mutation({ sqlSource: 'fn_create_user' })
+       function createUser(input: CreateUserInput): Promise<User> {
+           return Promise.resolve({} as User);
+       }
+       ```
+
+       ```sql
+       -- The backing PostgreSQL function
+       CREATE FUNCTION fn_create_user(p_email TEXT, p_name TEXT)
+       RETURNS SETOF v_user AS $$
+       BEGIN
+           INSERT INTO tb_user (email, name) VALUES (p_email, p_name);
+           RETURN QUERY SELECT * FROM v_user WHERE email = p_email;
+       END;
+       $$ LANGUAGE plpgsql;
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (Go)">
+       ```go
+       import "github.com/fraiseql/fraiseql-go"
+
+       type CreateUserInput struct {
+           Email string `fraiseql:"email"`
+           Name  string `fraiseql:"name"`
+       }
+
+       func init() {
+           fraiseql.Mutation("createUser", fraiseql.MutationConfig{
+               SQLSource: "fn_create_user",
+           }, func(input CreateUserInput) (User, error) { return User{}, nil })
+       }
        ```
 
        ```sql
@@ -574,15 +829,95 @@ FraiseQL queries map to pre-written SQL views. The Rust binary never generates S
 
 Use a feature flag middleware to route traffic between Prisma and FraiseQL during a gradual rollout:
 
-```python
-@fraiseql.middleware
-def feature_gate_fraiseql(request, next):
-    """Route to FraiseQL based on feature flag."""
-    if should_use_fraiseql(request.user_id):
-        return await fraiseql_handler(request)
-    else:
-        return await prisma_handler(request)
+<Tabs>
+  <TabItem label="Python">
+    ```python
+    @fraiseql.middleware
+    async def feature_gate_fraiseql(request, next):
+        """Route to FraiseQL based on feature flag."""
+        if should_use_fraiseql(request.user_id):
+            return await fraiseql_handler(request)
+        else:
+            return await prisma_handler(request)
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { middleware } from 'fraiseql';
+
+    middleware(async (request, next) => {
+        if (shouldUseFraiseQL(request.userId)) {
+            return fraiseqlHandler(request);
+        }
+        return prismaHandler(request);
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import "github.com/fraiseql/fraiseql-go"
+
+    fraiseql.Use(func(req fraiseql.Request, next fraiseql.Handler) fraiseql.Response {
+        if shouldUseFraiseQL(req.UserID) {
+            return fraiseqlHandler(req)
+        }
+        return prismaHandler(req)
+    })
+    ```
+  </TabItem>
+</Tabs>
+
+## Using Both: Prisma for Admin, FraiseQL for Public API
+
+You do not have to choose one or the other. A common pattern during migration — and even long-term — is to use Prisma for your admin panel or internal tooling while FraiseQL serves the public-facing GraphQL API.
+
+**Why this works well:**
+
+- Prisma excels at ad-hoc admin queries, seed scripts, and backoffice tooling where developer ergonomics matter more than query throughput.
+- FraiseQL excels at the high-traffic public API where predictable performance and zero N+1 are non-negotiable.
+- Both connect to the same PostgreSQL database — there is no data duplication.
+
 ```
+                    ┌─────────────────────────────────┐
+                    │        PostgreSQL Database        │
+                    └──────────────┬──────────────────┘
+                                   │
+               ┌───────────────────┴───────────────────┐
+               │                                       │
+   ┌───────────▼──────────┐             ┌──────────────▼────────┐
+   │   Prisma Client       │             │  FraiseQL Rust Binary  │
+   │   (Admin / Internal)  │             │  (Public GraphQL API)  │
+   └───────────────────────┘             └────────────────────────┘
+```
+
+**Setup:**
+
+```bash
+# prisma/schema.prisma — unchanged, used by admin tooling
+# fraiseql.toml — points to the same DATABASE_URL
+```
+
+```typescript
+// admin/seed.ts — Prisma for admin operations
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
+await prisma.user.createMany({ data: seedData });
+```
+
+```graphql
+# Public API served by FraiseQL
+query {
+  users(limit: 20, orderBy: "created_at DESC") {
+    id
+    name
+    posts { title }
+  }
+}
+```
+
+<Aside type="tip">
+This hybrid approach is a low-risk way to begin the migration: keep Prisma for existing admin workflows and introduce FraiseQL only for new public API endpoints. Once you are confident in FraiseQL, migrate the remaining Prisma usage incrementally.
+</Aside>
 
 ## Migration Checklist
 

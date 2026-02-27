@@ -43,6 +43,8 @@ interface Props {
   preloadedQuery?: string;
   /** Optional custom placeholder query hint */
   queryHint?: string;
+  /** Set to false to show a "temporarily unavailable" message instead of loading the sandbox */
+  available?: boolean;
 }
 
 const {
@@ -51,7 +53,8 @@ const {
   description,
   height = "600px",
   preloadedQuery = "",
-  queryHint = "Try modifying the query or create your own..."
+  queryHint = "Try modifying the query or create your own...",
+  available = true,
 } = Astro.props;
 
 // Generate unique ID for this sandbox instance
@@ -65,15 +68,21 @@ const escapedQuery = preloadedQuery ? JSON.stringify(preloadedQuery) : '""';
   {title && <h3 class="sandbox-title">{title}</h3>}
   {description && <p class="sandbox-description">{description}</p>}
 
-  <!-- Apollo Sandbox Container -->
-  <div class="sandbox-container">
-    <div id={sandboxId} class="sandbox-player">
-      <div class="sandbox-loading">
-        <div class="spinner"></div>
-        <p>Loading Apollo Sandbox...</p>
+  {available ? (
+    <!-- Apollo Sandbox Container -->
+    <div class="sandbox-container">
+      <div id={sandboxId} class="sandbox-player">
+        <div class="sandbox-loading">
+          <div class="spinner"></div>
+          <p>Loading Apollo Sandbox...</p>
+        </div>
       </div>
     </div>
-  </div>
+  ) : (
+    <div class="sandbox-container sandbox-unavailable">
+      <p>The interactive sandbox is temporarily unavailable. Check back soon.</p>
+    </div>
+  )}
 
   <!-- Privacy Notice -->
   <div class="sandbox-privacy-notice">
@@ -231,6 +240,21 @@ const escapedQuery = preloadedQuery ? JSON.stringify(preloadedQuery) : '""';
   .sandbox-loading p {
     color: var(--sl-color-gray-3);
     font-size: 0.9rem;
+  }
+
+  .sandbox-unavailable {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    padding: 2rem;
+    text-align: center;
+    color: var(--sl-color-gray-2);
+    font-size: 0.95rem;
+  }
+
+  .sandbox-unavailable p {
+    margin: 0;
   }
 
   .sandbox-error {

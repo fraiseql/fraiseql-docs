@@ -81,18 +81,23 @@ This guide shows how to migrate from traditional REST APIs to GraphQL using Frai
 
 2. **Map Endpoints to GraphQL Operations**
 
-   | REST | GraphQL |
-   |------|---------|
+   | REST Endpoint | GraphQL Equivalent |
+   |--------------|-------------------|
    | `GET /users` | `query { users { ... } }` |
-   | `GET /users/:id` | `query { user(id: ...) { ... } }` |
-   | `POST /users` | `mutation { createUser(...) { ... } }` |
-   | `PUT /users/:id` | `mutation { updateUser(...) { ... } }` |
-   | `DELETE /users/:id` | `mutation { deleteUser(...) { ... } }` |
-   | `GET /users/:id/posts` | `query { user { posts { ... } } }` |
+   | `GET /users/:id` | `query { user(id: "...") { ... } }` |
+   | `GET /users?status=active` | `query { users(where: { status: { _eq: "active" } }) { ... } }` |
+   | `POST /users` | `mutation { createUser(input: { ... }) { ... } }` |
+   | `PUT /users/:id` | `mutation { updateUser(id: "...", input: { ... }) { ... } }` |
+   | `DELETE /users/:id` | `mutation { deleteUser(id: "...") }` |
+   | `GET /users/:id/posts` | `query { user(id: "...") { posts { ... } } }` |
 
 3. **Define FraiseQL Types and SQL Views**
 
-   Each REST resource becomes a FraiseQL type backed by a PostgreSQL view (`v_*`). The FraiseQL Rust binary reads data directly from these views — there are no Python resolvers at runtime.
+   Each REST resource becomes a FraiseQL type backed by a SQL view (`v_*`). The FraiseQL Rust binary reads data directly from these views — there are no Python resolvers at runtime.
+
+   <Aside type="note">
+   The SQL examples in this guide use PostgreSQL syntax. If you are using MySQL or SQLite, the view syntax differs slightly — consult your database's documentation for `CREATE VIEW` and stored procedure equivalents.
+   </Aside>
 
    <Tabs>
      <TabItem label="REST (Python/Flask)">
@@ -111,7 +116,7 @@ This guide shows how to migrate from traditional REST APIs to GraphQL using Frai
            return {"user": User.create(data)}
        ```
      </TabItem>
-     <TabItem label="FraiseQL">
+     <TabItem label="FraiseQL (Python)">
        ```python
        @fraiseql.type
        class User:
@@ -120,7 +125,7 @@ This guide shows how to migrate from traditional REST APIs to GraphQL using Frai
            email: str
            posts: list['Post']
 
-       # Reads from PostgreSQL view v_user
+       # Reads from SQL view v_user
        @fraiseql.query(sql_source="v_user")
        def users(limit: int = 50) -> list[User]:
            """GET /users -> query { users { ... } }"""
@@ -131,18 +136,92 @@ This guide shows how to migrate from traditional REST APIs to GraphQL using Frai
            """GET /users/:id -> query { user(id: ...) { ... } }"""
            pass
 
-       # Calls PostgreSQL function fn_create_user
+       # Calls database function fn_create_user
        @fraiseql.mutation(sql_source="fn_create_user")
        def create_user(name: str, email: str) -> User:
            """POST /users -> mutation { createUser(...) { ... } }"""
            pass
        ```
      </TabItem>
+     <TabItem label="FraiseQL (TypeScript)">
+       ```typescript
+       import { type, query, mutation, ID } from 'fraiseql';
+
+       @type()
+       class User {
+           id!: ID;
+           name!: string;
+           email!: string;
+           posts!: Post[];
+       }
+
+       // Reads from SQL view v_user
+       @query({ sqlSource: 'v_user' })
+       function users(limit: number = 50): Promise<User[]> {
+           return Promise.resolve([]);
+       }
+
+       @query({ sqlSource: 'v_user' })
+       function user(id: ID): Promise<User> {
+           return Promise.resolve({} as User);
+       }
+
+       // Calls database function fn_create_user
+       @mutation({ sqlSource: 'fn_create_user' })
+       function createUser(name: string, email: string): Promise<User> {
+           return Promise.resolve({} as User);
+       }
+       ```
+     </TabItem>
+     <TabItem label="FraiseQL (Go)">
+       ```go
+       import "github.com/fraiseql/fraiseql-go"
+
+       type User struct {
+           ID    fraiseql.ID `fraiseql:"id"`
+           Name  string      `fraiseql:"name"`
+           Email string      `fraiseql:"email"`
+           Posts []Post      `fraiseql:"posts"`
+       }
+
+       func init() {
+           // Reads from SQL view v_user
+           fraiseql.Query("users", fraiseql.QueryConfig{
+               SQLSource: "v_user",
+           }, func(args fraiseql.Args) ([]User, error) { return nil, nil })
+
+           fraiseql.Query("user", fraiseql.QueryConfig{
+               SQLSource: "v_user",
+           }, func(args fraiseql.Args) (User, error) { return User{}, nil })
+
+           // Calls database function fn_create_user
+           fraiseql.Mutation("createUser", fraiseql.MutationConfig{
+               SQLSource: "fn_create_user",
+           }, func(args fraiseql.Args) (User, error) { return User{}, nil })
+       }
+       ```
+     </TabItem>
    </Tabs>
 
 4. **Build GraphQL API Alongside REST**
 
-   Run both systems in parallel during migration. Route a percentage of traffic to the new GraphQL endpoint while keeping REST available as a fallback.
+   Run both systems in parallel during migration. FraiseQL can serve specific endpoints while your existing REST API handles the rest — you do not need to migrate everything at once.
+
+   <Aside type="tip">
+   **Incremental migration:** Start by migrating your highest-traffic or most pain-prone REST endpoints to FraiseQL first. Your existing REST API continues to handle all other routes unchanged. Once each GraphQL endpoint is stable, decommission the corresponding REST route. There is no requirement to migrate all endpoints simultaneously.
+   </Aside>
+
+   A typical routing setup during migration:
+
+   ```
+   /graphql          → FraiseQL (migrated endpoints)
+   /api/users        → FraiseQL (migrated)
+   /api/posts        → FraiseQL (migrated)
+   /api/reports      → Legacy REST handler (not yet migrated)
+   /api/webhooks     → Legacy REST handler (not yet migrated)
+   ```
+
+   Route a percentage of traffic to the new GraphQL endpoint while keeping REST available as a fallback.
 
 5. **Update Client Code**
 

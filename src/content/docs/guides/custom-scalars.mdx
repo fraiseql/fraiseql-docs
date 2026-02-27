@@ -3,7 +3,7 @@ title: Custom Scalar Types
 description: Design and implement domain-specific types with validation
 ---
 
-import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+import { Aside, CardGrid, Card, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Custom scalar types let you create domain-specific types that are validated at compile-time and enforced at runtime. This guide shows you how to design, implement, and deploy custom scalars effectively.
 
@@ -28,63 +28,209 @@ Custom scalars are ideal for:
 
 ## Basic Custom Scalar Implementation
 
-### Python Definition
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from fraiseql import scalar
 
-```python
-from fraiseql import scalar
+    @scalar
+    class Email(str):
+        """Email address with RFC 5322 validation"""
+        description = "Valid email address"
+        specified_by_url = "https://datatracker.ietf.org/doc/html/rfc5322"
+        elo_expression = 'matches(value, /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/) && length(value) <= 254'
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { scalar } from 'fraiseql';
 
-@scalar
-class Email(str):
-    """Email address with RFC 5322 validation"""
-    description = "Valid email address"
-    specified_by_url = "https://datatracker.ietf.org/doc/html/rfc5322"
-    elo_expression = 'matches(value, /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/) && length(value) <= 254'
-```
+    export const Email = scalar<string>({
+        name: 'Email',
+        description: 'Valid email address',
+        specifiedByUrl: 'https://datatracker.ietf.org/doc/html/rfc5322',
+        serialize: (value) => {
+            if (typeof value !== 'string' || !value.includes('@')) {
+                throw new Error('Invalid email format');
+            }
+            return value.toLowerCase();
+        },
+        parseValue: (value) => {
+            if (typeof value !== 'string' || !value.includes('@')) {
+                throw new Error('Invalid email format');
+            }
+            return value.toLowerCase();
+        },
+    });
+    ```
+  </TabItem>
+</Tabs>
 
 ### Generated GraphQL
 
 ```graphql
+"""Valid email address"""
 scalar Email
-  # Email address with RFC 5322 validation
 ```
 
 ### Usage in Schema
 
-```python
-from fraiseql import type
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    from fraiseql import type
 
-@type
-class User:
-    id: ID
-    email: Email  # Uses your custom scalar
-    name: str
-```
+    @type
+    class User:
+        id: ID
+        email: Email  # Uses your custom scalar
+        name: str
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { type } from 'fraiseql';
+    import { Email } from './scalars';
+
+    @type()
+    class User {
+        id!: ID;
+        email!: typeof Email;
+        name!: string;
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 ## Configuration Options
 
 ### Elo Expression Validation
 
-```python
-@scalar
-class ISBN(str):
-    """10 or 13 digit ISBN"""
-    elo_expression = '''
-    (length(value) == 10 && matches(value, /^[0-9X]{10}$/)) ||
-    (length(value) == 13 && matches(value, /^[0-9]{13}$/))
-    '''
-```
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @scalar
+    class ISBN(str):
+        """10 or 13 digit ISBN"""
+        elo_expression = '''
+        (length(value) == 10 && matches(value, /^[0-9X]{10}$/)) ||
+        (length(value) == 13 && matches(value, /^[0-9]{13}$/))
+        '''
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { scalar } from 'fraiseql';
+
+    export const ISBN = scalar<string>({
+        name: 'ISBN',
+        description: '10 or 13 digit ISBN',
+        serialize: (value) => {
+            if (typeof value !== 'string') throw new Error('ISBN must be a string');
+            if (value.length !== 10 && value.length !== 13) throw new Error('ISBN must be 10 or 13 digits');
+            return value;
+        },
+        parseValue: (value) => {
+            if (typeof value !== 'string') throw new Error('ISBN must be a string');
+            if (value.length !== 10 && value.length !== 13) throw new Error('ISBN must be 10 or 13 digits');
+            return value;
+        },
+    });
+    ```
+  </TabItem>
+</Tabs>
 
 ### Documentation
 
-```python
-@scalar
-class Price(float):
-    description = "Price in USD, minimum $0.01, maximum $999,999.99"
-    specified_by_url = "https://en.wikipedia.org/wiki/Price"
-    elo_expression = 'value >= 0.01 && value <= 999999.99'
-```
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @scalar
+    class Price(float):
+        description = "Price in USD, minimum $0.01, maximum $999,999.99"
+        specified_by_url = "https://en.wikipedia.org/wiki/Price"
+        elo_expression = 'value >= 0.01 && value <= 999999.99'
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    export const Price = scalar<number>({
+        name: 'Price',
+        description: 'Price in USD, minimum $0.01, maximum $999,999.99',
+        specifiedByUrl: 'https://en.wikipedia.org/wiki/Price',
+        serialize: (value) => {
+            if (typeof value !== 'number' || value < 0.01 || value > 999999.99) {
+                throw new Error('Price must be between $0.01 and $999,999.99');
+            }
+            return value;
+        },
+        parseValue: (value) => {
+            if (typeof value !== 'number' || value < 0.01 || value > 999999.99) {
+                throw new Error('Price must be between $0.01 and $999,999.99');
+            }
+            return value;
+        },
+    });
+    ```
+  </TabItem>
+</Tabs>
 
-### Semantic Scalar Extension
+### Type Specification
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @scalar
+    class Percentage(float):
+        """Percentage value 0-100"""
+        elo_expression = 'value >= 0 && value <= 100'
+
+    @scalar
+    class NegativeInteger(int):
+        """Negative integer (value < 0)"""
+        elo_expression = 'value < 0'
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    export const Percentage = scalar<number>({
+        name: 'Percentage',
+        description: 'Percentage value 0-100',
+        serialize: (value) => {
+            if (typeof value !== 'number' || value < 0 || value > 100) {
+                throw new Error('Percentage must be between 0 and 100');
+            }
+            return value;
+        },
+        parseValue: (value) => {
+            if (typeof value !== 'number' || value < 0 || value > 100) {
+                throw new Error('Percentage must be between 0 and 100');
+            }
+            return value;
+        },
+    });
+
+    export const PositiveInt = scalar<number>({
+        name: 'PositiveInt',
+        description: 'An integer greater than zero',
+        serialize: (value) => {
+            if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+                throw new Error('Must be a positive integer');
+            }
+            return value;
+        },
+        parseValue: (value) => {
+            if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+                throw new Error('Must be a positive integer');
+            }
+            return value;
+        },
+    });
+    ```
+  </TabItem>
+</Tabs>
+
+### Semantic Scalar Extension (Python only)
 
 ```python
 from fraiseql.scalars import Date
@@ -93,20 +239,6 @@ from fraiseql.scalars import Date
 class BirthDate(Date):
     """Legal birth date (person must be 18+)"""
     elo_expression = 'age(value) >= 18'
-```
-
-### Type Specification
-
-```python
-@scalar
-class Percentage(float):
-    """Percentage value 0-100"""
-    elo_expression = 'value >= 0 && value <= 100'
-
-@scalar
-class NegativeInteger(int):
-    """Negative integer (value < 0)"""
-    elo_expression = 'value < 0'
 ```
 
 ## TOML Configuration
@@ -138,14 +270,36 @@ expression = '''(length(value) == 10 && matches(value, /^[0-9X]{10}$/)) || (leng
 
 ### PostgreSQL
 
-```python
-@scalar
-class Email(str):
-    """Email address"""
-    postgres_type = "VARCHAR(254)"
-    postgres_check = "value ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'"
-    elo_expression = 'matches(value, /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/)'
-```
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @scalar
+    class Email(str):
+        """Email address"""
+        postgres_type = "VARCHAR(254)"
+        postgres_check = "value ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'"
+        elo_expression = 'matches(value, /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/)'
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    export const Email = scalar<string>({
+        name: 'Email',
+        description: 'Email address',
+        postgresType: 'VARCHAR(254)',
+        postgresCheck: "value ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'",
+        serialize: (value) => {
+            if (typeof value !== 'string' || !value.includes('@')) throw new Error('Invalid email');
+            return value.toLowerCase();
+        },
+        parseValue: (value) => {
+            if (typeof value !== 'string' || !value.includes('@')) throw new Error('Invalid email');
+            return value.toLowerCase();
+        },
+    });
+    ```
+  </TabItem>
+</Tabs>
 
 FraiseQL generates:
 ```sql
@@ -155,13 +309,35 @@ CREATE DOMAIN email AS VARCHAR(254)
 
 ### MySQL
 
-```python
-@scalar
-class Price(float):
-    """Price in USD"""
-    mysql_type = "DECIMAL(10, 2)"
-    mysql_check = "value > 0"
-```
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @scalar
+    class Price(float):
+        """Price in USD"""
+        mysql_type = "DECIMAL(10, 2)"
+        mysql_check = "value > 0"
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    export const Price = scalar<number>({
+        name: 'Price',
+        description: 'Price in USD',
+        mysqlType: 'DECIMAL(10, 2)',
+        mysqlCheck: 'value > 0',
+        serialize: (value) => {
+            if (typeof value !== 'number' || value <= 0) throw new Error('Price must be positive');
+            return value;
+        },
+        parseValue: (value) => {
+            if (typeof value !== 'number' || value <= 0) throw new Error('Price must be positive');
+            return value;
+        },
+    });
+    ```
+  </TabItem>
+</Tabs>
 
 Generated:
 ```sql
@@ -173,13 +349,39 @@ CREATE TABLE products (
 
 ### SQLite
 
-```python
-@scalar
-class Percentage(float):
-    """Percentage 0-100"""
-    sqlite_type = "REAL"
-    sqlite_check = "value >= 0 AND value <= 100"
-```
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @scalar
+    class Percentage(float):
+        """Percentage 0-100"""
+        sqlite_type = "REAL"
+        sqlite_check = "value >= 0 AND value <= 100"
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    export const Percentage = scalar<number>({
+        name: 'Percentage',
+        description: 'Percentage 0-100',
+        sqliteType: 'REAL',
+        sqliteCheck: 'value >= 0 AND value <= 100',
+        serialize: (value) => {
+            if (typeof value !== 'number' || value < 0 || value > 100) {
+                throw new Error('Percentage must be 0-100');
+            }
+            return value;
+        },
+        parseValue: (value) => {
+            if (typeof value !== 'number' || value < 0 || value > 100) {
+                throw new Error('Percentage must be 0-100');
+            }
+            return value;
+        },
+    });
+    ```
+  </TabItem>
+</Tabs>
 
 Generated:
 ```sql
@@ -191,13 +393,39 @@ CREATE TABLE metrics (
 
 ### SQL Server
 
-```python
-@scalar
-class ISBN(str):
-    """ISBN-10 or ISBN-13"""
-    sqlserver_type = "VARCHAR(17)"
-    sqlserver_check = "LEN(value) IN (10, 13)"
-```
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @scalar
+    class ISBN(str):
+        """ISBN-10 or ISBN-13"""
+        sqlserver_type = "VARCHAR(17)"
+        sqlserver_check = "LEN(value) IN (10, 13)"
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    export const ISBN = scalar<string>({
+        name: 'ISBN',
+        description: 'ISBN-10 or ISBN-13',
+        sqlServerType: 'VARCHAR(17)',
+        sqlServerCheck: 'LEN(value) IN (10, 13)',
+        serialize: (value) => {
+            if (typeof value !== 'string' || (value.length !== 10 && value.length !== 13)) {
+                throw new Error('ISBN must be 10 or 13 characters');
+            }
+            return value;
+        },
+        parseValue: (value) => {
+            if (typeof value !== 'string' || (value.length !== 10 && value.length !== 13)) {
+                throw new Error('ISBN must be 10 or 13 characters');
+            }
+            return value;
+        },
+    });
+    ```
+  </TabItem>
+</Tabs>
 
 Generated:
 ```sql

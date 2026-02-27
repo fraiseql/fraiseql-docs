@@ -741,6 +741,31 @@ query {
 }
 ```
 
+## Project-Level Defaults
+
+Since rc.13, you can set project-wide defaults for which auto-parameters are enabled via `[query_defaults]` in `fraiseql.toml`. Individual `auto_params=` on a decorator override only the keys you specify — the rest inherit from `[query_defaults]`.
+
+```toml
+# fraiseql.toml — disable WHERE filtering globally
+[query_defaults]
+where    = false
+order_by = false
+limit    = true
+offset   = true
+```
+
+```python
+# This query still has limit/offset, but no where or orderBy
+@fraiseql.query(sql_source="v_post")
+def posts() -> list[Post]: ...
+
+# Re-enable where for this one query only
+@fraiseql.query(sql_source="v_user", auto_params={"where": True})
+def users() -> list[User]: ...
+```
+
+See [`[query_defaults]`](/reference/toml-config#query_defaults) in the TOML reference for the full field list and compile-time warnings.
+
 ## Next Steps
 
 - [Rich Filters](/features/rich-filters) — Advanced filtering with semantic types

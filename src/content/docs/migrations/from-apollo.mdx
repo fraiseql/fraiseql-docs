@@ -397,3 +397,161 @@ That's **5x fewer queries** — and you cannot accidentally create N+1 because t
     [Read guide](/getting-started/introduction)
   </Card>
 </CardGrid>
+
+## Migration Verification
+
+<Steps>
+
+1. **Test API parity** — Ensure both APIs return identical data:
+   ```bash
+   # Apollo query
+   curl -X POST http://localhost:4000/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ users { id name posts { title } } }"}' \
+     > apollo_result.json
+   
+   # FraiseQL query
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ users { id name posts { title } } }"}' \
+     > fraiseql_result.json
+   
+   # Compare (should be identical)
+   diff apollo_result.json fraiseql_result.json
+   ```
+
+2. **Load test comparison**:
+   ```bash
+   # Test Apollo performance
+   ab -n 1000 -c 10 -p query.json -T application/json \
+     http://localhost:4000/graphql
+   
+   # Test FraiseQL performance
+   ab -n 1000 -c 10 -p query.json -T application/json \
+     http://localhost:8080/graphql
+   ```
+
+3. **Check N+1 elimination**:
+   ```bash
+   # Enable query logging in PostgreSQL
+   # Run a query with nested data
+   # FraiseQL: Should see 1 SQL query
+   # Apollo (without DataLoader): Would see N+1 queries
+   ```
+
+4. **Verify mutations work**:
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{
+       "query": "mutation { createUser(email: \"test@test.com\", name: \"Test User\") { id name } }"
+     }'
+   ```
+
+5. **Check subscriptions** (if used):
+   ```bash
+   # WebSocket test
+   wscat -c ws://localhost:8080/subscriptions
+   ```
+
+</Steps>
+
+## Common Migration Issues
+
+### Issue: Schema doesn't compile
+
+**Symptoms:**
+```
+Error: Cannot compile schema - missing type User
+```
+
+**Solution:**
+1. Check all types are defined
+2. Verify forward references use string literals: `'User'`
+3. Run: `fraiseql validate`
+
+### Issue: Queries return different data
+
+**Symptoms:**
+GraphQL queries work but return different results than Apollo.
+
+**Solution:**
+1. Check SQL views match Apollo resolvers:
+   ```sql
+   -- Compare Apollo resolver logic
+   prisma.user.findMany({ include: { posts: true } })
+   
+   -- With FraiseQL view
+   \d+ v_user
+   ```
+
+2. Verify column mappings:
+   ```sql
+   -- Check view columns match GraphQL fields
+   SELECT column_name FROM information_schema.columns 
+   WHERE table_name = 'v_user';
+   ```
+
+### Issue: Mutations failing
+
+**Symptoms:**
+```json
+{
+  "errors": [{"message": "Function fn_create_user does not exist"}]
+}
+```
+
+**Solution:**
+1. Create the PostgreSQL function:
+   ```sql
+   CREATE OR REPLACE FUNCTION fn_create_user(...)
+   ```
+
+2. Check function signature matches mutation:
+   ```sql
+   SELECT proname, proargtypes FROM pg_proc WHERE proname LIKE 'fn_%';
+   ```
+
+### Issue: Performance slower than Apollo
+
+**Symptoms:**
+FraiseQL queries are slower than Apollo.
+
+**Solution:**
+1. Check for missing indexes:
+   ```sql
+   SELECT * FROM pg_indexes WHERE tablename LIKE 'tb_%';
+   ```
+
+2. Analyze view performance:
+   ```sql
+   EXPLAIN ANALYZE SELECT data FROM v_user WHERE id = '123';
+   ```
+
+3. Consider materialized views for heavy queries:
+   ```sql
+   CREATE MATERIALIZED VIEW tv_user AS ...
+   ```
+
+### Issue: Subscriptions not working
+
+**Symptoms:**
+WebSocket connections fail.
+
+**Solution:**
+1. Verify NATS is configured:
+   ```toml
+   [nats]
+   enabled = true
+   url = "nats://localhost:4222"
+   ```
+
+2. Check subscription decorator:
+   ```python
+   @fraiseql.subscription(entity_type="User", topic="user_created")
+   ```
+
+3. Test NATS connectivity:
+   ```bash
+   nats pub test "hello"
+   ```

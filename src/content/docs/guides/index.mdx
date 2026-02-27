@@ -7,42 +7,55 @@ import { CardGrid, Card } from '@astrojs/starlight/components';
 
 Comprehensive guides for building, deploying, and optimizing FraiseQL applications.
 
+**New to FraiseQL?** Start with [Custom Queries](/guides/custom-queries) to learn how FraiseQL resolves GraphQL fields directly from PostgreSQL views — the core concept everything else builds on.
+
 ## Getting Started
 
-- **[Authentication](/guides/authentication)** — JWT, OAuth, API keys, and custom auth
-- **[Error Handling](/guides/error-handling)** — Comprehensive error handling patterns
+- **[Custom Queries](/guides/custom-queries)** — Learn how SQL views become GraphQL queries; start here
+- **[Error Handling](/guides/error-handling)** — Return structured errors from SQL functions and handle them in resolvers
+- **[Authentication](/guides/authentication)** — JWT, OAuth, API keys, and custom auth middleware
 
 ## Architecture & Design
 
-- **[Schema Design](/guides/schema-design)** — Best practices for schema definition
-- **[Multi-Tenancy](/guides/multi-tenancy)** — Multi-tenant architecture patterns
-- **[Advanced Patterns](/guides/advanced-patterns)** — Soft deletes, audit trails, versioning
+- **[Schema Design](/guides/schema-design)** — Best practices for naming, types, and view organisation
+- **[Multi-Tenancy](/guides/multi-tenancy)** — Row-level security and per-tenant isolation patterns
+- **[Advanced Patterns](/guides/advanced-patterns)** — Soft deletes, audit trails, and schema versioning
+- **[Projection Tables](/guides/projection-tables)** — Materialised read models and CQRS with PostgreSQL
+- **[Threaded Comments](/guides/threaded-comments)** — Recursive CTEs and nested GraphQL types
 
 ## Operations
 
-- **[Testing](/guides/testing)** — Unit tests, integration tests, performance testing
-- **[Performance](/guides/performance)** — Query optimization and tuning
-- **[Performance Benchmarks](/guides/performance-benchmarks)** — Performance comparisons and metrics
-- **[Deployment](/guides/deployment)** — Deployment strategies and checklist
+- **[Testing](/guides/testing)** — Unit, integration, and contract tests for FraiseQL resolvers
+- **[Performance](/guides/performance)** — Query optimisation, indexes, and connection pooling
+- **[Performance Benchmarks](/guides/performance-benchmarks)** — Reproducible comparisons vs Prisma, Apollo, and Hasura
+- **[Deployment](/guides/deployment)** — Docker, Kubernetes, and cloud deployment checklist
 
 ## Integration
 
-- **[Apollo Sandbox Security](/guides/apollo-sandbox-security)** — Secure GraphQL testing
-- **[Federation & NATS Integration](/guides/federation-nats-integration)** — Multi-database federation setup
+- **[Observers](/guides/observers)** — React to database events with LISTEN/NOTIFY observers
+- **[Observer & Webhook Patterns](/guides/observer-webhook-patterns)** — Webhooks and fan-out from observer events
+- **[Custom Resolvers](/guides/custom-resolvers)** — Override generated resolvers with custom Python logic
+- **[Custom Scalars](/guides/custom-scalars)** — Define and serialise custom GraphQL scalar types
+- **[Apollo Sandbox Security](/guides/apollo-sandbox-security)** — Lock down GraphQL introspection in production
+- **[Federation & NATS Integration](/guides/federation-nats-integration)** — Multi-database federation over NATS
+- **[Federation Configuration](/guides/federation-configuration)** — Detailed federation setup and routing rules
+- **[Advanced Federation](/guides/advanced-federation)** — Cross-service queries and federated subscriptions
+- **[Advanced NATS](/guides/advanced-nats)** — Durable consumers, JetStream, and NATS clustering
 
 ## Reference
 
-- **[FAQ](/guides/faq)** — Frequently asked questions and answers
+- **[FAQ](/guides/faq)** — Frequently asked questions with runnable answers
+- **[Troubleshooting](/guides/troubleshooting)** — Diagnose and fix common runtime errors
 
 ---
 
 ## By Use Case
 
 ### Building APIs
-1. Start with [Schema Design](/guides/schema-design)
-2. Follow [Best Practices](/guides/advanced-patterns)
+1. Start with [Custom Queries](/guides/custom-queries)
+2. Add [Error Handling](/guides/error-handling)
 3. Implement [Testing](/guides/testing)
-4. Review [Error Handling](/guides/error-handling)
+4. Review [Schema Design](/guides/schema-design)
 
 ### Going to Production
 1. Plan [Deployment](/guides/deployment)
@@ -62,15 +75,39 @@ Comprehensive guides for building, deploying, and optimizing FraiseQL applicatio
 
 | Guide | Purpose | Audience |
 |-------|---------|----------|
+| [Custom Queries](/guides/custom-queries) | Connect SQL views to GraphQL | All developers |
 | [Schema Design](/guides/schema-design) | Structure your data model | All developers |
 | [Advanced Patterns](/guides/advanced-patterns) | Enterprise patterns | Experienced developers |
 | [Multi-Tenancy](/guides/multi-tenancy) | SaaS architectures | SaaS developers |
 | [Testing](/guides/testing) | Ensure code quality | QA engineers, developers |
-| [Performance](/guides/performance) | Optimize queries | DevOps, backend developers |
+| [Performance](/guides/performance) | Optimise queries | DevOps, backend developers |
 | [Deployment](/guides/deployment) | Go to production | DevOps engineers |
 | [Authentication](/guides/authentication) | Secure your API | Backend developers |
 | [Error Handling](/guides/error-handling) | Handle errors gracefully | All developers |
 | [FAQ](/guides/faq) | Common questions | All users |
+
+---
+
+## Most Important Guides
+
+<CardGrid>
+  <Card title="Custom Queries" icon="open-book">
+    How SQL views become GraphQL queries — the concept that underpins everything else.
+    [Start here →](/guides/custom-queries)
+  </Card>
+  <Card title="Error Handling" icon="warning">
+    Return structured errors from PostgreSQL functions and surface them cleanly in GraphQL.
+    [Error Handling →](/guides/error-handling)
+  </Card>
+  <Card title="Multi-Tenancy" icon="puzzle">
+    Row-level security and per-tenant isolation for SaaS applications.
+    [Multi-Tenancy →](/guides/multi-tenancy)
+  </Card>
+  <Card title="Performance" icon="rocket">
+    Indexes, connection pooling, and query optimisation for production workloads.
+    [Performance →](/guides/performance)
+  </Card>
+</CardGrid>
 
 ---
 
@@ -81,7 +118,7 @@ Comprehensive guides for building, deploying, and optimizing FraiseQL applicatio
     [Getting Started](/getting-started/introduction) — Introduction and first steps
   </Card>
   <Card title="Specific problem?" icon="magnifier">
-    [Troubleshooting](/troubleshooting) — Common issues and solutions
+    [Troubleshooting](/guides/troubleshooting) — Common issues and solutions
   </Card>
   <Card title="Need examples?" icon="open-book">
     [Examples](/examples) — Browse code examples

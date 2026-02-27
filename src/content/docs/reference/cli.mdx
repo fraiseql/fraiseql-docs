@@ -3,9 +3,29 @@ title: CLI Reference
 description: FraiseQL command-line interface reference
 ---
 
-import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+import { Aside, CardGrid, Card, Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
 Complete reference for the `fraiseql` command-line interface.
+
+## Installation
+
+<Tabs label="Method">
+  <TabItem label="Cargo">
+    ```bash
+    cargo install fraiseql-cli
+    ```
+  </TabItem>
+  <TabItem label="Homebrew">
+    ```bash
+    brew install fraiseql/tap/fraiseql
+    ```
+  </TabItem>
+  <TabItem label="Binary">
+    Download from [GitHub Releases](https://github.com/fraiseql/fraiseql/releases)
+  </TabItem>
+</Tabs>
+
+---
 
 ## Overview
 
@@ -57,6 +77,22 @@ fraiseql run --port 3000 --watch
 fraiseql run schema.json --introspection
 ```
 
+**Expected output:**
+
+```
+$ fraiseql run
+🍓 FraiseQL v2.0.0-rc.13
+   GraphQL endpoint: http://localhost:8080/graphql
+   Health check:     http://localhost:8080/health
+   Schema:           3 types, 5 queries, 3 mutations
+   Database:         PostgreSQL (pool: 2 connections)
+   Press Ctrl+C to stop
+```
+
+<Aside type="note">
+Prior to rc.13, `fraiseql run` was called `fraiseql serve`. If you have scripts or documentation that use `fraiseql serve`, update them to `fraiseql run`.
+</Aside>
+
 <Aside type="tip">
 Use `--watch` during development so the server restarts automatically when you edit the schema. In production, omit `--watch` and set `--database` via the `DATABASE_URL` environment variable.
 </Aside>
@@ -97,6 +133,31 @@ fraiseql compile --check
 
 # Validate against the database schema
 fraiseql compile --check --database "$DATABASE_URL"
+```
+
+**Expected output:**
+
+```
+$ fraiseql compile
+✓ Schema validated (3 types, 2 inputs, 5 queries, 3 mutations)
+✓ SQL views verified against database
+✓ Compiled to build/schema.compiled.json (0.4s)
+```
+
+## Watch Mode
+
+`fraiseql compile --watch` monitors schema files and recompiles on change:
+
+- Watches: schema files, `fraiseql.toml`, `db/schema/*.sql`
+- On file change: recompiles and reports errors without exiting
+- Useful during development alongside `fraiseql run --watch`
+
+```bash
+# Recompile on every schema change
+fraiseql compile --watch
+
+# Serve with hot-reload (run handles watch internally)
+fraiseql run --watch
 ```
 
 ---
@@ -327,6 +388,16 @@ fraiseql validate schema.json
 fraiseql validate --strict --database "$DATABASE_URL"
 ```
 
+**Expected output:**
+
+```
+$ fraiseql validate
+✓ fraiseql.toml is valid
+✓ Database connection successful
+✓ Schema compiles without errors
+✓ All views exist in database
+```
+
 ---
 
 ## Code Generation
@@ -531,6 +602,161 @@ health_path = "/health"
 ```
 
 Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if your config file is not named `fraiseql.toml`.
+
+## Quick Reference
+
+### Common Workflows
+
+| Task | Command |
+|------|---------|
+| Start development server | `fraiseql run --watch` |
+| Compile for production | `fraiseql compile --check` |
+| Validate schema | `fraiseql validate --strict` |
+| Check query cost | `fraiseql cost query.graphql --max-cost 100` |
+| Analyze performance | `fraiseql analyze --category performance` |
+| Generate client types | `fraiseql generate --language typescript` |
+| Run migrations | `fraiseql migrate up` |
+
+### CI/CD Integration
+
+```bash
+# Typical CI pipeline
+fraiseql config validate          # Validate configuration
+fraiseql compile --check          # Compile and validate schema  
+fraiseql lint --fail-on warning   # Run all audits
+fraiseql test                     # Run tests (if configured)
+fraiseql migrate up               # Apply migrations
+fraiseql run                      # Start server
+```
+
+## Verify It Works
+
+<Steps>
+
+1. **Check CLI is installed**:
+   ```bash
+   fraiseql --version
+   ```
+   
+   Expected output:
+   ```
+   fraiseql 0.9.0
+   ```
+
+2. **Validate a configuration file**:
+   ```bash
+   fraiseql config validate
+   ```
+   
+   Expected output:
+   ```
+   ✓ fraiseql.toml is valid
+   ✓ Database connection successful
+   ✓ Schema compiles without errors
+   ```
+
+3. **Compile a schema**:
+   ```bash
+   fraiseql compile --check
+   ```
+   
+   Expected output:
+   ```
+   ✓ Schema validated (3 types, 2 inputs, 5 queries, 3 mutations)
+   ✓ SQL views verified against database
+   ✓ Compilation successful
+   ```
+
+4. **Test explain command**:
+   ```bash
+   fraiseql explain "{ __typename }" --format sql
+   ```
+   
+   Expected output:
+   ```sql
+   -- Generated SQL for query
+   SELECT 'Query' as typename;
+   ```
+
+5. **Start the server**:
+   ```bash
+   fraiseql run &
+   
+   # Test the health endpoint
+   curl http://localhost:8080/health
+   ```
+   
+   Expected response:
+   ```json
+   {"status": "ok"}
+   ```
+
+6. **Run a lint check**:
+   ```bash
+   fraiseql lint --fail-on warning
+   ```
+   
+   Expected output:
+   ```
+   ✓ Federation audit passed
+   ✓ Cost audit passed
+   ✓ Cache audit passed
+   ✓ Auth audit passed
+   ✓ Compilation audit passed
+   ```
+
+</Steps>
+
+## Troubleshooting
+
+### Command Not Found
+
+```bash
+$ fraiseql
+-bash: fraiseql: command not found
+```
+
+**Solutions:**
+1. Ensure binary is in PATH: `export PATH="$HOME/.cargo/bin:$PATH"`
+2. Reinstall: `cargo install fraiseql-cli`
+3. Use full path: `~/.cargo/bin/fraiseql`
+
+### Compilation Errors
+
+```bash
+$ fraiseql compile
+Error: Schema compilation failed
+```
+
+**Check:**
+1. Schema syntax is valid
+2. All referenced types exist
+3. Database connection is working (if using `--database`)
+4. SQL views exist in database
+
+### Database Connection Errors
+
+```bash
+$ fraiseql run
+Error: Cannot connect to database
+```
+
+**Solutions:**
+1. Verify `DATABASE_URL` is set correctly
+2. Check database is running: `pg_isready -d $DATABASE_URL`
+3. Test connection manually: `psql $DATABASE_URL -c "SELECT 1"`
+
+### Port Already in Use
+
+```bash
+$ fraiseql run
+Error: Address already in use (os error 48)
+```
+
+**Solutions:**
+1. Use a different port: `fraiseql run --port 8081`
+2. Find and kill the process using the port
+3. Check what's listening: `lsof -i :8080`
 
 <CardGrid>
   <Card title="TOML Configuration" icon="setting">

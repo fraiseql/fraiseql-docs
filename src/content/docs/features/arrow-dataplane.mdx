@@ -3,9 +3,13 @@ title: Arrow Flight Dataplane
 description: High-performance columnar data access with Apache Arrow Flight
 ---
 
-import { Aside, Tabs, TabItem, CardGrid, Card } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
 FraiseQL includes an Apache Arrow Flight dataplane for high-throughput columnar data access, enabling efficient analytics, OLAP queries, and data science workloads.
+
+<Aside type="caution">
+The Arrow Flight dataplane connects directly to **PostgreSQL** and requires PostgreSQL as your database backend. It is not available with other database backends.
+</Aside>
 
 ## Overview
 
@@ -13,7 +17,22 @@ Arrow Flight provides:
 - **Columnar data transfer**: Efficient for analytical queries
 - **Zero-copy reads**: Minimal memory overhead
 - **Streaming**: Handle datasets larger than memory
-- **Language interop**: Python, R, Julia, Rust clients
+- **Language interop**: Python, TypeScript/Node.js, R, Julia, Rust clients
+
+## Arrow Flight vs. GraphQL Endpoint
+
+Use this table to decide when to reach for Arrow Flight versus the standard GraphQL endpoint:
+
+| Dimension | GraphQL Endpoint | Arrow Flight |
+|-----------|-----------------|--------------|
+| **Format** | JSON (row-oriented) | Apache Arrow IPC (columnar) |
+| **Typical throughput** | ~50 MB/s | ~500 MB/s |
+| **Best for** | CRUD, real-time queries, web clients | Analytics, ML, ETL, data science |
+| **Client libraries** | Any HTTP client | Arrow Flight SDK required |
+| **Filtering** | GraphQL `where` arguments | Pushed down to PostgreSQL |
+| **Streaming** | NDJSON via Wire protocol | Native chunked record batches |
+| **Authentication** | JWT / API key | Bearer token (same as GraphQL) |
+| **Port** | 8080 (default) | 8081 (default) |
 
 ## Configuration
 
@@ -116,6 +135,7 @@ def orders_daily(
 <TabItem label="PyArrow">
 ```python
 import pyarrow.flight as flight
+import json
 
 # Connect to FraiseQL Arrow Flight server
 client = flight.connect("grpc://localhost:8081")
@@ -125,20 +145,36 @@ token = client.authenticate_basic_token("user", "password")
 options = flight.FlightCallOptions(headers=[(b"authorization", token)])
 
 # Execute query
-ticket = flight.Ticket(b'{"query": "orders_daily", "variables": {"start_date": "2024-01-01"}}')
+ticket = flight.Ticket(json.dumps({
+    "query": "orders_daily",
+    "variables": {"start_date": "2024-01-01", "end_date": "2024-12-31"}
+}).encode())
 reader = client.do_get(ticket, options)
 
 # Read as Arrow Table
 table = reader.read_all()
+print(table.schema)
+# order_date: timestamp[us, tz=UTC]
+# customer_region: string
+# product_category: string
+# order_count: int64
+# revenue: decimal128(18, 2)
+# avg_order_value: decimal128(18, 2)
+
 print(table.to_pandas())
+#   order_date customer_region product_category  order_count   revenue  avg_order_value
+# 0 2024-01-01              US      Electronics         1234  98765.00           80.04
+# 1 2024-01-01              EU      Electronics          876  71234.00           81.32
+# ...
 ```
 </TabItem>
 <TabItem label="Pandas">
 ```python
 import pandas as pd
 import pyarrow.flight as flight
+import json
 
-def query_fraiseql(query: str, variables: dict = None) -> pd.DataFrame:
+def query_fraiseql(query: str, variables: dict | None = None) -> pd.DataFrame:
     """Execute FraiseQL Arrow query and return DataFrame."""
     client = flight.connect("grpc://localhost:8081")
 
@@ -153,6 +189,58 @@ df = query_fraiseql(
     "orders_daily",
     {"start_date": "2024-01-01", "end_date": "2024-12-31"}
 )
+
+print(df.head())
+#   order_date customer_region product_category  order_count   revenue
+# 0 2024-01-01              US      Electronics         1234  98765.00
+# 1 2024-01-01              EU      Electronics          876  71234.00
+
+print(f"Total revenue: ${df['revenue'].sum():,.2f}")
+# Total revenue: $4,521,890.00
+```
+</TabItem>
+<TabItem label="TypeScript / Node.js">
+```typescript
+import { FlightClient } from '@apache-arrow/flight';
+import { tableFromIPC, RecordBatch } from 'apache-arrow';
+
+async function queryArrowFlight(
+    query: string,
+    variables: Record<string, unknown> = {}
+): Promise<RecordBatch[]> {
+    const client = new FlightClient({ address: 'grpc://localhost:8081' });
+
+    const ticket = Buffer.from(JSON.stringify({ query, variables }));
+    const batches: RecordBatch[] = [];
+
+    for await (const batch of client.doGet({ ticket })) {
+        batches.push(batch);
+    }
+
+    await client.close();
+    return batches;
+}
+
+// Usage
+const batches = await queryArrowFlight('orders_daily', {
+    start_date: '2024-01-01',
+    end_date: '2024-12-31'
+});
+
+const table = tableFromIPC(batches);
+console.log(`Rows: ${table.numRows}`);
+// Rows: 42850
+
+for (const row of table) {
+    console.log(row.toJSON());
+    // { order_date: '2024-01-01', customer_region: 'US', revenue: 98765.00 }
+}
+```
+
+Install the required packages:
+
+```bash
+npm install apache-arrow @apache-arrow/flight
 ```
 </TabItem>
 <TabItem label="DuckDB">
@@ -184,7 +272,12 @@ result = duckdb.execute("""
 ### Chunked Reading
 
 ```python
-def stream_large_dataset(query: str, chunk_size: int = 100000):
+import pyarrow.flight as flight
+import json
+from collections.abc import Iterator
+import pandas as pd
+
+def stream_large_dataset(query: str, chunk_size: int = 100000) -> Iterator[pd.DataFrame]:
     """Stream large datasets in chunks."""
     client = flight.connect("grpc://localhost:8081")
 
@@ -195,31 +288,40 @@ def stream_large_dataset(query: str, chunk_size: int = 100000):
         batch = chunk.data
         # Process batch
         yield batch.to_pandas()
+
+# Usage: process 50M rows without loading all into memory
+for df_chunk in stream_large_dataset("large_events_export"):
+    process(df_chunk)
+    print(f"Processed {len(df_chunk)} rows")
 ```
 
 ### Memory-Efficient Processing
 
 ```python
 import pyarrow as pa
+import pyarrow.compute as pc
 
-def process_without_loading_all(query: str):
-    """Process data without loading entire dataset into memory."""
+def aggregate_without_loading_all(query: str) -> dict:
+    """Sum revenue without loading entire dataset into memory."""
     client = flight.connect("grpc://localhost:8081")
 
     ticket = flight.Ticket(json.dumps({"query": query}).encode())
     reader = client.do_get(ticket)
 
-    total_revenue = 0
+    total_revenue = 0.0
     row_count = 0
 
     for chunk in reader:
         batch = chunk.data
-        # Process each batch
         revenue_col = batch.column("revenue")
-        total_revenue += pa.compute.sum(revenue_col).as_py()
+        total_revenue += pc.sum(revenue_col).as_py()
         row_count += len(batch)
 
     return {"total_revenue": total_revenue, "rows": row_count}
+
+result = aggregate_without_loading_all("orders_daily")
+print(result)
+# {'total_revenue': 4521890.0, 'rows': 42850}
 ```
 
 ## Analytics Patterns
@@ -414,6 +516,117 @@ Design views for analytical patterns. Pre-aggregate data in `va_` views rather t
 CREATE INDEX idx_ta_events_created ON ta_events(created_at);
 CREATE INDEX idx_ta_events_type ON ta_events(event_type);
 CREATE INDEX idx_ta_events_user ON ta_events(user_id);
+```
+
+## Verify It Works
+
+<Steps>
+
+1. **Start FraiseQL with Arrow enabled**:
+   ```bash
+   fraiseql run
+   ```
+   Check logs for Arrow Flight startup:
+   ```
+   INFO: Arrow Flight dataplane listening on 0.0.0.0:8081
+   ```
+
+2. **Test with a simple query**:
+   ```python
+   import pyarrow.flight as flight
+   
+   client = flight.connect("grpc://localhost:8081")
+   ticket = flight.Ticket(b'{"query": "orders_daily"}')
+   reader = client.do_get(ticket)
+   table = reader.read_all()
+   print(f"Rows returned: {table.num_rows}")
+   print(f"Columns: {table.column_names}")
+   ```
+   
+   Expected output:
+   ```
+   Rows returned: 365
+   Columns: ['order_date', 'customer_region', 'product_category', 'order_count', 'revenue', 'avg_order_value']
+   ```
+
+3. **Verify streaming for large datasets**:
+   ```python
+   # Count rows without loading all into memory
+   client = flight.connect("grpc://localhost:8081")
+   ticket = flight.Ticket(b'{"query": "large_export"}')
+   reader = client.do_get(ticket)
+   
+   row_count = 0
+   for chunk in reader:
+       row_count += chunk.data.num_rows
+       print(f"Processed batch: {chunk.data.num_rows} rows")
+   
+   print(f"Total rows: {row_count}")
+   ```
+   
+   Expected output:
+   ```
+   Processed batch: 65536 rows
+   Processed batch: 65536 rows
+   Processed batch: 18928 rows
+   Total rows: 150000
+   ```
+
+4. **Check metrics endpoint**:
+   ```bash
+   curl http://localhost:9090/metrics | grep fraiseql_arrow
+   ```
+   
+   Expected output:
+   ```
+   fraiseql_arrow_requests_total 42
+   fraiseql_arrow_rows_streamed_total 2845000
+   fraiseql_arrow_bytes_sent 184320000
+   ```
+
+</Steps>
+
+## Troubleshooting
+
+### Connection Refused
+
+If you get `Connection refused` when connecting:
+
+1. Verify Arrow is enabled in `fraiseql.toml`:
+   ```toml
+   [arrow]
+   enabled = true
+   ```
+
+2. Check the port is correct:
+   ```bash
+   netstat -tlnp | grep 8081
+   ```
+
+3. Check FraiseQL logs for startup errors
+
+### Slow Query Performance
+
+Arrow Flight is only as fast as the underlying SQL query:
+
+```sql
+-- Check query execution time in PostgreSQL
+EXPLAIN ANALYZE SELECT * FROM va_orders_daily;
+```
+
+If the query is slow:
+- Add indexes on filtered columns
+- Consider materialized views for complex aggregations
+- Increase `max_batch_size` for better throughput
+
+### Memory Issues
+
+If clients run out of memory:
+
+```python
+# Use chunked reading instead of read_all()
+for chunk in reader:
+    process(chunk.data.to_pandas())  # Process one chunk at a time
 ```
 
 ## Next Steps

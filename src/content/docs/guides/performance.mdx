@@ -7,6 +7,10 @@ import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
 This guide covers performance optimization for FraiseQL, from database tuning to caching strategies.
 
+<Aside type="note">
+Performance tooling and SQL examples in this guide use PostgreSQL. If you are using MySQL or SQLite, consult your database's equivalent tools for query analysis, slow query logging, and index types. JSONB-specific features are PostgreSQL-only.
+</Aside>
+
 ## Database Optimization
 
 ### Connection Pooling
@@ -88,6 +92,10 @@ CREATE INDEX idx_comment_fk_post ON tb_comment(fk_post);
 ```
 
 ### Projection Table Indexes
+
+<Aside type="caution">
+JSONB indexes are PostgreSQL-specific. The GIN index type and `data->>'field'` syntax below do not apply to MySQL or SQLite.
+</Aside>
 
 Index JSONB fields used in filtering:
 
@@ -180,25 +188,28 @@ jsonb_array_length(data->'items')  -- Not indexable
 Enable built-in caching:
 
 ```toml
-[cache]
+[caching]
 enabled = true
-provider = "redis"
-ttl = 300  # 5 minutes
-
-[cache.redis]
-url = "${REDIS_URL}"
+backend = "redis"
+redis_url = "${REDIS_URL}"
 ```
 
 ### Cache Invalidation
 
 FraiseQL automatically invalidates cache on mutations. When a mutation modifies an entity, all cached responses containing that entity type are invalidated.
 
-Configure cascade invalidation:
+Configure per-query rules:
 
 ```toml
-[cache.invalidation]
-cascade = true
-entities = ["Post", "User"]  # Invalidate related
+[[caching.rules]]
+query = "users_*"
+ttl_seconds = 300
+invalidation_triggers = ["User"]
+
+[[caching.rules]]
+query = "posts_*"
+ttl_seconds = 60
+invalidation_triggers = ["Post"]
 ```
 
 ### APQ (Automatic Persisted Queries)
@@ -347,6 +358,30 @@ Enable PostgreSQL slow query logging:
 ALTER SYSTEM SET log_min_duration_statement = 100;  -- Log queries > 100ms
 ```
 
+### pg_stat_statements
+
+`pg_stat_statements` tracks execution statistics for all SQL statements. Enable it to identify your slowest queries:
+
+```sql
+-- Enable the extension (requires superuser, done once per database)
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-- Find the top 10 slowest queries by average execution time
+SELECT
+    query,
+    calls,
+    round(mean_exec_time::numeric, 2) AS avg_ms,
+    round(total_exec_time::numeric, 2) AS total_ms
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+
+-- Reset statistics after tuning
+SELECT pg_stat_statements_reset();
+```
+
+You may need to set `shared_preload_libraries = 'pg_stat_statements'` in `postgresql.conf` and restart PostgreSQL before the extension is available.
+
 ### Query Analysis
 
 Use EXPLAIN ANALYZE:
@@ -388,7 +423,7 @@ wrk.body = '{"query": "{ users(limit: 20) { id name } }"}'
 
 ### Expected Performance
 
-FraiseQL benchmarks (single instance, 4 cores, 16GB RAM):
+FraiseQL illustrative baselines (single instance, 4 cores, 16GB RAM):
 
 | Query Type | RPS | p50 | p99 |
 |------------|-----|-----|-----|
@@ -396,6 +431,10 @@ FraiseQL benchmarks (single instance, 4 cores, 16GB RAM):
 | Nested read (depth 3) | 20,000+ | 3ms | 15ms |
 | List + filter | 15,000+ | 5ms | 25ms |
 | Mutation | 5,000+ | 10ms | 50ms |
+
+<Aside type="note">
+These are illustrative baselines. Actual performance depends on hardware specifications, database size, query complexity, index coverage, and network conditions. See [Performance Benchmarks](/guides/performance-benchmarks) for controlled benchmark results with documented methodology.
+</Aside>
 
 ## Optimization Checklist
 

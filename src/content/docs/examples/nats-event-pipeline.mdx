@@ -30,86 +30,44 @@ Orders DB    NATS JetStream
 
 ## NATS Configuration
 
+In `fraiseql.toml`, enable NATS as the observer backend:
+
 ```toml
 # fraiseql.toml
 
-[nats]
+[observers]
 enabled = true
-urls = ["nats://localhost:4222"]
-prefix = "fraiseql"
+backend = "nats"
+nats_url = "${NATS_URL}"   # e.g. nats://nats-1:4222,nats://nats-2:4222
 
-[nats.auth]
-type = "token"
-token = "${NATS_TOKEN}"
+[[observers.handlers]]
+name = "order-pipeline"
+event = "order.created"
+action = "webhook"
+webhook_url = "${ORDER_PROCESSOR_URL}"
+```
 
-# Enable CDC (Change Data Capture)
-[nats.cdc]
-enabled = true
-tables = ["tb_order", "tb_order_item", "tb_inventory", "tb_shipping"]
+Advanced JetStream settings (stream retention, consumers, DLQ) are configured in the observer runtime config file (`fraiseql-observer.toml`):
 
-# JetStream configuration
-[nats.jetstream]
-enabled = true
-stream = "fraiseql-events"
-subjects = ["fraiseql.>"]
-retention = "limits"
-max_msgs = 1000000
-max_bytes = 10737418240  # 10GB
-max_age = "720h"  # 30 days
+```toml
+# fraiseql-observer.toml
 
-# Event Stream: Orders
-[nats.jetstream.streams.orders]
-name = "orders"
-subjects = ["fraiseql.order.>", "fraiseql.order_item.>"]
-replicas = 3
-max_msgs = 500000
-max_bytes = 5368709120  # 5GB
+[transport]
+transport = "nats"
 
-# Event Stream: Inventory
-[nats.jetstream.streams.inventory]
-name = "inventory"
-subjects = ["fraiseql.inventory.>", "fraiseql.reservation.>"]
-replicas = 3
-max_msgs = 300000
-max_bytes = 3221225472  # 3GB
+[transport.nats]
+url = "${NATS_URL}"
+stream_name = "fraiseql_events"
+subject_prefix = "fraiseql.mutation"
+consumer_name = "fraiseql_observer_worker"
 
-# Event Stream: Shipping
-[nats.jetstream.streams.shipping]
-name = "shipping"
-subjects = ["fraiseql.shipping.>"]
-replicas = 3
-max_msgs = 200000
-max_bytes = 2147483648  # 2GB
-
-# Consumer: Order Processor Service
-[nats.jetstream.consumers.order-processor]
-stream = "orders"
-durable_name = "order-processor"
-deliver_policy = "all"
-ack_policy = "explicit"
-ack_wait = "30s"
+[transport.nats.jetstream]
+max_age_days = 30
+max_bytes = 10_737_418_240  # 10 GB
+max_msgs = 1_000_000
 max_deliver = 3
-
-# Consumer: Inventory Service
-[nats.jetstream.consumers.inventory-processor]
-stream = "inventory"
-durable_name = "inventory-processor"
-deliver_policy = "all"
-ack_policy = "explicit"
-max_deliver = 3
-
-# Consumer: Analytics
-[nats.jetstream.consumers.analytics-consumer]
-stream = "orders"
-durable_name = "analytics"
-deliver_policy = "new"  # Only new messages
-ack_policy = "explicit"
-
-# Dead Letter Queue
-[nats.jetstream.dlq]
-enabled = true
-subject = "fraiseql.dlq"
-max_deliver = 3
+ack_wait_secs = 30
+dedup_window_minutes = 5
 ```
 
 ## Database Schema

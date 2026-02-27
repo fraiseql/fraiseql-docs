@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start services
+        run: docker compose up --detach
+
+      - name: Wait for Postgres to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(docker compose ps --format json db \
+              | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('Health',''))" 2>/dev/null || true)
+            if [ "$STATUS" = "healthy" ]; then
+              echo "Postgres is healthy"
+              break
+            fi
+            echo "Waiting for Postgres... ($i/30)"
+            sleep 2
+          done
+
+      - name: Wait for FraiseQL to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://localhost:8080/health > /dev/null 2>&1; then
+              echo "FraiseQL is ready"
+              break
+            fi
+            echo "Waiting for FraiseQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Query GraphQL endpoint
+        run: |
+          RESPONSE=$(curl --silent --fail \
+            --header "Content-Type: application/json" \
+            --data '{"query":"{ posts { id title } }"}' \
+            http://localhost:8080/graphql)
+          echo "$RESPONSE"
+          echo "$RESPONSE" | python3 -c "
+          import sys, json
+          body = json.load(sys.stdin)
+          assert 'data' in body, f'Expected \"data\" key in response, got: {body}'
+          assert body.get('errors') is None, f'GraphQL errors: {body[\"errors\"]}'
+          print('GraphQL response contains data — test passed')
+          "
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs

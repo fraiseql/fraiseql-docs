@@ -1,402 +1,482 @@
 ---
 title: Resilience
-description: Circuit breakers, retries, and graceful degradation
+description: Connection management, timeouts, health checks, and operational best practices for production FraiseQL deployments
 ---
 
-import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-FraiseQL includes resilience patterns to handle failures gracefully and maintain service availability.
+FraiseQL includes several features to help your API remain stable under load and recover gracefully from failures:
 
-## Circuit Breaker
+- **Connection pooling** — Efficiently manages database connections
+- **Query timeouts** — Prevents runaway queries from consuming resources
+- **Health checks** — Integrates with Kubernetes and load balancers
+- **Graceful shutdown** — Drains in-flight requests before stopping
+- **Structured error responses** — Clear, actionable error information
+- **Federation circuit breakers** — Prevents cascading failures across federated databases
 
-Prevent cascading failures by stopping requests to failing services.
+## Connection Pooling
 
-### Configuration
+FraiseQL maintains a connection pool for each configured database. The pool reuses connections across requests, reducing connection overhead.
 
-```toml
-[resilience.circuit_breaker]
-enabled = true
+### Pool Configuration
 
-# Failure threshold to open circuit
-failure_threshold = 5
-failure_window_seconds = 60
-
-# Time before attempting recovery
-reset_timeout_seconds = 30
-
-# Requests allowed in half-open state
-half_open_requests = 3
-
-# Success threshold to close circuit
-success_threshold = 3
-```
-
-### States
-
-```
-┌──────────┐   failures >= threshold   ┌──────────┐
-│  CLOSED  │ ────────────────────────→ │   OPEN   │
-│ (normal) │                           │ (reject) │
-└──────────┘                           └──────────┘
-     ↑                                      │
-     │                              reset_timeout
-     │                                      │
-     │      successes >= threshold    ┌─────↓─────┐
-     └─────────────────────────────── │ HALF-OPEN │
-                                      │  (probe)  │
-                                      └───────────┘
-```
-
-### Per-Endpoint Configuration
+Configure pool settings per database in `fraiseql.toml`:
 
 ```toml
-[resilience.circuit_breaker.endpoints]
-# Stricter settings for critical endpoints
-"database" = { failure_threshold = 3, reset_timeout_seconds = 60 }
-
-# Lenient settings for optional services
-"analytics" = { failure_threshold = 10, reset_timeout_seconds = 10 }
+[databases.primary]
+url = "${DATABASE_URL}"
+type = "postgresql"
+pool_size = 10
+timeout_seconds = 30
 ```
 
-### Monitoring
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `pool_size` | 10 | Maximum connections in the pool |
+| `timeout_seconds` | 30 | Connection and query timeout |
 
-```
-# Circuit breaker state (0=closed, 1=open, 2=half-open)
-fraiseql_circuit_breaker_state{endpoint="database"}
+### Pool Size Guidelines
 
-# Requests rejected by open circuit
-rate(fraiseql_circuit_breaker_rejected_total[5m])
-```
+| Workload | Recommended Pool Size |
+|----------|----------------------|
+| Light (single user, development) | 5-10 |
+| Medium (production API) | 10-20 |
+| Heavy (high-throughput analytics) | 20-50 |
+| Multi-database setup | 10-15 per database |
 
-## Retry Policies
+<Aside type="tip">
+The optimal pool size depends on your database server's connection limit and the number of FraiseQL instances. If you run 5 FraiseQL replicas with `pool_size = 20`, you need 100 database connections available. Monitor your database's `max_connections` setting.
+</Aside>
 
-Automatically retry transient failures.
+## Query Timeouts
 
-### Configuration
+FraiseQL enforces timeouts on database queries to prevent slow queries from consuming pool connections indefinitely.
 
-```toml
-[resilience.retry]
-enabled = true
-max_attempts = 3
+### Timeout Behavior
 
-# Backoff strategy
-strategy = "exponential"  # or "linear", "fixed"
-initial_delay_ms = 100
-max_delay_ms = 5000
-multiplier = 2.0
+When a query exceeds the configured `timeout_seconds`:
 
-# Jitter to prevent thundering herd
-jitter = 0.1  # ±10%
-```
+1. FraiseQL cancels the database query
+2. Returns a structured error to the client
+3. Releases the connection back to the pool
 
-### Retryable Errors
+Example error response:
 
-```toml
-[resilience.retry.errors]
-# HTTP status codes to retry
-status_codes = [408, 429, 500, 502, 503, 504]
-
-# Database errors to retry
-database = ["connection_reset", "timeout", "deadlock"]
-
-# Custom error codes
-custom = ["TRANSIENT_ERROR", "TEMPORARILY_UNAVAILABLE"]
-```
-
-### Non-Retryable Operations
-
-```toml
-[resilience.retry]
-# Don't retry mutations by default (not idempotent)
-skip_mutations = true
-
-# Specific operations to never retry
-never_retry = ["createPayment", "sendEmail"]
+```json
+{
+  "errors": [{
+    "message": "Query exceeded timeout of 30s",
+    "extensions": {
+      "code": "QUERY_TIMEOUT",
+      "timeout_seconds": 30
+    }
+  }]
+}
 ```
 
-### Backoff Strategies
+### Setting Appropriate Timeouts
 
-**Exponential (recommended):**
-```
-Attempt 1: 100ms
-Attempt 2: 200ms
-Attempt 3: 400ms
-Attempt 4: 800ms
-...
-```
+| Query Type | Recommended Timeout |
+|------------|---------------------|
+| Simple lookups (by ID) | 5-10 seconds |
+| List queries with filters | 10-30 seconds |
+| Complex aggregations | 30-60 seconds |
+| Analytics/reporting | 60-300 seconds |
 
-**Linear:**
-```
-Attempt 1: 100ms
-Attempt 2: 200ms
-Attempt 3: 300ms
-...
-```
+If you frequently hit timeout errors:
 
-**Fixed:**
-```
-Attempt 1: 100ms
-Attempt 2: 100ms
-Attempt 3: 100ms
-...
-```
+1. Check for missing database indexes:
+   ```sql
+   EXPLAIN ANALYZE SELECT * FROM v_user WHERE email = 'test@example.com';
+   ```
 
-## Timeouts
+2. Consider query optimization or materialized views for complex aggregations
 
-Prevent requests from hanging indefinitely.
+3. Increase `pool_size` if timeouts are caused by connection wait times
 
-### Configuration
+## Health Check Endpoints
 
-```toml
-[resilience.timeouts]
-# Overall request timeout
-request_timeout_ms = 30000
+FraiseQL exposes health endpoints on the same port as the GraphQL API:
 
-# Database query timeout
-query_timeout_ms = 10000
+| Endpoint | Purpose | Response |
+|----------|---------|----------|
+| `GET /health` | Full status including database connectivity | JSON with detailed status |
+| `GET /health/live` | Process is alive | 200 OK or 503 |
+| `GET /health/ready` | Ready to serve traffic | 200 OK or 503 |
 
-# Connection timeout
-connect_timeout_ms = 5000
+### Kubernetes Integration
 
-# Idle timeout
-idle_timeout_ms = 60000
-```
+Configure readiness and liveness probes:
 
-### Per-Operation Timeouts
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 10
 
-```toml
-[resilience.timeouts.operations]
-# Expensive analytics queries get more time
-"salesAggregate" = 60000
-
-# Simple lookups should be fast
-"user" = 5000
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 5
 ```
 
-## Bulkhead
+### Health Response Format
 
-Isolate failures by limiting concurrent requests.
+**Healthy state:**
 
-### Configuration
-
-```toml
-[resilience.bulkhead]
-enabled = true
-
-# Global concurrency limit
-max_concurrent = 1000
-
-# Per-operation limits
-[resilience.bulkhead.operations]
-"importData" = 10  # Expensive operation
-"analyticsQuery" = 50
+```json
+{
+  "status": "ok",
+  "version": "0.9.1",
+  "uptime_seconds": 3821,
+  "databases": {
+    "primary": { 
+      "status": "ok", 
+      "pool_idle": 18, 
+      "pool_active": 2 
+    }
+  }
+}
 ```
 
-### Queue Behavior
+**Degraded state (database unavailable):**
 
-```toml
-[resilience.bulkhead]
-# Queue requests when limit reached
-queue_size = 100
-queue_timeout_ms = 5000
-
-# Or reject immediately
-reject_when_full = false
+```json
+{
+  "status": "degraded",
+  "databases": {
+    "primary": { 
+      "status": "error", 
+      "error": "connection refused"
+    }
+  }
+}
 ```
 
-## Graceful Degradation
+HTTP 503 is returned when status is `"degraded"` or `"error"`, causing Kubernetes to stop routing traffic to the pod.
 
-Reduce functionality when under stress.
+## Graceful Shutdown
 
-### Load Shedding
+When FraiseQL receives `SIGTERM` (from Kubernetes, systemd, or `kill`), it enters a drain phase:
 
-```toml
-[resilience.load_shedding]
-enabled = true
+<Steps>
 
-# CPU threshold to start shedding
-cpu_threshold = 0.8
+1. **Stop accepting new connections** — the load balancer health check returns 503 immediately, causing the LB to stop routing new traffic to this instance
 
-# Memory threshold
-memory_threshold = 0.9
+2. **Drain in-flight requests** — FraiseQL waits up to 30 seconds for active queries and mutations to complete
 
-# Actions when shedding
-[resilience.load_shedding.actions]
-disable_introspection = true
-disable_analytics = true
-reduce_cache_ttl = true
-reject_new_subscriptions = true
-```
+3. **Close database pools** — all connections are cleanly closed after in-flight work finishes or the drain timeout expires
 
-### Feature Flags
+4. **Exit with code 0** — a clean exit allows Kubernetes to proceed with the rolling update
 
-```toml
-[resilience.features]
-# Disable non-critical features under load
-analytics_enabled = true
-subscriptions_enabled = true
-introspection_enabled = true
+</Steps>
 
-# Auto-disable thresholds
-[resilience.features.auto_disable]
-analytics = { error_rate = 0.1, latency_p99_ms = 5000 }
-```
+### Kubernetes Configuration
 
-### Fallback Responses
+Ensure your deployment allows time for graceful shutdown:
 
-```toml
-[resilience.fallback]
-enabled = true
-
-# Return cached data when database unavailable
-use_stale_cache = true
-stale_cache_max_age_seconds = 300
-
-# Default responses for specific queries
-[resilience.fallback.queries]
-"featuredProducts" = { cache_key = "featured_products_fallback" }
-```
-
-## Health-Based Routing
-
-Route traffic based on backend health.
-
-### Configuration
-
-```toml
-[resilience.health_routing]
-enabled = true
-
-# Health check interval
-check_interval_seconds = 10
-
-# Unhealthy threshold
-unhealthy_threshold = 3
-
-# Remove unhealthy backends from rotation
-remove_unhealthy = true
+```yaml
+spec:
+  template:
+    spec:
+      terminationGracePeriodSeconds: 60  # Must be > drain timeout
+      containers:
+        - name: fraiseql
+          image: fraiseql/fraiseql:latest
 ```
 
 ## Error Handling
 
-### Error Classification
+FraiseQL returns structured GraphQL errors with consistent extension codes:
 
-```toml
-[resilience.errors]
-# Classify errors for appropriate handling
-[resilience.errors.transient]
-codes = ["ECONNRESET", "ETIMEDOUT", "ECONNREFUSED"]
-action = "retry"
+| Error Code | Meaning | Client Action |
+|------------|---------|---------------|
+| `QUERY_TIMEOUT` | Query exceeded timeout | Retry with smaller result set or optimize query |
+| `DATABASE_UNAVAILABLE` | Cannot connect to database | Retry with exponential backoff |
+| `POOL_EXHAUSTED` | All connections in use | Wait and retry, or increase pool_size |
+| `RATE_LIMITED` | Request rate limit hit | Slow down request rate |
+| `INTERNAL_ERROR` | Unexpected server error | Report to operations team |
 
-[resilience.errors.permanent]
-codes = ["INVALID_INPUT", "NOT_FOUND", "UNAUTHORIZED"]
-action = "fail_fast"
+### Client Retry Logic
 
-[resilience.errors.unknown]
-action = "retry_once"
+Implement intelligent retries in your client:
+
+<Tabs syncKey="language">
+<TabItem label="Python">
+
+```python
+import time
+import random
+from fraiseql import FraiseQLClient
+from fraiseql.errors import FraiseQLError
+
+client = FraiseQLClient("http://localhost:8080")
+
+def execute_with_retry(query, variables, max_attempts=3):
+    """Execute query with exponential backoff for transient errors."""
+    delay = 0.1
+    
+    for attempt in range(max_attempts):
+        try:
+            result = client.execute(query, variables=variables)
+            
+            if result.errors:
+                codes = [e.get("extensions", {}).get("code") for e in result.errors]
+                
+                # Retry on transient errors
+                if any(c in codes for c in ["DATABASE_UNAVAILABLE", "POOL_EXHAUSTED"]):
+                    if attempt < max_attempts - 1:
+                        time.sleep(delay + random.uniform(0, 0.1))
+                        delay = min(delay * 2, 5.0)
+                        continue
+                
+                # Don't retry timeouts — they need query optimization
+                if "QUERY_TIMEOUT" in codes:
+                    raise RuntimeError("Query timeout — optimize query or increase timeout")
+            
+            return result
+            
+        except ConnectionError:
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(delay + random.uniform(0, 0.1))
+            delay = min(delay * 2, 5.0)
+    
+    raise RuntimeError("Max retries exceeded")
 ```
 
-### Error Budgets
+</TabItem>
+<TabItem label="TypeScript">
+
+```typescript
+import { FraiseQLClient, FraiseQLError } from 'fraiseql';
+
+const client = new FraiseQLClient('http://localhost:8080');
+
+async function executeWithRetry<T>(
+  query: string,
+  variables: Record<string, unknown>,
+  maxAttempts = 3
+): Promise<T> {
+  let delay = 100;
+  
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const result = await client.execute<T>(query, variables);
+      
+      if (result.errors) {
+        const codes = result.errors.map(e => e.extensions?.code);
+        
+        // Retry on transient errors
+        if (codes.some(c => ['DATABASE_UNAVAILABLE', 'POOL_EXHAUSTED'].includes(c))) {
+          if (attempt < maxAttempts - 1) {
+            await sleep(delay + Math.random() * 100);
+            delay = Math.min(delay * 2, 5000);
+            continue;
+          }
+        }
+        
+        // Don't retry timeouts
+        if (codes.includes('QUERY_TIMEOUT')) {
+          throw new Error('Query timeout — optimize query or increase timeout');
+        }
+      }
+      
+      return result.data;
+    } catch (err) {
+      if (attempt === maxAttempts - 1) throw err;
+      await sleep(delay + Math.random() * 100);
+      delay = Math.min(delay * 2, 5000);
+    }
+  }
+  
+  throw new Error('Unreachable');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+```
+
+</TabItem>
+</Tabs>
+
+## Federation Circuit Breakers
+
+FraiseQL protects federation fan-out queries from cascading failures. When a federated database repeatedly fails, the circuit opens and subsequent requests to that database fail fast with HTTP 503 instead of waiting for timeouts.
+
+### States
+
+| State | Behaviour |
+|-------|-----------|
+| **Closed** | Requests flow normally. Failure count is tracked. |
+| **Open** | All requests to this database fail immediately with HTTP 503 + `Retry-After` header. |
+| **Half-open** | After `recovery_timeout_secs`, a probe request is allowed. On success the circuit closes; on failure it reopens. |
+
+### Configuration
 
 ```toml
-[resilience.error_budget]
+[federation.circuit_breaker]
 enabled = true
+failure_threshold = 5        # Open after N consecutive failures
+recovery_timeout_secs = 30   # Seconds to stay open before probing
+success_threshold = 2        # Successful probes required to close
 
-# Allow 0.1% error rate
-threshold = 0.001
-
-# Window for calculation
-window_minutes = 60
-
-# Actions when budget exhausted
-[resilience.error_budget.actions]
-alert = true
-reduce_traffic = true
+# Per-database override (array of tables)
+[[federation.circuit_breaker.per_database]]
+database = "orders_db"
+failure_threshold = 3
+recovery_timeout_secs = 60
 ```
 
-## Metrics
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable circuit breaker protection |
+| `failure_threshold` | integer | `5` | Consecutive failures before opening |
+| `recovery_timeout_secs` | integer | `30` | Seconds in open state before probing |
+| `success_threshold` | integer | `2` | Successful probes required to close |
 
-| Metric | Description |
-|--------|-------------|
-| `fraiseql_circuit_breaker_state` | Current state per endpoint |
-| `fraiseql_circuit_breaker_rejected_total` | Rejected by open circuit |
-| `fraiseql_retry_attempts_total` | Retry attempts |
-| `fraiseql_retry_success_total` | Successful retries |
-| `fraiseql_timeout_total` | Timeout occurrences |
-| `fraiseql_bulkhead_rejected_total` | Rejected by bulkhead |
-| `fraiseql_load_shedding_active` | Load shedding active |
+### Client behaviour when open
 
-## Best Practices
+When the circuit is open, FraiseQL returns:
 
-### Tune for Your Workload
-
-```toml
-# High-throughput, latency-sensitive
-[resilience]
-request_timeout_ms = 5000
-retry.max_attempts = 2
-circuit_breaker.failure_threshold = 10
-
-# Batch processing, reliability-focused
-[resilience]
-request_timeout_ms = 60000
-retry.max_attempts = 5
-circuit_breaker.failure_threshold = 3
+```json
+{
+  "errors": [{
+    "message": "Federation database 'orders_db' unavailable: circuit breaker open",
+    "extensions": {
+      "code": "SERVICE_UNAVAILABLE",
+      "database": "orders_db"
+    }
+  }]
+}
 ```
 
-### Test Failure Scenarios
+HTTP status is `503 Service Unavailable` with a `Retry-After: 30` header set to `recovery_timeout_secs`.
 
-```bash
-# Inject failures for testing
-fraiseql-cli chaos inject --type timeout --probability 0.1
-fraiseql-cli chaos inject --type error --code 500 --probability 0.05
+## Prometheus Metrics
+
+FraiseQL exposes operational metrics on `GET /metrics` in Prometheus exposition format:
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `fraiseql_requests_total` | `method`, `status` | Total HTTP requests |
+| `fraiseql_request_duration_seconds` | `method` | Request latency histogram |
+| `fraiseql_database_pool_active` | `database` | Active connections per database |
+| `fraiseql_database_pool_idle` | `database` | Idle connections per database |
+| `fraiseql_query_timeouts_total` | `database` | Query timeout count |
+| `fraiseql_errors_total` | `type` | Error count by type |
+| `fraiseql_federation_circuit_breaker_state` | `database` | Circuit breaker state: `0`=closed, `1`=open, `2`=half_open |
+
+### Alerting Rules
+
+Example Prometheus alerting rules for FraiseQL:
+
+```yaml
+# High error rate
+- alert: FraiseQLHighErrorRate
+  expr: rate(fraiseql_errors_total[5m]) > 10
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "High error rate on {{ $labels.instance }}"
+
+# Database connection issues
+- alert: FraiseQLDatabaseUnavailable
+  expr: fraiseql_database_pool_active == 0
+  for: 1m
+  labels:
+    severity: critical
+  annotations:
+    summary: "Database appears unavailable"
+
+# Query timeouts
+- alert: FraiseQLQueryTimeouts
+  expr: rate(fraiseql_query_timeouts_total[5m]) > 1
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Frequent query timeouts — check for missing indexes"
 ```
 
-<Aside type="tip">
-Test your resilience configuration before production by using chaos injection. This helps verify that circuit breakers open and close correctly and that fallbacks work as expected.
-</Aside>
+## Production Checklist
 
-### Monitor Resilience Metrics
+Before deploying FraiseQL to production:
 
-```
-# Circuit breaker open time
-sum(fraiseql_circuit_breaker_state == 1) by (endpoint)
+- [ ] Configure appropriate `pool_size` for your workload
+- [ ] Set `timeout_seconds` based on your slowest acceptable query
+- [ ] Enable health checks and configure Kubernetes probes
+- [ ] Enable `[federation.circuit_breaker]` for federated deployments
+- [ ] Set up Prometheus metrics collection and alert on `fraiseql_federation_circuit_breaker_state`
+- [ ] Configure log aggregation (FraiseQL logs JSON to stdout)
+- [ ] Test graceful shutdown behavior
+- [ ] Implement client-side retry logic for transient errors
+- [ ] Set `terminationGracePeriodSeconds` > 30 in Kubernetes
 
-# Retry effectiveness
-rate(fraiseql_retry_success_total[5m]) /
-rate(fraiseql_retry_attempts_total[5m])
-```
+## Roadmap
+
+The following features are planned for future releases:
+
+- **Automatic retries** — Built-in exponential backoff for transient errors
+- **Bulkhead isolation** — Separate connection pools for different query types
+- **Chaos testing** — Inject faults to validate failure handling
 
 ## Troubleshooting
 
-### Circuit Breaker Opens Too Often
+**"Pool exhausted" errors**
 
-1. Check backend health
-2. Increase failure threshold
-3. Review error classification
+Increase `pool_size` or reduce query concurrency:
 
-### Too Many Retries
+```toml
+[databases.primary]
+pool_size = 20  # Increase from default 10
+```
 
-1. Check if errors are truly transient
-2. Reduce max attempts
-3. Add to non-retryable list
+**Frequent query timeouts**
 
-### Timeouts Under Normal Load
+1. Identify slow queries:
+   ```sql
+   SELECT query, mean_exec_time
+   FROM pg_stat_statements
+   ORDER BY mean_exec_time DESC
+   LIMIT 10;
+   ```
 
-1. Profile slow queries
-2. Check connection pool size
-3. Review database indexes
+2. Add indexes on frequently filtered columns
+
+3. Increase timeout for legitimate long-running queries:
+   ```toml
+   [databases.analytics]
+   timeout_seconds = 120
+   ```
+
+**Health check failures**
+
+Check database connectivity:
+
+```bash
+curl http://localhost:8080/health
+# Look for database.status: "error"
+```
+
+Verify `DATABASE_URL` is correct and the database is accessible from the FraiseQL pod.
 
 ## Next Steps
 
 <CardGrid>
   <Card title="Observability" icon="document">
-    [Observability](/features/observability) — Monitor resilience metrics
-  </Card>
-  <Card title="Performance" icon="setting">
-    [Performance](/guides/performance) — Optimize for resilience
+    [Observability](/features/observability) — Traces, metrics, and structured logging
   </Card>
   <Card title="Deployment" icon="rocket">
-    [Deployment](/guides/deployment) — Production resilience setup
+    [Deployment](/guides/deployment) — Kubernetes configuration and production setup
+  </Card>
+  <Card title="Performance" icon="setting">
+    [Performance Guide](/guides/performance) — Query optimization and indexes
   </Card>
 </CardGrid>
