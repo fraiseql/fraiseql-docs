@@ -519,15 +519,19 @@ def user_posts(user_id: ID) -> list[Post]:
   </TabItem>
 </Tabs>
 
-3. For FraiseQL, set tenant context in middleware before queries:
+3. For FraiseQL, pass the user ID from the JWT directly into the SQL view using the `inject=` parameter:
 
 ```python
-@fraiseql.middleware
-async def set_user_context(request, next):
-    user_id = request.user.id
-    await db.execute(f"SET app.user_id = {user_id}")
-    return await next(request)
+# JWT 'sub' claim is injected as a SQL parameter into the view/function
+@fraiseql.query(
+    sql_source="v_post",
+    inject={"user_id": "jwt:sub"}
+)
+def posts() -> list[Post]:
+    pass
 ```
+
+The PostgreSQL view or RLS policy can then reference `user_id` directly, without any middleware layer.
 
 ### SQL Injection via Input
 **Problem**: Malicious SQL executed from user input
@@ -780,15 +784,11 @@ PER_USER_RATE_LIMIT_WINDOW_SECONDS=60
 **Problem**: Passwords, tokens, PII in logs
 
 **Solutions**:
-```bash
-# 1. Filter sensitive fields from logs
-@fraiseql.middleware
-async def sanitize_logs(request, response):
-    # Remove password, token from logs
-    if request.body:
-        body = request.body
-        body['password'] = '***REDACTED***'
-    log_request(body)  # Safe to log
+```toml
+# 1. Configure error sanitization in fraiseql.toml — FraiseQL redacts
+# sensitive fields from error responses and logs automatically.
+# [security.error_sanitization]
+# sanitize_errors = true
 
 # 2. Check logs for sensitive data
 sudo grep -r "password\|token\|ssn" /var/log/
@@ -828,11 +828,10 @@ def send_email(email: str):
 curl -X POST http://localhost:8000/graphql -d '{"query":"..."}'
 # Check response for: email, name, phone, SSN, etc.
 
-# 3. In production, use generic errors
-@fraiseql.error_handler
-def handle_not_found(error):
-    # Don't include what wasn't found
-    return {"message": "Resource not found"}
+# 3. In production, use generic error messages in PostgreSQL functions:
+# RAISE EXCEPTION 'Resource not found' USING ERRCODE = 'P0001', HINT = 'NOT_FOUND';
+# FraiseQL forwards the HINT as the error code — never include user-identifying
+# details in the exception message.
 ```
 
 ---

@@ -473,16 +473,17 @@ def update_post(id: ID, title: str, content: str) -> Post:
   </TabItem>
 </Tabs>
 
-Set user context before mutations:
+Pass the user ID from the JWT into your mutation functions using `inject=`, then set the PostgreSQL session variable inside the SQL function:
 
 ```python
-@fraiseql.middleware
-async def set_user_context(request, call_next):
-    """Set user_id in PostgreSQL session for audit logging."""
-    user_id = request.user.id if request.user else None
-    await db.execute(f"SET app.user_id = {user_id}")
-    response = await call_next(request)
-    return response
+@fraiseql.mutation(
+    sql_source="fn_update_post",
+    operation="UPDATE",
+    inject={"user_id": "jwt:sub"}  # JWT 'sub' is passed as SQL param
+)
+def update_post(id: ID, title: str, content: str) -> Post:
+    """Update post. fn_update_post sets app.user_id for audit triggers."""
+    pass
 ```
 
 ## Versioning Pattern
@@ -703,17 +704,9 @@ def posts() -> list[Post]:
 def create_post(title: str, content: str) -> Post:
     """User must have create:post permission."""
     pass
-
-@fraiseql.middleware
-async def check_permissions(request, call_next):
-    """Verify user has required permissions."""
-    required_scope = request.path_params.get("required_scope")
-    if required_scope:
-        user_scopes = await get_user_scopes(request.user.id)
-        if required_scope not in user_scopes:
-            raise PermissionError(f"Missing scope: {required_scope}")
-    return await call_next(request)
 ```
+
+Scope enforcement is declared on each query/mutation via `requires_scope=`. FraiseQL validates the JWT scopes at the Rust runtime level before the query reaches the database — no Python permission check is needed.
 
 ## Multi-Tenancy Patterns
 
@@ -750,22 +743,23 @@ ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ### Separate Database Approach
 
 ```python
-# Database routing based on tenant
-DATABASE_URLS = {
-    "tenant-1": "postgresql://...",
-    "tenant-2": "postgresql://...",
-    "tenant-3": "postgresql://...",
-}
+# Configure each tenant's database in fraiseql.toml.
+# Use inject= to route by tenant from JWT claims:
 
-@fraiseql.middleware
-async def route_to_tenant_database(request, call_next):
-    """Route queries to tenant-specific database."""
-    tenant_id = request.user.tenant_id
-    database_url = DATABASE_URLS.get(tenant_id)
-    if not database_url:
-        raise ValueError(f"Unknown tenant: {tenant_id}")
-    db.url = database_url
-    return await call_next(request)
+```toml
+[databases.tenant_primary]
+url = "${TENANT_PRIMARY_DB_URL}"
+
+[databases.tenant_secondary]
+url = "${TENANT_SECONDARY_DB_URL}"
+```
+
+```python
+@fraiseql.query(sql_source="v_post", inject={"tenant_id": "jwt:tenant_id"})
+def posts() -> list[Post]:
+    """FraiseQL passes tenant_id from JWT to the view's RLS policy."""
+    pass
+```
 ```
 
 ## Nested Document Pattern
@@ -850,34 +844,37 @@ def user_stats(user_id: ID) -> UserStats:
 
 ### Custom Error Types
 
-```python
-class ValidationError(Exception):
-    def __init__(self, field: str, message: str):
-        self.field = field
-        self.message = message
-        super().__init__(f"{field}: {message}")
+FraiseQL decorator function bodies are **never executed** — they are compile-time schema declarations only. Input validation and error handling belong in the PostgreSQL function:
 
-@fraiseql.mutation
+```python
+@fraiseql.mutation(sql_source="fn_create_post", operation="CREATE")
 def create_post(title: str, content: str) -> Post:
-    """Validate input."""
-    if not title or len(title) < 3:
-        raise ValidationError("title", "Title must be at least 3 chars")
-    if not content or len(content) < 10:
-        raise ValidationError("content", "Content must be at least 10 chars")
-    return create_db_post(title, content)
+    """Create a new post. Validation is enforced by fn_create_post."""
+    pass
+```
+
+```sql title="db/schema/03_functions/fn_create_post.sql"
+CREATE OR REPLACE FUNCTION fn_create_post(p_title TEXT, p_content TEXT)
+RETURNS SETOF v_post LANGUAGE plpgsql AS $$
+BEGIN
+    IF length(p_title) < 3 THEN
+        RAISE EXCEPTION 'Title too short'
+            USING ERRCODE = 'P0001', HINT = 'INVALID_INPUT';
+    END IF;
+
+    IF length(p_content) < 10 THEN
+        RAISE EXCEPTION 'Content too short'
+            USING ERRCODE = 'P0002', HINT = 'INVALID_INPUT';
+    END IF;
+
+    -- ... insert and return
+END;
+$$;
 ```
 
 ### Consistent Error Responses
 
-```python
-@fraiseql.error_handler
-def handle_validation_error(error: ValidationError) -> dict:
-    return {
-        "code": "VALIDATION_ERROR",
-        "message": error.message,
-        "field": error.field,
-    }
-```
+Error codes are set via the `HINT` clause of `RAISE EXCEPTION`. FraiseQL maps this to `extensions.code` in the GraphQL error response. See [Error Handling](/guides/error-handling) for the full error code reference.
 
 ## Testing Advanced Patterns
 

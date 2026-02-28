@@ -1,566 +1,421 @@
 ---
 title: Wire Protocol
-description: Low-memory streaming for large result sets
+description: Streaming Rust client library for memory-efficient bulk reads from PostgreSQL
 ---
 
 import { Aside, Tabs, TabItem, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-The FraiseQL Wire protocol provides memory-efficient streaming for large query results, using PostgreSQL's COPY protocol for minimal overhead.
+`fraiseql-wire` is a standalone Rust client library for streaming large JSON result sets from PostgreSQL with bounded memory. It connects directly to your database using the PostgreSQL wire protocol — a purpose-built alternative to general-purpose drivers when you need bulk reads without materializing the entire result set in memory.
 
-<Aside type="caution">
-The Wire protocol uses **PostgreSQL's binary COPY protocol** for data transfer and is only supported with a PostgreSQL database backend. It is not available with other database backends.
+<Aside type="note">
+`fraiseql-wire` is a **separate crate** (`fraiseql-wire` on crates.io), not a configuration option in your FraiseQL server. You add it to your own Rust services that need to stream large datasets directly from the same PostgreSQL views that FraiseQL serves.
 </Aside>
 
-## Overview
-
-Traditional query execution loads entire result sets into memory. The Wire protocol streams data in chunks, maintaining bounded memory regardless of result size.
-
-Wire protocol is ideal for:
-- Exporting large datasets
-- ETL pipelines
-- Reports with millions of rows
-- Memory-constrained environments
+<Aside type="caution">
+**Read-only by design.** `fraiseql-wire` does not support writes, mutations, transactions, or arbitrary SQL. Its only operation is `SELECT data FROM {view} [WHERE] [ORDER BY] [LIMIT] [OFFSET]`. For mutations, use the FraiseQL GraphQL endpoint.
+</Aside>
 
 ## When to Use Wire
 
-| Scenario | Standard | Wire |
-|----------|----------|------|
+| Scenario | Standard GraphQL | Wire |
+|----------|-----------------|------|
+| Interactive UI queries | Recommended | Overhead |
 | < 10,000 rows | Recommended | Overkill |
-| 10,000 - 100,000 rows | Acceptable | Recommended |
+| 10,000 – 100,000 rows | Acceptable | Recommended |
 | > 100,000 rows | May OOM | Required |
-| Real-time queries | Recommended | Overhead |
-| Batch exports | Memory issues | Ideal |
+| ETL pipelines | Awkward | Ideal |
+| Bulk data exports | Memory issues | Ideal |
+| Analytics workloads | — | Use Arrow instead |
 
-## Configuration
-
-### Enable Wire Backend
-
-```toml
-[server]
-backend = "wire"
-
-[wire]
-# Connection settings
-connection_timeout_ms = 5000
-query_timeout_ms = 300000  # 5 minutes for large queries
-
-# Chunking
-adaptive_chunking = true
-initial_chunk_size = 1000
-max_chunk_size = 10000
-target_memory_mb = 100
-```
-
-### Stream Timeout Configuration
-
-For large exports, tune timeouts to prevent premature disconnection:
-
-```toml
-[wire]
-# Time to establish a connection to PostgreSQL
-connection_timeout_ms = 10000
-
-# Maximum time a single query may run (including streaming)
-# Set this based on your largest expected export
-query_timeout_ms = 600000   # 10 minutes for bulk exports
-
-# How long to wait for the next chunk before aborting the stream
-# Increase if PostgreSQL is slow to produce rows (e.g., complex aggregations)
-chunk_idle_timeout_ms = 30000
-```
-
-<Aside type="tip">
-If clients report truncated responses on large exports, increase `query_timeout_ms` first. The default 5-minute timeout is conservative for multi-million-row exports.
-</Aside>
-
-### Feature Flag
-
-Wire is an optional feature:
+## Installation
 
 ```bash
-# Build with wire support
-cargo build --features wire-backend
+cargo add fraiseql-wire
 ```
 
-## How It Works
+Requires Rust 1.75+ and PostgreSQL 10+. No C dependencies — pure Rust via rustls (no OpenSSL required).
 
-### PostgreSQL COPY Protocol
+## Core API
 
-Wire uses PostgreSQL's binary COPY protocol for efficient data transfer:
-
-```
-PostgreSQL Server ──(COPY TO STDOUT binary row stream)──> FraiseQL Wire ──> Chunked JSON
-```
-
-### Adaptive Chunking
-
-Wire dynamically adjusts chunk sizes based on row size:
+### Connect
 
 ```rust
-// Small rows (< 1KB): larger chunks
-chunk_size = 10_000
+use fraiseql_wire::FraiseClient;
 
-// Large rows (10KB+): smaller chunks
-chunk_size = 100
+// Simplest: connection string
+let client = FraiseClient::connect("postgres://user:pass@localhost/mydb").await?;
 
-// Memory target maintained regardless of row size
+// With TLS
+let client = FraiseClient::connect("postgres://user:pass@host/mydb?sslmode=require").await?;
 ```
 
-## Performance Benchmarks
+### Query and stream
 
-The Wire protocol's throughput advantage over standard JSON comes from avoiding full result materialization. Representative numbers on commodity hardware (8-core, 16 GB RAM, PostgreSQL on the same host):
+```rust
+use futures::StreamExt;
 
-| Workload | Standard GraphQL | Wire Protocol |
-|----------|-----------------|---------------|
-| 10K rows, 10 columns, ~500 B/row | ~30 MB/s, ~350 MB peak RAM | ~120 MB/s, ~12 MB peak RAM |
-| 100K rows, 10 columns, ~500 B/row | ~25 MB/s, ~3.2 GB peak RAM | ~200 MB/s, ~12 MB peak RAM |
-| 1M rows, 10 columns, ~500 B/row | OOM (> 32 GB) | ~220 MB/s, ~12 MB peak RAM |
-| 10K rows, wide (50 columns, ~5 KB/row) | ~8 MB/s, ~3.5 GB peak RAM | ~90 MB/s, ~18 MB peak RAM |
+let mut stream = client
+    .query::<serde_json::Value>("orders")   // streams from v_orders view
+    .execute()
+    .await?;
 
-Throughput in rows/sec at 500 B/row average:
-
-| Configuration | Rows/sec |
-|---------------|----------|
-| `initial_chunk_size = 1000` | ~180,000 rows/sec |
-| `max_chunk_size = 10000` | ~440,000 rows/sec |
-| `max_chunk_size = 10000` + `compression = "zstd"` | ~380,000 rows/sec (30% smaller payload) |
-
-## Client Usage
-
-### Streaming Response
-
-Wire returns newline-delimited JSON:
-
-```bash
-curl -N http://localhost:8080/graphql \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/x-ndjson" \
-    -d '{"query": "{ allOrders { id total } }"}'
-```
-
-Response (streamed):
-
-```
-{"data":{"allOrders":[{"id":"1","total":99.99}
-{"id":"2","total":149.99}
-{"id":"3","total":249.99}
-...
-]}}
-```
-
-### Streaming Client Examples
-
-<Tabs syncKey="language">
-<TabItem label="JavaScript">
-```javascript
-async function* streamQuery(query) {
-    const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/x-ndjson'
-        },
-        body: JSON.stringify({ query })
-    });
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-            if (line.trim()) {
-                yield JSON.parse(line);
-            }
-        }
-    }
-}
-
-// Usage
-for await (const row of streamQuery('{ allOrders { id total } }')) {
-    console.log('Row:', row);
+while let Some(row) = stream.next().await {
+    let json = row?;
+    println!("{json}");
 }
 ```
-</TabItem>
-<TabItem label="Python">
-```python
-import httpx
-import json
 
-def stream_query(query: str):
-    with httpx.stream(
-        "POST",
-        "http://localhost:8080/graphql",
-        json={"query": query},
-        headers={"Accept": "application/x-ndjson"}
-    ) as response:
-        for line in response.iter_lines():
-            if line.strip():
-                yield json.loads(line)
+The generic type parameter affects only deserialization — it has no effect on the SQL sent to PostgreSQL.
 
-# Usage
-for row in stream_query("{ allOrders { id total } }"):
-    print(f"Order: {row}")
+### Type-safe deserialization
+
+```rust
+#[derive(serde::Deserialize)]
+struct Order {
+    id: String,
+    total: f64,
+    status: String,
+}
+
+let mut stream = client
+    .query::<Order>("orders")
+    .execute()
+    .await?;
+
+while let Some(result) = stream.next().await {
+    let order: Order = result?;
+    println!("Order {}: ${}", order.id, order.total);
+}
 ```
-</TabItem>
-<TabItem label="Go">
-```go
-package main
 
-import (
-    "bufio"
-    "bytes"
-    "encoding/json"
-    "fmt"
-    "net/http"
+## View Convention
+
+`fraiseql-wire` reads from views named `v_{entity}` that expose a single column named `data` of type `json` or `jsonb`. This is the same naming convention FraiseQL uses:
+
+```sql
+-- Required view structure
+CREATE VIEW v_orders AS
+SELECT jsonb_build_object(
+    'id',     o.id,
+    'total',  o.total,
+    'status', o.status
+) AS data
+FROM tb_order o;
+```
+
+`tv_{entity}` (time-series views) are intentionally not supported.
+
+## Filtering
+
+Wire supports hybrid filtering — SQL predicates reduce wire traffic, Rust predicates refine locally:
+
+```rust
+let stream = client
+    .query::<serde_json::Value>("orders")
+    // Evaluated in PostgreSQL — reduces rows returned
+    .where_sql("data->>'status' = 'shipped'")
+    // Evaluated in Rust — applied after PostgreSQL delivers rows
+    .where_rust(|json| {
+        json["total"].as_f64().unwrap_or(0.0) > 500.0
+    })
+    .execute()
+    .await?;
+```
+
+### Type-safe operators
+
+For complex predicates, use the `WhereOperator` enum instead of raw SQL strings:
+
+```rust
+use fraiseql_wire::operators::{WhereOperator, Field, Value};
+
+let filter = WhereOperator::Gt(
+    Field::new("data->>'total'"),
+    Value::Float(500.0),
+);
+
+let stream = client
+    .query::<serde_json::Value>("orders")
+    .where_operator(filter)
+    .execute()
+    .await?;
+```
+
+25+ operators are available, including array operations, string matching (ILIKE, LIKE), null checks, pgvector distances (L2, cosine, inner product), full-text search, and IP network operations.
+
+## Ordering and Pagination
+
+```rust
+let stream = client
+    .query::<serde_json::Value>("orders")
+    .order_by("data->>'created_at' DESC")
+    .limit(1000)
+    .offset(500)
+    .execute()
+    .await?;
+```
+
+With COLLATE for locale-aware string sorting:
+
+```rust
+.order_by("data->>'name' ASC COLLATE \"C\"")
+```
+
+### Reduce payload size with projections
+
+```rust
+// Only request the fields you need — reduces wire traffic
+.select_projection(
+    "jsonb_build_object('id', data->>'id', 'total', data->>'total')"
 )
-
-type Row map[string]any
-
-func streamQuery(query string) (<-chan Row, error) {
-    payload, _ := json.Marshal(map[string]string{"query": query})
-
-    req, err := http.NewRequest(http.MethodPost, "http://localhost:8080/graphql",
-        bytes.NewReader(payload))
-    if err != nil {
-        return nil, err
-    }
-    req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("Accept", "application/x-ndjson")
-
-    resp, err := http.DefaultClient.Do(req)
-    if err != nil {
-        return nil, err
-    }
-
-    ch := make(chan Row, 100)
-    go func() {
-        defer close(ch)
-        defer resp.Body.Close()
-
-        scanner := bufio.NewScanner(resp.Body)
-        scanner.Buffer(make([]byte, 64*1024), 1024*1024) // 1 MB max line
-        for scanner.Scan() {
-            line := scanner.Bytes()
-            if len(bytes.TrimSpace(line)) == 0 {
-                continue
-            }
-            var row Row
-            if err := json.Unmarshal(line, &row); err == nil {
-                ch <- row
-            }
-        }
-    }()
-
-    return ch, nil
-}
-
-func main() {
-    rows, err := streamQuery("{ allOrders { id total } }")
-    if err != nil {
-        panic(err)
-    }
-
-    count := 0
-    for row := range rows {
-        count++
-        if count <= 3 {
-            fmt.Printf("Row %d: %v\n", count, row)
-            // Row 1: map[id:order-001 total:99.99]
-            // Row 2: map[id:order-002 total:149.99]
-            // Row 3: map[id:order-003 total:249.99]
-        }
-    }
-    fmt.Printf("Total rows received: %d\n", count)
-}
 ```
-</TabItem>
-</Tabs>
 
 ## Memory Management
 
-### Bounded Memory
-
-Wire maintains bounded memory regardless of result size:
-
-```toml
-[wire]
-target_memory_mb = 100  # Stay under 100MB
-```
-
-Memory usage stays constant:
-
-| Rows | Standard Memory | Wire Memory |
-|------|-----------------|-------------|
-| 10,000 | 50 MB | ~10 MB |
-| 100,000 | 500 MB | ~10 MB |
-| 1,000,000 | 5 GB (OOM!) | ~10 MB |
-
-### Memory Estimation
-
-Wire estimates row sizes to prevent OOM:
+`fraiseql-wire` maintains `O(chunk_size)` memory regardless of result size. A 1-million-row query uses the same memory as a 100-row query.
 
 ```rust
-// Estimates before fetching
-estimated_row_size = avg(sample_rows)
-safe_chunk_size = target_memory / estimated_row_size
+let stream = client
+    .query::<serde_json::Value>("large_table")
+    .chunk_size(512)              // Items buffered at once (default: 256)
+    .max_memory(500_000_000)      // 500 MB hard limit — returns error if exceeded
+    .adaptive_chunking(true)      // Auto-optimize based on channel pressure (default: on)
+    .adaptive_min_size(16)        // Never shrink below 16 items
+    .adaptive_max_size(1024)      // Never grow above 1024 items
+    .execute()
+    .await?;
 ```
 
-## Authentication
+### Benchmarked memory usage
 
-Wire supports SCRAM-SHA-256 authentication:
+| Rows | tokio-postgres | fraiseql-wire |
+|------|---------------|---------------|
+| 10,000 | 2.6 MB | **1.3 KB** |
+| 100,000 | 26 MB | **1.3 KB** |
+| 1,000,000 | 260 MB | **1.3 KB** |
 
-```toml
-[wire.auth]
-method = "scram-sha-256"
-username = "${DB_USER}"
-password = "${DB_PASSWORD}"
+Memory stays constant at approximately `chunk_size × avg_row_size`.
+
+## Stream Control
+
+For advanced flow control — for example, to throttle consumption or coordinate with a downstream system:
+
+```rust
+let mut stream = client.query::<T>("orders").execute().await?;
+
+// Process some rows
+while let Some(item) = stream.next().await {
+    process(item?);
+    break;
+}
+
+// Pause production — PostgreSQL stops sending rows
+stream.pause().await?;
+
+// ... do other work ...
+
+// Resume — continues from exactly where it stopped
+stream.resume().await?;
+
+// Inspect current stream state
+let stats = stream.stats();
+println!("Rows yielded: {}", stats.rows_yielded);
 ```
 
-## TLS Support
+## Configuration
+
+### Connection string parameters
+
+```
+postgres://[user[:password]@][host][:port][/database][?param=value...]
+```
+
+Supported parameters:
+
+| Parameter | Example | Description |
+|-----------|---------|-------------|
+| `sslmode` | `require` | `disable`, `require`, `verify-ca`, `verify-full` |
+| `sslrootcert` | `/path/to/ca.pem` | Custom CA certificate |
+| `sslcert` | `/path/to/cert.pem` | Client certificate (mTLS) |
+| `sslkey` | `/path/to/key.pem` | Client key (mTLS) |
+| `application_name` | `my-service` | Visible in `pg_stat_activity` |
+| `statement_timeout` | `30000ms` | Per-query timeout |
+| `tcp_keepalives_idle` | `300s` | Keep-alive interval |
+
+Unix socket connection: `postgres:///mydb`
+
+### ConnectionConfig builder
+
+For more control than connection strings allow:
+
+```rust
+use fraiseql_wire::ConnectionConfig;
+use std::time::Duration;
+
+let config = ConnectionConfig::builder("mydb", "user")
+    .password("secret")
+    .connect_timeout(Duration::from_secs(10))
+    .statement_timeout(Duration::from_secs(30))
+    .keepalive_idle(Duration::from_secs(300))
+    .application_name("my-service")
+    .build();
+
+let client = FraiseClient::connect_with_config("postgres://host/mydb", config).await?;
+```
+
+### TLS configuration
+
+```rust
+use fraiseql_wire::TlsConfig;
+
+// Custom CA (server certificate verification)
+let tls = TlsConfig::builder()
+    .verify_hostname(true)
+    .ca_cert_path("/path/to/ca.pem")?
+    .build()?;
+
+// Mutual TLS
+let tls = TlsConfig::builder()
+    .ca_cert_path("/path/to/ca.pem")?
+    .client_cert_path("/path/to/cert.pem")?
+    .client_key_path("/path/to/key.pem")?
+    .build()?;
+
+let client = FraiseClient::connect_tls("postgres://host/db", tls).await?;
+```
+
+Authentication is SCRAM-SHA-256 with channel binding (prevents MITM attacks). Implemented in pure Rust via rustls — no OpenSSL dependency.
+
+## Connection Pooling
+
+`fraiseql-wire` doesn't include a built-in pool. Integrate with `deadpool` or `bb8`:
 
 ```toml
-[wire.tls]
-mode = "require"  # disable, prefer, require
-ca_cert = "/path/to/ca.crt"
+[dependencies]
+deadpool = "0.12"
+fraiseql-wire = "0.1"
+```
+
+```rust
+// One FraiseClient per connection; pool manages the connections
+// See CONNECTION_POOLING.md in the fraiseql-wire repository for full examples
+```
+
+## Error Handling
+
+```rust
+use fraiseql_wire::Error;
+
+match client.query::<T>("orders").execute().await {
+    Err(Error::Connection(msg)) => eprintln!("Connection failed: {msg}"),
+    Err(Error::Authentication(msg)) => eprintln!("Auth failed: {msg}"),
+    Err(Error::Sql(msg)) => eprintln!("SQL error: {msg}"),
+    Err(Error::MemoryLimitExceeded { limit, estimated_memory }) => {
+        eprintln!("Memory limit {limit} exceeded (estimated {estimated_memory})")
+    }
+    Err(Error::Cancelled) => { /* stream was dropped */ }
+    Ok(stream) => { /* use stream */ }
+}
 ```
 
 ## Metrics
 
-| Metric | Description |
-|--------|-------------|
-| `fraiseql_wire_rows_streamed` | Rows streamed |
-| `fraiseql_wire_bytes_sent` | Bytes sent |
-| `fraiseql_wire_chunk_size` | Current chunk size |
-| `fraiseql_wire_memory_usage` | Memory usage |
-| `fraiseql_wire_query_duration_ms` | Query duration |
+`fraiseql-wire` emits metrics via the `metrics` crate (framework-agnostic). Register a recorder (Prometheus, StatsD, etc.) before connecting:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `fraiseql_wire_rows_yielded` | Counter | Rows delivered to caller per entity |
+| `fraiseql_wire_rows_filtered` | Counter | Rows dropped by Rust predicate |
+| `fraiseql_wire_query_duration_ms` | Histogram | Full query duration |
+| `fraiseql_wire_query_startup_duration_ms` | Histogram | Time to first row |
+| `fraiseql_wire_chunk_processing_duration_ms` | Histogram | Per-chunk latency |
+| `fraiseql_wire_estimated_memory_usage` | Gauge | Current memory estimate |
+| `fraiseql_wire_current_chunk_size` | Gauge | Active chunk size (adaptive) |
+| `fraiseql_wire_stream_buffered_items` | Gauge | Items waiting in buffer |
+| `fraiseql_wire_query_errors_total` | Counter | Errors by entity and category |
 
 ## Comparison with Arrow
 
 | Feature | Wire | Arrow |
 |---------|------|-------|
-| Format | JSON (NDJSON) | Columnar binary |
-| Memory | Bounded | Bounded |
-| Speed | Fast | Faster |
-| Compatibility | Universal (HTTP + JSON) | Arrow Flight SDK required |
-| Use case | Web clients, ETL | Analytics, ML |
-| Client languages | Any | Python, TypeScript, Go, Rust, R, Julia |
+| Format | JSON (row-oriented) | Columnar binary |
+| Memory | Bounded (O(chunk_size)) | Bounded |
+| Speed | 100K–500K rows/sec | Higher throughput |
+| Compatibility | Any Rust async code | Arrow Flight SDK |
+| Use case | ETL, bulk export, services | Analytics, ML, data science |
+| Client languages | Rust | Python, TypeScript, Go, Rust, R, Julia |
 
 <Aside type="tip">
-Use **Wire** for JSON-based clients, simple streaming exports, and maximum compatibility. Use **Arrow** for analytics workloads, data science pipelines, and maximum performance.
+Use **Wire** when your downstream consumer is a Rust service and you need JSON output. Use **Arrow** when your consumer is a data science or analytics tool that benefits from columnar layout.
 </Aside>
 
-## Best Practices
-
-### Set Appropriate Timeouts
-
-```toml
-[wire]
-query_timeout_ms = 300000  # 5 min for exports
-connection_timeout_ms = 10000
-chunk_idle_timeout_ms = 30000
-```
-
-### Monitor Memory
-
-```txt
-# Alert if memory exceeds target
-fraiseql_wire_memory_usage > 150_000_000
-```
-
-### Use for Exports Only
-
-Don't use Wire for:
-- Real-time queries (use standard)
-- Small result sets (overhead not worth it)
-- Interactive UIs (latency-sensitive)
-
 ## Troubleshooting
 
-### Connection Timeouts
-
-```toml
-[wire]
-connection_timeout_ms = 30000  # Increase timeout
-```
-
-### Slow Streaming
-
-1. Check network latency to database
-2. Verify indexes on queried tables
-3. Increase chunk size for small rows
-
-### Memory Spikes
-
-1. Reduce `target_memory_mb`
-2. Enable `adaptive_chunking`
-3. Check for unexpectedly large rows
-
-### Stream Truncated Mid-Response
-
-1. Increase `query_timeout_ms` — the most common cause for large exports
-2. Check `chunk_idle_timeout_ms` if PostgreSQL has slow row production
-3. Verify no intermediate proxy (nginx, ALB) is terminating the long-running HTTP connection
-
-## Verify It Works
-
-<Steps>
-
-1. **Enable the Wire protocol** in `fraiseql.toml`:
-   ```toml
-   [server]
-   backend = "wire"
-   
-   [wire]
-   query_timeout_ms = 300000
-   target_memory_mb = 100
-   ```
-
-2. **Start FraiseQL**:
-   ```bash
-   fraiseql run
-   ```
-   Look for Wire protocol initialization in logs:
-   ```
-   INFO: Wire protocol backend enabled
-   INFO: PostgreSQL COPY protocol connection established
-   ```
-
-3. **Test with a large export**:
-   ```bash
-   curl -N http://localhost:8080/graphql \
-       -H "Content-Type: application/json" \
-       -H "Accept: application/x-ndjson" \
-       -d '{"query": "{ allOrders { id total status } }"}' \
-       | wc -l
-   ```
-   
-   Expected output (for 100,000 orders):
-   ```
-   100001  # 100,000 data rows + closing bracket
-   ```
-
-4. **Verify streaming with a counter**:
-   ```bash
-   curl -N http://localhost:8080/graphql \
-       -H "Content-Type: application/json" \
-       -H "Accept: application/x-ndjson" \
-       -d '{"query": "{ allOrders { id } }"}' \
-       | while read line; do
-           ((count++))
-           if (( count % 10000 == 0 )); then
-               echo "Processed $count rows"
-           fi
-         done
-   ```
-   
-   Expected output:
-   ```
-   Processed 10000 rows
-   Processed 20000 rows
-   Processed 30000 rows
-   ...
-   ```
-
-5. **Check bounded memory usage**:
-   Monitor FraiseQL memory while streaming:
-   ```bash
-   # In another terminal
-   watch -n 1 'ps aux | grep fraiseql | grep -v grep'
-   ```
-   
-   Memory should stay around `target_memory_mb` (100MB) regardless of result size.
-
-6. **Verify metrics**:
-   ```bash
-   curl http://localhost:9090/metrics | grep fraiseql_wire
-   ```
-   
-   Expected output:
-   ```
-   fraiseql_wire_rows_streamed 100000
-   fraiseql_wire_bytes_sent 52428800
-   fraiseql_wire_memory_usage 104857600
-   ```
-
-</Steps>
-
-## Troubleshooting
-
-### Stream Truncated
-
-If exports cut off mid-stream:
-
-1. **Increase query timeout**:
-   ```toml
-   [wire]
-   query_timeout_ms = 600000  # 10 minutes
-   ```
-
-2. **Check proxy timeouts** (nginx, ALB, etc.):
-   ```nginx
-   proxy_read_timeout 600s;  # Match query_timeout_ms
-   proxy_send_timeout 600s;
-   ```
-
-3. **Verify PostgreSQL isn't timing out**:
-   ```sql
-   SHOW statement_timeout;
-   -- Set to 0 (unlimited) or higher than FraiseQL timeout
-   SET statement_timeout = '10min';
-   ```
-
-### Slow Streaming
-
-If throughput is lower than expected:
-
-1. **Check PostgreSQL performance**:
-   ```sql
-   EXPLAIN ANALYZE SELECT id, total, status FROM tb_order;
-   ```
-
-2. **Increase chunk size for small rows**:
-   ```toml
-   [wire]
-   initial_chunk_size = 10000
-   max_chunk_size = 50000
-   ```
-
-3. **Verify network bandwidth**:
-   ```bash
-   iperf3 -c localhost -p 8080
-   ```
-
-### Connection Errors
+### Connection refused
 
 ```
-ERROR: Wire protocol connection failed
+Error::Connection("Connection refused")
 ```
 
-1. Verify PostgreSQL is accessible
-2. Check credentials in `DATABASE_URL`
-3. Ensure `pgcrypto` extension is installed:
-   ```sql
-   CREATE EXTENSION IF NOT EXISTS pgcrypto;
+1. Verify PostgreSQL is running and accessible
+2. Check host, port, and database name in connection string
+3. Confirm the user exists and has `SELECT` privileges on the view
+
+### Authentication failure
+
+```
+Error::Authentication("SCRAM authentication failed")
+```
+
+1. Verify username and password
+2. Check `pg_hba.conf` allows SCRAM-SHA-256 for this user and host
+3. PostgreSQL 10+ required for SCRAM-SHA-256
+
+### `data` column not found
+
+```
+Error::InvalidSchema("Expected column 'data', got: ...")
+```
+
+The view must expose exactly one column named `data` of type `json` or `jsonb`. See [View Convention](#view-convention) above.
+
+### Memory limit exceeded
+
+```
+Error::MemoryLimitExceeded { limit, estimated_memory }
+```
+
+Increase `max_memory()` or reduce `chunk_size()` to lower per-chunk footprint:
+
+```rust
+.chunk_size(64)
+.max_memory(1_000_000_000)  // 1 GB
+```
+
+### Slow time-to-first-row
+
+1. Verify indexes exist on the `WHERE` columns in the underlying table
+2. Run `EXPLAIN ANALYZE` on the view query
+3. Use `.select_projection(...)` to reduce row payload size
+
+### Stream hangs mid-result
+
+1. Check `statement_timeout` — set it higher than your longest expected export:
    ```
+   postgres://host/db?statement_timeout=600000ms
+   ```
+2. Check for intermediate proxies (nginx, ALB) closing long-lived connections
 
 ## Next Steps
 
 <CardGrid>
   <Card title="Arrow Dataplane" icon="rocket">
-    [Arrow Dataplane](/features/arrow-dataplane) — Columnar streaming
+    [Arrow Dataplane](/features/arrow-dataplane) — Columnar streaming for analytics
   </Card>
-  <Card title="Analytics" icon="document">
-    [Analytics](/features/analytics) — Large dataset queries
+  <Card title="Pagination" icon="document">
+    [Pagination](/features/pagination) — Cursor and offset pagination via GraphQL
   </Card>
   <Card title="Performance" icon="setting">
-    [Performance](/guides/performance) — Optimization guide
+    [Performance](/guides/performance) — Query and schema optimization
   </Card>
 </CardGrid>

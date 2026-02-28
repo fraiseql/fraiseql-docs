@@ -14,27 +14,22 @@ Deploy FraiseQL in Docker containers for development and production use.
 ### 1. Create `Dockerfile`
 
 ```dockerfile
-FROM python:3.12-slim
+FROM ghcr.io/fraiseql/fraiseql:latest
 
 WORKDIR /app
 
-# Install dependencies
-COPY pyproject.toml uv.lock ./
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-RUN pip install uv && uv sync --frozen --no-dev
-
-# Copy application code
-COPY . .
+# Copy schema and config
+COPY schema.py fraiseql.toml ./
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health/live || exit 1
+    CMD curl -f http://localhost:8080/health/live || exit 1
 
-# Start FraiseQL
-CMD ["uv", "run", "python", "-m", "fraiseql", "serve"]
+# fraiseql run compiles the schema and starts the HTTP server
+CMD ["fraiseql", "run"]
 ```
 
 ### 2. Create `docker-compose.yml`
@@ -66,17 +61,15 @@ services:
     environment:
       DATABASE_URL: postgresql://fraiseql:dev-password@postgres:5432/fraiseql_dev
       JWT_SECRET: dev-secret-key-change-in-production
-      ENVIRONMENT: development
-      LOG_LEVEL: debug
+      FRAISEQL_ENV: development
+      FRAISEQL_LOG: debug
     ports:
-      - "8000:8000"
+      - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - .:/app  # For development: hot-reload
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -102,11 +95,11 @@ docker-compose down
 
 ```bash
 # Check if API is running
-curl http://localhost:8000/health/live
+curl http://localhost:8080/health/live
 # Response: 200 OK
 
 # Run a test query
-curl -X POST http://localhost:8000/graphql \
+curl -X POST http://localhost:8080/graphql \
   -H "Content-Type: application/json" \
   -d '{"query": "{ users { id name } }"}'
 ```
@@ -116,41 +109,34 @@ curl -X POST http://localhost:8000/graphql \
 For production deployments, use a multi-stage build for smaller image size:
 
 ```dockerfile
-# Stage 1: Build dependencies
-FROM python:3.12-slim AS builder
+# Stage 1: Compile schema
+FROM ghcr.io/fraiseql/fraiseql:latest AS builder
 
 WORKDIR /app
-COPY pyproject.toml uv.lock ./
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-RUN pip install uv && uv sync --frozen
+COPY schema.py fraiseql.toml ./
+RUN fraiseql compile schema.py
 
-# Stage 2: Runtime
-FROM python:3.12-slim
+# Stage 2: Runtime — minimal image with compiled schema only
+FROM ghcr.io/fraiseql/fraiseql:latest
 
 WORKDIR /app
 
-# Install runtime dependencies only
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -r -u 1000 -s /sbin/nologin fraiseql
 
-# Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/schema.compiled.json .
+COPY fraiseql.toml .
 
-# Copy application code
-COPY . .
+USER fraiseql
 
-# Set Python path
-ENV PATH="/app/.venv/bin:$PATH"
-
-EXPOSE 8000
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health/live || exit 1
+    CMD curl -f http://localhost:8080/health/live || exit 1
 
-# Run with gunicorn for better concurrency
-CMD ["gunicorn", "--workers=4", "--worker-class=uvicorn.workers.UvicornWorker", \
-     "--bind=0.0.0.0:8000", "--access-logfile=-", "--error-logfile=-", \
-     "app:app"]
+CMD ["fraiseql", "run", "schema.compiled.json"]
 ```
 
 ## Production Docker Compose
@@ -195,12 +181,12 @@ services:
       PGBOUNCER_MIN_POOL_SIZE: 5
       PGBOUNCER_MAX_POOL_SIZE: 20
     ports:
-      - "${FRAISEQL_PORT}:8000"
+      - "${FRAISEQL_PORT}:8080"
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -245,7 +231,7 @@ DB_PORT=5432
 
 # FraiseQL
 JWT_SECRET=long-random-secret-min-32-chars
-FRAISEQL_PORT=8000
+FRAISEQL_PORT=8080
 CORS_ORIGINS=https://app.example.com,https://api.example.com
 LOG_LEVEL=info
 
@@ -269,7 +255,7 @@ For production with SSL termination:
 
 ```nginx
 upstream fraiseql {
-    server fraiseql:8000;
+    server fraiseql:8080;
 }
 
 server {
@@ -361,8 +347,8 @@ echo "Database initialization complete"
 ```yaml
 fraiseql:
   volumes:
-    - .:/app  # Mount entire project
-    - /app/.venv  # Exclude venv from bind mount
+    - ./schema.py:/app/schema.py  # Hot-reload schema changes
+    - ./fraiseql.toml:/app/fraiseql.toml
 ```
 </TabItem>
 <TabItem label="Production (No Volumes)">
@@ -485,11 +471,9 @@ docker-compose logs fraiseql
 # Verify services are running
 docker-compose ps
 
-# Test database connection from fraiseql container
+# Test database connectivity from fraiseql container
 docker-compose exec fraiseql \
-  python -c "import psycopg2; \
-  conn = psycopg2.connect('postgresql://user:pass@postgres:5432/db'); \
-  print('Connected!')"
+  pg_isready -h postgres -U fraiseql -d fraiseql_dev
 ```
 
 ### Out of Disk Space
@@ -630,15 +614,9 @@ fraiseql:
         memory: 1G       # Reserve 1GB
 ```
 
-### Worker Configuration
+### Concurrency
 
-For Gunicorn (multi-process):
-
-```dockerfile
-# Calculate workers: (2 * CPU_count) + 1
-# With 4 CPUs: 9 workers
-CMD ["gunicorn", "--workers=9", ...]
-```
+FraiseQL's Rust runtime is async and uses all available CPU cores automatically — no worker count tuning required. Increase container CPU allocation (`cpus: '4'`) to scale throughput.
 
 ### Database Optimization
 

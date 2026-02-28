@@ -383,18 +383,13 @@ The GraphQL response will be:
 }
 ```
 
-For Python-level errors from middleware:
+For rate limiting and other cross-cutting policies, use `fraiseql.toml` — FraiseQL enforces these in the Rust runtime before the query reaches the database:
 
-```python
-@fraiseql.middleware
-def check_rate_limit(request, next):
-    if is_rate_limited(request.client_ip):
-        from fraiseql.errors import GraphQLError
-        raise GraphQLError(
-            "Rate limit exceeded",
-            extensions={"code": "RATE_LIMITED", "retry_after": 60},
-        )
-    return next(request)
+```toml
+[security.rate_limiting]
+enabled = true
+requests_per_minute = 1000
+per_user = true
 ```
 
 ---

@@ -110,75 +110,41 @@ Use consistent error codes across all PostgreSQL functions:
 
 ---
 
-## Raising Errors from Middleware
+## Cross-Cutting Error Policies
 
-Use `GraphQLError` for errors that should stop request processing:
+Service-wide error conditions — rate limits, authentication requirements — are enforced by the FraiseQL runtime, not by Python schema code. Configure them in `fraiseql.toml`:
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
+### Rate limiting
 
-```python title="schema.py"
-from fraiseql.errors import GraphQLError
-import fraiseql
-
-@fraiseql.middleware
-def check_maintenance_mode(request, next):
-    if is_maintenance_mode():
-        raise GraphQLError(
-            "Service temporarily unavailable for maintenance",
-            extensions={
-                "code": "SERVICE_UNAVAILABLE",
-                "statusCode": 503,
-                "retryAfter": get_maintenance_end_timestamp(),
-            },
-        )
-    return next(request)
-
-@fraiseql.middleware
-def enforce_rate_limit(request, next):
-    if is_rate_limited(request.client_ip):
-        raise GraphQLError(
-            "Too many requests",
-            extensions={
-                "code": "RATE_LIMITED",
-                "statusCode": 429,
-                "retryAfter": 60,
-            },
-        )
-    return next(request)
+```toml
+[security.rate_limiting]
+enabled = true
+requests_per_minute = 1000
+burst = 50
+per_user = true
 ```
 
-  </TabItem>
-  <TabItem label="TypeScript">
+When a client exceeds the limit, FraiseQL automatically returns:
 
-```typescript title="schema.ts"
-import { middleware, GraphQLError } from 'fraiseql';
-
-middleware((request, next) => {
-  if (isMaintenanceMode()) {
-    throw new GraphQLError('Service temporarily unavailable', {
-      extensions: {
-        code: 'SERVICE_UNAVAILABLE',
-        statusCode: 503,
-        retryAfter: getMaintenanceEndTimestamp(),
-      },
-    });
-  }
-  return next(request);
-});
-
-middleware((request, next) => {
-  if (isRateLimited(request.clientIp)) {
-    throw new GraphQLError('Too many requests', {
-      extensions: { code: 'RATE_LIMITED', statusCode: 429, retryAfter: 60 },
-    });
-  }
-  return next(request);
-});
+```json
+{
+  "errors": [{
+    "message": "Too many requests",
+    "extensions": { "code": "RATE_LIMITED", "statusCode": 429, "retryAfter": 60 }
+  }]
+}
 ```
 
-  </TabItem>
-</Tabs>
+### Authentication policy
+
+```toml
+[security]
+default_policy = "authenticated"  # Require a valid JWT on all operations
+```
+
+### Maintenance mode
+
+Use your reverse proxy or load balancer to return 503 during maintenance windows. FraiseQL's `/health/ready` endpoint can serve as the upstream health check target — set it to return 503 to drain traffic before taking the server down.
 
 ---
 

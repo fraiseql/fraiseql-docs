@@ -39,19 +39,14 @@ echo $INVENTORY_DATABASE_URL  # Check URL format
 psql $INVENTORY_DATABASE_URL -c "SELECT 1"
 ```
 
-```python
-# 4. Add connection logging
-@fraiseql.config
-def configure_federation():
-    return {
-        "databases": {
-            "inventory": {
-                "url": "${INVENTORY_DATABASE_URL}",
-                "pool_size": 10,
-                "debug": True  # Enable connection logging
-            }
-        }
-    }
+```toml
+# 4. Enable connection debug logging — set environment variable:
+# FRAISEQL_LOG=debug
+#
+# Or configure the database in fraiseql.toml:
+[database]
+url = "${INVENTORY_DATABASE_URL}"
+pool_max = 10
 ```
 
 #### "Pool exhausted - no available connections"
@@ -76,31 +71,14 @@ pool_timeout = 30000  # Timeout waiting for connection
 max_age = 3600000  # Close idle connections after 1 hour
 ```
 
-```python
-# 2. Add connection monitoring
-@fraiseql.middleware
-async def log_connection_usage(request, next):
-    """Log connection pool stats."""
+```bash
+# 2. Monitor connection pool via the metrics endpoint:
+# GET /metrics → fraiseql_database_pool_active, fraiseql_database_pool_idle
 
-    stats_before = await fraiseql.get_pool_stats("inventory")
-
-    response = await next(request)
-
-    stats_after = await fraiseql.get_pool_stats("inventory")
-
-    if stats_after.waiting_requests > stats_before.waiting_requests:
-        logging.warning(
-            f"Connection pool contention: "
-            f"{stats_after.waiting_requests} waiting requests"
-        )
-
-    return response
-
-# 3. Identify slow queries
-await fraiseql.enable_query_logging(
-    database="inventory",
-    slow_query_threshold=1000  # Log queries > 1 second
-)
+# 3. Identify slow queries — set slow query threshold in fraiseql.toml:
+# [database]
+# log_slow_queries_ms = 1000  # Log queries slower than 1 second
+# Or use FRAISEQL_LOG=debug for full query logging.
 ```
 
 ### Query Issues
@@ -128,28 +106,23 @@ inventory = 10000
 payments = 15000  # Slower database needs more time
 ```
 
+```toml
+# 2. Configure federation batch size and timeout in fraiseql.toml:
+[federation]
+batch_size = 100
+default_timeout = 10000
+```
+
 ```python
-# 2. Optimize federated field definition
-@fraiseql.type(database="primary")
+# The Python type declares the shape only — no database routing in the decorator:
+@fraiseql.type
 class Order:
     id: ID
+    items: list[OrderItem]  # Federated from inventory DB — see fraiseql.toml
+```
 
-    # Inefficient: No optimization hints
-    items: list[OrderItem] = fraiseql.federated(
-        database="inventory",
-        lookup="order_id"
-    )
-
-    # Better: With optimization hints
-    items: list[OrderItem] = fraiseql.federated(
-        database="inventory",
-        lookup="order_id",
-        batch_size=100,
-        timeout=10000
-    )
-
-# 3. Add database indexes
--- On inventory database
+```sql
+-- 3. Add database indexes on the inventory database:
 CREATE INDEX idx_order_item_order_id ON tb_order_item(order_id);
 ```
 
@@ -164,32 +137,23 @@ CREATE INDEX idx_order_item_order_id ON tb_order_item(order_id);
 **Solutions**:
 
 ```python
-# BAD: Circular reference
-@fraiseql.type(database="primary")
+# BAD: Circular reference — avoid federating back to the originating type
+@fraiseql.type
 class Order:
-    items: list[OrderItem] = fraiseql.federated(
-        database="inventory",
-        lookup="order_id"
-    )
+    items: list[OrderItem]  # Federated from inventory DB
 
-@fraiseql.type(database="inventory")
+@fraiseql.type
 class OrderItem:
-    order: Order = fraiseql.federated(
-        database="primary",
-        lookup="order_id"  # Circular!
-    )
+    order: Order  # Circular! OrderItem federates back to Order
 
 # GOOD: Only federate in one direction
-@fraiseql.type(database="primary")
+@fraiseql.type
 class Order:
-    items: list[OrderItem] = fraiseql.federated(
-        database="inventory",
-        lookup="order_id"
-    )
+    items: list[OrderItem]  # Federated from inventory DB (one way only)
 
-@fraiseql.type(database="inventory")
+@fraiseql.type
 class OrderItem:
-    order_id: ID  # Just store the ID, don't federate
+    order_id: ID  # Just store the ID — don't federate back to Order
 ```
 
 #### "Inconsistent foreign keys across databases"
@@ -322,22 +286,13 @@ async def create_order(...):
 
 **Solutions**:
 
-```python
-# 1. Monitor saga progress
-@fraiseql.middleware
-async def log_saga_progress(request, next):
-    """Log saga execution progress."""
-
-    if "saga" in request.context:
-        saga_id = request.context["saga"]
-        logging.info(f"Saga starting: {saga_id}")
-
-        response = await next(request)
-
-        logging.info(f"Saga completed: {saga_id}")
-        return response
-
-    return await next(request)
+```bash
+# 1. Monitor saga/mutation progress via structured logs.
+# Set FRAISEQL_LOG=debug to see each request with its requestId.
+# Use pg_notify observers in fraiseql.toml to track step completions:
+# [[observers]]
+# channel = "saga_step_completed"
+# nats_subject = "fraiseql.saga.step"
 
 # 2. Implement saga timeout
 @saga(
@@ -411,15 +366,12 @@ await fraiseql.enable_query_logging(
 )
 
 # 2. Denormalize to reduce federated queries
-@fraiseql.type(database="primary")
+@fraiseql.type
 class Order:
-    item_count: int  # Denormalized count
+    item_count: int  # Denormalized count from SQL view
 
-    # Still have detailed items for when needed
-    items: list[OrderItem] = fraiseql.federated(
-        database="inventory",
-        lookup="order_id"
-    )
+    # Federated from inventory DB — configured in fraiseql.toml
+    items: list[OrderItem]
 
 # 3. Use selective federation
 @fraiseql.query

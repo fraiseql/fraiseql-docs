@@ -334,15 +334,14 @@ Raise errors from within `@before_mutation` hooks or `@after_mutation` hooks to 
 <Tabs syncKey="language">
   <TabItem label="Python">
     ```python
-    from fraiseql.errors import FraiseQLError
-
-    @fraiseql.before_mutation("delete_user")
-    async def before_delete_user(id: ID, context):
-        user = await get_user(id)
-        if user is None:
-            raise FraiseQLError("NOT_FOUND", f"User {id} does not exist")
-        if user.is_system_user:
-            raise FraiseQLError("FORBIDDEN", "Cannot delete system users")
+    # Raise errors from PostgreSQL functions using RAISE EXCEPTION —
+    # not from Python hooks. The Python layer is schema authoring only.
+    #
+    # In your PostgreSQL function:
+    # IF user_is_system THEN
+    #     RAISE EXCEPTION 'Cannot delete system users'
+    #         USING ERRCODE = 'P0001', HINT = 'FORBIDDEN';
+    # END IF;
     ```
   </TabItem>
   <TabItem label="TypeScript">

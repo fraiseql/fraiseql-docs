@@ -245,42 +245,32 @@ FROM tb_transaction t;
 ```python
 import fraiseql
 from fraiseql.scalars import ID
-from typing import Optional
 from decimal import Decimal
 from datetime import datetime
 
 
 # ==================== PRIMARY DATABASE ====================
 
-@fraiseql.type(database="primary")
+@fraiseql.type
 class Customer:
     id: ID
     name: str
     email: str
-    phone: Optional[str]
+    phone: str | None
     created_at: datetime
+    payment_methods: list['PaymentMethod']  # Federated from payments DB
 
-    # Federated field from payments DB
-    payment_methods: list['PaymentMethod'] = fraiseql.federated(
-        database="payments",
-        lookup="customer_id"
-    )
 
-@fraiseql.type(database="primary")
+@fraiseql.type
 class OrderItem:
     id: ID
     product_id: ID
     quantity: int
     unit_price: Decimal
+    product: 'Product'  # Federated from inventory DB
 
-    # Federated product info from inventory DB
-    product: 'Product' = fraiseql.federated(
-        database="inventory",
-        local_key="product_id",
-        remote_key="id"
-    )
 
-@fraiseql.type(database="primary")
+@fraiseql.type
 class Shipping:
     id: ID
     order_id: ID
@@ -288,53 +278,36 @@ class Shipping:
     city: str
     postal_code: str
     country: str
-    tracking_number: Optional[str]
+    tracking_number: str | None
     status: str
-    estimated_delivery: Optional[str]
+    estimated_delivery: str | None
 
-@fraiseql.type(database="primary")
+
+@fraiseql.type
 class Order:
     id: ID
     total: Decimal
     status: str
     created_at: datetime
     updated_at: datetime
-
-    # Local relation
-    items: list[OrderItem]
-    shipping: Shipping
-
-    # Federated customer info
-    customer: Customer = fraiseql.federated(
-        database="primary",
-        local_key="customer_id",
-        remote_key="id"
-    )
-
-    # Federated payment info from payments DB
-    payment: 'Transaction' = fraiseql.federated(
-        database="payments",
-        local_key="id",
-        remote_key="order_id"
-    )
-
-    # Federated reservations from inventory DB
-    reservations: list['Reservation'] = fraiseql.federated(
-        database="inventory",
-        lookup="order_id"
-    )
+    items: list[OrderItem]       # Local relation
+    shipping: Shipping           # Local relation
+    customer: Customer           # Federated from primary DB
+    payment: 'Transaction'       # Federated from payments DB
+    reservations: list['Reservation']  # Federated from inventory DB
 
 
 # ==================== INVENTORY DATABASE ====================
 
-@fraiseql.type(database="inventory")
+@fraiseql.type
 class Product:
     id: ID
     sku: str
     name: str
     price: Decimal
 
-@fraiseql.type(database="inventory")
+
+@fraiseql.type
 class InventoryStatus:
     product_id: ID
     sku: str
@@ -344,7 +317,8 @@ class InventoryStatus:
     reserved: int
     available: int
 
-@fraiseql.type(database="inventory")
+
+@fraiseql.type
 class Reservation:
     id: ID
     order_id: ID
@@ -352,319 +326,155 @@ class Reservation:
     quantity: int
     status: str
     created_at: datetime
-    expires_at: Optional[datetime]
-    released_at: Optional[datetime]
-
-    # Federated product info
-    product: Product = fraiseql.federated(
-        database="inventory",
-        local_key="product_id",
-        remote_key="id"
-    )
+    expires_at: datetime | None
+    released_at: datetime | None
+    product: Product  # Federated from inventory DB (same DB, different view)
 
 
 # ==================== PAYMENTS DATABASE ====================
 
-@fraiseql.type(database="payments")
+@fraiseql.type
 class PaymentMethod:
     id: ID
     customer_id: ID
     type: str
     is_default: bool
 
-@fraiseql.type(database="payments")
+
+@fraiseql.type
 class Transaction:
     id: ID
     order_id: ID
     customer_id: ID
     amount: Decimal
     status: str
-    gateway: Optional[str]
+    gateway: str | None
     created_at: datetime
-    processed_at: Optional[datetime]
+    processed_at: datetime | None
 
-@fraiseql.type(database="payments")
+
+@fraiseql.type
 class Refund:
     id: ID
     transaction_id: ID
     order_id: ID
     amount: Decimal
-    reason: Optional[str]
+    reason: str | None
     status: str
     created_at: datetime
 
 
 # ==================== QUERIES ====================
 
-@fraiseql.query(sql_source="v_order", database="primary")
+@fraiseql.query(sql_source="v_order")
 def order(id: ID) -> Order:
     """Get order by ID with all federated relations."""
     pass
 
-@fraiseql.query(sql_source="v_order", database="primary")
-def orders(customer_id: Optional[ID] = None, limit: int = 20) -> list[Order]:
+
+@fraiseql.query(sql_source="v_order")
+def orders(customer_id: ID | None = None, limit: int = 20) -> list[Order]:
     """Get orders, optionally filtered by customer."""
     pass
 
-@fraiseql.query(sql_source="v_customer", database="primary")
+
+@fraiseql.query(sql_source="v_customer")
 def customer(id: ID) -> Customer:
     """Get customer with payment methods."""
     pass
 
-@fraiseql.query(sql_source="v_inventory_status", database="inventory")
-def inventory_status(product_id: Optional[ID] = None) -> list[InventoryStatus]:
+
+@fraiseql.query(sql_source="v_inventory_status")
+def inventory_status(product_id: ID | None = None) -> list[InventoryStatus]:
     """Get current inventory status across warehouses."""
     pass
 
 
 # ==================== MUTATIONS ====================
 
-@fraiseql.mutation(database="primary", operation="CREATE")
+@fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
 def create_order(
     customer_id: ID,
-    items: list['CreateOrderItemInput'],
     shipping_address: str,
     shipping_city: str,
     shipping_postal: str,
-    shipping_country: str
+    shipping_country: str,
+    payment_method_id: ID,
 ) -> Order:
-    """Create order with inventory reservation and payment processing."""
+    """Create order. fn_create_order handles inventory reservation and payment via pg_notify."""
     pass
 ```
 
-## Saga Pattern: Create Order
-
-The create-order mutation is a saga that coordinates across all three databases:
-
-<Aside type="tip">
-The saga pattern ensures that if any step fails, compensation handlers automatically roll back prior steps. Payment is the final, irreversible step — failures there are handled via separate refund flows.
+<Aside type="note">
+Federation configuration — which databases exist and how fields resolve across them — belongs in `fraiseql.toml` under `[federation]`, not in Python type annotations. The Python layer declares field shapes only.
 </Aside>
 
-```python
-from fraiseql import saga, compensate, nats_publish
+## Creating an Order: Transactional Mutation
 
-@saga(
-    steps=[
-        "create_order_record",
-        "reserve_inventory",
-        "process_payment",
-        "confirm_shipping"
-    ]
+The `create_order` mutation coordinates writes across all three databases. In FraiseQL this is handled by a PostgreSQL function — the Python decorator is a compile-time declaration only. Cross-database coordination uses `pg_notify` events forwarded to NATS by FraiseQL observers.
+
+<Aside type="tip">
+PostgreSQL transactions give you atomic multi-table writes within the primary database with automatic rollback. Cross-database steps (inventory reservation, payment) are triggered via `pg_notify` and processed by separate services subscribed to NATS.
+</Aside>
+
+```sql title="db/schema/03_functions/fn_create_order.sql"
+CREATE OR REPLACE FUNCTION fn_create_order(
+    p_customer_id        UUID,
+    p_shipping_address   TEXT,
+    p_shipping_city      TEXT,
+    p_shipping_postal    TEXT,
+    p_shipping_country   TEXT,
+    p_payment_method_id  UUID
 )
-@fraiseql.mutation(database="primary", operation="CREATE")
-async def create_order(
-    customer_id: ID,
-    items: list['CreateOrderItemInput'],
-    shipping_address: str,
-    payment_method_id: ID
-) -> Order:
-    """
-    Multi-step saga for order creation:
-    1. Create order in primary DB
-    2. Reserve inventory from inventory DB
-    3. Process payment from payments DB
-    4. Mark shipping as ready
+RETURNS SETOF v_order
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_order   tb_order;
+BEGIN
+    -- Create order record
+    INSERT INTO tb_order (fk_customer, total, status)
+    SELECT pk_customer, 0, 'pending'
+    FROM tb_customer WHERE id = p_customer_id
+    RETURNING * INTO v_order;
 
-    Any failure triggers compensation.
-    """
-    pass
+    -- Create shipping record
+    INSERT INTO tb_shipping (fk_order, address, city, postal_code, country, status)
+    VALUES (v_order.pk_order,
+            p_shipping_address, p_shipping_city,
+            p_shipping_postal, p_shipping_country, 'pending');
 
-# ==================== SAGA STEPS ====================
+    -- Notify inventory and payment services via pg_notify.
+    -- FraiseQL observers forward these to NATS topics.
+    PERFORM pg_notify(
+        'order_created',
+        jsonb_build_object(
+            'order_id',          v_order.id,
+            'customer_id',       p_customer_id,
+            'payment_method_id', p_payment_method_id
+        )::text
+    );
 
-@saga.step("create_order_record", database="primary")
-async def step_create_order(ctx, customer_id, items, shipping_address):
-    """Step 1: Create order record in primary database."""
-    order = await execute_sql(
-        """
-        INSERT INTO tb_order (fk_customer, total, status)
-        VALUES ($1, $2, 'pending')
-        RETURNING id, total, status, created_at
-        """,
-        [customer_id, calculate_total(items)]
-    )
-
-    for item in items:
-        await execute_sql(
-            """
-            INSERT INTO tb_order_item (fk_order, product_id, quantity, unit_price)
-            VALUES ($1, $2, $3, $4)
-            """,
-            [order['pk_order'], item['product_id'], item['quantity'], item['unit_price']]
-        )
-
-    await execute_sql(
-        """
-        INSERT INTO tb_shipping (fk_order, address, city, postal_code, country, status)
-        VALUES ($1, $2, $3, $4, $5, 'pending')
-        """,
-        [order['pk_order'], shipping_address['address'], shipping_address['city'],
-         shipping_address['postal'], shipping_address['country']]
-    )
-
-    ctx.order_id = order['id']
-    return order
-
-@compensate("create_order_record")
-async def compensate_create_order(ctx):
-    """Compensation: Cancel the order if later steps fail."""
-    await execute_sql(
-        "UPDATE tb_order SET status = 'cancelled' WHERE id = $1",
-        [ctx.order_id]
-    )
-
-# ==================== STEP 2: RESERVE INVENTORY ====================
-
-@saga.step("reserve_inventory", database="inventory")
-async def step_reserve_inventory(ctx, items):
-    """Step 2: Reserve inventory in inventory database."""
-    reservations = []
-
-    for item in items:
-        inventory = await execute_sql(
-            """
-            SELECT pk_inventory, available FROM tb_inventory
-            WHERE fk_product = (SELECT pk_product FROM tb_product WHERE id = $1)
-              AND available >= $2
-            FOR UPDATE
-            """,
-            [item['product_id'], item['quantity']]
-        )
-
-        if not inventory:
-            raise Exception(
-                f"Insufficient inventory for product {item['product_id']}"
-            )
-
-        reservation = await execute_sql(
-            """
-            INSERT INTO tb_reservation (order_id, fk_product, quantity, status)
-            VALUES ($1, (SELECT pk_product FROM tb_product WHERE id = $2), $3, 'reserved')
-            RETURNING id
-            """,
-            [ctx.order_id, item['product_id'], item['quantity']]
-        )
-
-        await execute_sql(
-            """
-            UPDATE tb_inventory
-            SET reserved = reserved + $1
-            WHERE fk_product = (SELECT pk_product FROM tb_product WHERE id = $2)
-            """,
-            [item['quantity'], item['product_id']]
-        )
-
-        reservations.append(reservation['id'])
-
-    ctx.reservations = reservations
-    return reservations
-
-@compensate("reserve_inventory")
-async def compensate_reserve_inventory(ctx):
-    """Compensation: Release reserved inventory."""
-    for reservation_id in ctx.reservations:
-        reservation = await execute_sql(
-            "SELECT fk_product, quantity FROM tb_reservation WHERE id = $1",
-            [reservation_id]
-        )
-
-        await execute_sql(
-            """
-            UPDATE tb_inventory
-            SET reserved = reserved - $1
-            WHERE fk_product = $2
-            """,
-            [reservation['quantity'], reservation['fk_product']]
-        )
-
-        await execute_sql(
-            """
-            UPDATE tb_reservation
-            SET status = 'released', released_at = NOW()
-            WHERE id = $1
-            """,
-            [reservation_id]
-        )
-
-# ==================== STEP 3: PROCESS PAYMENT ====================
-
-@saga.step("process_payment", database="payments")
-async def step_process_payment(ctx, customer_id, total, payment_method_id):
-    """Step 3: Process payment in payments database."""
-
-    transaction = await execute_sql(
-        """
-        INSERT INTO tb_transaction (order_id, customer_id, amount, status, fk_payment_method)
-        VALUES ($1, $2, $3, 'processing', (SELECT pk_payment_method FROM tb_payment_method WHERE id = $4))
-        RETURNING id
-        """,
-        [ctx.order_id, customer_id, total, payment_method_id]
-    )
-
-    try:
-        gateway_result = await charge_payment_gateway(
-            amount=total,
-            payment_method_id=payment_method_id,
-            idempotency_key=ctx.order_id
-        )
-
-        await execute_sql(
-            """
-            UPDATE tb_transaction
-            SET status = 'completed', gateway_transaction_id = $1, processed_at = NOW()
-            WHERE id = $2
-            """,
-            [gateway_result['transaction_id'], transaction['id']]
-        )
-
-        ctx.transaction_id = transaction['id']
-        return transaction
-
-    except Exception:
-        await execute_sql(
-            """
-            UPDATE tb_transaction
-            SET status = 'failed', failed_at = NOW()
-            WHERE id = $1
-            """,
-            [transaction['id']]
-        )
-        raise
-
-# ==================== STEP 4: CONFIRM SHIPPING ====================
-
-@saga.step("confirm_shipping", database="primary")
-async def step_confirm_shipping(ctx):
-    """Step 4: Confirm shipping is ready."""
-
-    shipping = await execute_sql(
-        """
-        UPDATE tb_shipping
-        SET status = 'confirmed'
-        WHERE fk_order = (SELECT pk_order FROM tb_order WHERE id = $1)
-        RETURNING id
-        """,
-        [ctx.order_id]
-    )
-
-    await execute_sql(
-        "UPDATE tb_order SET status = 'confirmed' WHERE id = $1",
-        [ctx.order_id]
-    )
-
-    return shipping
-
-@compensate("confirm_shipping")
-async def compensate_confirm_shipping(ctx):
-    """Compensation: Reset shipping status."""
-    await execute_sql(
-        """
-        UPDATE tb_shipping
-        SET status = 'pending'
-        WHERE fk_order = (SELECT pk_order FROM tb_order WHERE id = $1)
-        """,
-        [ctx.order_id]
-    )
+    RETURN QUERY SELECT * FROM v_order WHERE pk_order = v_order.pk_order;
+END;
+$$;
 ```
+
+Configure FraiseQL to forward `pg_notify` channels to NATS:
+
+```toml title="fraiseql.toml"
+[federation]
+enabled = true
+
+[[observers]]
+channel = "order_created"
+nats_subject = "fraiseql.order.created"
+
+[[observers]]
+channel = "order_cancelled"
+nats_subject = "fraiseql.order.cancelled"
+```
+
+Inventory reservation and payment processing are handled by separate services that subscribe to these NATS subjects. Each service updates its own database and emits completion/failure events, allowing independent rollback without a centralised saga framework.
 
 ## Query Examples
 
