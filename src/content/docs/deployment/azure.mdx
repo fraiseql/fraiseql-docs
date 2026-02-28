@@ -1,13 +1,154 @@
 ---
 title: Azure Deployment
-description: Deploy FraiseQL to Azure App Service, Container Instances, and AKS
+description: Deploy FraiseQL to Azure — App Service, Container Apps, AKS, and Azure SQL Database with Managed Identity authentication.
 ---
 
-import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
 
 # Azure Deployment
 
-Deploy FraiseQL on Azure using App Service, Container Instances, or Kubernetes Service (AKS).
+Deploy FraiseQL on Azure using App Service, Container Apps, Container Instances, or Kubernetes
+Service (AKS). FraiseQL supports both **Azure Database for PostgreSQL** and **Azure SQL Database**
+(SQL Server) as first-class targets.
+
+## Azure SQL Database (SQL Server)
+
+If your organization runs SQL Server, Azure SQL Database is the native Azure target — no
+PostgreSQL migration required.
+
+### Step 1: Provision Azure SQL Database
+
+```bash
+RESOURCE_GROUP=fraiseql-rg
+REGION=eastus
+SQL_SERVER=fraiseql-sql
+
+# Create resource group
+az group create --name $RESOURCE_GROUP --location $REGION
+
+# Create SQL Server (logical server)
+az sql server create \
+    --name $SQL_SERVER \
+    --resource-group $RESOURCE_GROUP \
+    --location $REGION \
+    --admin-user fraiseql_admin \
+    --admin-password "$(openssl rand -base64 20 | tr -d /+= | head -c20)Aa1!"
+
+# Create database (Serverless for dev, General Purpose for prod)
+az sql db create \
+    --resource-group $RESOURCE_GROUP \
+    --server $SQL_SERVER \
+    --name fraiseql_db \
+    --edition GeneralPurpose \
+    --compute-model Serverless \
+    --family Gen5 \
+    --min-capacity 1 \
+    --capacity 4 \
+    --auto-pause-delay 60  # minutes; set -1 to disable for prod
+```
+
+### Step 2: Enable Managed Identity
+
+Zero-credential authentication — no password in config files or environment variables:
+
+```bash
+# Assign system-managed identity to Container App
+az containerapp identity assign \
+    --name fraiseql-app \
+    --resource-group $RESOURCE_GROUP \
+    --system-assigned
+
+# Get the managed identity's object ID
+IDENTITY_OID=$(az containerapp identity show \
+    --name fraiseql-app \
+    --resource-group $RESOURCE_GROUP \
+    --query principalId -o tsv)
+
+# Set Azure AD admin on the SQL server (required before creating AD users)
+az sql server ad-admin create \
+    --resource-group $RESOURCE_GROUP \
+    --server $SQL_SERVER \
+    --display-name "fraiseql-aad-admin" \
+    --object-id $IDENTITY_OID
+```
+
+Then connect as an Azure AD admin and create the SQL login for the managed identity:
+
+```sql
+-- Run against fraiseql_db (not master)
+CREATE USER [fraiseql-app] FROM EXTERNAL PROVIDER;
+ALTER ROLE db_datareader ADD MEMBER [fraiseql-app];
+ALTER ROLE db_datawriter ADD MEMBER [fraiseql-app];
+```
+
+### Step 3: Configure FraiseQL for Azure SQL
+
+```toml
+# fraiseql.toml
+[database]
+# Managed Identity — no password
+url = "server=fraiseql-sql.database.windows.net;database=fraiseql_db;Authentication=ActiveDirectoryMsi"
+pool_min = 2
+pool_max = 20
+connect_timeout_ms = 5000
+ssl_mode = "require"
+```
+
+### Step 4: Deploy FraiseQL to Container Apps
+
+```bash
+# Create Container Apps environment
+az containerapp env create \
+    --name fraiseql-env \
+    --resource-group $RESOURCE_GROUP \
+    --location $REGION
+
+# Deploy FraiseQL
+az containerapp create \
+    --name fraiseql-app \
+    --resource-group $RESOURCE_GROUP \
+    --environment fraiseql-env \
+    --image ghcr.io/fraiseql/fraiseql:latest \
+    --env-vars \
+        "DATABASE_URL=server=fraiseql-sql.database.windows.net;database=fraiseql_db;Authentication=ActiveDirectoryMsi" \
+    --target-port 8080 \
+    --ingress external \
+    --min-replicas 1 \
+    --max-replicas 10
+```
+
+<Aside type="note">
+Azure Container Apps is preferred over App Service for FraiseQL because it supports
+scale-to-zero, has built-in Managed Identity support, and handles HTTP/2 natively.
+</Aside>
+
+### Step 5: Configure Azure Monitor
+
+```bash
+# Create Log Analytics workspace
+az monitor log-analytics workspace create \
+    --resource-group $RESOURCE_GROUP \
+    --workspace-name fraiseql-logs
+
+# Link to Container App environment
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+    --resource-group $RESOURCE_GROUP \
+    --workspace-name fraiseql-logs \
+    --query customerId -o tsv)
+
+# Query FraiseQL logs
+az monitor log-analytics query \
+    --workspace $WORKSPACE_ID \
+    --analytics-query "ContainerAppConsoleLogs_CL | where ContainerName_s == 'fraiseql' | order by TimeGenerated desc | take 50"
+```
+
+<Aside type="tip">
+For enterprise compliance (SOC 2, HIPAA, PCI-DSS), see the
+[SQL Server Enterprise Guide](/databases/sqlserver-enterprise) for RLS, TDE, and audit
+logging patterns that work alongside this Azure deployment.
+</Aside>
+
+---
 
 ## Quick Start with App Service (15 minutes)
 
