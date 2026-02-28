@@ -21,7 +21,7 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[security]` | Stable |
 | `[security.enterprise]` | May consolidate into `[security]` post-1.0 |
 | `[security.error_sanitization]` | RC — added rc.13 |
-| `[security.rate_limiting]` | RC — added rc.13; Redis backend not yet wired |
+| `[security.rate_limiting]` | RC — added rc.13; Redis backend wired rc.14 |
 | `[security.state_encryption]` | RC — added rc.13 |
 | `[security.pkce]` | RC — added rc.13 |
 | `[federation]` | RC |
@@ -348,6 +348,7 @@ enabled                      = false  # opt-in
 requests_per_second          = 100
 requests_per_second_per_user = 1000   # default: 10× requests_per_second
 burst_size                   = 200
+trust_proxy_headers          = false  # set true only when behind a trusted reverse proxy
 auth_start_max_requests      = 5
 auth_start_window_secs       = 60
 auth_callback_max_requests   = 10
@@ -367,6 +368,7 @@ failed_login_lockout_secs    = 900
 | `requests_per_second` | integer | `100` | Global token bucket refill rate |
 | `requests_per_second_per_user` | integer | `requests_per_second × 10` | Per-authenticated-user limit |
 | `burst_size` | integer | `200` | Maximum burst above steady-state rate |
+| `trust_proxy_headers` | bool | `false` | Read `X-Real-IP` / `X-Forwarded-For` for client IP. Enable only when behind a trusted reverse proxy — spoofable otherwise |
 | `redis_url` | string | — | Redis connection URL for distributed rate limiting (requires `redis-rate-limiting` feature) |
 | `auth_start_max_requests` | integer | `5` | Max `/auth/start` requests per window |
 | `auth_start_window_secs` | integer | `60` | Window for `/auth/start` limit |
@@ -489,6 +491,31 @@ recovery_timeout_secs = 60
 **`[[federation.circuit_breaker.per_database]]`** accepts an array of per-entity overrides. Each entry requires a `database` key matching the federation entity name. All three threshold fields are optional (inherit from the global config if omitted).
 
 Prometheus gauge: `fraiseql_federation_circuit_breaker_state{entity="..."}` (0 = Closed, 1 = Open, 2 = HalfOpen).
+
+---
+
+### [observers]
+
+Event observer system. Supports in-memory, Redis, NATS, PostgreSQL, and MySQL backends.
+
+```toml
+[observers]
+enabled  = true
+backend  = "nats"             # "in-memory" | "redis" | "nats" | "postgresql" | "mysql"
+nats_url = "${FRAISEQL_NATS_URL}"  # required when backend = "nats"
+# redis_url = "${REDIS_URL}"       # required when backend = "redis"
+
+[[observers.handlers]]
+event  = "user.created"
+target = "v_notify_new_user"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable the observer system |
+| `backend` | string | `"in-memory"` | Event backend: `in-memory`, `redis`, `nats`, `postgresql`, `mysql` |
+| `nats_url` | string | — | NATS server URL (required when `backend = "nats"`). Overridable via `FRAISEQL_NATS_URL` env var |
+| `redis_url` | string | — | Redis connection URL (required when `backend = "redis"`) |
 
 ---
 

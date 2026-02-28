@@ -390,8 +390,8 @@ def saml_acs(info, saml_response: str) -> "AuthPayload":
 3. **Use a strong secret** — At least 32 random bytes: `openssl rand -base64 32`
 4. **Set short expiration** — Access tokens: 1 hour. Refresh tokens: 7-30 days
 5. **Restrict CORS** — Set `[server] cors_origins` to your frontend domain only
-6. **Use `HttpOnly` cookies** for web apps — Prevents XSS token theft
-7. **Rate-limit login** — Protect against brute force: `[auth] max_attempts = 5`
+6. **Use `HttpOnly` cookies** for web apps — FraiseQL sets the cookie as `__Host-access_token` (the `__Host-` prefix mandates `Secure`, `Path=/`, and no `Domain` attribute, blocking subdomain override attacks)
+7. **Rate-limit login** — Protect against brute force: `[security.rate_limiting] failed_login_max_attempts = 5`
 8. **Rotate secrets regularly** — Use RS256 with key rotation for zero-downtime rotation
 
 ---

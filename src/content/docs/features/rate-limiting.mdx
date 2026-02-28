@@ -30,6 +30,7 @@ enabled                      = true
 requests_per_second          = 100
 requests_per_second_per_user = 500   # default: 10× requests_per_second
 burst_size                   = 200
+trust_proxy_headers          = false # set true only when behind a trusted reverse proxy
 ```
 
 **Per-user limit**: Authenticated users receive 10× the global rate by default. This reflects that authenticated requests are identifiable (abuse is traceable) and service accounts legitimately call at higher rates. Override with `requests_per_second_per_user` when the default is too permissive — for example, on public-facing APIs where "authenticated" just means "has an account."
@@ -91,6 +92,24 @@ Set `burst_size` to roughly 2x your `requests_per_second` for a balanced buffer.
 
 ---
 
+## Reverse Proxy Deployments
+
+<Aside type="caution">
+By default FraiseQL uses the **TCP peer address** for IP-based rate limiting. Behind a reverse proxy (nginx, ALB, Caddy), this is always the proxy's IP — meaning all clients share one bucket and IP-based limiting is effectively inoperative.
+
+Set `trust_proxy_headers = true` to read the real client IP from `X-Real-IP` (preferred) or the first address in `X-Forwarded-For`:
+
+```toml
+[security.rate_limiting]
+enabled             = true
+trust_proxy_headers = true   # only when sitting behind a trusted proxy
+```
+
+**Only enable this when FraiseQL is guaranteed to be behind a proxy you control.** If FraiseQL is directly internet-facing, `X-Forwarded-For` is client-supplied and trivially spoofable, defeating IP-based limiting entirely.
+</Aside>
+
+---
+
 ## Multi-Instance (Distributed Rate Limits)
 
 By default the rate limiter is **in-memory per process**. When running multiple FraiseQL instances behind a load balancer, each instance maintains its own token bucket independently — a client can distribute requests across replicas without hitting a shared limit.
@@ -120,6 +139,7 @@ Set `FRAISEQL_REQUIRE_REDIS=1` in your deployment environment to make the server
 | `requests_per_second` | `100` | Global token bucket refill rate |
 | `requests_per_second_per_user` | `requests_per_second × 10` | Per-authenticated-user limit |
 | `burst_size` | `200` | Maximum burst |
+| `trust_proxy_headers` | `false` | Read `X-Real-IP`/`X-Forwarded-For` for client IP (trusted proxy only) |
 | `auth_start_max_requests` | `5` | Per 60s window |
 | `auth_callback_max_requests` | `10` | Per 60s window |
 | `auth_refresh_max_requests` | `20` | Per 300s window |
@@ -298,6 +318,7 @@ sum(rate(fraiseql_rate_limit_hits_total[5m]) + rate(fraiseql_rate_limit_allowed_
 **Rate limiting not triggering**
 - Verify `enabled = true`
 - Check that `requests_per_second` is lower than your actual peak traffic
+- If running behind a reverse proxy, set `trust_proxy_headers = true` — without it, all clients share the proxy's IP bucket and limits appear not to fire per-client
 
 **Legitimate users being limited in multi-instance deployments**
 - Configure `redis_url` in `[security.rate_limiting]` to share limits across replicas (requires `redis-rate-limiting` feature)
