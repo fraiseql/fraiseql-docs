@@ -135,16 +135,18 @@ query {
 | Operator | Description | SQL | Database Support |
 |----------|-------------|-----|-----------------|
 | `_like` | Pattern match (case-sensitive) | `LIKE $pattern` | All |
-| `_ilike` | Pattern match (case-insensitive) | `ILIKE $pattern` | **PostgreSQL only** |
+| `_ilike` | Pattern match (case-insensitive) | `ILIKE $pattern` | All¹ |
 | `_nlike` | Not like | `NOT LIKE $pattern` | All |
-| `_nilike` | Not ilike | `NOT ILIKE $pattern` | **PostgreSQL only** |
-| `_regex` | Regular expression | `~ $pattern` | **PostgreSQL only** |
+| `_nilike` | Not ilike | `NOT ILIKE $pattern` | All¹ |
+| `_regex` | Regular expression | `~ $pattern` (pg) / `REGEXP` (mysql) | PostgreSQL, MySQL |
 | `_iregex` | Case-insensitive regex | `~* $pattern` | **PostgreSQL only** |
-| `_nregex` | Not regex | `!~ $pattern` | **PostgreSQL only** |
+| `_nregex` | Not regex | `!~ $pattern` (pg) / `NOT REGEXP` (mysql) | PostgreSQL, MySQL |
 | `_niregex` | Not iregex | `!~* $pattern` | **PostgreSQL only** |
 
+¹ On MySQL, `_ilike`/`_nilike` emit `(NOT) LIKE` — case-sensitivity depends on the column collation (case-insensitive by default with `utf8mb4_unicode_ci`). On SQL Server, a `COLLATE Latin1_General_CI_AI` clause is appended. SQL Server and SQLite do not support `~*`.
+
 <Aside type="note">
-Operators marked **PostgreSQL only** are not available in MySQL, SQLite, or SQL Server. Using them with a non-PostgreSQL database will result in a compilation error.
+`_regex` and `_nregex` map to PostgreSQL `~` / `!~` and MySQL `REGEXP` / `NOT REGEXP`. They are not available on SQL Server (no native regex operator) or SQLite (requires a user-registered `REGEXP` function). Using them on an unsupported database returns an error.
 </Aside>
 
 ### Pattern Matching
@@ -456,12 +458,12 @@ input StringFilter {
     _iendswith: String     # case-insensitive (PostgreSQL only)
     _like: String          # LIKE pattern — % and _ ARE wildcards
     _ilike: String         # case-insensitive LIKE (PostgreSQL only)
-    _nlike: String         # NOT LIKE
-    _nilike: String        # NOT ILIKE (PostgreSQL only)
-    _regex: String         # PostgreSQL ~ operator
-    _iregex: String        # PostgreSQL ~* operator (PostgreSQL only)
-    _nregex: String        # PostgreSQL !~ operator (PostgreSQL only)
-    _niregex: String       # PostgreSQL !~* operator (PostgreSQL only)
+    _nlike: String         # NOT LIKE (all databases)
+    _nilike: String        # NOT ILIKE / collation-based (all databases)
+    _regex: String         # PostgreSQL ~, MySQL REGEXP
+    _iregex: String        # PostgreSQL ~* only
+    _nregex: String        # PostgreSQL !~, MySQL NOT REGEXP
+    _niregex: String       # PostgreSQL !~* only
     _is_null: Boolean
 }
 ```
