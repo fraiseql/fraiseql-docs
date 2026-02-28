@@ -12,6 +12,11 @@ Choose your migration path based on what you're currently using.
 ## What Are You Migrating From?
 
 <CardGrid>
+  <Card title="Incremental Migration" icon="approve-check-circle">
+    No cutover night. FraiseQL runs alongside your existing system while you migrate domain by domain. Start with one domain in one day.
+
+    [Incremental Migration Guide](/migrations/incremental)
+  </Card>
   <Card title="From Prisma" icon="rocket">
     Replace your ORM-based approach with a database-first GraphQL API backed by SQL views and PostgreSQL functions.
 
@@ -36,16 +41,16 @@ Choose your migration path based on what you're currently using.
 
 ## Comparison Table
 
-| Feature | Prisma | Apollo | Hasura | REST | FraiseQL |
-|---------|--------|--------|--------|------|----------|
-| **API Type** | ORM | GraphQL | GraphQL | REST | GraphQL |
-| **Runtime** | Node.js | Node.js | Node.js / Haskell | Any | Rust binary |
-| **Schema source** | Prisma Schema Language | GraphQL SDL | DB introspection | Code | Python/TS/Go decorators |
-| **Reads** | ORM `.findMany()` | Resolver functions | Auto-generated SQL | Route handlers | PostgreSQL views (`v_*`) |
-| **Writes** | ORM `.create()` | Resolver functions | Auto-generated SQL | Route handlers | PostgreSQL functions (`fn_*`) |
-| **N+1 handling** | Manual `include` | DataLoader (manual) | Auto (limited) | N/A | Eliminated by design |
-| **Real-time** | Polling | Manual PubSub | Event-based | Polling | NATS subscriptions |
-| **Federation** | No | Limited | No | No | Yes |
+| Feature           | Prisma                 | Apollo              | Hasura             | REST           | FraiseQL                      |
+|-------------------|------------------------|---------------------|--------------------|----------------|-------------------------------|
+| **API Type**      | ORM                    | GraphQL             | GraphQL            | REST           | GraphQL                       |
+| **Runtime**       | Node.js                | Node.js             | Node.js / Haskell  | Any            | Rust binary                   |
+| **Schema source** | Prisma Schema Language | GraphQL SDL         | DB introspection   | Code           | Python/TS/Go decorators       |
+| **Reads**         | ORM `.findMany()`      | Resolver functions  | Auto-generated SQL | Route handlers | PostgreSQL views (`v_*`)      |
+| **Writes**        | ORM `.create()`        | Resolver functions  | Auto-generated SQL | Route handlers | PostgreSQL functions (`fn_*`) |
+| **N+1 handling**  | Manual `include`       | DataLoader (manual) | Auto (limited)     | N/A            | Eliminated by design          |
+| **Real-time**     | Polling                | Manual PubSub       | Event-based        | Polling        | NATS subscriptions            |
+| **Federation**    | No                     | Limited             | No                 | No             | Yes                           |
 
 ## Migration Benefits
 
@@ -61,21 +66,25 @@ Choose your migration path based on what you're currently using.
 ### Specific to Each
 
 **From Prisma:**
+
 - Eliminate N+1 problems — resolved at the SQL view level
 - Declarative schema via Python/TypeScript/Go decorators
 - GraphQL API layer is built-in, no Express/Fastify needed
 
 **From Apollo:**
+
 - Cut resolver code by 90% — replace with SQL views
 - Eliminate DataLoader boilerplate
 - Built-in performance optimizations via pre-compiled SQL views
 
 **From Hasura:**
+
 - Full control over query shape via hand-written SQL views
 - Replace webhook Actions with PostgreSQL functions
 - No managed cloud service required
 
 **From REST:**
+
 - Single request instead of multiple chained calls
 - No client-side data joining
 - Self-documenting API via GraphQL schema
@@ -85,17 +94,20 @@ Choose your migration path based on what you're currently using.
 <Steps>
 
 1. **Assess Current Stack**
+
    - What are you using now?
    - How complex is your API?
    - How many endpoints/types?
    - How many SQL views/functions will need to be written?
 
 2. **Plan Timeline**
-   - Can you run both systems in parallel?
+
+   - Can you run both systems in parallel? (FraiseQL is designed for this — see [Incremental Migration](/migrations/incremental))
    - What is your team's GraphQL experience?
-   - Estimate 1-3 weeks based on API complexity
+   - Start with one domain in one day; expand from there
 
 3. **Identify Success Metrics**
+
    - Performance improvement target (request latency, query count)
    - Developer velocity goal (lines of code, deployment frequency)
    - Error rate reduction
@@ -109,26 +121,31 @@ All migrations follow the same five-phase pattern:
 <Steps>
 
 1. **Preparation**
+
    - Document current API surface (endpoints, types, permissions)
    - Plan FraiseQL schema types and SQL view structure
    - Set up FraiseQL development environment
 
 2. **Build FraiseQL Backend**
+
    - Define types with `@fraiseql.type`, `@fraiseql.input`, `@fraiseql.query`, `@fraiseql.mutation` decorators
    - Write PostgreSQL views (`v_*`) for all read operations
    - Write PostgreSQL functions (`fn_*`) for all write operations
 
 3. **Client Migration**
+
    - Update client code to issue GraphQL requests
    - Test that all operations produce equivalent results
    - Compare performance metrics
 
 4. **Deployment**
+
    - Run both systems in parallel
    - Gradually route traffic to FraiseQL
    - Monitor latency, error rates, and query patterns
 
 5. **Decommission**
+
    - Remove old system once FraiseQL is confirmed stable
    - Clean up unused dependencies
    - Document lessons learned
@@ -143,12 +160,12 @@ Start with a single feature module rather than migrating the entire API at once.
 
 Most teams save 20-40% on infrastructure and development costs after migrating:
 
-| Cost Area | Before | After | Savings |
-|-----------|--------|-------|---------|
-| **Server Costs** | $500-1000/month | $200-300/month | 60-70% |
-| **Development** | High (manual resolvers, DataLoader) | Low (SQL views) | 30-50% |
-| **Database** | Manual optimization | Pre-compiled views | Maintained |
-| **Total** | ~$1000/month + time | ~$300/month | ~70% |
+| Cost Area        | Before                              | After              | Savings    |
+|------------------|-------------------------------------|--------------------|------------|
+| **Server Costs** | $500-1000/month                     | $200-300/month     | 60-70%     |
+| **Development**  | High (manual resolvers, DataLoader) | Low (SQL views)    | 30-50%     |
+| **Database**     | Manual optimization                 | Pre-compiled views | Maintained |
+| **Total**        | ~$1000/month + time                 | ~$300/month        | ~70%       |
 
 ## Getting Help
 

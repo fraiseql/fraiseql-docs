@@ -5,20 +5,24 @@ description: Guide to convert REST API to GraphQL using FraiseQL
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
+<Aside type="tip">
+**Prefer a no-big-bang approach?** This guide covers full migration. For a phased strategy where FraiseQL runs alongside your REST API while you migrate domain by domain — with rollback at every step — see the [Incremental Migration Guide](/migrations/incremental).
+</Aside>
+
 # Migrating from REST API to GraphQL
 
 This guide shows how to migrate from traditional REST APIs to GraphQL using FraiseQL.
 
 ## Why Migrate?
 
-| Problem | REST | GraphQL |
-|---------|------|---------|
-| **Over-fetching** | GET /users returns all fields | Query only needed fields |
-| **Under-fetching** | Must chain API calls | Get all data in one request |
-| **Versioning** | /v1/, /v2/ endpoints | Single endpoint, evolves safely |
-| **Documentation** | Separate docs | Self-documenting via schema |
-| **Client bloat** | Multiple endpoints | Single endpoint |
-| **Real-time** | WebSocket polling | Native subscriptions |
+| Problem            | REST                          | GraphQL                         |
+|--------------------|-------------------------------|---------------------------------|
+| **Over-fetching**  | GET /users returns all fields | Query only needed fields        |
+| **Under-fetching** | Must chain API calls          | Get all data in one request     |
+| **Versioning**     | /v1/, /v2/ endpoints          | Single endpoint, evolves safely |
+| **Documentation**  | Separate docs                 | Self-documenting via schema     |
+| **Client bloat**   | Multiple endpoints            | Single endpoint                 |
+| **Real-time**      | WebSocket polling             | Native subscriptions            |
 
 ## Conversion Examples
 
@@ -81,15 +85,15 @@ This guide shows how to migrate from traditional REST APIs to GraphQL using Frai
 
 2. **Map Endpoints to GraphQL Operations**
 
-   | REST Endpoint | GraphQL Equivalent |
-   |--------------|-------------------|
-   | `GET /users` | `query { users { ... } }` |
-   | `GET /users/:id` | `query { user(id: "...") { ... } }` |
+   | REST Endpoint              | GraphQL Equivalent                                              |
+   |----------------------------|-----------------------------------------------------------------|
+   | `GET /users`               | `query { users { ... } }`                                       |
+   | `GET /users/:id`           | `query { user(id: "...") { ... } }`                             |
    | `GET /users?status=active` | `query { users(where: { status: { _eq: "active" } }) { ... } }` |
-   | `POST /users` | `mutation { createUser(input: { ... }) { ... } }` |
-   | `PUT /users/:id` | `mutation { updateUser(id: "...", input: { ... }) { ... } }` |
-   | `DELETE /users/:id` | `mutation { deleteUser(id: "...") }` |
-   | `GET /users/:id/posts` | `query { user(id: "...") { posts { ... } } }` |
+   | `POST /users`              | `mutation { createUser(input: { ... }) { ... } }`               |
+   | `PUT /users/:id`           | `mutation { updateUser(id: "...", input: { ... }) { ... } }`    |
+   | `DELETE /users/:id`        | `mutation { deleteUser(id: "...") }`                            |
+   | `GET /users/:id/posts`     | `query { user(id: "...") { posts { ... } } }`                   |
 
 3. **Define FraiseQL Types and SQL Views**
 
@@ -426,12 +430,12 @@ FraiseQL subscriptions are backed by NATS messaging. When a PostgreSQL function 
 
 ## Performance Impact
 
-| Metric | REST | GraphQL |
-|--------|------|---------|
-| **Requests per view** | 3+ | 1 |
-| **Response time** | 200-500ms | 50-100ms |
-| **Unused data** | 50-70% | 0% |
-| **Data joining** | Client-side | Server-side (SQL views) |
+| Metric                | REST        | GraphQL                 |
+|-----------------------|-------------|-------------------------|
+| **Requests per view** | 3+          | 1                       |
+| **Response time**     | 200-500ms   | 50-100ms                |
+| **Unused data**       | 50-70%      | 0%                      |
+| **Data joining**      | Client-side | Server-side (SQL views) |
 
 ## Deployment Simplification
 

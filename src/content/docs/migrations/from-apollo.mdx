@@ -5,6 +5,10 @@ description: Guide to migrate from Apollo Server to FraiseQL's database-first Gr
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
+<Aside type="tip">
+**Prefer a no-big-bang approach?** This guide covers full migration. For a phased strategy where FraiseQL runs alongside Apollo while you migrate domain by domain — with rollback at every step — see the [Incremental Migration Guide](/migrations/incremental).
+</Aside>
+
 # Migrating from Apollo Server to FraiseQL
 
 This guide walks through migrating from manually-built Apollo Server GraphQL backends to FraiseQL's database-first approach.
@@ -37,18 +41,18 @@ This guide walks through migrating from manually-built Apollo Server GraphQL bac
 
 ## Key Differences
 
-| Aspect | Apollo | FraiseQL |
-|--------|--------|----------|
-| **Schema Definition** | GraphQL SDL (manual) | Python/TS/Go types with decorators |
-| **Resolvers** | Hand-written TypeScript | Mapped to SQL views — no resolver code |
-| **Database** | ORM or raw queries in resolvers | Hand-written SQL views (`v_*`) |
-| **Mutations** | Resolver functions | PostgreSQL functions (`fn_*`) |
-| **Caching** | redis-apollo-link | Built-in federation cache |
-| **Subscriptions** | WebSocket (manual PubSub) | Native with NATS |
-| **Performance** | Manual optimization + DataLoader | Automatic batching via SQL joins |
-| **Type Safety** | apollo-codegen | Native SDK types |
-| **Runtime** | Node.js | Rust binary |
-| **Complexity** | High (resolver logic) | Low (decorators + SQL) |
+| Aspect                | Apollo                           | FraiseQL                                 |
+|-----------------------|----------------------------------|------------------------------------------|
+| **Schema Definition** | GraphQL SDL (manual)             | Python/TS/Go types with decorators       |
+| **Resolvers**         | Hand-written TypeScript          | Mapped to SQL views — no resolver code   |
+| **Database**          | ORM or raw queries in resolvers  | Hand-written SQL views (`v_*`)           |
+| **Mutations**         | Resolver functions               | PostgreSQL functions (`fn_*`)            |
+| **Caching**           | redis-apollo-link                | Built-in federation cache                |
+| **Subscriptions**     | WebSocket (manual PubSub)        | Native with NATS                         |
+| **Performance**       | Manual optimization + DataLoader | Automatic batching via SQL joins         |
+| **Type Safety**       | apollo-codegen                   | Native SDK types                         |
+| **Runtime**           | Node.js                          | Rust binary                              |
+| **Complexity**        | High (resolver logic)            | Low (decorators + SQL)                   |
 
 ## Step-by-Step Migration
 
@@ -345,6 +349,7 @@ query GetUsers {
 ```
 
 FraiseQL executes only **2 queries**:
+
 1. `SELECT * FROM v_user LIMIT 10`
 2. `SELECT * FROM v_post WHERE user_id IN (list_of_user_ids)`
 
@@ -352,15 +357,15 @@ That's **5x fewer queries** — and you cannot accidentally create N+1 because t
 
 ## Performance Comparison
 
-| Metric | Apollo Server | FraiseQL |
-|--------|---------------|----------|
-| **Resolver Lines** | 500+ | 0 (mapped to SQL views) |
-| **Queries/Request** | 11 | 2 |
-| **Request Time** | ~200ms | ~20ms |
-| **Development Time** | High | Low |
-| **Caching** | Manual | Automatic |
-| **N+1 Problems** | Common | Architecturally impossible |
-| **Runtime** | Node.js | Rust binary |
+| Metric               | Apollo Server | FraiseQL                   |
+|----------------------|---------------|----------------------------|
+| **Resolver Lines**   | 500+          | 0 (mapped to SQL views)    |
+| **Queries/Request**  | 11            | 2                          |
+| **Request Time**     | ~200ms        | ~20ms                      |
+| **Development Time** | High          | Low                        |
+| **Caching**          | Manual        | Automatic                  |
+| **N+1 Problems**     | Common        | Architecturally impossible |
+| **Runtime**          | Node.js       | Rust binary                |
 
 ## Migration Checklist
 
@@ -466,6 +471,7 @@ Error: Cannot compile schema - missing type User
 ```
 
 **Solution:**
+
 1. Check all types are defined
 2. Verify forward references use string literals: `'User'`
 3. Run: `fraiseql validate`
@@ -476,6 +482,7 @@ Error: Cannot compile schema - missing type User
 GraphQL queries work but return different results than Apollo.
 
 **Solution:**
+
 1. Check SQL views match Apollo resolvers:
    ```sql
    -- Compare Apollo resolver logic
@@ -502,6 +509,7 @@ GraphQL queries work but return different results than Apollo.
 ```
 
 **Solution:**
+
 1. Create the PostgreSQL function:
    ```sql
    CREATE OR REPLACE FUNCTION fn_create_user(...)
@@ -518,6 +526,7 @@ GraphQL queries work but return different results than Apollo.
 FraiseQL queries are slower than Apollo.
 
 **Solution:**
+
 1. Check for missing indexes:
    ```sql
    SELECT * FROM pg_indexes WHERE tablename LIKE 'tb_%';
@@ -539,6 +548,7 @@ FraiseQL queries are slower than Apollo.
 WebSocket connections fail.
 
 **Solution:**
+
 1. Verify NATS is configured:
    ```toml
    [nats]

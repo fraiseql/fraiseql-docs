@@ -5,24 +5,28 @@ description: Step-by-step guide to migrate from Prisma ORM to FraiseQL GraphQL b
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
+<Aside type="tip">
+**Prefer a no-big-bang approach?** This guide covers full migration. For a phased strategy where FraiseQL runs alongside your existing Prisma API while you migrate domain by domain — with rollback at every step — see the [Incremental Migration Guide](/migrations/incremental).
+</Aside>
+
 # Migrating from Prisma to FraiseQL
 
 This guide walks through migrating a Prisma-based application to FraiseQL, including schema conversion, client migration, and performance optimization.
 
 ## Why Migrate to FraiseQL?
 
-| Feature | Prisma | FraiseQL |
-|---------|--------|----------|
-| **API Type** | ORM (type-safe queries) | GraphQL (API-first) |
-| **Databases** | All major databases | PostgreSQL-first |
-| **Development SDKs** | Prisma Client (1) | Python, TypeScript, Go SDKs |
-| **Real-time** | Polling | Native subscriptions via WebSocket |
-| **Schema Management** | Migrations + Prisma Schema | SQL views/functions + FraiseQL decorators |
-| **Federation** | No | Yes (multi-database queries) |
-| **Query Language** | Programmatic (.findMany()) | GraphQL (industry standard) |
-| **Performance** | Good (cached queries) | Excellent (pre-compiled SQL views, batching) |
-| **Caching** | Manual or plugins | Built-in federation-aware caching |
-| **Multi-database** | Via relationships only | Native federation support |
+| Feature               | Prisma                     | FraiseQL                                     |
+|-----------------------|----------------------------|----------------------------------------------|
+| **API Type**          | ORM (type-safe queries)    | GraphQL (API-first)                          |
+| **Databases**         | All major databases        | PostgreSQL-first                             |
+| **Development SDKs**  | Prisma Client (1)          | Python, TypeScript, Go SDKs                  |
+| **Real-time**         | Polling                    | Native subscriptions via WebSocket           |
+| **Schema Management** | Migrations + Prisma Schema | SQL views/functions + FraiseQL decorators    |
+| **Federation**        | No                         | Yes (multi-database queries)                 |
+| **Query Language**    | Programmatic (.findMany()) | GraphQL (industry standard)                  |
+| **Performance**       | Good (cached queries)      | Excellent (pre-compiled SQL views, batching) |
+| **Caching**           | Manual or plugins          | Built-in federation-aware caching            |
+| **Multi-database**    | Via relationships only     | Native federation support                    |
 
 ## What changes
 
@@ -709,6 +713,7 @@ Frontend -> HTTP/GraphQL -> FraiseQL Rust Binary -> PostgreSQL Views/Functions
 ```
 
 **Benefits of FraiseQL approach:**
+
 - Decoupled frontend from database
 - Can scale backend independently
 - Security: database credentials never exposed to frontend

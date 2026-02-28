@@ -1,0 +1,404 @@
+---
+title: Incremental Migration (No Big Bang)
+description: Introduce FraiseQL into a running production system without a cutover night — domain by domain, rollback at every step.
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+# Incremental Migration (No Big Bang)
+
+Enterprise systems don't migrate overnight. This guide shows you how to introduce FraiseQL into a running production system while your existing API continues to serve 100% of traffic — no cutover night, no all-or-nothing risk.
+
+The strategy is the **strangler fig pattern**: FraiseQL grows alongside your existing system, one domain at a time, until the old system has nothing left to do.
+
+## Why FraiseQL Is Unusually Well-Suited to This
+
+Most migration strategies require parallel systems that can conflict. FraiseQL avoids this because:
+
+- **Reads are view-based**: FraiseQL only queries `v_*` SQL views. Views are additive — they don't modify tables, stored procedures, or anything your existing system depends on.
+- **Writes are opt-in**: FraiseQL calls `fn_*` functions or stored procedures. You add mutations only when you're ready to replace an existing write path. Until then, your ORM or REST handlers continue to own writes.
+- **Same database, no interference**: FraiseQL connects to your existing database. Your existing application connects to the same database. They operate independently.
+
+This means introducing FraiseQL is a series of **view additions**, not a system replacement. At no point does your existing API stop working.
+
+## The Five Phases
+
+```
+[Phase 0] Existing system only (REST / ORM / Apollo / Hasura)
+    ↓  ~1 day: install, connect, first view
+[Phase 1] FraiseQL running alongside, no client traffic
+    ↓  ~1–2 weeks: build view coverage for one domain
+[Phase 2] FraiseQL serving reads for chosen domains
+    ↓  ~1 week per domain: migrate client traffic endpoint by endpoint
+[Phase 3] FraiseQL owns all reads; existing system owns writes
+    ↓  optional — only if replacing the write path
+[Phase 4] FraiseQL owns reads + writes via stored procedures
+    ↓  only when confidence is high
+[Phase 5] Old system retired
+```
+
+**Any phase can be your final state.** Many teams permanently stay at Phase 3 — FraiseQL for reads, Entity Framework or Dapper for writes. This is not a compromise; it's a legitimate production architecture.
+
+---
+
+## Phase 0 → Phase 1: Connect Without Risk
+
+The goal of this phase is to get FraiseQL running against your existing database while being physically incapable of affecting your existing system.
+
+### Create a read-only database role
+
+FraiseQL only needs `SELECT` on the views it serves. A dedicated read-only role ensures it literally cannot affect any write path during evaluation:
+
+<Tabs>
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Create a read-only role for FraiseQL
+    CREATE ROLE fraiseql_readonly WITH LOGIN PASSWORD 'choose-a-strong-password';
+    GRANT CONNECT ON DATABASE myapp TO fraiseql_readonly;
+    GRANT USAGE ON SCHEMA public TO fraiseql_readonly;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO fraiseql_readonly;
+
+    -- Also grant SELECT on future tables/views
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT SELECT ON TABLES TO fraiseql_readonly;
+    ```
+  </TabItem>
+  <TabItem label="SQL Server">
+    ```sql
+    -- Create a read-only login and user
+    CREATE LOGIN fraiseql_readonly WITH PASSWORD = 'choose-a-strong-password';
+    USE myapp;
+    CREATE USER fraiseql_readonly FOR LOGIN fraiseql_readonly;
+    EXEC sp_addrolemember 'db_datareader', 'fraiseql_readonly';
+    ```
+  </TabItem>
+</Tabs>
+
+### Check connection headroom before adding a new pool
+
+<Aside type="caution">
+Adding FraiseQL introduces a new connection pool to a database that may already be near its `max_connections` limit. Check headroom before proceeding.
+</Aside>
+
+<Tabs>
+  <TabItem label="PostgreSQL">
+    ```sql
+    -- Current connections vs limit
+    SELECT
+      count(*)                                         AS active_connections,
+      (SELECT setting::int FROM pg_settings
+       WHERE name = 'max_connections')                 AS max_connections,
+      (SELECT setting::int FROM pg_settings
+       WHERE name = 'max_connections') - count(*)      AS headroom
+    FROM pg_stat_activity;
+    ```
+
+    If headroom is less than 10, start FraiseQL with a conservative pool:
+
+    ```toml title="fraiseql.toml"
+    [database]
+    pool_min = 1
+    pool_max = 5   # increase only after confirming headroom
+    ```
+  </TabItem>
+  <TabItem label="SQL Server">
+    ```sql
+    -- Current user connections
+    SELECT COUNT(*) AS active_connections
+    FROM sys.dm_exec_sessions
+    WHERE is_user_process = 1;
+
+    -- Max connections setting
+    SELECT value_in_use AS max_connections
+    FROM sys.configurations
+    WHERE name = 'max connections';
+    ```
+  </TabItem>
+</Tabs>
+
+### Configure FraiseQL on a different port
+
+Run FraiseQL on a port your existing API isn't using. Your existing system keeps its port and serves 100% of traffic:
+
+```toml title="fraiseql.toml"
+[database]
+url = "${FRAISEQL_DATABASE_URL}"   # read-only role credentials
+
+[server]
+port = 8081   # existing API stays on 8080 (or wherever it is)
+```
+
+```bash
+# Install FraiseQL
+curl -fsSL https://install.fraiseql.dev | sh
+
+# Start it — it connects to the DB but serves no client traffic yet
+fraiseql run
+```
+
+**Rollback**: kill the process. Nothing in your database has changed.
+
+---
+
+## Phase 1 → Phase 2: Build the First Domain
+
+Don't try to migrate everything. Pick one domain, build FraiseQL coverage for it, and validate before routing any traffic.
+
+### Choosing your first domain
+
+**Good candidates:**
+
+- The API response is easy to replicate in a SQL view
+- Your team already understands the SQL
+- Traffic is significant enough to validate but not so critical that a mistake is catastrophic
+- One developer can own it
+
+**Avoid first:**
+
+- Auth-critical endpoints
+- Endpoints with complex write-backs
+- Anything with SLAs under 99.9%
+
+### Write the view and schema type
+
+```sql title="Database"
+-- Add one view — does not touch any existing table or stored procedure
+CREATE VIEW v_order AS
+SELECT
+  o.id,
+  o.status,
+  o.total_cents::float / 100 AS total,
+  o.customer_id,
+  o.created_at
+FROM tb_order o;
+```
+
+```python title="schema.py"
+@fraiseql.type
+class Order:
+    id: str
+    status: str
+    total: float
+    customer_id: str
+
+@fraiseql.query
+def orders(limit: int = 20, offset: int = 0) -> list[Order]:
+    return fraiseql.config(sql_source="v_order")
+```
+
+### Validate before switching clients
+
+Compare FraiseQL's output to your existing API before routing any real traffic:
+
+```bash
+# Fetch the same data from both systems
+EXISTING=$(curl -s "http://localhost:8080/api/orders?limit=10")
+FRAISEQL=$(curl -s -X POST http://localhost:8081/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ orders(limit: 10) { id status total } }"}')
+
+# Normalize and diff the key fields
+echo "$EXISTING" | jq '[.[] | {id, status, total}] | sort_by(.id)' \
+  > /tmp/existing.json
+echo "$FRAISEQL" | jq '[.data.orders[] | {id, status, total}] | sort_by(.id)' \
+  > /tmp/fraiseql.json
+
+diff /tmp/existing.json /tmp/fraiseql.json
+```
+
+A clean diff means the data is equivalent. If there are differences, fix the view before proceeding.
+
+### Pre-switch checklist (per domain)
+
+Before routing any client traffic to FraiseQL for a domain, confirm:
+
+- [ ] **Schema parity**: FraiseQL exposes all fields clients need (check via GraphQL introspection)
+- [ ] **Data parity**: for a sample of production IDs, FraiseQL and the existing API return identical data
+- [ ] **Performance parity**: FraiseQL's p99 latency is acceptable for this domain
+- [ ] **Auth parity**: JWT tokens that work on the existing system work on FraiseQL
+
+**Rollback**: all clients still point to the existing API. Nothing to undo.
+
+---
+
+## Phase 2 → Phase 3: Move Read Traffic
+
+Once a domain passes the pre-switch checklist, move clients to FraiseQL. Three approaches:
+
+### Option A: Client-level routing (easiest rollback)
+
+Update clients one by one to point at the FraiseQL endpoint. No infrastructure change. Rollback = change the URL back.
+
+```typescript
+// Before
+const client = new GraphQLClient('https://api.example.com/graphql');
+
+// After — FraiseQL endpoint (or a different path on the same host via reverse proxy)
+const client = new GraphQLClient('https://api.example.com/graphql/v2');
+```
+
+### Option B: API gateway routing
+
+Route `/graphql` to FraiseQL; keep existing routes on the old system. Transparent to individual client teams.
+
+```nginx
+# nginx example — route GraphQL to FraiseQL, everything else to existing API
+location /graphql {
+    proxy_pass http://fraiseql:8081;
+}
+
+location / {
+    proxy_pass http://existing-api:8080;
+}
+```
+
+### Option C: Feature flag
+
+Gate the switch per client or per user segment. Maximum control, requires a flag system.
+
+**Rollback at this phase**: switch the client back to the old endpoint. FraiseQL keeps running and views remain — no data is at risk.
+
+---
+
+## Phase 3 → Phase 4: Mutations (Optional)
+
+<Aside type="tip">
+**Phase 3 is a valid permanent state.** Many teams keep Entity Framework, Dapper, or their existing REST API for writes and use FraiseQL only for reads. This is not a half-finished migration — it's a legitimate production architecture with a clean separation of concerns.
+</Aside>
+
+For teams that want to move writes to FraiseQL:
+
+- Start with low-risk mutations (upserts on non-critical entities, audit log writes)
+- Existing stored procedures plug in directly via `fn_source`
+- Keep the old write path live in parallel until the new one has 100% test coverage
+- Define success criteria before switching: error rate < X%, latency < Y ms
+- Add mutations one at a time, not all at once
+
+```python title="schema.py"
+@fraiseql.input
+class CreateOrderInput:
+    customer_id: str
+    items: list[str]
+
+@fraiseql.mutation
+def create_order(input: CreateOrderInput) -> Order:
+    return fraiseql.config(sql_source="fn_create_order")
+```
+
+```sql title="Database"
+-- Your existing stored procedure, unchanged —
+-- or a new one that calls it
+CREATE FUNCTION fn_create_order(
+  p_customer_id UUID,
+  p_items       JSONB
+) RETURNS TABLE(id UUID, status TEXT, total NUMERIC) AS $$
+BEGIN
+  -- ... existing business logic
+END;
+$$ LANGUAGE plpgsql;
+```
+
+---
+
+## Phase 5: Retiring the Old System
+
+Before shutting anything down:
+
+- [ ] Zero traffic to old endpoints for **14 consecutive days** (verify via access logs)
+- [ ] All clients updated to the FraiseQL endpoint
+- [ ] All integration tests passing against FraiseQL
+- [ ] Monitoring and alerting reconfigured for the new endpoint
+- [ ] Old connection pool credentials revoked
+- [ ] Old service removed from deployment manifests
+- [ ] Documentation updated
+
+---
+
+## Auth Token Bridging
+
+One of the less obvious blockers for incremental migration is JWT compatibility. Your existing system may use claim names or signing keys that differ from what FraiseQL expects.
+
+### Case 1: Same JWT, same signing key
+
+The simplest case. Configure FraiseQL with the same secret and tokens work immediately:
+
+```toml title="fraiseql.toml"
+[security]
+jwt_secret = "${JWT_SECRET}"   # same secret as your existing system
+```
+
+### Case 2: Same JWT, different claim names
+
+<Aside type="caution">
+FraiseQL extracts user ID from the standard `sub` claim. This is hardcoded — there is no config option to remap it. If your existing JWTs use a non-standard claim like `userId` or `user_id`, you have two options:
+
+1. **Add a `sub` claim** to your token issuer (preferred — keeps FraiseQL simple)
+2. **Write a thin reverse proxy** that rewrites the claim before the request reaches FraiseQL
+</Aside>
+
+Scope claims are more flexible. FraiseQL accepts permissions from any of these claims, checked in order:
+
+- `scope` (space-separated string — Auth0, Okta standard)
+- `scp` (array — some Azure AD / Entra ID configs)
+- `permissions` (array — Auth0 RBAC style)
+
+If your existing system uses one of these, no changes are needed.
+
+### Case 3: Different signing key or issuer
+
+FraiseQL can be configured to accept tokens from your existing auth system. Set the JWKS URI for OIDC providers:
+
+```toml title="fraiseql.toml"
+[security]
+jwks_uri = "https://your-auth-provider.com/.well-known/jwks.json"
+jwt_audience = "https://api.example.com"
+```
+
+Tokens issued by your existing provider work on FraiseQL without clients needing to re-authenticate.
+
+### Case 4: Cookie-based sessions (not JWT)
+
+FraiseQL requires a JWT `Authorization: Bearer` header. Teams using cookie-based sessions need a token exchange endpoint that issues short-lived JWTs from a valid session cookie. This is a one-time infrastructure addition; clients don't change their auth flow.
+
+---
+
+## Rollback Summary
+
+| Phase | What FraiseQL has done                                 | Rollback procedure              | Data at risk?             |
+|-------|--------------------------------------------------------|---------------------------------|---------------------------|
+| 0→1   | Connected to DB, serving no traffic                    | Kill the process                | None                      |
+| 1→2   | Views added to DB, serving internal validation traffic | Remove views, kill process      | None                      |
+| 2→3   | Some client traffic routed to FraiseQL reads           | Reroute clients to old endpoint | None                      |
+| 3→4   | Some mutations going through FraiseQL                  | Reroute writes to old endpoint  | None if idempotent        |
+| 5     | Old system shut down                                   | Restart old system (if kept)    | None if infra is retained |
+
+Views are additive. At every phase before retirement, your existing system is still running and fully functional.
+
+---
+
+## Migration Path Guides
+
+The guides below cover concept mapping for each starting point. After reading one, come back here for the phase-by-phase operational strategy.
+
+<CardGrid>
+  <Card title="From Prisma" icon="rocket">
+    Replace ORM-based reads with SQL views, keep Prisma for writes as long as you need.
+
+    [Prisma Migration Guide](/migrations/from-prisma)
+  </Card>
+  <Card title="From Apollo Server" icon="rocket">
+    Replace resolver boilerplate with views, migrate mutations on your schedule.
+
+    [Apollo Migration Guide](/migrations/from-apollo)
+  </Card>
+  <Card title="From Hasura" icon="rocket">
+    Replace auto-generated GraphQL with hand-crafted SQL views for precise control.
+
+    [Hasura Migration Guide](/migrations/from-hasura)
+  </Card>
+  <Card title="From REST API" icon="rocket">
+    Consolidate multiple endpoints into GraphQL, one domain at a time.
+
+    [REST Migration Guide](/migrations/from-rest)
+  </Card>
+</CardGrid>

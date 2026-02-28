@@ -156,6 +156,7 @@ export default defineConfig({
             { label: 'MySQL', slug: 'databases/mysql' },
             { label: 'SQLite', slug: 'databases/sqlite' },
             { label: 'SQL Server', slug: 'databases/sqlserver' },
+            { label: 'SQL Server Enterprise', slug: 'databases/sqlserver-enterprise' },
           ],
         },
         {
@@ -292,6 +293,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             { label: 'Migration Overview', slug: 'migrations' },
+            { label: 'Incremental Migration', slug: 'migrations/incremental' },
             { label: 'From Prisma', slug: 'migrations/from-prisma' },
             { label: 'From Apollo', slug: 'migrations/from-apollo' },
             { label: 'From Hasura', slug: 'migrations/from-hasura' },
@@ -314,10 +316,18 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Use Cases',
+          collapsed: true,
+          items: [
+            { label: '.NET Teams on SQL Server', slug: 'use-cases/dotnet-teams' },
+          ],
+        },
+        {
           label: 'Comparisons',
           collapsed: true,
           items: [
             { label: 'vs Hasura', slug: 'vs/hasura' },
+            { label: 'vs Hasura (SQL Server)', slug: 'vs/hasura-sqlserver' },
             { label: 'vs Apollo', slug: 'vs/apollo' },
             { label: 'vs Prisma', slug: 'vs/prisma' },
           ],

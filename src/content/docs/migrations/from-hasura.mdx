@@ -5,38 +5,42 @@ description: Guide to migrate from Hasura to FraiseQL for type-safe GraphQL back
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
+<Aside type="tip">
+**Prefer a no-big-bang approach?** This guide covers full migration. For a phased strategy where FraiseQL runs alongside Hasura while you migrate domain by domain — with rollback at every step — see the [Incremental Migration Guide](/migrations/incremental).
+</Aside>
+
 # Migrating from Hasura to FraiseQL
 
 This guide covers migrating from Hasura (auto-generated GraphQL from database introspection) to FraiseQL (code-first GraphQL backed by hand-written SQL views and PostgreSQL functions).
 
 ## Comparison
 
-| Feature | Hasura | FraiseQL |
-|---------|--------|----------|
-| **Approach** | Database-first (auto-schema from DB) | Code-first (schema from Python/TS/Go decorators) |
-| **Configuration** | Web UI + YAML | SDK decorators + TOML |
-| **Type Safety** | GraphQL generated | Native SDK types (Python, TypeScript, Go) |
-| **Hosting** | Cloud or self-hosted | Any server — Docker, K8s, bare metal |
-| **Custom Logic** | Actions + Webhooks | PostgreSQL functions (`fn_*`) |
-| **Federation** | No | Yes (multi-database) |
-| **Performance** | Good | Excellent (pre-compiled SQL views) |
-| **Runtime** | Node.js / Haskell | Rust binary |
-| **Learning Curve** | Low (UI-driven) | Medium (code-driven) |
+| Feature            | Hasura                               | FraiseQL                                         |
+|--------------------|--------------------------------------|--------------------------------------------------|
+| **Approach**       | Database-first (auto-schema from DB) | Code-first (schema from Python/TS/Go decorators) |
+| **Configuration**  | Web UI + YAML                        | SDK decorators + TOML                            |
+| **Type Safety**    | GraphQL generated                    | Native SDK types (Python, TypeScript, Go)        |
+| **Hosting**        | Cloud or self-hosted                 | Any server — Docker, K8s, bare metal             |
+| **Custom Logic**   | Actions + Webhooks                   | PostgreSQL functions (`fn_*`)                    |
+| **Federation**     | No                                   | Yes (multi-database)                             |
+| **Performance**    | Good                                 | Excellent (pre-compiled SQL views)               |
+| **Runtime**        | Node.js / Haskell                    | Rust binary                                      |
+| **Learning Curve** | Low (UI-driven)                      | Medium (code-driven)                             |
 
 ## Concept Mapping
 
 Use this table as a translation guide as you work through the migration:
 
-| Hasura | FraiseQL Equivalent |
-|--------|---------------------|
-| Track table | Create SQL view (`v_*`) |
-| Permissions (YAML) | PostgreSQL Row-Level Security via SQL view `WHERE` clause |
-| Event triggers | Observers (`@observer` decorator) |
-| Actions | SQL functions (`fn_*`) + mutations |
-| Remote schemas | Federation (multi-database in one binary) |
-| Computed fields | SQL view expressions |
-| Relationships (YAML) | Typed fields on `@fraiseql.type` backed by SQL JOIN |
-| Hasura Console | `fraiseql.toml` + SDK decorators |
+| Hasura               | FraiseQL Equivalent                                       |
+|----------------------|-----------------------------------------------------------|
+| Track table          | Create SQL view (`v_*`)                                   |
+| Permissions (YAML)   | PostgreSQL Row-Level Security via SQL view `WHERE` clause |
+| Event triggers       | Observers (`@observer` decorator)                         |
+| Actions              | SQL functions (`fn_*`) + mutations                        |
+| Remote schemas       | Federation (multi-database in one binary)                 |
+| Computed fields      | SQL view expressions                                      |
+| Relationships (YAML) | Typed fields on `@fraiseql.type` backed by SQL JOIN       |
+| Hasura Console       | `fraiseql.toml` + SDK decorators                          |
 
 ## What changes
 
@@ -480,11 +484,11 @@ FraiseQL query (10 users with posts):
 Pricing changes frequently. The figures below are illustrative. Always check the official pricing pages before making a decision: [Hasura Cloud pricing](https://hasura.io/pricing/) and your chosen hosting provider's current rates for FraiseQL self-hosting.
 </Aside>
 
-| | Hasura Cloud | FraiseQL (Self-hosted) |
-|---|---|---|
-| **GraphQL engine** | Paid tier required for production features | Open source (Apache 2.0) |
-| **Server hosting** | Included in cloud plan | Your own server or cloud VM |
-| **Database** | Extra (managed database add-on) | Existing or separate managed DB |
+|                    | Hasura Cloud                               | FraiseQL (Self-hosted)          |
+|--------------------|--------------------------------------------|---------------------------------|
+| **GraphQL engine** | Paid tier required for production features | Open source (Apache 2.0)        |
+| **Server hosting** | Included in cloud plan                     | Your own server or cloud VM     |
+| **Database**       | Extra (managed database add-on)            | Existing or separate managed DB |
 
 FraiseQL is self-hosted, so your total cost depends on your infrastructure. For many teams, running a single Rust binary alongside an existing PostgreSQL instance results in significantly lower costs than a managed GraphQL cloud service, but your mileage will vary.
 
@@ -604,6 +608,7 @@ FraiseQL is self-hosted, so your total cost depends on your infrastructure. For 
 Users can see all data instead of just their own.
 
 **Solution:**
+
 1. Verify RLS is enabled on tables:
    ```sql
    SELECT relname, relrowsecurity FROM pg_class WHERE relname LIKE 'tb_%';
@@ -626,6 +631,7 @@ Users can see all data instead of just their own.
 Observers don't execute when data changes.
 
 **Solution:**
+
 1. Verify observer is registered:
    ```python
    # Check logs during startup
@@ -651,6 +657,7 @@ Observers don't execute when data changes.
 Hasura had field-level permissions, FraiseQL exposes everything.
 
 **Solution:**
+
 1. Use field-level decorators:
    ```python
    @fraiseql.type
@@ -676,6 +683,7 @@ Hasura had field-level permissions, FraiseQL exposes everything.
 Nested queries return null or empty arrays.
 
 **Solution:**
+
 1. Check SQL view has JOIN:
    ```sql
    -- View should JOIN related tables
@@ -701,6 +709,7 @@ Nested queries return null or empty arrays.
 FraiseQL is slower than Hasura.
 
 **Solution:**
+
 1. Check for missing indexes (Hasura auto-creates, FraiseQL doesn't):
    ```sql
    -- List all indexes
