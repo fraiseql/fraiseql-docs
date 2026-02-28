@@ -1,0 +1,380 @@
+---
+title: SQL Server Enterprise Guide
+description: FraiseQL on SQL Server for regulated industries, Azure-native deployments, and enterprise environments — Always On, TDE, Windows Auth, Azure AD, and compliance patterns.
+---
+
+import { Tabs, TabItem, Aside, Steps, CardGrid, Card } from '@astrojs/starlight/components';
+
+Most GraphQL frameworks were designed for PostgreSQL-first teams. FraiseQL is different —
+SQL Server is a first-class runtime target, not an afterthought. If your organization already
+runs SQL Server for compliance, licensing, or organizational standards, FraiseQL compiles your
+schema to T-SQL and runs natively without requiring a database migration.
+
+This guide covers enterprise-specific patterns: Azure AD authentication, Always On high
+availability, Transparent Data Encryption, Row-Level Security, and compliance frameworks.
+
+## Connection and Authentication
+
+### Windows Authentication (Kerberos / NTLM)
+
+For on-premises SQL Server with Active Directory:
+
+```toml
+# fraiseql.toml
+[database]
+url = "server=SQLSERVER01;database=fraiseql_db;integratedSecurity=true;trustServerCertificate=true"
+```
+
+Use a dedicated service account rather than a developer's AD account for production:
+
+```powershell
+# Create service account in Active Directory
+New-ADUser -Name "fraiseql-svc" `
+    -SamAccountName "fraiseql-svc" `
+    -AccountPassword (Read-Host -AsSecureString "Password") `
+    -Enabled $true
+
+# Grant SQL Server login
+Invoke-Sqlcmd -Query "
+    CREATE LOGIN [DOMAIN\fraiseql-svc] FROM WINDOWS;
+    USE fraiseql_db;
+    CREATE USER [DOMAIN\fraiseql-svc] FOR LOGIN [DOMAIN\fraiseql-svc];
+    ALTER ROLE db_datareader ADD MEMBER [DOMAIN\fraiseql-svc];
+    ALTER ROLE db_datawriter ADD MEMBER [DOMAIN\fraiseql-svc];"
+```
+
+### Azure AD / Entra ID — Managed Identity (Recommended)
+
+For Azure deployments, Managed Identity eliminates stored credentials entirely:
+
+```toml
+# fraiseql.toml
+[database]
+url = "server=fraiseql-sql.database.windows.net;database=fraiseql_db;Authentication=ActiveDirectoryMsi"
+```
+
+Setup:
+
+<Steps>
+
+1. **Enable system-assigned managed identity** on your compute resource:
+   ```bash
+   # Azure Container Apps
+   az containerapp identity assign --name fraiseql-app \
+       --resource-group fraiseql-rg --system-assigned
+
+   # Azure App Service
+   az webapp identity assign --name fraiseql-app \
+       --resource-group fraiseql-rg
+   ```
+
+2. **Set an Azure AD admin** on the SQL server (required before creating AD users):
+   ```bash
+   az sql server ad-admin create \
+       --resource-group fraiseql-rg \
+       --server fraiseql-sql \
+       --display-name "Your AD Admin Name" \
+       --object-id <your-aad-user-object-id>
+   ```
+
+3. **Create a SQL login for the managed identity** (connect as an AD admin):
+   ```sql
+   -- Run against the target database, not master
+   CREATE USER [fraiseql-app] FROM EXTERNAL PROVIDER;
+   ALTER ROLE db_datareader ADD MEMBER [fraiseql-app];
+   ALTER ROLE db_datawriter ADD MEMBER [fraiseql-app];
+   ```
+
+</Steps>
+
+With this configuration, credentials are rotated automatically by Azure. No passwords in
+environment variables, config files, or deployment pipelines.
+
+### Azure AD — Service Principal (for CI/CD pipelines)
+
+For automated deployments or environments where Managed Identity is not available:
+
+```toml
+[database]
+url = "server=<server>.database.windows.net;database=<db>;Authentication=ActiveDirectoryServicePrincipal;User Id=<app-id>@<tenant-id>;Password=<client-secret>"
+```
+
+Store the client secret in Azure Key Vault and reference it via an environment variable.
+
+---
+
+## High Availability — Always On Availability Groups
+
+FraiseQL's connection pool connects to the AG listener URL. SQL Server's AG listener handles
+routing to the primary for writes and can route to a secondary for read-only queries via
+`ApplicationIntent=ReadOnly`:
+
+```toml
+# fraiseql.toml
+[database]
+# Primary — used for mutations
+url = "server=fraiseql-ag-listener.corp.local,1433;database=fraiseql_db;ApplicationIntent=ReadWrite;MultiSubnetFailover=True"
+```
+
+<Aside type="note">
+Always use the **AG listener hostname**, not individual node hostnames. The listener handles
+failover routing automatically. `MultiSubnetFailover=True` speeds up failover detection in
+multi-subnet configurations.
+</Aside>
+
+### Automatic Failover Behavior
+
+FraiseQL's connection pool uses SQL Server's native reconnection behavior. On a failover:
+
+1. In-flight queries against the old primary fail with a connection error
+2. FraiseQL returns a GraphQL error to the client
+3. The connection pool reconnects to the new primary via the AG listener on the next request
+4. Recovery time is typically 15–30 seconds (AG automatic failover) + pool reconnect time
+
+For applications requiring sub-second failover, configure a higher pool timeout and implement
+retry logic in your GraphQL client.
+
+---
+
+## Security: Row-Level Security (RLS)
+
+FraiseQL's `inject` parameter sets `SESSION_CONTEXT` from authenticated JWT claims. SQL
+Server's native RLS uses that context to filter rows — no application-layer filtering needed:
+
+```sql
+-- Step 1: Create RLS function
+CREATE FUNCTION rls.fn_user_filter(@user_id NVARCHAR(36))
+RETURNS TABLE WITH SCHEMABINDING AS
+RETURN SELECT 1 AS fn_result
+WHERE JSON_VALUE(data, '$.user_id') = @user_id
+   OR IS_ROLEMEMBER('db_admin') = 1;  -- bypass for admin role
+
+-- Step 2: Create security policy on the view
+CREATE SECURITY POLICY dbo.UserDataPolicy
+    ADD FILTER PREDICATE rls.fn_user_filter(
+        CAST(SESSION_CONTEXT(N'user_id') AS NVARCHAR(36))
+    )
+    ON dbo.v_documents
+WITH (STATE = ON);
+```
+
+FraiseQL sets `SESSION_CONTEXT` automatically when you declare `inject` on a query:
+
+```python
+# schema.py
+@fraiseql.query
+def documents(limit: int = 20) -> list[Document]:
+    return fraiseql.config(
+        sql_source="v_documents",
+        inject={"user_id": "sub"},  # inject JWT 'sub' claim as SESSION_CONTEXT 'user_id'
+    )
+```
+
+This provides **defense in depth**: FraiseQL filters at the application layer; SQL Server RLS
+filters at the database layer. A bug in one layer does not expose data.
+
+---
+
+## Transparent Data Encryption (TDE)
+
+TDE encrypts the database at rest at the storage layer. FraiseQL works with TDE without
+any application changes:
+
+```sql
+-- Enable TDE on SQL Server 2016+ (on-premises)
+USE master;
+CREATE MASTER KEY ENCRYPTION BY PASSWORD = '<strong-password>';
+CREATE CERTIFICATE TDECert WITH SUBJECT = 'FraiseQL TDE Certificate';
+
+USE fraiseql_db;
+CREATE DATABASE ENCRYPTION KEY
+    WITH ALGORITHM = AES_256
+    ENCRYPTION BY SERVER CERTIFICATE TDECert;
+ALTER DATABASE fraiseql_db SET ENCRYPTION ON;
+
+-- Verify encryption status
+SELECT db.name, dek.encryption_state_desc, dek.percent_complete
+FROM sys.dm_database_encryption_keys dek
+JOIN sys.databases db ON dek.database_id = db.database_id;
+```
+
+On **Azure SQL Database**, TDE is enabled by default on all databases. No action required.
+
+<Aside type="tip">
+Back up the TDE certificate immediately after creation. Without it, a database backup cannot
+be restored to a different server:
+```sql
+BACKUP CERTIFICATE TDECert TO FILE = 'C:\Certs\TDECert.cer'
+WITH PRIVATE KEY (
+    FILE = 'C:\Certs\TDECert.pvk',
+    ENCRYPTION BY PASSWORD = '<backup-password>'
+);
+```
+Store the certificate backup and password in a separate key management system (not on the
+database server).
+</Aside>
+
+---
+
+## Audit Logging
+
+SQL Server has two native audit mechanisms that complement FraiseQL's application-level logs:
+
+### SQL Server Audit (DDL + DML)
+
+```sql
+-- Create server audit (writes to file or Windows event log)
+CREATE SERVER AUDIT fraiseql_audit
+    TO FILE (FILEPATH = 'C:\Audit\', MAXSIZE = 100 MB);
+ALTER SERVER AUDIT fraiseql_audit WITH (STATE = ON);
+
+-- Create database audit specification
+USE fraiseql_db;
+CREATE DATABASE AUDIT SPECIFICATION fraiseql_db_audit
+    FOR SERVER AUDIT fraiseql_audit
+    ADD (SELECT, INSERT, UPDATE, DELETE ON SCHEMA::dbo BY PUBLIC)
+WITH (STATE = ON);
+```
+
+### Change Data Capture (CDC)
+
+For row-level change tracking (useful for event sourcing or audit trails):
+
+```sql
+-- Enable CDC on the database
+EXEC sys.sp_cdc_enable_db;
+
+-- Enable CDC on a specific table
+EXEC sys.sp_cdc_enable_table
+    @source_schema = 'dbo',
+    @source_name   = 'tb_orders',
+    @role_name     = NULL;
+
+-- Query change history
+SELECT * FROM cdc.dbo_tb_orders_CT
+WHERE __$start_lsn > @last_lsn
+ORDER BY __$start_lsn;
+```
+
+<Aside type="caution">
+FraiseQL's `[security]` TOML section controls application-level audit logging (recording
+GraphQL operations, JWT claims, and IP addresses). SQL Server Audit and CDC are separate,
+database-level mechanisms. For regulated environments (HIPAA, PCI-DSS), you likely need
+**both** — FraiseQL audit for application-level events, SQL Server Audit for database-level
+events — to satisfy auditor requirements.
+</Aside>
+
+---
+
+## Compliance Patterns
+
+### HIPAA
+
+Key requirements and how FraiseQL + SQL Server address them:
+
+| Requirement | Implementation |
+|-------------|---------------|
+| Access controls | SQL Server RLS + FraiseQL `inject` (user-scoped queries) |
+| Audit trails | SQL Server Audit + FraiseQL `[security]` audit logging |
+| Encryption at rest | TDE on all database files |
+| Encryption in transit | `encrypt=true` in connection string (enforced on Azure SQL) |
+| Minimum necessary | Row-level and column-level access via SQL views — only expose what the view includes |
+
+### SOC 2 Type II
+
+| Control | Implementation |
+|---------|---------------|
+| CC6.1 — Logical access controls | SQL Server logins + RLS + Windows/Azure AD auth |
+| CC6.3 — Role-based access | SQL Server roles (`db_datareader`, `db_datawriter`, custom roles) |
+| CC7.2 — Monitoring | SQL Server Audit + Application Insights + FraiseQL observer logs |
+| CC8.1 — Change management | FraiseQL schema compilation is version-controlled; schema changes produce a new compiled artifact |
+| A1.2 — Capacity planning | SQL Server DMVs + Azure Monitor metrics |
+
+### PCI-DSS
+
+PCI-DSS requires that cardholder data (card numbers, CVV, expiry) is never stored in
+plaintext. SQL Server's **Always Encrypted** feature encrypts data at the column level,
+such that the database server itself never sees plaintext values:
+
+```sql
+-- Enable Always Encrypted on a column
+ALTER TABLE tb_payment
+ALTER COLUMN card_number
+    NVARCHAR(20) ENCRYPTED WITH (
+        COLUMN_ENCRYPTION_KEY = CardDataKey,
+        ENCRYPTION_TYPE = DETERMINISTIC,  -- allows equality search
+        ALGORITHM = 'AEAD_AES_256_CBC_HMAC_SHA_256'
+    ) NOT NULL;
+```
+
+<Aside type="note">
+Always Encrypted requires the encryption key to be managed client-side (in Azure Key Vault
+or a local certificate store). FraiseQL's connection pool uses the standard SQL Server driver;
+column-level decryption happens in the driver layer transparently to FraiseQL application code.
+</Aside>
+
+---
+
+## Azure SQL Database — Tiers
+
+| Tier | Best for | Auto-pause | Max vCores |
+|------|----------|-----------|------------|
+| Serverless | Development, staging | Configurable (saves cost) | 40 |
+| General Purpose | Most production workloads | No | 128 |
+| Business Critical | High IOPS, local SSD | No | 128 |
+| Hyperscale | Large databases (>4TB) | No | 128 |
+
+Recommended fraiseql.toml pool settings by tier:
+
+<Tabs>
+  <TabItem label="Development (Serverless)">
+    ```toml
+    [database]
+    url = "${DATABASE_URL}"
+    pool_min = 1
+    pool_max = 5
+    connect_timeout_ms = 60000  # allow time for serverless resume
+    ```
+  </TabItem>
+  <TabItem label="Production (General Purpose)">
+    ```toml
+    [database]
+    url = "${DATABASE_URL}"
+    pool_min = 2
+    pool_max = 20
+    connect_timeout_ms = 5000
+    idle_timeout_ms = 600000
+    ssl_mode = "require"
+    ```
+  </TabItem>
+  <TabItem label="High-Traffic (Business Critical)">
+    ```toml
+    [database]
+    url = "${DATABASE_URL}"
+    pool_min = 5
+    pool_max = 50
+    connect_timeout_ms = 3000
+    idle_timeout_ms = 300000
+    ssl_mode = "require"
+    ```
+  </TabItem>
+</Tabs>
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Azure Deployment" icon="rocket">
+    Provision Azure SQL, Container Apps, and Key Vault end-to-end. [Azure Guide](/deployment/azure)
+  </Card>
+  <Card title="SQL Server Setup" icon="seti:db">
+    Connection strings, schema patterns, and SQL Server-specific examples. [SQL Server Guide](/databases/sqlserver)
+  </Card>
+  <Card title="SQL Server Troubleshooting" icon="warning">
+    JSON indexes, Always On lag, Azure firewall, and AD auth failures. [Troubleshooting](/troubleshooting/by-database/sqlserver)
+  </Card>
+  <Card title="Server-Side Injection" icon="approve-check">
+    How FraiseQL injects JWT claims for RLS and multi-tenancy. [Injection Guide](/features/server-side-injection)
+  </Card>
+</CardGrid>

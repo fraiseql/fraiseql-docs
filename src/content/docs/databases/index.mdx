@@ -58,6 +58,27 @@ Enterprise-grade relational database with advanced features.
 | **Production Ready** | Yes | Yes | With caveats | Yes |
 | **Cost** | Free | Free | Free | Expensive (licensing) |
 
+### FraiseQL Feature Support by Database
+
+| FraiseQL Feature | PostgreSQL | MySQL | SQLite | SQL Server |
+|-----------------|-----------|-------|--------|-----------|
+| **Relay cursor pagination** | ✅ | ❌ offset only | ❌ offset only | v2.0.2+ |
+| **Offset pagination** | ✅ | ✅ | ✅ | ✅ |
+| **Rich filters** | ✅ | ✅ | ✅ | ✅ |
+| **JSON field filters** | ✅ JSONB operators | ✅ | ✅ | ✅ JSON_VALUE |
+| **Full-text search** | ✅ | ✅ | ✅ FTS5 | ✅ CONTAINS/FREETEXT |
+| **Mutations (functions)** | ✅ | ✅ | ❌ [^sqlite-fn] | ✅ |
+| **Row-level security** | ✅ native RLS | via views | via views | ✅ native RLS |
+| **Subscriptions** | ✅ | ✅ | ❌ | ✅ |
+| **Windows Authentication** | ❌ | ❌ | ❌ | ✅ native |
+| **Azure AD / Entra ID** | via extension | ❌ | ❌ | ✅ native |
+| **Always On / HA** | via streaming replication | via replication | ❌ | ✅ Always On AG |
+| **Transparent Data Encryption** | via pgcrypto | ❌ | ❌ | ✅ native TDE |
+| **Indexed views** | ✅ materialized views | ❌ | ❌ | ✅ native |
+| **Compliance tooling** | good | basic | minimal | excellent |
+
+[^sqlite-fn]: SQLite's function-call layer returns `Unsupported` for mutations. SQLite is recommended for development and testing only.
+
 ## Platform-Specific Recommendations
 
 ### Development and Testing
@@ -82,7 +103,11 @@ Enterprise-grade relational database with advanced features.
 ### Enterprise Deployment
 **Recommended**: PostgreSQL or SQL Server
 - PostgreSQL for open-source, maximum flexibility
-- SQL Server if Windows ecosystem and enterprise support are priorities
+- SQL Server if your organization already runs it — Windows Auth, Azure AD/Entra ID, Always On, and TDE work natively without any migration
+
+<Aside type="note">
+SQL Server is a first-class FraiseQL runtime target. If your organization already runs SQL Server for compliance, licensing, or organizational standards, there is no need to migrate to PostgreSQL. FraiseQL compiles your schema to T-SQL and runs natively. See the [SQL Server Enterprise Guide](/databases/sqlserver-enterprise) for Azure AD, Always On, and compliance patterns.
+</Aside>
 
 <Aside type="tip">
 FraiseQL schemas are database-agnostic. The `tb_*`, `v_*`, `fn_*`, `tv_*` naming conventions and the data column pattern work across all supported databases. Switch databases by changing your connection string.
@@ -134,5 +159,8 @@ See each database guide for migration strategies and syntax differences.
   </Card>
   <Card title="SQL Server Guide" icon="seti:db">
     [Enterprise deployment strategies](/databases/sqlserver)
+  </Card>
+  <Card title="SQL Server Enterprise Guide" icon="seti:db">
+    [Azure AD, Always On, TDE, and compliance patterns](/databases/sqlserver-enterprise)
   </Card>
 </CardGrid>
