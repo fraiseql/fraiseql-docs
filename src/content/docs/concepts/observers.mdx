@@ -64,6 +64,10 @@ Observers run **asynchronously by default** — the mutation returns to the clie
 Observer actions use **at-least-once delivery**. Your webhook endpoints and action handlers must be idempotent — the same event may be delivered more than once after crashes or network partitions. Use a unique event ID (available in the webhook payload) to deduplicate. For exactly-once delivery semantics, route events through [NATS JetStream](/features/nats) instead.
 </Aside>
 
+<Aside type="note">
+In multi-replica deployments, FraiseQL uses a **distributed lease** to ensure only one instance processes each CDC stream at a time. If the active instance crashes, the lease expires and another instance takes over — at-least-once delivery still applies near the handover boundary, but the same event is not processed by all replicas simultaneously. Configuring a Redis backend (`redis_url` in `[observers]`) is required for the distributed lease to work across replicas.
+</Aside>
+
 ## Observer Anatomy
 
 An observer consists of:

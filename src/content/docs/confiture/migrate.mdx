@@ -59,6 +59,44 @@ Migration                        Status      Applied At
 004_add_comment_views           ✗ pending   —
 ```
 
+Add `--format json` for machine-readable output:
+
+```bash
+confiture migrate status --env production --format json
+```
+
+```json
+{
+  "tracking_table": "public.tb_confiture",
+  "applied": ["001", "002"],
+  "pending": ["003", "004"],
+  "migrations": [
+    {"version": "001", "name": "add_bio_to_users", "status": "applied", "applied_at": "2026-01-15T10:30:00+00:00"},
+    {"version": "003", "name": "create_tb_comment", "status": "pending", "applied_at": null}
+  ],
+  "summary": {"applied": 2, "pending": 2, "total": 4}
+}
+```
+
+`migrate status` exits with a **semantic exit code** for use in deployment scripts:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | All migrations applied — database is up to date |
+| `1` | Pending migrations exist |
+| `2` | Migrations table not initialised (`migrate up` needed) |
+| `3` | Connection error — check config |
+
+```bash
+confiture migrate status -c prod.yaml
+case $? in
+  0) echo "Up to date" ;;
+  1) confiture migrate up -c prod.yaml ;;
+  2) echo "Run migrate up to initialise tracking table" ;;
+  3) echo "Connection error — check your config" ;;
+esac
+```
+
 ## Writing Migrations
 
 ### Adding Columns
@@ -168,6 +206,47 @@ db/migrations/
 ```
 
 Confiture auto-increments the version number when you run `confiture migrate generate`.
+
+## Python Library API
+
+Confiture can be used as a Python library — no CLI required:
+
+```python
+from confiture import Migrator
+
+with Migrator.from_config("db/environments/prod.yaml") as m:
+    result = m.status()
+    print(f"{result.summary['pending']} pending migrations")
+    if result.has_pending:
+        up_result = m.up()
+        print(f"Applied {len(up_result.applied)} migrations")
+```
+
+Key classes and methods:
+
+| Symbol | Description |
+|--------|-------------|
+| `Migrator.from_config(config)` | Accepts an `Environment`, `Path`, or `str` path to a config file |
+| `MigratorSession` | Context manager — connection is always closed on exit |
+| `.status()` → `StatusResult` | Check migration state |
+| `.up(**kwargs)` → `MigrateUpResult` | Apply pending migrations |
+| `.down(steps, dry_run)` → `MigrateDownResult` | Roll back migrations |
+| `.reinit(through, dry_run)` → `MigrateReinitResult` | Re-initialise tracking |
+
+**`migrate up` JSON output** (v0.6.2+):
+
+```json
+{
+  "applied": ["003", "004"],
+  "skipped": [],
+  "errors": [],
+  "total_duration_ms": 412
+}
+```
+
+Note: the keys `migrations_applied`, `total_execution_time_ms`, and `execution_time_ms` (per migration) were renamed to `applied`, `total_duration_ms`, and `duration_ms` in v0.6.2. Update any scripts that parse this output.
+
+---
 
 ## Build + Migrate Together
 

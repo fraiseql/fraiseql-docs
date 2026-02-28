@@ -49,7 +49,27 @@ The compiled SQL will include `WHERE owner_id = <jwt.sub>` using the value from 
 def create_document(title: str) -> Document: ...
 ```
 
-Injected values are appended to the function call arguments alongside the explicit GraphQL arguments.
+Injected values are appended **after** the explicit GraphQL arguments when calling the SQL function.
+
+<Aside type="caution">
+**Inject params must be last in the SQL function signature.** FraiseQL appends injected values after all client-supplied arguments. The database function must declare injected parameters after all other parameters — violating this order silently passes inject values to the wrong SQL parameters.
+
+```sql
+-- Correct: injected param (created_by) declared last
+CREATE FUNCTION fn_create_document(
+    p_title TEXT,       -- client arg
+    p_created_by TEXT   -- injected from jwt:sub, must come last
+) RETURNS SETOF v_document ...
+
+-- Wrong: injected param declared first — gets the wrong value at runtime
+CREATE FUNCTION fn_create_document(
+    p_created_by TEXT,  -- ← will receive p_title's value instead
+    p_title TEXT
+) RETURNS SETOF v_document ...
+```
+
+`fraiseql compile` validates inject key names and source syntax but cannot verify SQL function arity — parameter order is a developer responsibility.
+</Aside>
 
 ### Multi-tenant queries
 

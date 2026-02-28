@@ -104,6 +104,34 @@ SELECT data FROM v_user WHERE data->>'avatar_url' IS NOT NULL
 
 ## String Operators
 
+### Semantic substring operators
+
+These operators treat the input as a **literal string** — `%` and `_` in the value are not LIKE wildcards. Use these when you want straightforward substring or prefix/suffix matching without writing a LIKE pattern.
+
+| Operator | Description | SQL | Database Support |
+|----------|-------------|-----|-----------------|
+| `_contains` | Contains substring | `LIKE '%value%'` (literal) | All |
+| `_icontains` | Contains substring (case-insensitive) | `ILIKE '%value%'` (literal) | **PostgreSQL only** |
+| `_startswith` | Starts with | `LIKE 'value%'` (literal) | All |
+| `_istartswith` | Starts with (case-insensitive) | `ILIKE 'value%'` (literal) | **PostgreSQL only** |
+| `_endswith` | Ends with | `LIKE '%value'` (literal) | All |
+| `_iendswith` | Ends with (case-insensitive) | `ILIKE '%value'` (literal) | **PostgreSQL only** |
+
+`%` and `_` in the value are automatically escaped with `ESCAPE '!'` so they match as literal characters. If you want them to act as wildcards, use `_like` / `_ilike` instead.
+
+```graphql
+query {
+    users(where: { name: { _startswith: "O'Brien" } }) {
+        id
+        name
+    }
+}
+```
+
+### Pattern matching operators
+
+`_like` / `_ilike` pass the value directly as a LIKE pattern — `%` and `_` **are** wildcards.
+
 | Operator | Description | SQL | Database Support |
 |----------|-------------|-----|-----------------|
 | `_like` | Pattern match (case-sensitive) | `LIKE $pattern` | All |
@@ -420,12 +448,18 @@ input StringFilter {
     _lte: String
     _in: [String!]
     _nin: [String!]
-    _like: String
-    _ilike: String
+    _contains: String      # literal substring match — % and _ are not wildcards
+    _icontains: String     # case-insensitive (PostgreSQL only)
+    _startswith: String    # literal prefix match
+    _istartswith: String   # case-insensitive (PostgreSQL only)
+    _endswith: String      # literal suffix match
+    _iendswith: String     # case-insensitive (PostgreSQL only)
+    _like: String          # LIKE pattern — % and _ ARE wildcards
+    _ilike: String         # case-insensitive LIKE (PostgreSQL only)
     _nlike: String
     _nilike: String
-    _regex: String
-    _iregex: String
+    _regex: String         # PostgreSQL only
+    _iregex: String        # PostgreSQL only
     _is_null: Boolean
 }
 ```
