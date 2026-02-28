@@ -581,6 +581,221 @@ WHERE database_id = DB_ID();
 EXEC xp_fixeddrives;
 ```
 
+---
+
+## JSON Path Performance
+
+### Missing Indexes on JSON Paths
+
+FraiseQL queries filter on `JSON_VALUE(data, '$.field')` paths frequently. Without a computed
+column index, SQL Server performs a full scan of the `data` column for every filtered query.
+
+**Symptom**: Queries with `where: { userId: "..." }` run fast on small datasets but degrade
+linearly as row count grows.
+
+**Solution**: Add a persisted computed column and index for each frequently filtered field:
+
+```sql
+-- Add computed column for frequently filtered field
+ALTER TABLE tb_documents
+    ADD user_id AS JSON_VALUE(data, '$.user_id') PERSISTED;
+CREATE INDEX IX_tb_documents_user_id ON tb_documents(user_id);
+
+-- Repeat for other filter fields
+ALTER TABLE tb_documents
+    ADD status AS JSON_VALUE(data, '$.status') PERSISTED;
+CREATE INDEX IX_tb_documents_status ON tb_documents(status);
+```
+
+To find which JSON paths FraiseQL is filtering on, enable query logging and inspect the
+generated T-SQL:
+
+```toml
+# fraiseql.toml
+[server]
+log_queries = true
+```
+
+Then run the slow query in SSMS with **Query → Include Actual Execution Plan** to confirm
+whether the scan is on the table or an index.
+
+<Aside type="note">
+Persisted computed columns are recalculated on INSERT/UPDATE. For write-heavy tables, benchmark
+the trade-off against query speed gains before indexing every JSON path.
+</Aside>
+
+---
+
+## Always On Availability Groups
+
+### Replica Lag — Reading Stale Data
+
+**Symptom**: GraphQL queries return results that don't reflect recent mutations. Typically
+seen when using a read replica URL (`ApplicationIntent=ReadOnly`).
+
+**Diagnosis**: Check synchronization lag using the `sys.dm_hadr_database_replica_states` DMV:
+
+```sql
+SELECT
+    replica_id,
+    synchronization_state_desc,
+    secondary_lag_seconds,
+    last_hardened_time
+FROM sys.dm_hadr_database_replica_states
+WHERE database_id = DB_ID('fraiseql_db');
+```
+
+**Solutions**:
+
+1. **Increase read consistency tolerance** in your application — accept that reads may lag
+   a few seconds behind writes. This is normal for asynchronous Always On replicas.
+
+2. **Route critical reads to primary** — if a read must be strongly consistent with a
+   preceding mutation, send it to the primary connection string:
+
+   ```toml
+   [database]
+   url = "server=<ag-listener>;database=fraiseql_db;ApplicationIntent=ReadWrite"
+   ```
+
+3. **Switch to synchronous-commit mode** on the replica (impacts primary performance):
+
+   ```sql
+   ALTER AVAILABILITY GROUP [fraiseql_ag]
+   MODIFY REPLICA ON N'REPLICA02'
+   WITH (AVAILABILITY_MODE = SYNCHRONOUS_COMMIT);
+   ```
+
+### Failover: Connection Errors After Primary Switch
+
+**Symptom**: After an AG failover, FraiseQL connections return `Login failed` or
+`Cannot open server` until restart.
+
+**Solution**: Use the AG listener URL, not individual node hostnames. The listener
+handles routing automatically:
+
+```toml
+[database]
+# Use listener, not node hostname
+url = "server=fraiseql-ag-listener.corp.local,1433;database=fraiseql_db;..."
+```
+
+Also ensure `MultiSubnetFailover=True` is in your connection string for fast failover
+detection:
+
+```toml
+[database]
+url = "server=<listener>;database=fraiseql_db;MultiSubnetFailover=True;..."
+```
+
+---
+
+## Azure SQL
+
+### Firewall Blocking Container App Connections
+
+**Symptom**: `Cannot open server requested by the login` from an Azure Container App,
+Azure Kubernetes Service, or Azure App Service.
+
+**Diagnosis**: Azure SQL Database has a deny-by-default firewall. Azure services must be
+explicitly allowed.
+
+**Quick fix for development** (allows all Azure IPs — not for production):
+
+```bash
+az sql server firewall-rule create \
+    --resource-group fraiseql-rg \
+    --server fraiseql-sql \
+    --name AllowAzureServices \
+    --start-ip-address 0.0.0.0 \
+    --end-ip-address 0.0.0.0
+```
+
+**Production**: Use VNet integration so only your specific subnet can reach the database:
+
+```bash
+# Create VNet rule for the Container App's subnet
+az sql server vnet-rule create \
+    --resource-group fraiseql-rg \
+    --server fraiseql-sql \
+    --name fraiseql-vnet-rule \
+    --vnet-name fraiseql-vnet \
+    --subnet fraiseql-subnet
+```
+
+### Azure AD / Managed Identity Authentication Failures
+
+**Symptom**: `Authentication=ActiveDirectoryMsi` in the connection string fails with
+`Login failed for user '<token-identified principal>'`.
+
+**Checklist**:
+
+1. **Managed identity is assigned to the compute resource**:
+   ```bash
+   # Container Apps
+   az containerapp identity show --name fraiseql-app --resource-group fraiseql-rg
+
+   # App Service
+   az webapp identity show --name fraiseql-app --resource-group fraiseql-rg
+   ```
+
+2. **Azure AD admin is set on the SQL server**:
+   ```bash
+   az sql server ad-admin show \
+       --resource-group fraiseql-rg --server fraiseql-sql
+   ```
+   If this returns empty, set an AD admin first:
+   ```bash
+   az sql server ad-admin create \
+       --resource-group fraiseql-rg --server fraiseql-sql \
+       --display-name "fraiseql-admin" \
+       --object-id <your-aad-user-object-id>
+   ```
+
+3. **SQL login created for the managed identity** (must be run from the database, not just
+   the server):
+   ```sql
+   -- Connect to the target database as an AD admin, then run:
+   CREATE USER [fraiseql-app] FROM EXTERNAL PROVIDER;
+   ALTER ROLE db_datareader ADD MEMBER [fraiseql-app];
+   ALTER ROLE db_datawriter ADD MEMBER [fraiseql-app];
+   ```
+   Replace `fraiseql-app` with the exact display name of your managed identity.
+
+4. **Connection string format** for managed identity (no password):
+   ```
+   server=fraiseql-sql.database.windows.net;database=fraiseql_db;Authentication=ActiveDirectoryMsi
+   ```
+
+<Aside type="caution">
+The `CREATE USER ... FROM EXTERNAL PROVIDER` step is frequently missed. It must be run against
+the specific database, not `master`, by a user who is already an Azure AD member of the SQL
+server. A missing SQL login produces the same error as a wrong password.
+</Aside>
+
+### Azure SQL Serverless Cold Start
+
+**Symptom**: First request after idle period (typically 1+ hours) times out with a connection
+error. Subsequent requests succeed.
+
+**Cause**: Azure SQL Serverless tier pauses the database after the configured auto-pause delay.
+The first connection triggers a resume that takes 30–60 seconds.
+
+**Solutions**:
+
+- **Development/staging**: Accept the cold start. It only affects the first request after idle.
+- **Production**: Disable auto-pause:
+  ```bash
+  az sql db update \
+      --resource-group fraiseql-rg \
+      --server fraiseql-sql \
+      --name fraiseql_db \
+      --auto-pause-delay -1  # -1 = disabled
+  ```
+- **Production alternative**: Use the General Purpose tier instead of Serverless.
+
+---
+
 ## Version Requirements
 
 | Feature | Minimum SQL Server Version |

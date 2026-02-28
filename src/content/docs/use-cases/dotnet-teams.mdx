@@ -1,0 +1,360 @@
+---
+title: GraphQL for .NET Teams on SQL Server
+description: Add a GraphQL API to your SQL Server stack without migrating your database. FraiseQL generates T-SQL natively, works alongside Entity Framework and Dapper, and supports Windows Auth and Azure AD.
+---
+
+import { Tabs, TabItem, Aside, Steps, CardGrid, Card } from '@astrojs/starlight/components';
+
+.NET teams running SQL Server face a common problem with GraphQL tooling: most frameworks
+assume PostgreSQL, and adding GraphQL typically means migrating your database or running a
+foreign runtime.
+
+FraiseQL is different. It generates **T-SQL natively**, deploys as a single binary, and
+integrates with the SQL Server infrastructure your team already uses — Windows Authentication,
+Azure AD / Entra ID, stored procedures, indexed views, and Row-Level Security.
+
+## What Changes (and What Doesn't)
+
+| | Before | After |
+|--|--------|-------|
+| **Database** | SQL Server | SQL Server (unchanged) |
+| **Auth** | Windows Auth / Azure AD | Windows Auth / Azure AD (unchanged) |
+| **Stored procedures** | Used by application | Can back FraiseQL mutations |
+| **Views** | Reporting, EF projections | FraiseQL reads from SQL views |
+| **Entity Framework** | ORM for writes | Continues to handle writes |
+| **Dapper** | Ad-hoc queries | Continues to run alongside |
+| **GraphQL API** | None | FraiseQL serves it |
+
+Your SQL Server schema does not change. Your EF migrations still run. FraiseQL adds a
+read-optimized GraphQL layer over SQL views you create — it doesn't replace your existing
+data access patterns.
+
+## How It Fits Into a .NET Application
+
+A common pattern is to keep Entity Framework for writes (mutations go through your domain
+logic) and use FraiseQL for complex reads (GraphQL queries that would otherwise require
+custom controller endpoints):
+
+```
+Client
+  │
+  ├─── GraphQL query ──► FraiseQL ──► SQL Server view (v_order, v_customer, ...)
+  │
+  └─── REST / mutation ──► .NET API ──► Entity Framework ──► SQL Server tables
+```
+
+FraiseQL and Entity Framework connect to the same SQL Server database. They operate
+independently — FraiseQL reads, EF writes. You can adopt FraiseQL incrementally, starting
+with one or two entities.
+
+## Example: Exposing an Order Entity
+
+Assume you have an existing `Orders` table managed by Entity Framework:
+
+```csharp
+// Existing EF model
+public class Order
+{
+    public Guid Id { get; set; }
+    public string Status { get; set; }
+    public decimal Total { get; set; }
+    public Guid CustomerId { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+```
+
+To expose orders via GraphQL:
+
+**Step 1: Create a SQL view** (FraiseQL reads from views, not tables directly)
+
+```sql
+CREATE VIEW v_order AS
+SELECT
+    o.id,
+    JSON_QUERY(
+        (SELECT
+            CAST(o.id AS NVARCHAR(36))        AS id,
+            o.status                           AS status,
+            CAST(o.total AS FLOAT)             AS total,
+            CAST(o.customer_id AS NVARCHAR(36)) AS customerId,
+            FORMAT(o.created_at, 'yyyy-MM-ddTHH:mm:ssZ') AS createdAt
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+    ) AS data
+FROM orders o;
+```
+
+**Step 2: Define the FraiseQL type**
+
+```python
+# schema.py (FraiseQL schema is defined in Python, TypeScript, or Go)
+import fraiseql
+
+@fraiseql.type
+class Order:
+    id: str
+    status: str
+    total: float
+    customer_id: str
+    created_at: str
+
+@fraiseql.query
+def orders(
+    limit: int = 20,
+    offset: int = 0,
+    status: str | None = None,
+) -> list[Order]:
+    return fraiseql.config(sql_source="v_order")
+```
+
+**Step 3: Configure and run**
+
+```toml
+# fraiseql.toml
+[project]
+name = "myapp-graphql"
+
+[database]
+url = "${DATABASE_URL}"
+
+[server]
+port = 8080
+```
+
+```bash
+fraiseql run
+# GraphQL ready at http://localhost:8080/graphql
+```
+
+**Result**: Your existing SQL Server data is now queryable via GraphQL:
+
+```graphql
+query {
+  orders(status: "pending", limit: 10) {
+    id
+    status
+    total
+    createdAt
+  }
+}
+```
+
+No changes to your EF migrations, domain model, or write path.
+
+## Authentication: Windows Auth and Azure AD
+
+<Tabs>
+  <TabItem label="Windows Auth (on-premises)">
+    ```toml
+    # fraiseql.toml
+    [database]
+    url = "server=SQLSERVER01;database=myapp;integratedSecurity=true;trustServerCertificate=true"
+    ```
+
+    Run FraiseQL under a domain service account (`DOMAIN\fraiseql-svc`). The service account
+    needs `db_datareader` on the database.
+  </TabItem>
+  <TabItem label="Azure AD / Managed Identity">
+    ```toml
+    # fraiseql.toml
+    [database]
+    url = "server=myapp-sql.database.windows.net;database=myapp;Authentication=ActiveDirectoryMsi"
+    ```
+
+    Deploy FraiseQL to Azure Container Apps or App Service with system-assigned managed identity.
+    Grant the managed identity `db_datareader` on Azure SQL. No password anywhere in the config.
+  </TabItem>
+  <TabItem label="SQL Auth (fallback)">
+    ```toml
+    # fraiseql.toml
+    [database]
+    url = "${DATABASE_URL}"  # mssql://user:password@server:1433/database
+    ```
+
+    Store the connection string in an environment variable or Azure Key Vault. Avoid hardcoding
+    credentials in fraiseql.toml.
+  </TabItem>
+</Tabs>
+
+## Using Stored Procedures for Mutations
+
+Your team likely has stored procedures for write operations. FraiseQL mutations can call
+them directly:
+
+```sql
+-- Existing stored procedure
+CREATE PROCEDURE sp_update_order_status
+    @order_id UNIQUEIDENTIFIER,
+    @status NVARCHAR(50)
+AS
+BEGIN
+    UPDATE orders SET status = @status WHERE id = @order_id;
+    SELECT CAST(id AS NVARCHAR(36)) AS id, status FROM orders WHERE id = @order_id;
+END
+```
+
+```python
+# schema.py
+@fraiseql.type
+class UpdateOrderResult:
+    id: str
+    status: str
+
+@fraiseql.mutation
+def update_order_status(order_id: str, status: str) -> UpdateOrderResult:
+    return fraiseql.config(fn_source="sp_update_order_status")
+```
+
+```graphql
+mutation {
+  updateOrderStatus(orderId: "...", status: "shipped") {
+    id
+    status
+  }
+}
+```
+
+No T-SQL rewriting. Your existing stored procedures work as-is.
+
+## Deployment Options
+
+<Tabs>
+  <TabItem label="Docker on Windows Server">
+    ```yaml
+    # docker-compose.yml
+    services:
+      fraiseql:
+        image: ghcr.io/fraiseql/fraiseql:latest
+        ports:
+          - "8080:8080"
+        environment:
+          DATABASE_URL: "server=SQLSERVER01;database=myapp;integratedSecurity=true;trustServerCertificate=true"
+        volumes:
+          - ./fraiseql.toml:/app/fraiseql.toml:ro
+          - ./schema.py:/app/schema.py:ro
+    ```
+
+    For Windows Authentication in Docker, the container must run with the domain service
+    account's credentials and the host must be domain-joined.
+  </TabItem>
+  <TabItem label="Azure Container Apps">
+    ```bash
+    az containerapp create \
+        --name fraiseql \
+        --resource-group myapp-rg \
+        --environment myapp-env \
+        --image ghcr.io/fraiseql/fraiseql:latest \
+        --env-vars \
+            "DATABASE_URL=server=myapp-sql.database.windows.net;database=myapp;Authentication=ActiveDirectoryMsi" \
+        --target-port 8080 \
+        --ingress external
+    ```
+  </TabItem>
+  <TabItem label="Azure App Service">
+    ```bash
+    az webapp create \
+        --resource-group myapp-rg \
+        --plan myapp-plan \
+        --name fraiseql-api \
+        --deployment-container-image-name ghcr.io/fraiseql/fraiseql:latest
+
+    az webapp config appsettings set \
+        --resource-group myapp-rg \
+        --name fraiseql-api \
+        --settings \
+            "DATABASE_URL=server=myapp-sql.database.windows.net;database=myapp;Authentication=ActiveDirectoryMsi"
+    ```
+  </TabItem>
+</Tabs>
+
+## What FraiseQL Generates
+
+It can be useful to see exactly what T-SQL FraiseQL executes. Enable query logging to
+capture generated statements:
+
+```toml
+[server]
+log_queries = true
+```
+
+A GraphQL query like:
+
+```graphql
+query {
+  orders(status: "pending", limit: 5) {
+    id
+    status
+    total
+  }
+}
+```
+
+Generates approximately:
+
+```sql
+SELECT TOP 5 data
+FROM v_order
+WHERE JSON_VALUE(data, '$.status') = 'pending'
+ORDER BY (SELECT NULL);
+```
+
+No ORM magic. Plain T-SQL. You can run it in SSMS, add it to Query Store analysis, or add
+a computed column index on `$.status` to speed it up.
+
+<Aside type="tip">
+Add a persisted computed column index for frequently filtered fields to avoid full scans on
+the JSON `data` column:
+
+```sql
+ALTER TABLE orders ADD status_computed AS JSON_VALUE(data, '$.status') PERSISTED;
+CREATE INDEX IX_orders_status ON orders(status_computed);
+```
+
+See the [SQL Server Troubleshooting guide](/troubleshooting/by-database/sqlserver) for
+details.
+</Aside>
+
+## Getting Started
+
+<Steps>
+
+1. **Install FraiseQL**
+
+   ```bash
+   curl -fsSL https://install.fraiseql.dev | sh
+   fraiseql --version
+   ```
+
+2. **Create your first view** over an existing table
+
+3. **Write a schema.py** with your types and queries
+
+4. **Run**
+
+   ```bash
+   fraiseql run
+   ```
+
+5. **Open GraphiQL** at `http://localhost:8080/graphql` and explore your data
+
+</Steps>
+
+## Next Steps
+
+<CardGrid>
+  <Card title="SQL Server Enterprise Guide" icon="seti:db">
+    Azure AD, Always On, TDE, and compliance patterns for regulated industries.
+    [Enterprise Guide](/databases/sqlserver-enterprise)
+  </Card>
+  <Card title="Azure Deployment" icon="rocket">
+    End-to-end Azure SQL + Container Apps deployment with Managed Identity.
+    [Azure Guide](/deployment/azure)
+  </Card>
+  <Card title="SQL Server Setup" icon="setting">
+    Connection strings, schema design, and SQL Server-specific patterns.
+    [SQL Server Guide](/databases/sqlserver)
+  </Card>
+  <Card title="Quick Start" icon="right-arrow">
+    General getting-started guide with installation and first API walkthrough.
+    [Quick Start](/getting-started/quickstart)
+  </Card>
+</CardGrid>

@@ -1,0 +1,265 @@
+---
+title: FraiseQL vs Hasura — SQL Server Support
+description: Hasura requires PostgreSQL for full functionality. FraiseQL runs natively on SQL Server with no feature degradation. Side-by-side comparison for teams running SQL Server.
+---
+
+import { Tabs, TabItem, Aside, Steps, CardGrid, Card } from '@astrojs/starlight/components';
+
+Teams evaluating GraphQL on SQL Server frequently hit the same wall with Hasura: SQL Server
+is not a supported data source. FraiseQL is designed from the ground up to treat SQL Server
+as a first-class target — the same features that work on PostgreSQL work on SQL Server,
+with no separate product tier or connector required.
+
+## The Core Difference
+
+| | Hasura | FraiseQL |
+|--|--------|---------|
+| **SQL Server support** | ❌ Not supported | ✅ First-class |
+| **T-SQL generation** | ❌ | ✅ Native, compiled |
+| **Windows Authentication** | ❌ | ✅ Integrated Security |
+| **Azure AD / Entra ID** | ❌ | ✅ ActiveDirectoryMsi |
+| **Azure SQL Managed Instance** | ❌ | ✅ |
+| **Always On Availability Groups** | ❌ | ✅ via AG listener |
+| **Relay cursor pagination** | ❌ (SQL Server) | ✅ v2.0.2+ |
+| **Row-level security** | ❌ (SQL Server) | ✅ via `inject` + SQL Server RLS |
+| **Pricing** | $995+/month (Hasura Cloud) | Self-hosted, open core |
+| **Architecture** | Runtime SQL generation | Compiled at build time |
+
+<Aside type="note">
+Hasura's data connectors (introduced in Hasura v3 / DDN) provide limited SQL Server support,
+but it is a separate connector product with reduced feature parity compared to Hasura's native
+PostgreSQL experience. FraiseQL's SQL Server support is the same code path as its PostgreSQL
+support — there is no reduced-feature "connector" mode.
+</Aside>
+
+## Why This Matters for SQL Server Teams
+
+**Hasura's architecture** was built for PostgreSQL. Its SQL generation, event triggers, and
+permission system are PostgreSQL-native. SQL Server teams using Hasura either migrate their
+database to PostgreSQL (costly, risky) or accept a degraded experience through third-party
+connectors.
+
+**FraiseQL's architecture** is database-agnostic at the core. The schema compiler generates
+database-appropriate SQL — T-SQL for SQL Server, PL/pgSQL for PostgreSQL. Your existing SQL
+Server infrastructure — stored procedures, indexed views, Row-Level Security policies, Windows
+Authentication — all work without modification.
+
+## Feature Comparison: SQL Server Specifics
+
+### Authentication
+
+<Tabs>
+  <TabItem label="FraiseQL — Windows Auth">
+    ```toml
+    # fraiseql.toml
+    [database]
+    url = "server=SQLSERVER01;database=fraiseql_db;integratedSecurity=true;trustServerCertificate=true"
+    ```
+
+    Works with Active Directory service accounts. No password stored in config.
+  </TabItem>
+  <TabItem label="FraiseQL — Azure AD">
+    ```toml
+    # fraiseql.toml
+    [database]
+    url = "server=fraiseql-sql.database.windows.net;database=fraiseql_db;Authentication=ActiveDirectoryMsi"
+    ```
+
+    Zero-credential deployment via Managed Identity. No password in any config file or
+    environment variable.
+  </TabItem>
+  <TabItem label="Hasura">
+    Hasura does not support SQL Server as a data source. Teams running SQL Server with Hasura
+    must either use a PostgreSQL migration or accept limited DDN connector support.
+  </TabItem>
+</Tabs>
+
+### Pagination
+
+<Tabs>
+  <TabItem label="FraiseQL on SQL Server">
+    ```graphql
+    # Offset pagination — available today
+    query {
+      posts(limit: 20, offset: 40) {
+        id
+        title
+      }
+    }
+
+    # Relay cursor pagination — available in v2.0.2+
+    query {
+      postsConnection(first: 20, after: "cursor...") {
+        edges {
+          node { id title }
+          cursor
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+    ```
+  </TabItem>
+  <TabItem label="Hasura on SQL Server">
+    Not available. Hasura does not support SQL Server as a native data source.
+  </TabItem>
+</Tabs>
+
+### Row-Level Security
+
+FraiseQL's `inject` parameter sets `SESSION_CONTEXT` from JWT claims, enabling SQL Server's
+native RLS policies to filter rows automatically:
+
+```sql
+-- SQL Server RLS policy
+CREATE FUNCTION rls.fn_user_filter(@user_id NVARCHAR(36))
+RETURNS TABLE WITH SCHEMABINDING AS
+RETURN SELECT 1 AS result
+WHERE JSON_VALUE(data, '$.user_id') = @user_id;
+
+CREATE SECURITY POLICY UserFilter
+    ADD FILTER PREDICATE rls.fn_user_filter(
+        CAST(SESSION_CONTEXT(N'user_id') AS NVARCHAR(36))
+    )
+    ON dbo.v_documents;
+```
+
+FraiseQL sets `SESSION_CONTEXT(N'user_id')` automatically from the JWT `sub` claim when you
+declare `inject = "user_id"` on a query. No application code required.
+
+## Migrating from Hasura to FraiseQL on SQL Server
+
+If your team evaluated Hasura and hit the SQL Server limitation, migration to FraiseQL is
+straightforward because you already have a SQL Server schema.
+
+<Steps>
+
+1. **Install FraiseQL**
+
+   ```bash
+   curl -fsSL https://install.fraiseql.dev | sh
+   fraiseql --version
+   ```
+
+2. **Create your FraiseQL schema from existing tables**
+
+   For each table your Hasura evaluation tracked (or would have tracked), create a SQL view
+   and a FraiseQL type. The view selects from your existing tables — no schema changes needed:
+
+   ```sql
+   -- Create view over your existing table
+   CREATE VIEW v_post AS
+   SELECT
+       p.id,
+       JSON_QUERY(
+           (SELECT
+               CAST(p.id AS NVARCHAR(36)) AS id,
+               p.title,
+               p.body,
+               CAST(p.user_id AS NVARCHAR(36)) AS userId,
+               FORMAT(p.created_at, 'yyyy-MM-ddTHH:mm:ssZ') AS createdAt
+           FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+       ) AS data
+   FROM posts p;
+   ```
+
+   ```python
+   # schema.py
+   import fraiseql
+
+   @fraiseql.type
+   class Post:
+       id: str
+       title: str
+       body: str
+       user_id: str
+       created_at: str
+
+   @fraiseql.query
+   def posts(limit: int = 20) -> list[Post]:
+       return fraiseql.config(sql_source="v_post")
+   ```
+
+3. **Map Hasura concepts to FraiseQL equivalents**
+
+   | Hasura concept | FraiseQL equivalent |
+   |----------------|---------------------|
+   | Track table | SQL view (`v_*`) |
+   | Object/array relationships | Nested JSON in view `SELECT` |
+   | Permissions (YAML) | SQL Server RLS + FraiseQL `inject` |
+   | Actions (HTTP webhook) | Mutations via stored procedures |
+   | Event triggers | Observers (`@observer` decorator) |
+   | Computed fields | Expressions in view `SELECT` |
+   | Remote schemas | Federation |
+
+4. **Configure FraiseQL**
+
+   ```toml
+   # fraiseql.toml
+   [project]
+   name = "my-api"
+
+   [database]
+   url = "${DATABASE_URL}"  # your SQL Server connection string
+
+   [server]
+   port = 8080
+   ```
+
+5. **Run**
+
+   ```bash
+   fraiseql run
+   # GraphQL endpoint: http://localhost:8080/graphql
+   ```
+
+</Steps>
+
+## Performance: Compiled T-SQL vs Runtime Generation
+
+FraiseQL generates SQL views at compile time. At query time, it executes a single indexed
+view lookup — no per-request SQL generation:
+
+```sql
+-- FraiseQL: single view query (generated at build time)
+SELECT data FROM v_post WHERE JSON_VALUE(data, '$.user_id') = @user_id;
+```
+
+Hasura's approach (for databases it supports) generates SQL per request based on the
+GraphQL query shape. This is flexible but adds latency and makes query plans unpredictable
+under load.
+
+For SQL Server specifically, pre-built indexed views perform significantly better than
+dynamically assembled queries because SQL Server can cache execution plans for the view
+query shape.
+
+## Who Should Use Each Tool
+
+**Hasura** is a better choice when:
+- Your team runs PostgreSQL and wants rapid GraphQL API generation
+- You prefer a GUI console over code-first schema definition
+- You use Hasura Cloud and want managed hosting
+
+**FraiseQL on SQL Server** is a better choice when:
+- Your organization already runs SQL Server (compliance, licensing, organizational mandate)
+- You need Windows Authentication or Azure AD / Entra ID integration
+- You want predictable, compiled T-SQL performance
+- You are deploying to Azure and want Managed Identity for zero-credential database auth
+- You need Always On high-availability with automatic read/write splitting
+- You require compliance tooling (TDE, RLS, SQL Server Audit)
+
+## Next Steps
+
+<CardGrid>
+  <Card title="SQL Server Enterprise Guide" icon="seti:db">
+    Azure AD, Always On, TDE, and compliance patterns. [Enterprise Guide](/databases/sqlserver-enterprise)
+  </Card>
+  <Card title="SQL Server Setup" icon="setting">
+    Connection strings, pool config, and SQL Server-specific patterns. [SQL Server Guide](/databases/sqlserver)
+  </Card>
+  <Card title="Migrate from Hasura" icon="right-arrow">
+    Full step-by-step migration guide for teams coming from Hasura. [Migration Guide](/migrations/from-hasura)
+  </Card>
+  <Card title="Azure Deployment" icon="rocket">
+    Deploy FraiseQL with Azure SQL using Managed Identity. [Azure Guide](/deployment/azure)
+  </Card>
+</CardGrid>
