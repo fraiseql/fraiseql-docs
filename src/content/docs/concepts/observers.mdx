@@ -65,7 +65,7 @@ Observer actions use **at-least-once delivery**. Your webhook endpoints and acti
 </Aside>
 
 <Aside type="note">
-In multi-replica deployments, FraiseQL uses a **distributed lease** to ensure only one instance processes each CDC stream at a time. If the active instance crashes, the lease expires and another instance takes over — at-least-once delivery still applies near the handover boundary, but the same event is not processed by all replicas simultaneously. Configuring a Redis backend (`redis_url` in `[observers]`) is required for the distributed lease to work across replicas.
+In multi-replica deployments, FraiseQL uses a **distributed lease** to ensure only one instance processes each CDC stream at a time. If the active instance crashes, the lease expires and another instance takes over — at-least-once delivery still applies near the handover boundary, but the same event is not processed by all replicas simultaneously. The lease backend is selected from `[observers]`: `postgres` uses a PostgreSQL session advisory lock (no extra infrastructure), `redis` uses an atomic TTL-based lock. The default in-process backend does not coordinate across replicas.
 </Aside>
 
 ## Observer Anatomy
