@@ -57,6 +57,7 @@ export default defineConfig({
             { label: 'Quick Start', slug: 'getting-started/quickstart' },
             { label: 'Your First API', slug: 'getting-started/first-api' },
             { label: 'Adding Mutations', slug: 'getting-started/adding-mutations' },
+            { label: 'Starter Templates', slug: 'getting-started/starters' },
             { label: 'Playground', slug: 'playground' },
           ],
         },

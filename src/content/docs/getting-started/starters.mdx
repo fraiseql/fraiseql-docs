@@ -1,0 +1,186 @@
+---
+title: Starter Templates
+description: Production-ready FraiseQL project templates — from minimal to multi-tenant auth
+---
+
+import { CardGrid, Card, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Four starter templates cover the most common starting points. Each is a working project you can clone and run with one command.
+
+<CardGrid>
+  <Card title="Minimal" icon="rocket">
+    Zero dependencies. SQLite. No Docker required. The fastest way to see FraiseQL running.
+  </Card>
+  <Card title="Blog API" icon="document">
+    PostgreSQL. Posts, comments, tags, and mutations. The reference project for all guides.
+  </Card>
+  <Card title="SaaS" icon="puzzle">
+    Multi-tenant with Row-Level Security + JWT isolation. Production-quality data model.
+  </Card>
+  <Card title="Auth" icon="approve-check-circle">
+    JWT `@inject`, RLS tenant isolation, and structured mutation errors. The most-asked security pattern.
+  </Card>
+</CardGrid>
+
+---
+
+## Minimal
+
+**Zero dependencies. SQLite. No Docker.**
+
+The smallest possible FraiseQL project — one table, one view, one query. Use this to verify your installation or as a blank canvas.
+
+```bash
+# Clone and run
+git clone https://github.com/fraiseql/starter-minimal
+cd starter-minimal
+fraiseql run
+```
+
+**What's included:**
+- `schema.py` — one `User` type, one query
+- `fraiseql.toml` — minimal config with SQLite
+- `.env.example` — ready to copy
+
+**Stack:** SQLite · No Docker · ~50 lines total
+
+---
+
+## Blog API
+
+**PostgreSQL. Posts, comments, tags, mutations.**
+
+The reference project used throughout the FraiseQL guides. A complete read/write API with relationships.
+
+```bash
+git clone https://github.com/fraiseql/starter-blog
+cd starter-blog
+docker compose up
+```
+
+Your API is live at `http://localhost:8080/graphql`.
+
+**What's included:**
+- Users, posts, comments, tags (with many-to-many)
+- `fn_create_post`, `fn_create_comment` mutation functions
+- RLS-ready schema with soft deletes
+- Seed data for immediate exploration
+
+**Stack:** PostgreSQL · Docker Compose · ~300 lines SQL + schema
+
+---
+
+## SaaS
+
+**Multi-tenant with Row-Level Security + JWT isolation.**
+
+A production-quality multi-tenant data model. Every tenant's data is isolated at the database level — no application-layer bugs can leak rows across tenants.
+
+```bash
+git clone https://github.com/fraiseql/starter-saas
+cd starter-saas
+docker compose up
+```
+
+**What's included:**
+- Tenant, user, subscription, feature-flag tables
+- PostgreSQL RLS policies on every table
+- JWT `tenant_id` claim enforced via session variables
+- Role-based access (admin / member)
+- Invite flow mutation
+
+**Stack:** PostgreSQL · Docker Compose · RLS · JWT
+
+---
+
+## Auth
+
+**`@inject`, RLS tenant isolation, structured mutation errors.**
+
+The security-focused starter. Shows the three patterns most teams ask about: injecting JWT claims server-side, enforcing row isolation at the database level, and returning structured errors from mutations.
+
+```bash
+git clone https://github.com/fraiseql/starter-auth
+cd starter-auth
+cp .env.example .env
+# Edit .env: set DATABASE_URL
+psql "$DATABASE_URL" < schema.sql
+fraiseql run
+```
+
+<Aside type="tip">
+This starter has no Docker dependency so you can see the FraiseQL compile-and-serve flow directly.
+</Aside>
+
+### Pattern 1 — Server-side JWT injection
+
+```python title="schema.py"
+@fraiseql.query(
+    sql_source="v_post",
+    inject={"tenant_id": "jwt:tenant_id"},
+)
+def posts(limit: int = 20) -> list[Post]:
+    """tenant_id comes from the verified JWT — client cannot override it."""
+    pass
+```
+
+The `inject` parameter maps JWT claims to SQL parameters. The claim is verified by the runtime before any query runs. The client cannot pass `tenant_id` directly — it is not exposed in the GraphQL schema.
+
+### Pattern 2 — Row-Level Security
+
+```sql title="schema.sql"
+CREATE POLICY tenant_isolation ON tb_post
+    USING (tenant_id = current_setting('app.tenant_id')::UUID);
+```
+
+Before each query, FraiseQL sets `app.tenant_id` from the injected JWT claim. The RLS policy filters every read automatically. Even if application code is compromised, the database enforces isolation.
+
+### Pattern 3 — Structured mutation errors
+
+```python title="schema.py"
+@fraiseql.type
+class CreatePostError:
+    code: str     # "unauthorized" | "conflict" | "invalid_input"
+    message: str
+
+@fraiseql.mutation(
+    sql_source="fn_create_post",
+    operation="CREATE",
+    inject={"user_id": "jwt:sub", "tenant_id": "jwt:tenant_id"},
+)
+def create_post(title: str, content: str) -> Post:
+    pass
+```
+
+On failure, the mutation returns a typed error instead of a generic GraphQL error:
+
+```json
+{
+  "data": {
+    "createPost": {
+      "post": null,
+      "error": { "code": "conflict", "message": "Post with this title already exists" }
+    }
+  }
+}
+```
+
+**Stack:** PostgreSQL · fraiseql.toml · No Docker
+
+---
+
+## Choosing a Starter
+
+| | Minimal | Blog | SaaS | Auth |
+|--|---------|------|------|------|
+| Database | SQLite | PostgreSQL | PostgreSQL | PostgreSQL |
+| Docker | No | Yes | Yes | No |
+| Mutations | No | Yes | Yes | Yes |
+| Multi-tenant | No | No | Yes | Yes |
+| JWT inject | No | No | Partial | Yes |
+| RLS | No | No | Yes | Yes |
+| Best for | First run | Learning | Production scaffold | Security patterns |
+
+<Aside type="note">
+The starter repos are published separately from the main FraiseQL repository. If a `git clone` fails, the repos may still be in the process of being published — check [GitHub issues](https://github.com/fraiseql/fraiseql/issues) for status.
+</Aside>

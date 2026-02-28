@@ -1,0 +1,31 @@
+# requirements.txt — Python dependencies for the FraiseQL auth example
+#
+# This file covers the FastAPI middleware wrapper (src/) and test suite (tests/).
+# The FraiseQL server itself is a compiled Rust binary and has no Python runtime
+# dependencies. These packages are needed only for the illustrative Python wrapper
+# and the integration test helpers.
+#
+# Install with:
+#   pip install -r requirements.txt
+# or with uv (recommended):
+#   uv pip install -r requirements.txt
+
+# FraiseQL Python SDK — schema authoring decorators (@fraiseql.type, @fraiseql.query, etc.)
+fraiseql>=2.0.0
+
+# FastAPI — ASGI web framework used in the thin auth-forwarding wrapper (src/main.py)
+fastapi>=0.110
+
+# Uvicorn — ASGI server for running the FastAPI wrapper locally
+uvicorn[standard]>=0.27
+
+# HTTPX — async HTTP client used in src/main.py to forward requests to FraiseQL
+# and in tests/ for integration test HTTP calls
+httpx>=0.27
+
+# python-jose — JWT decoding and verification (HS256 for dev, RS256/ES256 for prod)
+# The [cryptography] extra adds support for RSA and EC key algorithms
+python-jose[cryptography]>=3.3
+
+# pydantic-settings — loads Settings from environment variables and .env files
+pydantic-settings>=2.0
