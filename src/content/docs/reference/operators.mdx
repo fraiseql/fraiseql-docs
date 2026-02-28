@@ -136,9 +136,15 @@ query {
 |----------|-------------|-----|-----------------|
 | `_like` | Pattern match (case-sensitive) | `LIKE $pattern` | All |
 | `_ilike` | Pattern match (case-insensitive) | `ILIKE $pattern` | **PostgreSQL only** |
+| `_nlike` | Not like | `NOT LIKE $pattern` | All |
+| `_nilike` | Not ilike | `NOT ILIKE $pattern` | **PostgreSQL only** |
+| `_regex` | Regular expression | `~ $pattern` | **PostgreSQL only** |
+| `_iregex` | Case-insensitive regex | `~* $pattern` | **PostgreSQL only** |
+| `_nregex` | Not regex | `!~ $pattern` | **PostgreSQL only** |
+| `_niregex` | Not iregex | `!~* $pattern` | **PostgreSQL only** |
 
 <Aside type="note">
-`_nlike`, `_nilike`, `_regex`, `_iregex`, `_nregex`, and `_niregex` are **not yet available** — they are defined in the operator catalog but not wired in the runtime parser. Tracked in [issue #51](https://github.com/fraiseql/fraiseql/issues/51). Until fixed, use `_like` with a negating `_not` wrapper, or filter in application code.
+Operators marked **PostgreSQL only** are not available in MySQL, SQLite, or SQL Server. Using them with a non-PostgreSQL database will result in a compilation error.
 </Aside>
 
 ### Pattern Matching
@@ -156,6 +162,21 @@ query {
 
 ```sql
 SELECT data FROM v_user WHERE data->>'email' ILIKE '%@example.com'
+```
+
+### Regular Expressions
+
+```graphql
+query {
+    posts(where: { title: { _regex: "^Getting Started" } }) {
+        id
+        title
+    }
+}
+```
+
+```sql
+SELECT data FROM v_post WHERE data->>'title' ~ '^Getting Started'
 ```
 
 ## List Operators
@@ -435,7 +456,12 @@ input StringFilter {
     _iendswith: String     # case-insensitive (PostgreSQL only)
     _like: String          # LIKE pattern — % and _ ARE wildcards
     _ilike: String         # case-insensitive LIKE (PostgreSQL only)
-    # _nlike, _nilike, _regex, _iregex, _nregex, _niregex: not yet wired (issue #51)
+    _nlike: String         # NOT LIKE
+    _nilike: String        # NOT ILIKE (PostgreSQL only)
+    _regex: String         # PostgreSQL ~ operator
+    _iregex: String        # PostgreSQL ~* operator (PostgreSQL only)
+    _nregex: String        # PostgreSQL !~ operator (PostgreSQL only)
+    _niregex: String       # PostgreSQL !~* operator (PostgreSQL only)
     _is_null: Boolean
 }
 ```
