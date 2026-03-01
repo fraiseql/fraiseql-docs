@@ -26,13 +26,16 @@ FraiseQL validates authentication tokens automatically — set the appropriate e
 
 ### Configuration
 
-```toml title="fraiseql.toml"
-[auth]
-type      = "jwt"
-secret    = "${JWT_SECRET}"
-issuer    = "your-app"
-audience  = "your-api"
-algorithm = "HS256"   # HS256, RS256, or ES256
+JWT authentication is configured via environment variables:
+
+```bash
+# Required
+JWT_SECRET=your-256-bit-secret-key    # signing secret (HS256) or public key path (RS256)
+
+# Optional
+JWT_ALGORITHM=HS256                   # HS256 | RS256 | ES256 (default: HS256)
+JWT_ISSUER=your-app                   # expected iss claim (optional)
+JWT_AUDIENCE=your-api                 # expected aud claim (optional)
 ```
 
 FraiseQL validates every incoming token against these settings before routing the request to your schema. No middleware code required.
@@ -252,18 +255,72 @@ def refresh_token(info, input: RefreshInput) -> AuthPayload:
 
 ---
 
-## API Key Authentication
+## Token Revocation
 
-### Configuration
+Revoke a JWT before its `exp` claim expires — for logout, key rotation, or security incidents. Configure the revocation store in `fraiseql.toml`:
 
-```toml title="fraiseql.toml"
-[auth]
-type       = "api_key"
-header     = "X-API-Key"
-key_prefix = "sk_"   # Optional: reject keys without this prefix
+```toml
+[security.token_revocation]
+enabled     = true
+backend     = "redis"   # or "postgres"
+require_jti = true      # reject JWTs without a jti claim
+fail_open   = false     # if store unreachable, deny (not allow) the request
 ```
 
-FraiseQL looks up the API key in a table you configure and makes the associated user/scopes available on `request.auth`.
+Two endpoints are available once enabled:
+
+```bash
+# Revoke own token (self-logout)
+POST /auth/revoke
+Authorization: Bearer <token>
+Body: { "token": "<JWT>" }
+→ 200 { "revoked": true, "expires_at": "..." }
+
+# Revoke all tokens for a user (admin only, requires scope "admin:revoke")
+POST /auth/revoke-all
+Body: { "sub": "<user UUID>" }
+→ 200 { "revoked_count": 3 }
+```
+
+Revoked JTIs are stored until the token's `exp` expires — no manual cleanup needed.
+
+---
+
+## API Key Authentication
+
+API key authentication lets service accounts and CI pipelines authenticate without a JWT. Configure it via `[security.api_keys]` in `fraiseql.toml`:
+
+```toml
+[security.api_keys]
+enabled        = true
+header         = "X-API-Key"
+hash_algorithm = "sha256"   # "sha256" (fast, CI use) or "argon2" (production)
+storage        = "postgres"  # or "env" for static keys (testing/CI only)
+
+# Static keys — testing and CI only. Never in production.
+[[security.api_keys.static]]
+key_hash = "sha256:abc123..."  # echo -n "secret" | sha256sum
+scopes   = ["read:*"]
+name     = "ci-readonly"
+```
+
+For production, store hashed keys in PostgreSQL:
+
+```sql
+CREATE TABLE fraiseql_api_keys (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key_hash   TEXT NOT NULL UNIQUE,
+    name       TEXT NOT NULL,
+    scopes     JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at TIMESTAMPTZ
+);
+CREATE INDEX ON fraiseql_api_keys(key_hash) WHERE revoked_at IS NULL;
+```
+
+Requests authenticate with the key in the `X-API-Key` header. FraiseQL checks the key before falling through to JWT extraction — a missing key does not cause a 401 by itself.
+
+### Configuration
 
 ### Protecting Endpoints
 
@@ -314,20 +371,22 @@ Return the API key value exactly once — at creation. Store only a hash in your
 
 ## OAuth 2.0
 
+<Aside type="caution">
+The `[auth]` TOML namespace does not exist. OAuth provider credentials are configured via environment variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, etc.). See [OAuth Providers](/features/oauth-providers) for the full provider reference.
+</Aside>
+
 ### Configuration
 
-```toml title="fraiseql.toml"
-[auth]
-type = "oauth2"
+OAuth provider credentials are configured via environment variables:
 
-[auth.providers.google]
-client_id     = "${GOOGLE_CLIENT_ID}"
-client_secret = "${GOOGLE_CLIENT_SECRET}"
-scopes        = ["openid", "email", "profile"]
+```bash
+# Google
+GOOGLE_CLIENT_ID=your-client-id
+GOOGLE_CLIENT_SECRET=your-client-secret
 
-[auth.providers.github]
-client_id     = "${GITHUB_CLIENT_ID}"
-client_secret = "${GITHUB_CLIENT_SECRET}"
+# GitHub
+GITHUB_CLIENT_ID=your-client-id
+GITHUB_CLIENT_SECRET=your-client-secret
 ```
 
 ### OAuth Callback Mutation
@@ -356,30 +415,38 @@ FraiseQL handles the OAuth token exchange. Your PostgreSQL function `fn_upsert_o
 
 ## SAML (Enterprise SSO)
 
-### Configuration
+FraiseQL does not implement a SAML Service Provider natively. The standard approach for microservices is an **identity proxy** that accepts SAML assertions from your IdP and issues JWKS-signed JWTs to FraiseQL:
 
-```toml title="fraiseql.toml"
-[auth]
-type                   = "saml"
-metadata_url           = "${SAML_METADATA_URL}"
-entity_id              = "urn:your-app:entity"
-assertion_consumer_url = "https://api.example.com/auth/saml/acs"
+```
+Browser → SAML IdP → Identity Proxy (Keycloak / Dex / Auth0 / Okta) → JWT → FraiseQL
 ```
 
-### SAML Assertion Handler
+Configure `[security.pkce]` to point at the proxy's OIDC endpoint. The proxy handles SAML assertion validation and attribute mapping — no code changes to FraiseQL needed.
 
-```python title="schema.py"
-import fraiseql
+**Recommended proxies:**
+- **Keycloak** — self-hosted, open source, full SAML federation
+- **Dex** — lightweight, Kubernetes-native
+- **Auth0** — managed, supports SAML federation
+- **Okta** — managed enterprise
 
-@fraiseql.mutation
-def saml_acs(info, saml_response: str) -> "AuthPayload":
-    """Process a SAML assertion and return a FraiseQL JWT.
+### Auth0 Configuration
 
-    FraiseQL validates the SAML response signature,
-    extracts attributes, and calls fn_upsert_saml_user.
-    """
-    pass
+Auth0 is a supported OIDC provider. Configure FraiseQL with your Auth0 tenant:
+
+```toml
+[security.pkce]
+issuer_url    = "https://{your-auth0-domain}.auth0.com/"
+client_id     = "${AUTH0_CLIENT_ID}"
+audience      = "https://api.yourdomain.com"  # your Auth0 API audience
 ```
+
+```bash
+AUTH0_CLIENT_ID=your-client-id
+AUTH0_DOMAIN=your-tenant.auth0.com
+OIDC_CLIENT_SECRET=your-client-secret
+```
+
+If you use Auth0 Rules or Actions to add custom claims (e.g. roles), they are available in `jwt:*` inject parameters using the full claim namespace.
 
 ---
 
@@ -389,9 +456,9 @@ def saml_acs(info, saml_response: str) -> "AuthPayload":
 2. **Store secrets in environment variables** — Never commit `JWT_SECRET` to version control
 3. **Use a strong secret** — At least 32 random bytes: `openssl rand -base64 32`
 4. **Set short expiration** — Access tokens: 1 hour. Refresh tokens: 7-30 days
-5. **Restrict CORS** — Set `[server] cors_origins` to your frontend domain only
+5. **Restrict CORS** — Set `[server.cors] origins` in `fraiseql.toml` to your frontend domain only
 6. **Use `HttpOnly` cookies** for web apps — FraiseQL sets the cookie as `__Host-access_token` (the `__Host-` prefix mandates `Secure`, `Path=/`, and no `Domain` attribute, blocking subdomain override attacks)
-7. **Rate-limit login** — Protect against brute force: `[security.rate_limiting] failed_login_max_attempts = 5`
+7. **Rate-limit login** — Protect against brute force via `[security.rate_limiting]` in `fraiseql.toml`
 8. **Rotate secrets regularly** — Use RS256 with key rotation for zero-downtime rotation
 
 ---

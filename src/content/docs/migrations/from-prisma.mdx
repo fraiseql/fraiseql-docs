@@ -279,16 +279,14 @@ The relationship (`posts`, `author`) is backed by a SQL JOIN inside your `v_user
    # Create fraiseql.toml
    cat > fraiseql.toml << 'EOF'
    [database]
-   type = "postgresql"
    url = "${DATABASE_URL}"
 
-   [auth]
-   enabled = true
-   provider = "jwt"
-
-   [auth.jwt]
-   secret = "${JWT_SECRET}"
+   [server]
+   port = 8080
    EOF
+
+   # JWT authentication is configured via env var, not fraiseql.toml
+   echo "JWT_SECRET=your-256-bit-secret" >> .env
    ```
 
 3. **Convert Prisma Schema to FraiseQL Types (Days 2-3)**

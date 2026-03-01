@@ -25,135 +25,64 @@ FraiseQL supports multiple OAuth2/OIDC providers for authentication, with built-
 
 ## Configuration
 
+OAuth provider credentials are configured via environment variables — there is no `[auth]` section in `fraiseql.toml`.
+
 <Tabs syncKey="provider">
 <TabItem label="Google">
-```toml
-[auth]
-provider = "google"
-
-[auth.google]
-client_id = "${GOOGLE_CLIENT_ID}"
-client_secret = "${GOOGLE_CLIENT_SECRET}"
-redirect_uri = "https://api.example.com/auth/callback"
-
-# Optional: restrict to specific domains
-allowed_domains = ["example.com", "company.org"]
-
-# Optional: require email verification
-require_verified_email = true
+```bash
+GOOGLE_CLIENT_ID=your-client-id
+GOOGLE_CLIENT_SECRET=your-client-secret
+OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
 ```
 </TabItem>
 <TabItem label="GitHub">
-```toml
-[auth]
-provider = "github"
-
-[auth.github]
-client_id = "${GITHUB_CLIENT_ID}"
-client_secret = "${GITHUB_CLIENT_SECRET}"
-redirect_uri = "https://api.example.com/auth/callback"
-
-# Optional: require org membership
-required_org = "my-company"
-
-# Optional: map teams to roles
-[auth.github.team_roles]
-"my-company/admins" = "admin"
-"my-company/developers" = "developer"
+```bash
+GITHUB_CLIENT_ID=your-client-id
+GITHUB_CLIENT_SECRET=your-client-secret
+OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
 ```
 </TabItem>
 <TabItem label="Azure AD">
-```toml
-[auth]
-provider = "azure"
-
-[auth.azure]
-client_id = "${AZURE_CLIENT_ID}"
-client_secret = "${AZURE_CLIENT_SECRET}"
-tenant_id = "${AZURE_TENANT_ID}"
-redirect_uri = "https://api.example.com/auth/callback"
-
-# Optional: map Azure AD groups to roles
-[auth.azure.group_roles]
-"00000000-0000-0000-0000-000000000001" = "admin"
-"00000000-0000-0000-0000-000000000002" = "user"
+```bash
+AZURE_CLIENT_ID=your-client-id
+AZURE_CLIENT_SECRET=your-client-secret
+AZURE_TENANT_ID=your-tenant-id
+OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
 ```
 </TabItem>
 <TabItem label="Okta">
-```toml
-[auth]
-provider = "okta"
-
-[auth.okta]
-domain = "your-domain.okta.com"
-client_id = "${OKTA_CLIENT_ID}"
-client_secret = "${OKTA_CLIENT_SECRET}"
-redirect_uri = "https://api.example.com/auth/callback"
-
-# Optional: authorization server
-authorization_server = "default"
-
-# Optional: custom claims for roles
-role_claim = "groups"
+```bash
+OKTA_CLIENT_ID=your-client-id
+OKTA_CLIENT_SECRET=your-client-secret
+OKTA_DOMAIN=your-domain.okta.com
+OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
 ```
 </TabItem>
 <TabItem label="Auth0">
-```toml
-[auth]
-provider = "auth0"
-
-[auth.auth0]
-domain = "your-tenant.auth0.com"
-client_id = "${AUTH0_CLIENT_ID}"
-client_secret = "${AUTH0_CLIENT_SECRET}"
-redirect_uri = "https://api.example.com/auth/callback"
-audience = "https://api.example.com"
-
-# Optional: namespace for custom claims
-namespace = "https://example.com/"
-role_claim = "roles"
+```bash
+AUTH0_CLIENT_ID=your-client-id
+AUTH0_CLIENT_SECRET=your-client-secret
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_AUDIENCE=https://api.example.com
+OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
 ```
 </TabItem>
 <TabItem label="Keycloak">
-```toml
-[auth]
-provider = "keycloak"
-
-[auth.keycloak]
-server_url = "https://keycloak.example.com"
-realm = "my-realm"
-client_id = "${KEYCLOAK_CLIENT_ID}"
-client_secret = "${KEYCLOAK_CLIENT_SECRET}"
-redirect_uri = "https://api.example.com/auth/callback"
-
-# Optional: role mapping
-[auth.keycloak.role_mapping]
-"realm-admin" = "admin"
-"realm-user" = "user"
+```bash
+KEYCLOAK_CLIENT_ID=your-client-id
+KEYCLOAK_CLIENT_SECRET=your-client-secret
+KEYCLOAK_SERVER_URL=https://keycloak.example.com
+KEYCLOAK_REALM=my-realm
+OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
 ```
 </TabItem>
 <TabItem label="Generic OIDC">
-```toml
-[auth]
-provider = "oidc"
-
-[auth.oidc]
-issuer = "https://identity.example.com"
-client_id = "${OIDC_CLIENT_ID}"
-client_secret = "${OIDC_CLIENT_SECRET}"
-redirect_uri = "https://api.example.com/auth/callback"
-
-# Discovery endpoint (usually auto-detected from issuer)
-discovery_url = "https://identity.example.com/.well-known/openid-configuration"
-
-# Claims mapping
-subject_claim = "sub"
-email_claim = "email"
-name_claim = "name"
-role_claim = "roles"
-
-# Scopes to request
-scopes = ["openid", "profile", "email"]
+```bash
+OIDC_CLIENT_ID=your-client-id
+OIDC_CLIENT_SECRET=your-client-secret
+OIDC_ISSUER=https://identity.example.com
+OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
+# Discovery URL auto-detected from issuer (/.well-known/openid-configuration)
 ```
 </TabItem>
 </Tabs>
@@ -183,130 +112,41 @@ scopes = ["openid", "profile", "email"]
 
 ## Session Management
 
-### Session Storage
+Sessions are stored in PostgreSQL or Redis. Configuration is via environment variables:
 
-```toml
-[auth.session]
-# Storage backend
-storage = "postgres"  # or "redis", "memory"
-
-# Session lifetime
-ttl_seconds = 86400  # 24 hours
-
-# Refresh token lifetime
-refresh_ttl_seconds = 604800  # 7 days
-
-# Secure cookies
-cookie_secure = true
-cookie_same_site = "lax"
+```bash
+SESSION_STORAGE=postgres        # postgres | redis | memory
+SESSION_TTL_SECONDS=86400       # 24 hours
+REFRESH_TTL_SECONDS=604800      # 7 days
+REDIS_URL=redis://host:6379/0   # required when SESSION_STORAGE=redis
 ```
-
-<Tabs syncKey="storage">
-<TabItem label="PostgreSQL">
-```toml
-[auth.session]
-storage = "postgres"
-
-[auth.session.postgres]
-table_name = "tb_session"
-cleanup_interval_seconds = 3600
-```
-</TabItem>
-<TabItem label="Redis">
-```toml
-[auth.session]
-storage = "redis"
-
-[auth.session.redis]
-url = "${REDIS_URL}"
-key_prefix = "session:"
-```
-</TabItem>
-</Tabs>
 
 ## Security Features
 
 ### PKCE Support
 
-PKCE (Proof Key for Code Exchange) is enabled by default:
+PKCE (Proof Key for Code Exchange) is configured via `[security.pkce]` in `fraiseql.toml` — see [Security](/features/security#pkce).
 
-```toml
-[auth.security]
-pkce_enabled = true
-pkce_method = "S256"  # SHA-256
-```
+### State Encryption
 
-### State Parameter
-
-State is encrypted with ChaCha20-Poly1305:
-
-```toml
-[auth.security]
-state_encryption_key = "${STATE_ENCRYPTION_KEY}"
-state_ttl_seconds = 300  # 5 minutes
-```
-
-### Nonce Validation
-
-For OIDC providers:
-
-```toml
-[auth.security]
-nonce_validation = true
-nonce_ttl_seconds = 300
-```
+State blobs are encrypted via `[security.state_encryption]` in `fraiseql.toml` — see [Security](/features/security#oauth-state-security).
 
 ## Role Mapping
 
-### From Token Claims
+Roles are read from the `roles` claim in the JWT returned by your provider. JWT claim names are configured via environment variables:
 
-```toml
-[auth.roles]
-# Claim containing roles
-claim = "roles"
-
-# Default role if none specified
-default = "user"
-
-# Mapping from provider roles to app roles
-[auth.roles.mapping]
-"admin" = "admin"
-"editor" = "editor"
-"viewer" = "user"
-```
-
-### From Provider Groups
-
-```toml
-[auth.roles]
-source = "groups"  # Use group membership
-
-[auth.roles.group_mapping]
-"admins" = "admin"
-"developers" = "developer"
-"*" = "user"  # Default for any group
+```bash
+JWT_ROLES_CLAIM=roles        # JWT field containing roles (default: roles)
+JWT_DEFAULT_ROLE=user        # fallback if no roles claim present
 ```
 
 ## Multi-Provider Setup
 
-Enable multiple providers:
+Set the active provider via environment variable:
 
-```toml
-[auth]
-providers = ["google", "github", "azure"]
-default_provider = "google"
-
-[auth.google]
-client_id = "${GOOGLE_CLIENT_ID}"
-# ...
-
-[auth.github]
-client_id = "${GITHUB_CLIENT_ID}"
-# ...
-
-[auth.azure]
-client_id = "${AZURE_CLIENT_ID}"
-# ...
+```bash
+OAUTH_PROVIDER=google         # active provider
+OAUTH_DEFAULT_PROVIDER=google # fallback when ?provider= not specified
 ```
 
 Login endpoint accepts provider parameter:
@@ -367,14 +207,7 @@ func me(ctx context.Context) (*User, error) {
 
 ### Custom Claims
 
-```toml
-[auth.claims]
-# Extract custom claims from token
-tenant_id = "https://example.com/tenant_id"
-org_id = "https://example.com/org_id"
-```
-
-Access in context:
+Custom claim namespacing (used by Auth0, Okta, etc.) is handled automatically — FraiseQL extracts claims from the JWT and makes them available in context. Access in context:
 
 <Tabs syncKey="language">
 <TabItem label="Python">
@@ -517,13 +350,7 @@ FraiseQL maps JWT claims to user roles automatically. Given this token (decoded)
 }
 ```
 
-FraiseQL grants access to all resolvers decorated with `@role("admin")` or `@role("editor")`. The mapping is configured in `fraiseql.toml`:
-
-```toml
-[auth.jwt]
-claims_role_path = "roles"     # JWT field containing roles
-role_prefix = ""               # Optional prefix stripped from role values
-```
+FraiseQL grants access to all resolvers decorated with `@role("admin")` or `@role("editor")`. The roles claim field is configured via the `JWT_ROLES_CLAIM` environment variable (default: `roles`).
 
 ## Next Steps
 

@@ -36,18 +36,15 @@ For most deployments:
 
 ### Read Replicas
 
-Offload read queries to replicas:
+FraiseQL routes GraphQL queries (reads) to the replica and mutations to the primary. Replica configuration is handled at the infrastructure level — use a `DATABASE_REPLICA_URL` environment variable or a connection pooler such as PgBouncer. There is no `[database.replica]` TOML section.
 
-```toml
-[database]
-url = "${DATABASE_PRIMARY_URL}"
+```bash
+# Primary for mutations
+DATABASE_URL=postgresql://primary-host/mydb
 
-[database.replica]
-url = "${DATABASE_REPLICA_URL}"
-pool_max = 200  # More connections for reads
+# Replica for reads (configure in your load balancer or pooler)
+DATABASE_REPLICA_URL=postgresql://replica-host/mydb
 ```
-
-All read queries (GraphQL queries) are automatically routed to the replica. Mutations always go to the primary.
 
 ### PostgreSQL Tuning
 
@@ -183,6 +180,10 @@ jsonb_array_length(data->'items')  -- Not indexable
 
 ## Caching
 
+<Aside type="caution">
+The `[caching]` and `[[caching.rules]]` TOML namespaces shown below are not verified as valid `fraiseql.toml` sections. See the [Caching feature page](/features/caching) for current configuration details and status.
+</Aside>
+
 ### Response Caching
 
 Enable built-in caching:
@@ -214,14 +215,11 @@ invalidation_triggers = ["Post"]
 
 ### APQ (Automatic Persisted Queries)
 
-Reduce query parsing overhead:
+<Aside type="caution">
+The `[graphql.apq]` TOML namespace is not verified as a valid `fraiseql.toml` section. See the [APQ feature page](/features/apq) for current configuration details.
+</Aside>
 
-```toml
-[graphql.apq]
-enabled = true
-cache_size = 10000
-ttl = 86400  # 24 hours
-```
+Reduce query parsing overhead:
 
 Clients send query hash instead of full query:
 
@@ -243,8 +241,8 @@ Clients send query hash instead of full query:
 Prevent deeply nested queries:
 
 ```toml
-[graphql]
-max_depth = 8
+[validation]
+max_query_depth = 8
 ```
 
 ```graphql
@@ -276,8 +274,8 @@ query {
 Set complexity limits:
 
 ```toml
-[graphql]
-max_complexity = 1000
+[validation]
+max_query_complexity = 1000
 ```
 
 Complexity is calculated as:

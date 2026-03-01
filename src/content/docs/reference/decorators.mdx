@@ -695,18 +695,10 @@ async def before_delete_user(id: ID, context):
         raise ValueError("Cannot delete system user")
 ```
 
-## Typed Error Unions (Planned)
-
-<Aside type="caution">
-The FraiseQL compiler supports typed mutation error unions at the IR level (rc.13). The Python SDK decorator (`@fraiseql.error`) is not yet available. This section documents the planned API.
-
-For now, use `RAISE EXCEPTION` in your PostgreSQL function with a `HINT` code, or raise `FraiseQLError` in a `@before_mutation` hook — both produce structured GraphQL errors that clients can act on.
-</Aside>
-
-The planned API for typed error returns:
+## Typed Error Unions
 
 ```python
-# Planned — not yet available in rc.13
+# Available from rc.14
 @fraiseql.error
 class InsufficientFundsError:
     code: str

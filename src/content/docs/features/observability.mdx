@@ -7,18 +7,24 @@ import { Aside, Tabs, TabItem, CardGrid, Card, Steps } from '@astrojs/starlight/
 
 FraiseQL provides comprehensive observability through metrics, distributed tracing, and structured logging.
 
+<Aside type="caution">
+**TOML configuration on this page is unverified.** The `[metrics]`, `[tracing]`, `[logging]`, and `[health]` namespaces shown below are **not valid** `fraiseql.toml` sections. Observability is configured via environment variables:
+
+- **Logging level**: `RUST_LOG=info fraiseql run` (standard Rust env var; values: `error`, `warn`, `info`, `debug`, `trace`)
+- **OTLP tracing**: `OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317` and `OTEL_SERVICE_NAME=fraiseql-api` (standard OpenTelemetry env vars)
+
+The metric names, Grafana queries, and health endpoint behaviour described below are correct — the TOML configuration blocks are aspirational.
+</Aside>
+
 ## Prometheus Metrics
+
+FraiseQL exposes a `/metrics` endpoint in Prometheus format. The metric names and label schema are:
 
 ### Enable Metrics
 
-```toml
-[metrics]
-enabled = true
-endpoint = "/metrics"
-port = 9090  # Separate port for metrics
-
-# Optional: require auth for metrics
-token = "${METRICS_TOKEN}"
+```bash
+# No TOML config needed — metrics endpoint is always available at /metrics
+curl http://localhost:8080/metrics
 ```
 
 ### Available Metrics
@@ -109,20 +115,14 @@ fraiseql_db_connections_active / fraiseql_db_connections_max
 
 ### Enable Tracing
 
-```toml
-[tracing]
-enabled = true
-service_name = "fraiseql-api"
+FraiseQL exports traces via OpenTelemetry using standard env vars:
 
-[tracing.otlp]
-endpoint = "http://otel-collector:4317"
-protocol = "grpc"  # or "http"
-
-# Sampling
-[tracing.sampling]
-ratio = 0.1  # Sample 10% of requests
-# Or always sample errors
-always_sample_errors = true
+```bash
+OTEL_SERVICE_NAME=fraiseql-api
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc   # or http/protobuf
+OTEL_TRACES_SAMPLER=traceidratio
+OTEL_TRACES_SAMPLER_ARG=0.1        # sample 10% of requests
 ```
 
 ### Trace Attributes
@@ -153,35 +153,24 @@ tracestate: fraiseql=user:123
 
 <Tabs syncKey="exporter">
 <TabItem label="OTLP (recommended)">
-```toml
-[tracing]
-enabled = true
-service_name = "fraiseql-api"
-
-[tracing.otlp]
-endpoint = "http://otel-collector:4317"
-protocol = "grpc"
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_SERVICE_NAME=fraiseql-api
 ```
 </TabItem>
 <TabItem label="Jaeger">
-```toml
-[tracing]
-enabled = true
-exporter = "jaeger"
-
-[tracing.jaeger]
-agent_host = "jaeger-agent"
-agent_port = 6831
+Jaeger supports OTLP natively (v1.35+). Point the OTLP exporter at Jaeger's OTLP receiver:
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+OTEL_SERVICE_NAME=fraiseql-api
 ```
 </TabItem>
 <TabItem label="Zipkin">
-```toml
-[tracing]
-enabled = true
-exporter = "zipkin"
-
-[tracing.zipkin]
-endpoint = "http://zipkin:9411/api/v2/spans"
+```bash
+OTEL_TRACES_EXPORTER=zipkin
+OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+OTEL_SERVICE_NAME=fraiseql-api
 ```
 </TabItem>
 </Tabs>
@@ -190,19 +179,15 @@ endpoint = "http://zipkin:9411/api/v2/spans"
 
 ### Configuration
 
-```toml
-[logging]
-level = "info"  # trace, debug, info, warn, error
-format = "json"  # or "pretty" for development
+Logging is configured via environment variables:
 
-# Output
-output = "stdout"  # or file path
+```bash
+# Log level
+RUST_LOG=info                   # error | warn | info | debug | trace
+RUST_LOG=fraiseql=debug,info    # per-crate level (fraiseql at debug, everything else at info)
 
-# Include fields
-include_timestamp = true
-include_level = true
-include_target = true
-include_span = true
+# Log format (JSON output for production log aggregators)
+FRAISEQL_LOG_FORMAT=json        # json | pretty (default: pretty in dev, json in prod)
 ```
 
 ### Log Format (JSON)
@@ -227,41 +212,17 @@ include_span = true
 
 ### Log Levels by Component
 
-```toml
-[logging.levels]
-# Default level
-default = "info"
+Use the standard `RUST_LOG` directive syntax for per-crate levels:
 
-# Per-component levels
-"fraiseql_server" = "info"
-"fraiseql_core::cache" = "debug"
-"fraiseql_core::db" = "warn"
-"tower_http" = "debug"
-"sqlx" = "warn"
-```
-
-### Request Context
-
-Every log includes request context:
-
-```toml
-[logging.context]
-include_request_id = true
-include_user_id = true
-include_tenant_id = true
-include_operation = true
+```bash
+RUST_LOG=fraiseql_server=info,fraiseql_core::cache=debug,fraiseql_core::db=warn,tower_http=debug,sqlx=warn
 ```
 
 ## Health Checks
 
 ### Endpoints
 
-```toml
-[health]
-enabled = true
-path = "/health"
-detailed_path = "/health/detailed"
-```
+FraiseQL exposes health endpoints automatically — no configuration required:
 
 **Basic health:**
 ```bash
@@ -369,27 +330,16 @@ groups:
 
 ### Sampling Strategy
 
-```toml
-[tracing.sampling]
-# Sample 100% of errors
-always_sample_errors = true
-
-# Sample 10% of successful requests
-ratio = 0.1
-
-# Always sample slow requests
-slow_request_threshold_ms = 1000
+```bash
+OTEL_TRACES_SAMPLER=traceidratio
+OTEL_TRACES_SAMPLER_ARG=0.1       # sample 10% of requests
 ```
+
+For error-focused sampling, configure your OTel collector or use a tail-based sampler (e.g., Grafana Tempo, OpenTelemetry Collector's `tailsampling` processor) to keep 100% of error traces while downsampling success traces.
 
 ### Log Retention
 
-```toml
-[logging.rotation]
-enabled = true
-max_size_mb = 100
-max_files = 10
-compress = true
-```
+Log rotation is handled by your container runtime or log aggregator (Fluent Bit, Logstash, Loki, etc.) — not by FraiseQL. Write logs to stdout and let your infrastructure handle rotation and retention.
 
 ### Metric Cardinality
 
@@ -397,55 +347,39 @@ compress = true
 Avoid high-cardinality labels like `user_id` or `request_id`. Each unique label value creates a new time series in Prometheus, which can consume large amounts of memory.
 </Aside>
 
-```toml
-[metrics]
-# Don't include user_id as label (too many values)
-exclude_labels = ["user_id", "request_id"]
-
-# Group operations by type instead
-group_by_type = true
-```
+FraiseQL does not include `user_id` or `request_id` as metric labels by default — these high-cardinality values are kept in structured logs and traces instead, where cardinality is not a concern.
 
 ## Troubleshooting
 
 ### Missing Metrics
 
-1. Verify `metrics.enabled = true`
-2. Check metrics endpoint is accessible
-3. Verify Prometheus can scrape endpoint
+1. Check `/metrics` endpoint is reachable from your Prometheus instance
+2. Verify Prometheus scrape config points to the correct port and path
+3. Ensure FraiseQL started successfully (`fraiseql run` with no errors)
 
 ### Missing Traces
 
-1. Check OTLP endpoint connectivity
-2. Verify sampling isn't too aggressive
+1. Verify `OTEL_EXPORTER_OTLP_ENDPOINT` is set and reachable
+2. Check `OTEL_TRACES_SAMPLER_ARG` — a low value (e.g., `0.001`) may drop traces in low-traffic tests
 3. Check trace context propagation headers
 
 ### Log Spam
 
-1. Adjust log levels per component
-2. Enable sampling for high-volume logs
-3. Filter in log aggregator
+1. Adjust `RUST_LOG` level per component (e.g., `RUST_LOG=warn,fraiseql=info`)
+2. Filter in your log aggregator (Loki, Elasticsearch, etc.)
 
 ## Verify It Works
 
 <Steps>
 
-1. **Enable metrics in `fraiseql.toml`**:
-   ```toml
-   [metrics]
-   enabled = true
-   endpoint = "/metrics"
-   port = 9090
-   ```
-
-2. **Start FraiseQL**:
+1. **Start FraiseQL** — metrics are always available, no config needed:
    ```bash
    fraiseql run
    ```
 
-3. **Test metrics endpoint**:
+2. **Test metrics endpoint**:
    ```bash
-   curl http://localhost:9090/metrics
+   curl http://localhost:8080/metrics
    ```
    
    Expected output (partial):
@@ -477,7 +411,7 @@ group_by_type = true
 
 5. **Verify metrics updated**:
    ```bash
-   curl http://localhost:9090/metrics | grep fraiseql_graphql_queries_total
+   curl http://localhost:8080/metrics | grep fraiseql_graphql_queries_total
    ```
    
    Expected output:
@@ -548,15 +482,12 @@ group_by_type = true
    ```
 
 8. **Test OpenTelemetry tracing** (if enabled):
-   ```toml
-   [tracing]
-   enabled = true
-   service_name = "fraiseql-api"
-   
-   [tracing.otlp]
-   endpoint = "http://localhost:4317"
+   ```bash
+   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+   OTEL_SERVICE_NAME=fraiseql-api \
+   fraiseql run
    ```
-   
+
    After making requests, check your tracing backend (Jaeger, Zipkin, etc.) for spans.
 
 </Steps>
@@ -565,21 +496,16 @@ group_by_type = true
 
 ### No Metrics Available
 
-If `/metrics` returns empty:
+If `/metrics` returns empty or connection refused:
 
-1. Verify metrics are enabled:
+1. Check FraiseQL started successfully:
    ```bash
-   grep -A5 '\[metrics\]' fraiseql.toml
+   fraiseql run 2>&1 | head -20
    ```
 
-2. Check FraiseQL logs for startup errors:
+2. Verify the metrics endpoint is on port 8080 (same port as GraphQL):
    ```bash
-   fraiseql run 2>&1 | grep -i metrics
-   ```
-
-3. Ensure port 9090 is not in use:
-   ```bash
-   lsof -i :9090
+   curl http://localhost:8080/metrics
    ```
 
 ### Missing Database Metrics
@@ -591,36 +517,22 @@ If database connection metrics are absent:
    curl http://localhost:8080/health/detailed | jq .checks.database
    ```
 
-2. Check pool configuration:
-   ```toml
-   [databases.primary]
-   pool_size = 10
-   ```
+2. Check `[database]` pool configuration in `fraiseql.toml`
 
 ### High Cardinality Warnings
 
-If Prometheus shows cardinality warnings:
-
-```toml
-[metrics]
-# Exclude high-cardinality labels
-exclude_labels = ["user_id", "request_id", "session_id"]
-```
+FraiseQL does not include `user_id` or `request_id` as metric labels by default — no configuration needed.
 
 ### Traces Not Appearing
 
 If traces don't show up in your backend:
 
-1. Verify OTLP endpoint connectivity:
+1. Verify OTLP endpoint is reachable from the FraiseQL process:
    ```bash
    curl http://otel-collector:4317
    ```
 
-2. Check sampling configuration:
-   ```toml
-   [tracing.sampling]
-   ratio = 1.0  # Sample 100% for testing
-   ```
+2. Set `OTEL_TRACES_SAMPLER_ARG=1.0` temporarily to sample 100% for testing
 
 3. Ensure trace context propagation:
    ```bash

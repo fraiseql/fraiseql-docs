@@ -16,59 +16,34 @@ This guide covers deploying FraiseQL to production environments, including Docke
 name = "my-api"
 version = "1.0.0"
 
-[database]
-type = "postgresql"
-url = "${DATABASE_URL}"
-pool_min = 10
-pool_max = 100
-statement_timeout = 30000
-
-[database.replica]
-url = "${DATABASE_REPLICA_URL}"
-pool_min = 20
-pool_max = 200
-
 [server]
 host = "0.0.0.0"
 port = 8080
-workers = 0  # 0 = use all CPU cores
 
 [server.cors]
 origins = ["https://app.example.com"]
 credentials = true
 
-[graphql]
-playground = false
-introspection = false
-max_depth = 8
-max_complexity = 500
+[database]
+url = "${DATABASE_URL}"
+pool_min = 10
+pool_max = 100
+connect_timeout_ms = 5000
+idle_timeout_ms = 600000
+ssl_mode = "require"
 
-[graphql.apq]
+[security.error_sanitization]
 enabled = true
-cache_size = 10000
+hide_implementation_details = true
+sanitize_database_errors = true
 
-[auth]
+[security.rate_limiting]
 enabled = true
-provider = "jwt"
-
-[auth.jwt]
-secret = "${JWT_SECRET}"
-algorithm = "HS256"
-issuer = "my-api"
-
-[logging]
-level = "info"
-format = "json"
-
-[metrics]
-enabled = true
-
-[tracing]
-enabled = true
-provider = "otlp"
-endpoint = "${OTLP_ENDPOINT}"
-sample_rate = 0.1
+requests_per_second = 100
+burst_size = 200
 ```
+
+JWT authentication is configured via environment variables, not `fraiseql.toml` (see [Environment Variables](#environment-variables) below). There is no `[auth]` TOML section.
 
 ### Environment Variables
 
@@ -77,16 +52,17 @@ Required environment variables for production:
 ```bash
 # Database
 DATABASE_URL=postgresql://user:pass@host:5432/dbname?sslmode=require
-DATABASE_REPLICA_URL=postgresql://user:pass@replica:5432/dbname?sslmode=require
 
-# Authentication
-JWT_SECRET=your-256-bit-secret-key
+# JWT authentication
+JWT_SECRET=your-256-bit-secret-key    # required if using JWT auth
+JWT_ALGORITHM=HS256                   # HS256 | RS256 | ES256 (default: HS256)
 
-# Caching (if enabled)
-REDIS_URL=redis://host:6379/0
+# Logging (standard Rust env var)
+RUST_LOG=info
 
-# Observability
-OTLP_ENDPOINT=https://otlp.example.com:4317
+# OpenTelemetry tracing (standard OTel env vars)
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.example.com:4317
+OTEL_SERVICE_NAME=fraiseql-api
 ```
 
 ## Docker Deployment
@@ -96,7 +72,7 @@ OTLP_ENDPOINT=https://otlp.example.com:4317
 FraiseQL is distributed as a pre-built Docker image — no Rust toolchain required. Use the official image as your base and copy in your schema:
 
 ```dockerfile
-FROM fraiseql/fraiseql:latest
+FROM ghcr.io/fraiseql/fraiseql:latest
 
 WORKDIR /app
 
@@ -116,14 +92,14 @@ For CI/CD pipelines where you want to pre-compile the schema to a static artifac
 
 ```dockerfile
 # Stage 1: compile schema to schema.compiled.json
-FROM fraiseql/fraiseql:latest AS builder
+FROM ghcr.io/fraiseql/fraiseql:latest AS builder
 WORKDIR /app
 COPY fraiseql.toml .
 COPY schema.py .
 RUN fraiseql compile
 
 # Stage 2: minimal runtime image with compiled schema
-FROM fraiseql/fraiseql:latest
+FROM ghcr.io/fraiseql/fraiseql:latest
 WORKDIR /app
 COPY --from=builder /app/schema.compiled.json .
 COPY fraiseql.toml .
@@ -148,10 +124,9 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - JWT_SECRET=${JWT_SECRET}
-      - REDIS_URL=redis://redis:6379/0
+      - RUST_LOG=info
     depends_on:
       - postgres
-      - redis
     deploy:
       replicas: 3
       resources:
@@ -181,19 +156,8 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
 volumes:
   postgres_data:
-  redis_data:
 ```
 
 ## Kubernetes Deployment
@@ -304,7 +268,7 @@ metadata:
 type: Opaque
 stringData:
   database-url: postgresql://user:pass@postgres:5432/mydb
-  jwt-secret: your-256-bit-secret
+  jwt-secret: your-256-bit-secret   # injected as JWT_SECRET env var
 ```
 
 ## Cloud Platforms
@@ -456,11 +420,8 @@ fly deploy
 # Create backup
 pg_dump $DATABASE_URL > backup-$(date +%Y%m%d).sql
 
-# Run migrations
-fraiseql migrate --env production
-
-# Verify
-fraiseql migrate status
+# Run migrations (use your SQL migration tool: Flyway, Liquibase, sqitch, golang-migrate, etc.)
+# FraiseQL does not bundle a migration runner — manage schema changes separately
 ```
 
 ### Zero-Downtime Migrations
@@ -550,16 +511,14 @@ For high-scale deployments, use external connection pooling:
 Review this checklist before every production deployment. Missing items in this list are common sources of security incidents.
 </Aside>
 
-- [ ] **TLS enabled** for all traffic
-- [ ] **JWT secrets** are strong (256+ bits)
+- [ ] **TLS enabled** for all traffic (via load balancer or `[server.tls]`)
+- [ ] **JWT secrets** are strong (`JWT_SECRET` env var, 256+ bits)
 - [ ] **Database credentials** use secrets management
 - [ ] **Network policies** restrict pod-to-pod traffic
-- [ ] **Rate limiting** enabled at load balancer
-- [ ] **Introspection disabled** in production
-- [ ] **Playground disabled** in production
-- [ ] **CORS origins** explicitly listed
-- [ ] **SQL injection** prevented (parameterized queries)
-- [ ] **Audit logging** enabled
+- [ ] **Rate limiting** enabled (`[security.rate_limiting]` in `fraiseql.toml`)
+- [ ] **Error sanitization** enabled (`[security.error_sanitization]` in `fraiseql.toml`)
+- [ ] **CORS origins** explicitly listed (`[server.cors]` in `fraiseql.toml`)
+- [ ] **SQL injection** prevented (parameterized queries — FraiseQL does this automatically)
 
 ## Monitoring
 

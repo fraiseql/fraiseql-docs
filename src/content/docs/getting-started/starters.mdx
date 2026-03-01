@@ -5,11 +5,11 @@ description: Production-ready FraiseQL project templates — from minimal to mul
 
 import { CardGrid, Card, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Four starter templates cover the most common starting points. Each is a working project you can clone and run with one command.
+Three starter templates cover the most common starting points. Each is a working project you can clone and run with one command.
 
 <CardGrid>
   <Card title="Minimal" icon="rocket">
-    Zero dependencies. SQLite. No Docker required. The fastest way to see FraiseQL running.
+    PostgreSQL. One type, two queries, one mutation. The fastest way to see FraiseQL running.
   </Card>
   <Card title="Blog API" icon="document">
     PostgreSQL. Posts, comments, tags, and mutations. The reference project for all guides.
@@ -17,32 +17,30 @@ Four starter templates cover the most common starting points. Each is a working 
   <Card title="SaaS" icon="puzzle">
     Multi-tenant with Row-Level Security + JWT isolation. Production-quality data model.
   </Card>
-  <Card title="Auth" icon="approve-check-circle">
-    JWT `@inject`, RLS tenant isolation, and structured mutation errors. The most-asked security pattern.
-  </Card>
 </CardGrid>
 
 ---
 
 ## Minimal
 
-**Zero dependencies. SQLite. No Docker.**
+**PostgreSQL. One type, two queries, one mutation.**
 
-The smallest possible FraiseQL project — one table, one view, one query. Use this to verify your installation or as a blank canvas.
+The smallest possible FraiseQL project. Use this to verify your installation or as a blank canvas.
 
 ```bash
-# Clone and run
-git clone https://github.com/fraiseql/starter-minimal
-cd starter-minimal
-fraiseql run
+git clone https://github.com/fraiseql/fraiseql-starter-minimal
+cd fraiseql-starter-minimal
+cp .env.example .env
+docker compose up
 ```
 
 **What's included:**
-- `schema.py` — one `User` type, one query
-- `fraiseql.toml` — minimal config with SQLite
+- `schema.py` — one type, two queries, one mutation
+- `fraiseql.toml` — minimal config
+- `init.sql` — table, view, function, and seed data
 - `.env.example` — ready to copy
 
-**Stack:** SQLite · No Docker · ~50 lines total
+**Stack:** PostgreSQL · Docker Compose · ~100 lines total
 
 ---
 
@@ -53,8 +51,9 @@ fraiseql run
 The reference project used throughout the FraiseQL guides. A complete read/write API with relationships.
 
 ```bash
-git clone https://github.com/fraiseql/starter-blog
-cd starter-blog
+git clone https://github.com/fraiseql/fraiseql-starter-blog
+cd fraiseql-starter-blog
+cp .env.example .env
 docker compose up
 ```
 
@@ -77,8 +76,9 @@ Your API is live at `http://localhost:8080/graphql`.
 A production-quality multi-tenant data model. Every tenant's data is isolated at the database level — no application-layer bugs can leak rows across tenants.
 
 ```bash
-git clone https://github.com/fraiseql/starter-saas
-cd starter-saas
+git clone https://github.com/fraiseql/fraiseql-starter-saas
+cd fraiseql-starter-saas
+cp .env.example .env
 docker compose up
 ```
 
@@ -100,17 +100,13 @@ docker compose up
 The security-focused starter. Shows the three patterns most teams ask about: injecting JWT claims server-side, enforcing row isolation at the database level, and returning structured errors from mutations.
 
 ```bash
-git clone https://github.com/fraiseql/starter-auth
-cd starter-auth
+git clone https://github.com/fraiseql/fraiseql-starter-auth
+cd fraiseql-starter-auth
 cp .env.example .env
-# Edit .env: set DATABASE_URL
-psql "$DATABASE_URL" < schema.sql
-fraiseql run
+# Edit .env: set DATABASE_URL and JWT_SECRET
+python schema.py && fraiseql compile
+docker compose up
 ```
-
-<Aside type="tip">
-This starter has no Docker dependency so you can see the FraiseQL compile-and-serve flow directly.
-</Aside>
 
 ### Pattern 1 — Server-side JWT injection
 
@@ -165,7 +161,7 @@ On failure, the mutation returns a typed error instead of a generic GraphQL erro
 }
 ```
 
-**Stack:** PostgreSQL · fraiseql.toml · No Docker
+**Stack:** PostgreSQL · Docker Compose · JWT · RLS
 
 ---
 
@@ -173,14 +169,11 @@ On failure, the mutation returns a typed error instead of a generic GraphQL erro
 
 | | Minimal | Blog | SaaS | Auth |
 |--|---------|------|------|------|
-| Database | SQLite | PostgreSQL | PostgreSQL | PostgreSQL |
-| Docker | No | Yes | Yes | No |
-| Mutations | No | Yes | Yes | Yes |
+| Database | PostgreSQL | PostgreSQL | PostgreSQL | PostgreSQL |
+| Docker | Yes | Yes | Yes | Yes |
+| Mutations | Yes | Yes | Yes | Yes |
 | Multi-tenant | No | No | Yes | Yes |
 | JWT inject | No | No | Partial | Yes |
 | RLS | No | No | Yes | Yes |
+| Published | ✅ | ✅ | ✅ | ✅ |
 | Best for | First run | Learning | Production scaffold | Security patterns |
-
-<Aside type="note">
-The starter repos are published separately from the main FraiseQL repository. If a `git clone` fails, the repos may still be in the process of being published — check [GitHub issues](https://github.com/fraiseql/fraiseql/issues) for status.
-</Aside>

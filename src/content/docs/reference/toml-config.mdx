@@ -24,6 +24,12 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[security.rate_limiting]` | RC — added rc.13; Redis backend wired rc.14 |
 | `[security.state_encryption]` | RC — added rc.13 |
 | `[security.pkce]` | RC — added rc.13 |
+| `[security.api_keys]` | RC — added rc.14 |
+| `[security.token_revocation]` | RC — added rc.14 |
+| `[security.trusted_documents]` | RC — added rc.14 |
+| `[validation]` | RC — added rc.14 |
+| `[subscriptions]` | RC — added rc.14 |
+| `[debug]` | RC — added rc.14 |
 | `[federation]` | RC |
 | `[observers]` | RC |
 
@@ -447,6 +453,193 @@ state_ttl_secs        = 600
 In multi-replica deployments, PKCE state must be stored in Redis. Without it, a user's `/auth/start` may hit replica A while `/auth/callback` hits replica B, causing the state lookup to fail silently. Requires the `redis-pkce` Cargo feature. Set `FRAISEQL_REQUIRE_REDIS=1` to enforce this at startup.
 </Aside>
 
+### [security.api_keys]
+
+<Aside type="note">
+Added in rc.14.
+</Aside>
+
+API key authentication for service-to-service and CI/CD access. Keys are stored hashed — the plaintext is returned once at creation and never stored.
+
+```toml
+[security.api_keys]
+enabled        = true
+header         = "X-API-Key"       # HTTP header name
+hash_algorithm = "sha256"          # "sha256" (fast) or "argon2" (production)
+storage        = "postgres"        # "postgres" or "env" (static keys, CI only)
+
+# Static keys — testing and CI only. Never in production.
+[[security.api_keys.static]]
+key_hash = "sha256:abc123..."      # echo -n "secret" | sha256sum
+scopes   = ["read:*"]
+name     = "ci-readonly"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable API key authentication |
+| `header` | string | `"X-API-Key"` | HTTP header to read the key from |
+| `hash_algorithm` | string | `"sha256"` | Hashing algorithm: `"sha256"` or `"argon2"` |
+| `storage` | string | `"postgres"` | Key storage backend: `"postgres"` (production) or `"env"` (static, CI only) |
+
+For production, store hashed keys in the `fraiseql_api_keys` table. See [Authentication](/guides/authentication#api-key-authentication) for the table schema and mutation patterns.
+
+### [security.token_revocation]
+
+<Aside type="note">
+Added in rc.14.
+</Aside>
+
+Revoke JWTs before their `exp` claim expires — for logout, key rotation, or security incidents.
+
+```toml
+[security.token_revocation]
+enabled     = true
+backend     = "redis"   # "redis" or "postgres"
+require_jti = true      # reject JWTs without a jti claim
+fail_open   = false     # if store unreachable, deny (not allow) the request
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable token revocation |
+| `backend` | string | — | Storage backend: `"redis"` (recommended) or `"postgres"` |
+| `require_jti` | bool | `false` | Reject tokens that have no `jti` claim |
+| `fail_open` | bool | `false` | When `false` (default), deny requests if the revocation store is unreachable. Set `true` to allow through on store failure |
+
+When enabled, two endpoints become available:
+- `POST /auth/revoke` — revoke the caller's own token (self-logout)
+- `POST /auth/revoke-all` — revoke all tokens for a user (requires `admin:revoke` scope)
+
+Revoked JTIs are stored until the token's `exp` expires — no manual cleanup needed.
+
+### [security.trusted_documents]
+
+<Aside type="note">
+Added in rc.14.
+</Aside>
+
+Query allowlisting — only permit GraphQL operations present in a pre-approved manifest. Useful for hardening production APIs against arbitrary query execution.
+
+```toml
+[security.trusted_documents]
+enabled              = true
+mode                 = "strict"       # "strict" | "permissive"
+manifest_path        = "./trusted-documents.json"
+reload_interval_secs = 300            # 0 = no hot-reload
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable trusted document enforcement |
+| `mode` | string | `"permissive"` | `"strict"` rejects unknown operations; `"permissive"` logs them but allows through |
+| `manifest_path` | string | — | Path to local JSON manifest (hash → query) |
+| `manifest_url` | string | — | URL to fetch the manifest from at startup |
+| `reload_interval_secs` | integer | `0` | How often to poll for manifest changes (0 = no reload) |
+
+<Aside type="tip">
+In `"strict"` mode, no ad-hoc queries can reach the server — only operations registered in the manifest. Build manifest generation into your CI/CD pipeline so new queries are approved before deployment.
+</Aside>
+
+---
+
+### [validation]
+
+<Aside type="note">
+Added in rc.14.
+</Aside>
+
+Query depth and complexity limits enforced at parse time, before execution. Queries exceeding either limit receive a validation error — no database round-trip occurs.
+
+```toml
+[validation]
+max_query_depth      = 10
+max_query_complexity = 100
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_query_depth` | integer | `10` | Maximum allowed field nesting depth |
+| `max_query_complexity` | integer | `100` | Maximum allowed query complexity score |
+
+Complexity is calculated by summing field weights (lists count more than scalars). Adjust thresholds based on your schema — a schema with many list fields may need a higher limit for legitimate queries.
+
+---
+
+### [subscriptions]
+
+<Aside type="note">
+Added in rc.14.
+</Aside>
+
+WebSocket subscription settings. FraiseQL supports both `graphql-transport-ws` (modern) and `graphql-ws` (Apollo legacy) — protocol is negotiated from the `Sec-WebSocket-Protocol` header automatically.
+
+```toml
+[subscriptions]
+max_subscriptions_per_connection = 10
+
+[subscriptions.hooks]
+on_connect    = "https://auth.example.com/ws/connect"
+on_subscribe  = "https://auth.example.com/ws/subscribe"
+on_disconnect = "https://auth.example.com/ws/disconnect"
+timeout_ms    = 500
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_subscriptions_per_connection` | integer | unlimited | Maximum concurrent subscriptions per WebSocket connection |
+
+**`[subscriptions.hooks]`** — webhook URLs invoked during connection lifecycle:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `on_connect` | string | — | URL to `POST` on `connection_init`. Fail-closed: connection rejected if hook returns non-2xx |
+| `on_subscribe` | string | — | URL to `POST` before a subscription is registered. Fail-closed |
+| `on_disconnect` | string | — | URL to `POST` on WebSocket close. Fire-and-forget (errors ignored) |
+| `timeout_ms` | integer | `500` | Timeout for fail-closed hooks (`on_connect`, `on_subscribe`) |
+
+<Aside type="caution">
+`on_connect` and `on_subscribe` hooks are fail-closed — a hook timeout or non-2xx response rejects the connection or subscription. Set `timeout_ms` conservatively (the default 500 ms is usually fine) and ensure your auth service has low latency.
+</Aside>
+
+---
+
+### [debug]
+
+<Aside type="note">
+Added in rc.14.
+</Aside>
+
+Development and diagnostics features. All debug capabilities are disabled by default and gated behind a master `enabled` switch. Never enable in production.
+
+```toml
+[debug]
+enabled          = true   # master switch — required for all other flags
+database_explain = true   # include EXPLAIN output in /api/v1/query/explain responses
+expose_sql       = true   # include generated SQL in explain responses (default when enabled)
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Master switch. All debug features require this to be `true` |
+| `database_explain` | bool | `false` | Run `EXPLAIN` against the database and include the query plan in `/api/v1/query/explain` responses |
+| `expose_sql` | bool | `true` | Include generated SQL in explain responses |
+
+**Explain endpoint:**
+
+```bash
+POST /api/v1/query/explain
+Content-Type: application/json
+
+{"query": "{ users { id name } }"}
+```
+
+Response includes the generated SQL and (when `database_explain = true`) the Postgres query plan. Use this to diagnose slow queries without enabling general query logging.
+
+<Aside type="caution">
+`expose_sql = true` reveals your internal view and function names to anyone who can reach the endpoint. Protect `/api/v1/` behind a firewall or VPN in development environments.
+</Aside>
+
 ---
 
 ### [federation]
@@ -571,6 +764,29 @@ burst_size                = 200
 auth_start_max_requests   = 5
 failed_login_max_attempts = 5
 failed_login_lockout_secs = 900
+
+[security.api_keys]
+enabled        = true
+hash_algorithm = "argon2"
+storage        = "postgres"
+
+[security.token_revocation]
+enabled     = true
+backend     = "redis"
+require_jti = true
+fail_open   = false
+
+[security.trusted_documents]
+enabled   = true
+mode      = "strict"
+manifest_path = "./trusted-documents.json"
+
+[validation]
+max_query_depth      = 10
+max_query_complexity = 100
+
+[subscriptions]
+max_subscriptions_per_connection = 10
 ```
 
 Run in production:

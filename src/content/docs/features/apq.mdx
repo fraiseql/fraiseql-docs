@@ -8,7 +8,7 @@ import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/
 Automatic Persisted Queries (APQ) reduce bandwidth and improve latency by caching query strings on the server.
 
 <Aside type="note">
-APQ is **disabled by default**. Enable it in `fraiseql.toml` with `[graphql.apq] enabled = true`. For multi-instance deployments, a Redis backend is required so all instances share the same query cache (see [Cache Backend](#cache-backend) below).
+APQ is **implemented and enabled by default** as of rc.14. No configuration is required — the server caches query strings in memory automatically. To use Redis instead of in-memory storage (required for multi-instance deployments), add the `redis-apq` feature flag to your deployment image.
 </Aside>
 
 ## How APQ Works
@@ -55,35 +55,28 @@ curl -s -X POST https://api.example.com/graphql \
 
 ## Configuration
 
-### Enable APQ
+APQ is enabled by default with an in-memory LRU cache. No TOML configuration is required for single-instance deployments.
 
-```toml
-[graphql.apq]
-enabled = true
-cache_size = 10000  # Max cached queries
-ttl = 86400         # Cache TTL in seconds (24 hours)
+### Single Instance (default)
+
+No configuration needed. The server caches up to 10,000 query strings in memory with a 24-hour TTL.
+
+To disable APQ (e.g., in testing), set the environment variable:
+
+```bash
+FRAISEQL_APQ_ENABLED=false fraiseql run
 ```
 
-### Cache Backend
+### Multi-Instance (Redis required)
 
-```toml
-# In-memory (default, single instance only)
-[graphql.apq]
-enabled = true
-backend = "memory"
-cache_size = 10000
+For deployments behind a load balancer, use the Redis backend via the `redis-apq` Cargo feature. Set `REDIS_URL` in your environment — FraiseQL picks it up automatically when the feature is enabled:
 
-# Redis (required for distributed deployments)
-[graphql.apq]
-enabled = true
-backend = "redis"
-redis_url = "${REDIS_URL}"
-key_prefix = "apq:"
-ttl = 86400
+```bash
+REDIS_URL=redis://your-redis:6379 fraiseql run
 ```
 
 <Aside type="caution">
-When running multiple FraiseQL instances (e.g., behind a load balancer), you **must** use `backend = "redis"`. With the default in-memory backend, a client hitting instance A may cache a query that instance B has never seen, causing spurious `PersistedQueryNotFound` errors on retries.
+In multi-instance deployments without Redis, a client hitting instance A may cache a query that instance B has never seen, causing spurious `PersistedQueryNotFound` errors on retries. Always use the `redis-apq` feature when running behind a load balancer.
 </Aside>
 
 ## Client Implementation
@@ -245,7 +238,7 @@ curl -s -X POST http://localhost:8080/graphql \
 With APQ, you can use GET requests for cached queries:
 
 ```toml
-[graphql.apq]
+[fraiseql.apq]
 enabled = true
 allow_get = true
 ```
@@ -296,7 +289,7 @@ Response:
 For maximum security, only allow prepopulated queries:
 
 ```toml
-[graphql.apq]
+[fraiseql.apq]
 enabled = true
 require_prepopulated = true  # Reject queries not in cache
 ```
@@ -338,19 +331,7 @@ fraiseql apq upload --file queries.json
 
 ### CLI Commands
 
-```bash
-# List cached queries
-fraiseql apq list
-
-# Clear cache
-fraiseql apq clear
-
-# Upload queries
-fraiseql apq upload --file queries.json
-
-# Export cached queries
-fraiseql apq export --output cached-queries.json
-```
+APQ cache management is handled via the REST API at `/api/v1/apq/` when the server is running. See [CLI Reference](/reference/cli) for full command reference. The `fraiseql apq` subcommand is not available in rc.14.
 
 ## Metrics
 
@@ -416,7 +397,7 @@ fraiseql_apq_hits_total / (fraiseql_apq_hits_total + fraiseql_apq_misses_total) 
 
 ```toml
 # Estimate: unique queries x 2 (for safety margin)
-[graphql.apq]
+[fraiseql.apq]
 cache_size = 10000  # For ~5000 unique queries
 ```
 
@@ -426,7 +407,7 @@ Single-instance memory cache doesn't share across servers:
 
 ```toml
 # Production with multiple instances
-[graphql.apq]
+[fraiseql.apq]
 backend = "redis"
 redis_url = "${REDIS_URL}"
 ```

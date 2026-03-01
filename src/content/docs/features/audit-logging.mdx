@@ -32,19 +32,15 @@ Audit logging tracks:
 
 ### PostgreSQL
 
-Store audit logs in the database for querying and retention:
+Store audit logs in the database for querying and retention. Enable via `[security.enterprise]`:
 
 ```toml
-[audit]
-enabled = true
-backend = "postgres"
-
-[audit.postgres]
-table_name = "tb_audit_log"
-retention_days = 365
-batch_size = 100
-flush_interval_ms = 1000
+[security.enterprise]
+audit_logging_enabled = true
+audit_log_level       = "info"   # "debug" | "info" | "warn"
 ```
+
+FraiseQL writes to the `ta_audit_log` table you create in your database (see schema below). Retention and batching are managed by your PostgreSQL maintenance jobs.
 
 **Schema (auto-created):**
 
@@ -150,65 +146,13 @@ flush_interval_ms = 1000
   </TabItem>
 </Tabs>
 
-### Syslog
+### Syslog / File / Multiple Backends
 
-Send audit events to syslog for centralized logging:
+<Aside type="caution">
+The `[audit.syslog]`, `[audit.file]`, and multi-backend configuration below are **unverified TOML namespaces** and will cause a parse error. The current confirmed configuration is `[security.enterprise]` only (see top of page).
 
-```toml
-[audit]
-enabled = true
-backend = "syslog"
-
-[audit.syslog]
-# RFC 3164 or RFC 5424
-format = "rfc5424"
-
-# UDP or TCP
-protocol = "udp"
-host = "syslog.example.com"
-port = 514
-
-# Syslog facility
-facility = "local0"
-
-# App name in syslog
-app_name = "fraiseql"
-```
-
-### File
-
-Write audit logs to files with rotation:
-
-```toml
-[audit]
-enabled = true
-backend = "file"
-
-[audit.file]
-path = "/var/log/fraiseql/audit.log"
-format = "json"  # or "text"
-
-# Rotation settings
-max_size_mb = 100
-max_files = 10
-compress = true
-```
-
-### Multiple Backends
-
-Send to multiple destinations:
-
-```toml
-[audit]
-enabled = true
-backends = ["postgres", "syslog"]
-
-[audit.postgres]
-table_name = "tb_audit_log"
-
-[audit.syslog]
-host = "syslog.example.com"
-```
+To forward audit events to syslog or files, write a PostgreSQL trigger or use your log aggregator (Fluent Bit, Logstash) to tail the `ta_audit_log` table and forward entries.
+</Aside>
 
 ## Event Types
 
@@ -253,57 +197,31 @@ host = "syslog.example.com"
 
 ## Configuration Options
 
-### Log Levels
+The confirmed TOML configuration for audit logging is:
 
 ```toml
-[audit]
-# Minimum level to log
-level = "info"  # debug, info, warn, error, critical
-
-# Per-event-type levels
-[audit.levels]
-"auth.login.success" = "info"
-"auth.login.failure" = "warn"
-"authz.access.denied" = "warn"
-"graphql.mutation" = "info"
-"graphql.query" = "debug"  # High volume, debug only
+[security.enterprise]
+audit_logging_enabled = true
+audit_log_level       = "info"   # "debug" | "info" | "warn"
 ```
 
-### Filtering
-
-```toml
-[audit.filter]
-# Only log specific event types
-include = ["auth.*", "authz.access.denied", "graphql.mutation"]
-
-# Exclude specific events
-exclude = ["graphql.query"]
-
-# Only log for specific users
-include_users = []  # Empty = all users
-
-# Exclude specific users (e.g., service accounts)
-exclude_users = ["service-account-id"]
-```
+Log level filtering, event-type filtering, and field redaction are handled in your PostgreSQL `ta_audit_log` table and views — for example, exclude sensitive fields from the audit view, or use PostgreSQL column-level permissions to protect PII fields.
 
 ### Field Redaction
 
-Protect sensitive data in logs:
+Protect sensitive data by not inserting it into the audit table in the first place. The `ta_audit_log` schema below has a `details JSONB` column — write your PostgreSQL audit trigger to omit or hash sensitive fields before inserting:
 
-```toml
-[audit.redaction]
-enabled = true
-
-# Fields to redact
-fields = ["password", "token", "secret", "ssn", "credit_card"]
-
-# Redaction pattern
-pattern = "[REDACTED]"
-
-# Hash instead of redact (for correlation)
-hash_fields = ["email", "ip_address"]
-hash_algorithm = "sha256"
-hash_salt = "${AUDIT_HASH_SALT}"
+```sql
+-- Hash email for correlation without storing PII
+INSERT INTO ta_audit_log (event_type, user_id, details)
+VALUES (
+    'auth.login.success',
+    p_user_id,
+    jsonb_build_object(
+        'email_hash', encode(sha256(p_email::bytea), 'hex')
+        -- never store p_email directly
+    )
+);
 ```
 
 ## Querying Audit Logs
@@ -364,80 +282,76 @@ def audit_logs(
 
 ### Automatic Cleanup
 
-```toml
-[audit.retention]
-enabled = true
-days = 365
-cleanup_interval_hours = 24
-batch_size = 10000
+Use a PostgreSQL cron job (via `pg_cron`) or an external scheduler:
+
+```sql
+-- Delete audit logs older than 365 days (run as a scheduled job)
+DELETE FROM ta_audit_log
+WHERE timestamp < NOW() - INTERVAL '365 days';
 ```
 
 ### Manual Cleanup
 
-```bash
-# CLI command
-fraiseql-cli audit cleanup --older-than 365d
-
-# SQL
-DELETE FROM tb_audit_log
+```sql
+-- Manual cleanup
+DELETE FROM ta_audit_log
 WHERE timestamp < NOW() - INTERVAL '365 days';
 ```
 
 ### Archive Before Delete
 
-```toml
-[audit.retention]
-archive_before_delete = true
-archive_path = "/var/archive/fraiseql/audit"
-archive_format = "parquet"  # or "json", "csv"
+Archive to S3 or cold storage using `pg_dump` or your data pipeline before deleting:
+
+```bash
+# Export audit logs older than 365 days to JSONB
+psql $DATABASE_URL -c "COPY (
+    SELECT row_to_json(ta_audit_log)
+    FROM ta_audit_log
+    WHERE timestamp < NOW() - INTERVAL '365 days'
+) TO '/tmp/audit-archive.json'"
+
+# Upload to S3, then delete from DB
+aws s3 cp /tmp/audit-archive.json s3://your-bucket/audit/$(date +%Y%m%d).json
+psql $DATABASE_URL -c "DELETE FROM ta_audit_log WHERE timestamp < NOW() - INTERVAL '365 days'"
 ```
 
 ## Compliance
 
+Enable audit logging via `[security.enterprise]`, then implement compliance-specific controls at the PostgreSQL layer.
+
 ### HIPAA
 
-```toml
-[audit]
-enabled = true
-level = "info"
+Log all PHI access events. FraiseQL writes every query and mutation to the audit table when `audit_logging_enabled = true`. Add retention enforcement via `pg_cron`:
 
-[audit.hipaa]
-enabled = true
-# Log all PHI access
-log_phi_access = true
-# Retain for 6 years
-retention_days = 2190
-
-[audit.redaction]
-fields = ["ssn", "medical_record_number", "diagnosis"]
+```sql
+-- Retain PHI access logs for 6 years (HIPAA minimum)
+SELECT cron.schedule('hipaa-retention', '0 2 * * *', $$
+    DELETE FROM ta_audit_log
+    WHERE timestamp < NOW() - INTERVAL '6 years'
+      AND event_type LIKE 'graphql.%'
+$$);
 ```
+
+Redact sensitive fields before inserting (see Field Redaction above).
 
 ### SOC 2
 
-```toml
-[audit]
-enabled = true
-
-[audit.soc2]
-enabled = true
-# Log all access control decisions
-log_access_control = true
-# Log all configuration changes
-log_config_changes = true
-```
+Enable `audit_logging_enabled = true`. The audit table captures all access control decisions (`authz.access.granted`, `authz.access.denied`) and mutations automatically. No additional configuration required.
 
 ### GDPR
 
-```toml
-[audit]
-enabled = true
+For right-to-erasure support, implement a PostgreSQL function that anonymises the `user_id` column in audit rows when a deletion request is processed:
 
-[audit.gdpr]
-enabled = true
-# Hash PII for privacy
-hash_pii = true
-# Right to erasure support
-erasure_support = true
+```sql
+-- Anonymise audit log entries for deleted users
+CREATE FUNCTION fn_anonymise_user_audit(p_user_id UUID) RETURNS VOID AS $$
+BEGIN
+    UPDATE ta_audit_log
+    SET user_id = NULL,
+        details = details - 'email' - 'ip_address'
+    WHERE user_id = p_user_id;
+END;
+$$ LANGUAGE plpgsql;
 ```
 
 ## Metrics
@@ -454,15 +368,7 @@ erasure_support = true
 
 ### Log Mutations, Sample Queries
 
-```toml
-[audit.filter]
-# Always log mutations
-include = ["graphql.mutation", "auth.*", "authz.access.denied"]
-
-# Sample queries (1%)
-[audit.sampling]
-"graphql.query" = 0.01
-```
+Enable `audit_logging_enabled = true`. FraiseQL logs all mutations, auth events, and access denials. For high-volume query logging, insert a sampling condition in your PostgreSQL audit trigger or view.
 
 ### Use Structured Details
 

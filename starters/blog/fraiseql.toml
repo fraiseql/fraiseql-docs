@@ -5,7 +5,7 @@ description = "A blog API built with FraiseQL"
 database_target = "postgresql"
 
 [database]
-url = "${DATABASE_URL}"
+url      = "${DATABASE_URL}"
 pool_min = 5
 pool_max = 20
 ssl_mode = "prefer"
@@ -15,33 +15,21 @@ host = "0.0.0.0"
 port = 8080
 
 [server.cors]
-origins = ["http://localhost:3000"]
+origins     = ["http://localhost:3000"]
 credentials = true
 
 [fraiseql]
 schema_file = "schema.json"
 output_file = "schema.compiled.json"
 
-[fraiseql.security.rate_limiting]
-enabled = true
-auth_start_max_requests = 100
-auth_start_window_secs = 60
+[security]
+default_policy = "authenticated"
 
-[fraiseql.security.audit_logging]
-enabled = true
-log_level = "info"
+[security.rate_limiting]
+enabled             = true
+requests_per_second = 100
+burst_size          = 200
 
-[[fraiseql.security.role_definitions]]
-name = "admin"
-scopes = ["read:all", "write:all", "admin:all"]
-
-[[fraiseql.security.role_definitions]]
-name = "author"
-scopes = ["read:all", "write:posts", "write:comments"]
-
-[[fraiseql.security.role_definitions]]
-name = "reader"
-scopes = ["read:posts", "read:comments"]
-
-[fraiseql.security]
-default_role = "reader"
+[security.enterprise]
+audit_logging_enabled = true
+audit_log_level       = "info"

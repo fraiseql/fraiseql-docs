@@ -507,16 +507,17 @@ SELECT pg_size_pretty(pg_database_size('mydb'));
 **Fixes:**
 
 1. **Limit query complexity:**
+
 ```toml
-[graphql]
-max_depth = 5
-max_complexity = 500
+[validation]
+max_query_depth      = 5
+max_query_complexity = 500
 ```
 
 2. **Add pagination limits:**
 ```toml
-[graphql.pagination]
-max_limit = 50
+[query_defaults]
+limit = true   # ensure limit argument is enabled so clients can paginate
 ```
 
 ## Authentication Issues
@@ -596,10 +597,10 @@ jwt.encode({
 
 ### Enable Debug Logging
 
-```toml
-[logging]
-level = "debug"
-format = "text"  # More readable than JSON
+Set the `RUST_LOG` environment variable before starting FraiseQL:
+
+```bash
+RUST_LOG=debug fraiseql run
 ```
 
 ### Check GraphQL Response

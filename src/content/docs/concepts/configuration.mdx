@@ -23,7 +23,9 @@ url = "${DATABASE_URL}"
 
 That's it. Everything else has sensible defaults.
 
-## Full Configuration Reference
+## Verified Configuration Sections
+
+The following sections are confirmed valid in `fraiseql.toml`. Unknown sections cause a hard parse error at `fraiseql compile`.
 
 ```toml title="fraiseql.toml"
 # ============================================
@@ -32,242 +34,156 @@ That's it. Everything else has sensible defaults.
 [project]
 name = "my-api"
 version = "1.0.0"
-description = "My GraphQL API"
 
 # ============================================
 # Database Configuration
 # ============================================
 [database]
-# Connection (use environment variable for secrets)
-type = "postgresql"  # postgresql, mysql, sqlite, sqlserver
 url = "${DATABASE_URL}"
-
-# Connection pool
-pool_min = 2
-pool_max = 10
-pool_timeout = 30  # seconds
-
-# SSL (for production)
-ssl_mode = "require"  # disable, allow, prefer, require, verify-ca, verify-full
-ssl_cert = "/path/to/client-cert.pem"
-ssl_key = "/path/to/client-key.pem"
-ssl_root_cert = "/path/to/ca-cert.pem"
+pool_min = 2           # default: 2
+pool_max = 20
+connect_timeout_ms = 5000
+idle_timeout_ms = 600000
+ssl_mode = "prefer"    # disable | allow | prefer | require
 
 # ============================================
 # Server Configuration
 # ============================================
 [server]
-host = "127.0.0.1"
-port = 8080
+host = "0.0.0.0"        # default: 0.0.0.0
+port = 8080             # default: 8080
+request_timeout_ms = 30000
+keep_alive_secs = 75
 
-# CORS
-cors_origins = ["http://localhost:3000", "https://myapp.com"]
-cors_methods = ["GET", "POST", "OPTIONS"]
-cors_headers = ["Content-Type", "Authorization"]
+[server.cors]
+origins     = ["https://app.example.com"]
+credentials = true
 
-# Request limits
-max_request_size = "1mb"
-request_timeout = 30  # seconds
-
-# ============================================
-# GraphQL Configuration
-# ============================================
-[graphql]
-# Development features
-playground = true
-introspection = true
-
-# Query limits
-max_depth = 10
-max_complexity = 1000
-max_aliases = 10
-
-# Batching
-batch_enabled = true
-batch_max_size = 10
+[server.tls]
+cert = "/path/to/cert.pem"
+key  = "/path/to/key.pem"
 
 # ============================================
-# Authentication
+# Security
 # ============================================
-[auth]
-type = "jwt"  # jwt, api_key, oauth2, none
+[security]
+default_policy = "authenticated"   # or "public"
 
-# JWT settings
-jwt_secret = "${JWT_SECRET}"
-jwt_issuer = "my-app"
-jwt_audience = "my-api"
-jwt_expiry = 3600  # seconds
+[[security.rules]]
+name              = "owner_only"
+rule              = "user.id == object.owner_id"
+cacheable         = true
+cache_ttl_seconds = 300
 
-# API key settings (alternative)
-# type = "api_key"
-# header = "X-API-Key"
+[[security.policies]]
+name              = "admin_only"
+type              = "rbac"
+roles             = ["admin"]
+strategy          = "any"
 
-# ============================================
-# Compilation
-# ============================================
-[compilation]
-# Build mode
-optimize = true
-target = "release"  # debug, release
+[security.error_sanitization]
+enabled                     = true
+hide_implementation_details = true
+sanitize_database_errors    = true
+custom_error_message        = "An internal error occurred"
 
-# Output
-output_dir = "./dist"
-migrations_dir = "./migrations"
+[security.rate_limiting]
+enabled             = true
+requests_per_second = 100
+burst_size          = 200
 
-# Schema sources
-schema_files = ["schema.py"]
-# Or directory
-# schema_dir = "./schemas"
+[security.state_encryption]
+enabled    = true
+algorithm  = "chacha20-poly1305"
+key_source = "env"
+key_env    = "STATE_ENCRYPTION_KEY"
 
-# ============================================
-# SDK Generation
-# ============================================
-[sdk]
-# Languages to generate
-languages = ["typescript", "python"]
+[security.pkce]
+enabled               = true
+code_challenge_method = "S256"
+state_ttl_secs        = 600
 
-# Output directory
-output_dir = "./sdk"
-
-# TypeScript options
-[sdk.typescript]
-package_name = "@myapp/api-client"
-use_fetch = true
-
-# Python options
-[sdk.python]
-package_name = "myapp_client"
-async_client = true
+[security.enterprise]
+audit_logging_enabled = true
+audit_log_level       = "info"
 
 # ============================================
-# Logging
+# Query Defaults
 # ============================================
-[logging]
-level = "info"  # debug, info, warn, error
-format = "json"  # json, pretty
-output = "stdout"  # stdout, stderr, file
-
-# File logging
-# output = "/var/log/fraiseql.log"
-# max_size = "100mb"
-# max_files = 5
+[query_defaults]
+# Default limits and pagination settings
 
 # ============================================
-# Observability
+# Federation
 # ============================================
-[telemetry]
-# Metrics
-metrics_enabled = true
-metrics_port = 9090
-
-# Tracing
-tracing_enabled = true
-tracing_endpoint = "http://jaeger:14268/api/traces"
-tracing_sample_rate = 0.1  # 10% sampling
-
-# ============================================
-# Caching
-# ============================================
-[caching]
+[federation]
 enabled = true
-backend = "memory"  # memory, redis, postgresql
 
-# Redis settings
-# backend = "redis"
-# redis_url = "${REDIS_URL}"
-
-# ============================================
-# Rate Limiting
-# ============================================
-[rate_limit]
-enabled = true
-requests_per_minute = 100
-burst = 20
-
-# Per-user limits (requires auth)
-per_user = true
-user_requests_per_minute = 60
+[federation.circuit_breaker]
+enabled              = true
+failure_threshold    = 5
+timeout_secs         = 30
 ```
+
+<Aside type="note">
+**Authentication** (`JWT_SECRET`, `JWT_ALGORITHM`, OAuth credentials) is configured via environment variables, not `fraiseql.toml`. **Logging** uses `RUST_LOG`. **Tracing** uses `OTEL_*` env vars. There are no `[auth]`, `[logging]`, `[graphql]`, `[metrics]`, `[tracing]`, or `[caching]` sections.
+
+For the full engine-verified reference, see [TOML Configuration Reference](/reference/toml-config).
+</Aside>
 
 ## Environment Variables
 
-Use `${VAR_NAME}` syntax to reference environment variables:
+Use `${VAR_NAME}` syntax in `fraiseql.toml` to reference environment variables:
 
 ```toml
 [database]
 url = "${DATABASE_URL}"
 
-[auth]
-jwt_secret = "${JWT_SECRET}"
+[server]
+port = 8080
 ```
 
-### Required Variables
+### Configuration via Environment Variables
+
+Some settings are **only** configurable via environment variables (no TOML equivalent):
 
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | Database connection string |
-| `JWT_SECRET` | Secret key for JWT signing (if using JWT auth) |
-
-### Optional Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `FRAISEQL_ENV` | `development` | Environment name |
-| `FRAISEQL_LOG` | `info` | Log level |
-| `PORT` | `8080` | Server port |
+| `JWT_SECRET` | JWT signing secret (HS256) or public key path (RS256/ES256) |
+| `JWT_ALGORITHM` | `HS256` \| `RS256` \| `ES256` (default: `HS256`) |
+| `JWT_ISSUER` | Expected `iss` claim (optional) |
+| `JWT_AUDIENCE` | Expected `aud` claim (optional) |
+| `RUST_LOG` | Log level: `error` \| `warn` \| `info` \| `debug` \| `trace` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry collector endpoint |
+| `OTEL_SERVICE_NAME` | Service name for traces |
 
 ## Configuration by Environment
 
-Create environment-specific overrides:
-
-```toml title="fraiseql.toml"
-[project]
-name = "my-api"
-
-[database]
-url = "${DATABASE_URL}"
-
-# Development overrides
-[environments.development]
-[environments.development.server]
-host = "127.0.0.1"
-
-[environments.development.graphql]
-playground = true
-introspection = true
-
-# Production overrides
-[environments.production]
-[environments.production.server]
-host = "0.0.0.0"
-
-[environments.production.graphql]
-playground = false
-introspection = false
-
-[environments.production.logging]
-level = "warn"
-format = "json"
-```
-
-Set environment with:
+Use separate `fraiseql.toml` files per environment, or use environment variable substitution to vary values:
 
 ```bash
-FRAISEQL_ENV=production fraiseql run
+# Development
+DATABASE_URL=postgresql://localhost:5432/myapp_dev fraiseql run
+
+# Production (different .env file or secrets manager)
+DATABASE_URL=postgresql://prod-host:5432/myapp fraiseql run
+```
+
+You can also maintain separate config files:
+
+```bash
+# Use a different config file
+fraiseql run --config fraiseql.production.toml
 ```
 
 ## Validation
 
-Check your configuration:
+FraiseQL validates your `fraiseql.toml` when you run `fraiseql compile`. Unknown sections cause a hard parse error — this is intentional, so configuration mistakes are caught at build time rather than at runtime.
 
 ```bash
-fraiseql config check
-```
-
-View resolved configuration:
-
-```bash
-fraiseql config show
+fraiseql compile
+# Error: unknown field `[auth]` in fraiseql.toml at line 12
 ```
 
 ## Common Patterns
@@ -279,15 +195,15 @@ fraiseql config show
 name = "my-api"
 
 [database]
-type = "postgresql"
 url = "postgresql://localhost:5432/myapp_dev"
 
 [server]
 port = 8080
+```
 
-[graphql]
-playground = true
-introspection = true
+```bash
+# Development logging
+RUST_LOG=debug fraiseql run
 ```
 
 ### Production
@@ -297,7 +213,6 @@ introspection = true
 name = "my-api"
 
 [database]
-type = "postgresql"
 url = "${DATABASE_URL}"
 pool_min = 5
 pool_max = 20
@@ -305,17 +220,26 @@ ssl_mode = "require"
 
 [server]
 host = "0.0.0.0"
-port = "${PORT}"
+port = 8080
 
-[graphql]
-playground = false
-introspection = false
-max_depth = 5
-max_complexity = 500
+[server.cors]
+origins = ["https://app.example.com"]
+credentials = true
 
-[logging]
-level = "info"
-format = "json"
+[security.error_sanitization]
+enabled = true
+
+[security.rate_limiting]
+enabled             = true
+requests_per_second = 100
+burst_size          = 200
+```
+
+```bash
+# Production env vars
+JWT_SECRET=your-256-bit-secret
+RUST_LOG=info
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
 ### Multi-Tenant
@@ -326,16 +250,14 @@ name = "multi-tenant-api"
 
 [database]
 url = "${DATABASE_URL}"
-
-[auth]
-type = "jwt"
-jwt_secret = "${JWT_SECRET}"
-
-[multitenancy]
-enabled = true
-strategy = "schema"  # schema, database, row
-tenant_header = "X-Tenant-ID"
 ```
+
+```bash
+# JWT includes tenant_id claim — extracted in middleware
+JWT_SECRET=your-256-bit-secret
+```
+
+See [Multi-Tenancy Guide](/guides/multi-tenancy) for RLS and schema-per-tenant patterns.
 
 ## Next Steps
 

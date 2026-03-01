@@ -1,60 +1,43 @@
 [project]
-name    = "saas"
-version = "0.1.0"
+name        = "saas"
+version     = "0.1.0"
 description = "A SaaS platform API built with FraiseQL"
 database_target = "postgresql"
 
 [database]
-url = "${DATABASE_URL}"
-pool_min = 10
-pool_max = 50
-statement_timeout = 30000
-ssl_mode = "require"
-
-[database.replica]
-url = "${DATABASE_REPLICA_URL:-${DATABASE_URL}}"
-pool_min = 10
-pool_max = 100
+url               = "${DATABASE_URL}"
+pool_min          = 10
+pool_max          = 50
+connect_timeout_ms = 5000
+idle_timeout_ms   = 600000
+ssl_mode          = "require"
 
 [server]
-host = "0.0.0.0"
-port = 8080
-request_timeout = 30000
+host               = "0.0.0.0"
+port               = 8080
+request_timeout_ms = 30000
 
 [server.cors]
-origins = ["${APP_URL:-http://localhost:3000}"]
+origins     = ["${APP_URL:-http://localhost:3000}"]
 credentials = true
 
 [fraiseql]
 schema_file = "schema.json"
 output_file = "schema.compiled.json"
 
-[fraiseql.security.rate_limiting]
-enabled = true
-auth_start_max_requests = 50
-auth_start_window_secs = 60
-failed_login_max_requests = 5
-failed_login_window_secs = 3600
+[security]
+default_policy = "authenticated"
 
-[fraiseql.security.audit_logging]
-enabled = true
-log_level = "info"
+[security.rate_limiting]
+enabled             = true
+requests_per_second = 50
+burst_size          = 100
 
-[fraiseql.security.error_sanitization]
-enabled = true
-generic_messages = true
+[security.enterprise]
+audit_logging_enabled = true
+audit_log_level       = "info"
 
-[[fraiseql.security.role_definitions]]
-name = "admin"
-scopes = ["read:all", "write:all", "admin:all"]
-
-[[fraiseql.security.role_definitions]]
-name = "member"
-scopes = ["read:own", "write:own"]
-
-[[fraiseql.security.role_definitions]]
-name = "guest"
-scopes = ["read:public"]
-
-[fraiseql.security]
-default_role = "guest"
+[security.error_sanitization]
+enabled                     = true
+hide_implementation_details = true
+sanitize_database_errors    = true

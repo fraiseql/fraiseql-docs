@@ -11,6 +11,12 @@ This page covers features that require **PostgreSQL**. Some capabilities (JSONB,
 
 FraiseQL has **native multi-tenancy support**. Configure a strategy in `fraiseql.toml` and FraiseQL handles tenant routing, context injection, and data isolation automatically — no manual session-setting code required.
 
+<Aside type="caution">
+**`[multitenancy]` TOML configuration is unverified.** The `[multitenancy]` namespace shown throughout this page is not listed as a confirmed-valid `fraiseql.toml` section. The PostgreSQL patterns (RLS, schema-per-tenant, database-per-tenant), the middleware examples, and the security guidance are all accurate. The TOML configuration blocks are aspirational.
+
+For guaranteed-correct configuration, see the [TOML Config Reference](/reference/toml-config).
+</Aside>
+
 ## Choose a Strategy
 
 | Strategy | Isolation | Cost | Best For |
@@ -699,20 +705,21 @@ def publish_post(info, id: UUID) -> Post:
 name = "blog-platform"
 
 [database]
-type = "postgresql"
-url  = "${DATABASE_URL}"
+url = "${DATABASE_URL}"
 
-[auth]
-type       = "jwt"
-jwt_secret = "${JWT_SECRET}"
+[server]
+port = 8080
 
+# Multitenancy strategy (see caution above — namespace unverified)
 [multitenancy]
 enabled       = true
 strategy      = "row"
 tenant_header = "X-Tenant-ID"
+```
 
-[server]
-port = 8080
+```bash
+# JWT authentication via env var
+JWT_SECRET=your-256-bit-secret
 ```
 
 ---

@@ -15,11 +15,11 @@ port = 8080
 schema_file = "schema.json"
 output_file = "schema.compiled.json"
 
-[fraiseql.security.rate_limiting]
-enabled = true
-auth_start_max_requests = 100
-auth_start_window_secs = 60
+[security.rate_limiting]
+enabled             = true
+requests_per_second = 100
+burst_size          = 200
 
-[fraiseql.security.audit_logging]
-enabled = true
-log_level = "info"
+[security.enterprise]
+audit_logging_enabled = true
+audit_log_level       = "info"

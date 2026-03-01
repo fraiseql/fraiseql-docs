@@ -82,15 +82,15 @@ Query execution: **Multiple queries + assembly**
 name = "my-api"
 
 [database]
-type = "postgresql"
 url = "${DATABASE_URL}"
 
 [server]
 port = 8080
+```
 
-[auth]
-type = "jwt"
-jwt_secret = "${JWT_SECRET}"
+```bash
+# JWT authentication via env var (no [auth] section in fraiseql.toml)
+JWT_SECRET=your-256-bit-secret
 ```
 
 ### Hasura: Console + YAML + Database Metadata
@@ -337,13 +337,14 @@ FraiseQL enforces validation during schema compilation, before any query execute
 - **Impossible to deploy invalid schemas** — validation rule conflicts caught at build time
 - **Zero database errors** — invalid data never reaches the database
 
-All validation is declarative via TOML:
+All validation is declarative — rules are defined via decorators in your schema code:
 
-```toml
-[fraiseql.validation]
-email = { pattern = "^[^@]+@[^@]+\\.[^@]+$" }
-age = { range = { min = 0, max = 150 } }
-phone = { length = 10 }
+```python
+@fraiseql.type
+class CreateUserInput:
+    email: Annotated[str, fraiseql.field(pattern=r"^[^@]+@[^@]+\.[^@]+$")]
+    age: Annotated[int, fraiseql.field(range={"min": 0, "max": 150})]
+    phone: Annotated[str, fraiseql.field(length=10)]
 ```
 
 ### Hasura: Runtime Validation
@@ -414,9 +415,6 @@ FraiseQL is a better choice when:
    # fraiseql.toml - single file
    [database]
    url = "${DATABASE_URL}"
-   
-   [schema]
-   source = "schema.py"
    ```
    
    ```python

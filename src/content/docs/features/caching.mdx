@@ -5,10 +5,14 @@ description: Response caching with Redis or in-memory backends, cache invalidati
 
 import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-FraiseQL supports response caching for GraphQL queries. Caching can reduce database load dramatically for read-heavy workloads. Caching is configured globally in `fraiseql.toml` under the `[caching]` section.
+FraiseQL supports response caching for GraphQL queries. Caching can reduce database load dramatically for read-heavy workloads.
+
+<Aside type="caution">
+**`[caching]` TOML configuration is unverified.** This namespace is not listed as a valid `fraiseql.toml` section (valid sections are documented in the [TOML Config Reference](/reference/toml-config)). The caching behaviour, TTL concepts, and invalidation model described below are accurate. The exact TOML key and field names are subject to change.
+</Aside>
 
 <Aside type="note">
-Caching is disabled by default. Enabling it requires an explicit `[caching]` block in `fraiseql.toml` with `enabled = true`. Until that block is present, every GraphQL request goes directly to the database with no caching applied.
+Caching is disabled by default. Every GraphQL request goes directly to the database until caching is explicitly enabled.
 </Aside>
 
 ## Cache Backends
@@ -50,12 +54,7 @@ The `memory` backend is not shared between instances. If you run multiple Fraise
    fraiseql run
    ```
 
-   On startup, FraiseQL connects to Redis and logs:
-
-   ```
-   [caching] backend: redis (redis://localhost:6379)
-   [caching] enabled: true
-   ```
+   On startup, FraiseQL connects to Redis and logs confirmation that caching is active.
 
 </Steps>
 

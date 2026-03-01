@@ -402,7 +402,20 @@ def order_changed() -> Order:
 
 ## WebSocket Protocol
 
-FraiseQL implements the graphql-ws (graphql-transport-ws) protocol.
+FraiseQL supports both the modern `graphql-transport-ws` protocol and the legacy `graphql-ws` (Apollo subscriptions-transport-ws) protocol. The protocol is automatically negotiated from the `Sec-WebSocket-Protocol` WebSocket header — no configuration required. Clients without the header default to `graphql-transport-ws`.
+
+### Configuration
+
+```toml
+[subscriptions]
+max_subscriptions_per_connection = 100  # optional, default: unlimited
+
+[subscriptions.hooks]
+on_connect    = "https://your-app/ws/on-connect"     # fail-closed
+on_disconnect = "https://your-app/ws/on-disconnect"  # fire-and-forget
+on_subscribe  = "https://your-app/ws/on-subscribe"   # fail-closed
+timeout_ms    = 500                                   # hook timeout (default: 500ms)
+```
 
 ### Message Flow
 

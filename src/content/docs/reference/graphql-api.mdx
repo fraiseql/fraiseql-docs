@@ -427,11 +427,10 @@ query {
 ```
 
 <Aside type="note">
-Introspection can be disabled in production:
+Introspection is disabled by default. Enable it with the `--introspection` flag:
 
-```toml
-[graphql]
-introspection = false
+```bash
+fraiseql run --introspection
 ```
 </Aside>
 
@@ -451,12 +450,7 @@ Features:
 - Query history
 
 <Aside type="caution">
-**Disable in production:**
-
-```toml
-[graphql]
-playground = false
-```
+**Disable in production.** The `[graphql]` TOML namespace is not a verified `fraiseql.toml` section — playground and introspection are controlled via CLI flags (`--introspection`). Check the [CLI Reference](/reference/cli) for current options.
 </Aside>
 
 ## Batching
@@ -482,11 +476,7 @@ Send multiple operations in one request:
 ]
 ```
 
-**Limit:**
-```toml
-[graphql]
-batch_limit = 10  # Max operations per batch
-```
+**Limit:** Batch size limits are enforced at the server level. The `[graphql]` TOML namespace is not a verified `fraiseql.toml` section — check the [TOML Config Reference](/reference/toml-config) for current batch configuration options.
 
 ## HTTP Details
 
