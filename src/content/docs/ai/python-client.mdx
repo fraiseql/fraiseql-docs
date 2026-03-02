@@ -1,0 +1,91 @@
+---
+title: Python Client
+description: Async Python client for querying FraiseQL APIs from scripts, notebooks, and services
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The `fraiseql` Python package ships a typed async HTTP client for querying FraiseQL servers from Python scripts, Jupyter notebooks, and backend services.
+
+## Installation
+
+```bash
+pip install fraiseql
+```
+
+## Basic Usage
+
+```python
+import asyncio
+from fraiseql import FraiseQLClient
+
+async def main() -> None:
+    async with FraiseQLClient("http://localhost:8080/graphql") as client:
+        result = await client.execute("{ users { id name email } }")
+        print(result["data"]["users"])
+
+asyncio.run(main())
+```
+
+## Authentication
+
+Pass a JWT bearer token or API key at construction:
+
+```python
+# JWT
+client = FraiseQLClient(
+    "http://localhost:8080/graphql",
+    auth_token="eyJ..."
+)
+
+# API key
+client = FraiseQLClient(
+    "http://localhost:8080/graphql",
+    api_key="sk-..."
+)
+```
+
+## Variables
+
+```python
+result = await client.execute(
+    """
+    query GetUser($id: ID!) {
+        user(id: $id) { id name email }
+    }
+    """,
+    variables={"id": "user-123"}
+)
+user = result["data"]["user"]
+```
+
+## Error Handling
+
+The client raises typed exceptions:
+
+```python
+from fraiseql import (
+    FraiseQLError,
+    FraiseQLAuthError,
+    FraiseQLRateLimitError,
+    FraiseQLDatabaseError,
+)
+
+try:
+    result = await client.execute("{ sensitiveData { secret } }")
+except FraiseQLAuthError:
+    print("Not authorized")
+except FraiseQLRateLimitError:
+    print("Slow down — rate limit hit")
+except FraiseQLDatabaseError as e:
+    print(f"Database error: {e}")
+except FraiseQLError as e:
+    print(f"GraphQL error: {e}")
+```
+
+## Schema Introspection
+
+```python
+schema = await client.introspect()
+types = schema["data"]["__schema"]["types"]
+```

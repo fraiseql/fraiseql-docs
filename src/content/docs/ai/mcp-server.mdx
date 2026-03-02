@@ -1,0 +1,65 @@
+---
+title: MCP Server
+description: Expose your FraiseQL API as a Model Context Protocol server for AI agents
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL can serve as a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server, exposing your GraphQL queries and mutations as MCP tools. This lets AI agents — including Claude Desktop — query your database directly using natural language, with no custom integration code.
+
+## How It Works
+
+When MCP is enabled, FraiseQL introspects its compiled schema and generates an MCP tool for every query and mutation. The agent describes what data it needs; FraiseQL executes the corresponding GraphQL operation and returns the result.
+
+## Configuration
+
+Enable MCP in `fraiseql.toml`:
+
+```toml
+[fraiseql.mcp]
+enabled = true
+transport = "http"       # "http" | "stdio" | "both"
+path = "/mcp"            # HTTP endpoint path (default: /mcp)
+require_auth = true      # Require JWT/API key for MCP requests (default: true)
+
+# Optional: restrict which operations are exposed
+include = ["users", "products"]   # Whitelist (empty = all)
+exclude = ["adminUsers"]          # Blacklist
+```
+
+For Claude Desktop or local CLI agents, use `transport = "stdio"`:
+
+```bash
+fraiseql run --mcp-stdio
+```
+
+## Claude Desktop Setup
+
+Add FraiseQL to your Claude Desktop `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-api": {
+      "command": "fraiseql",
+      "args": ["run", "--mcp-stdio"],
+      "env": {
+        "DATABASE_URL": "postgresql://localhost:5432/mydb"
+      }
+    }
+  }
+}
+```
+
+Claude can now query your database: *"Show me the top 10 users by signup date"* → FraiseQL executes the `users` query and returns structured data.
+
+## HTTP Transport
+
+For remote agents or multi-tenant setups, use the HTTP transport:
+
+```bash
+# MCP endpoint available at /mcp
+fraiseql run
+```
+
+The MCP endpoint is available alongside the GraphQL endpoint on the same port. Authenticate using the same JWT or API key as the GraphQL API.

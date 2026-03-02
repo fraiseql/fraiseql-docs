@@ -12,26 +12,29 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | Section | Status |
 |---|---|
 | `[project]` | Stable |
-| `[database]` | Stable (added rc.13) |
-| `[server]` | Stable (added rc.13) |
+| `[database]` | Stable |
+| `[server]` | Stable |
 | `[server.cors]` | Stable |
 | `[server.tls]` | Stable |
 | `[fraiseql]` | Stable |
-| `[query_defaults]` | Stable (added rc.13) |
+| `[fraiseql.apq]` | Stable |
+| `[fraiseql.caching]` | Stable |
+| `[fraiseql.mcp]` | Stable |
+| `[query_defaults]` | Stable |
 | `[security]` | Stable |
-| `[security.enterprise]` | May consolidate into `[security]` post-1.0 |
-| `[security.error_sanitization]` | RC — added rc.13 |
-| `[security.rate_limiting]` | RC — added rc.13; Redis backend wired rc.14 |
-| `[security.state_encryption]` | RC — added rc.13 |
-| `[security.pkce]` | RC — added rc.13 |
-| `[security.api_keys]` | RC — added rc.14 |
-| `[security.token_revocation]` | RC — added rc.14 |
-| `[security.trusted_documents]` | RC — added rc.14 |
-| `[validation]` | RC — added rc.14 |
-| `[subscriptions]` | RC — added rc.14 |
-| `[debug]` | RC — added rc.14 |
-| `[federation]` | RC |
-| `[observers]` | RC |
+| `[security.enterprise]` | Stable |
+| `[security.error_sanitization]` | Stable |
+| `[security.rate_limiting]` | Stable |
+| `[security.state_encryption]` | Stable |
+| `[security.pkce]` | Stable |
+| `[security.api_keys]` | Stable |
+| `[security.token_revocation]` | Stable |
+| `[security.trusted_documents]` | Stable |
+| `[validation]` | Stable |
+| `[subscriptions]` | Stable |
+| `[debug]` | Stable |
+| `[federation]` | Stable |
+| `[observers]` | Stable |
 
 ## File Location
 
@@ -212,6 +215,73 @@ output_file = "schema.compiled.json"
 | `schema_file` | string | `"schema.json"` | Path to the schema definition |
 | `output_file` | string | `"schema.compiled.json"` | Path for the compiled output |
 
+#### [fraiseql.apq]
+
+Automatic Persisted Queries — cache query documents by hash on the server, reducing payload size for repeated operations.
+
+```toml
+[fraiseql.apq]
+enabled    = true
+cache_size = 1000   # Maximum number of persisted queries to cache (LRU)
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable APQ support |
+| `cache_size` | integer | `1000` | LRU cache capacity for persisted query documents |
+
+#### [fraiseql.caching]
+
+Response caching for query results. Reduces database load for read-heavy workloads.
+
+```toml
+[fraiseql.caching]
+enabled            = true
+backend            = "redis"              # "memory" or "redis"
+redis_url          = "${REDIS_URL}"       # required when backend = "redis"
+max_memory_entries = 1000                 # capacity when backend = "memory"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable response caching |
+| `backend` | string | `"memory"` | Cache backend: `"memory"` (single-instance) or `"redis"` (distributed) |
+| `redis_url` | string | — | Redis connection URL (required when `backend = "redis"`) |
+| `max_memory_entries` | integer | `1000` | LRU capacity for the in-memory backend |
+
+Per-query TTL is set via `cache_ttl_seconds=` in the `@fraiseql.query` decorator. See [Caching](/features/caching).
+
+#### [fraiseql.trusted_documents]
+
+Alias for `[security.trusted_documents]` — both namespaces are accepted. Prefer `[security.trusted_documents]` for consistency. See [Security](/features/security).
+
+#### [fraiseql.mcp]
+
+Model Context Protocol server — exposes FraiseQL queries and mutations as MCP tools for AI agents (Claude Desktop, etc.).
+
+```toml
+[fraiseql.mcp]
+enabled      = true
+transport    = "http"    # "http" | "stdio" | "both"
+path         = "/mcp"    # HTTP endpoint path
+require_auth = true      # Require JWT/API key for MCP requests
+
+# Restrict which operations are exposed
+include = []             # Whitelist by operation name (empty = all)
+exclude = []             # Blacklist by operation name
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable the MCP server |
+| `transport` | string | `"http"` | Transport: `"http"` (in-process endpoint), `"stdio"` (for CLI agents), or `"both"` |
+| `path` | string | `"/mcp"` | HTTP path for the MCP endpoint |
+| `require_auth` | bool | `true` | Require the same JWT/API key as the GraphQL endpoint |
+| `include` | array | `[]` | Whitelist of operation names to expose (empty = all) |
+| `exclude` | array | `[]` | Blacklist of operation names to hide from MCP clients |
+
+See [MCP Server](/ai/mcp-server) for setup with Claude Desktop.
+
 ---
 
 ### [query_defaults]
@@ -317,9 +387,6 @@ audit_log_level              = "info"
 
 ### [security.error_sanitization]
 
-<Aside type="note">
-Added in rc.13.
-</Aside>
 
 Controls what error detail is returned to clients. Disabled by default — enable in production to prevent SQL errors and stack traces from reaching clients.
 
@@ -342,9 +409,6 @@ custom_error_message        = "An internal error occurred"
 
 ### [security.rate_limiting]
 
-<Aside type="note">
-Added in rc.13.
-</Aside>
 
 Token bucket rate limiting applied globally, plus per-endpoint limits for auth routes. In-memory per instance (no cross-instance coordination).
 
@@ -395,9 +459,6 @@ For multi-replica deployments where distributed limiting is a hard requirement, 
 
 ### [security.state_encryption]
 
-<Aside type="note">
-Added in rc.13.
-</Aside>
 
 AEAD encryption for OAuth state blobs stored between `/auth/start` and `/auth/callback`. Requires a 32-byte key as a 64-character hex string.
 
@@ -424,9 +485,6 @@ If `enabled = true` and the `key_env` variable is not set, the server refuses to
 
 ### [security.pkce]
 
-<Aside type="note">
-Added in rc.13.
-</Aside>
 
 PKCE (Proof Key for Code Exchange) for the OAuth `/auth/start` → `/auth/callback` flow.
 
@@ -455,9 +513,6 @@ In multi-replica deployments, PKCE state must be stored in Redis. Without it, a 
 
 ### [security.api_keys]
 
-<Aside type="note">
-Added in rc.14.
-</Aside>
 
 API key authentication for service-to-service and CI/CD access. Keys are stored hashed — the plaintext is returned once at creation and never stored.
 
@@ -486,9 +541,6 @@ For production, store hashed keys in the `fraiseql_api_keys` table. See [Authent
 
 ### [security.token_revocation]
 
-<Aside type="note">
-Added in rc.14.
-</Aside>
 
 Revoke JWTs before their `exp` claim expires — for logout, key rotation, or security incidents.
 
@@ -515,9 +567,6 @@ Revoked JTIs are stored until the token's `exp` expires — no manual cleanup ne
 
 ### [security.trusted_documents]
 
-<Aside type="note">
-Added in rc.14.
-</Aside>
 
 Query allowlisting — only permit GraphQL operations present in a pre-approved manifest. Useful for hardening production APIs against arbitrary query execution.
 
@@ -545,9 +594,6 @@ In `"strict"` mode, no ad-hoc queries can reach the server — only operations r
 
 ### [validation]
 
-<Aside type="note">
-Added in rc.14.
-</Aside>
 
 Query depth and complexity limits enforced at parse time, before execution. Queries exceeding either limit receive a validation error — no database round-trip occurs.
 
@@ -568,9 +614,6 @@ Complexity is calculated by summing field weights (lists count more than scalars
 
 ### [subscriptions]
 
-<Aside type="note">
-Added in rc.14.
-</Aside>
 
 WebSocket subscription settings. FraiseQL supports both `graphql-transport-ws` (modern) and `graphql-ws` (Apollo legacy) — protocol is negotiated from the `Sec-WebSocket-Protocol` header automatically.
 
@@ -606,9 +649,6 @@ timeout_ms    = 500
 
 ### [debug]
 
-<Aside type="note">
-Added in rc.14.
-</Aside>
 
 Development and diagnostics features. All debug capabilities are disabled by default and gated behind a master `enabled` switch. Never enable in production.
 

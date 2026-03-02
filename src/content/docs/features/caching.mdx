@@ -7,10 +7,6 @@ import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/
 
 FraiseQL supports response caching for GraphQL queries. Caching can reduce database load dramatically for read-heavy workloads.
 
-<Aside type="caution">
-**`[caching]` TOML configuration is unverified.** This namespace is not listed as a valid `fraiseql.toml` section (valid sections are documented in the [TOML Config Reference](/reference/toml-config)). The caching behaviour, TTL concepts, and invalidation model described below are accurate. The exact TOML key and field names are subject to change.
-</Aside>
-
 <Aside type="note">
 Caching is disabled by default. Every GraphQL request goes directly to the database until caching is explicitly enabled.
 </Aside>
@@ -39,13 +35,14 @@ The `memory` backend is not shared between instances. If you run multiple Fraise
    docker run -d --name redis -p 6379:6379 redis:7-alpine
    ```
 
-2. **Configure the `[caching]` block**
+2. **Configure the `[fraiseql.caching]` block**
 
    ```toml
-   [caching]
+   [fraiseql.caching]
    enabled = true
    backend = "redis"
    redis_url = "redis://localhost:6379"
+   max_memory_entries = 1000
    ```
 
 3. **Start FraiseQL**
@@ -63,9 +60,10 @@ The `memory` backend is not shared between instances. If you run multiple Fraise
 For local development or single-instance deployments:
 
 ```toml
-[caching]
+[fraiseql.caching]
 enabled = true
 backend = "memory"
+max_memory_entries = 1000
 ```
 
 The in-memory backend requires no external services but:
@@ -73,45 +71,37 @@ The in-memory backend requires no external services but:
 - Each instance has independent cache in multi-instance setups
 - Limited by available heap memory
 
-## Cache Rules and TTL
+## Per-Query TTL
 
-Cache rules define which queries to cache and for how long. Rules use glob patterns to match query names.
+Cache TTL is configured per query in your Python schema using the `cache_ttl_seconds` parameter:
 
-```toml
-[caching]
-enabled = true
-backend = "redis"
-redis_url = "redis://localhost:6379"
+```python
+import fraiseql
 
-[[caching.rules]]
-query = "posts*"           # Cache all queries starting with "posts"
-ttl_seconds = 300        # Cache for 5 minutes
-invalidation_triggers = ["Post", "Comment"]  # Invalidate on these mutations
+@fraiseql.query(
+    sql_source="v_post",
+    cache_ttl_seconds=300     # Cache this query for 5 minutes
+)
+def posts(category: str | None = None) -> list[Post]:
+    """List posts, optionally filtered by category."""
+    pass
 
-[[caching.rules]]
-query = "user*"
-ttl_seconds = 60
-invalidation_triggers = ["User"]
+@fraiseql.query(
+    sql_source="v_user",
+    cache_ttl_seconds=60      # Short TTL — user data changes frequently
+)
+def user_profile(user_id: fraiseql.ID) -> User | None:
+    pass
 
-[[caching.rules]]
-query = "config*"        # Static configuration queries
-ttl_seconds = 3600       # Cache for 1 hour
-invalidation_triggers = []  # Never invalidate (manual only)
+@fraiseql.query(
+    sql_source="v_config",
+    cache_ttl_seconds=3600    # 1-hour TTL — config rarely changes
+)
+def site_config() -> SiteConfig:
+    pass
 ```
 
-### Rule Structure
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `query` | string | Glob pattern for query names (e.g., `posts*`, `*List`, `userById`) |
-| `ttl_seconds` | integer | Time-to-live in seconds |
-| `invalidation_triggers` | array | Entity names that invalidate this cache when mutated |
-
-### Pattern Matching
-
-- `posts*` matches `posts`, `postsByCategory`, `postsCount`
-- `*List` matches `userList`, `productList`
-- `userById` matches exactly `userById`
+A `cache_ttl_seconds` of `0` disables caching for that query entirely (useful to opt out when the global default is set).
 
 ### TTL Guidelines
 
@@ -124,24 +114,25 @@ invalidation_triggers = []  # Never invalidate (manual only)
 
 ## Cache Invalidation
 
-FraiseQL invalidates cache entries automatically when mutations change data. When a mutation runs, FraiseQL checks the `invalidation_triggers` of each cache rule and purges matching entries.
+FraiseQL invalidates cache entries automatically when mutations change data. When a mutation runs, FraiseQL detects which SQL views the mutation affects and purges cached responses for queries that read from those views.
 
 ### Automatic Invalidation
 
-Given this configuration:
+Declare which views a mutation invalidates using the `invalidates` decorator parameter:
 
-```toml
-[[caching.rules]]
-query = "posts*"
-ttl_seconds = 300
-invalidation_triggers = ["Post", "Comment"]
+```python
+@fraiseql.mutation(
+    fn_name="create_post",
+    invalidates=["v_post"]   # Purge cache entries for queries backed by v_post
+)
+def create_post(input: PostInput) -> PostResult:
+    pass
 ```
 
-When a `Post` or `Comment` mutation executes:
-1. FraiseQL detects the entity change
-2. Finds all cache rules with that entity in `invalidation_triggers`
-3. Purges cache entries matching those rules
-4. Subsequent queries fetch fresh data from the database
+When `createPost` executes:
+1. FraiseQL runs the mutation function call
+2. Purges all cache entries for queries backed by the listed views
+3. Subsequent queries fetch fresh data from the database
 
 ### Manual Invalidation
 
@@ -182,9 +173,9 @@ All caching settings can be overridden via environment variables:
 
 | Variable | Overrides |
 |----------|-----------|
-| `FRAISEQL_CACHING_ENABLED` | `caching.enabled` |
-| `FRAISEQL_CACHING_BACKEND` | `caching.backend` |
-| `FRAISEQL_REDIS_URL` | `caching.redis_url` |
+| `FRAISEQL_CACHING_ENABLED` | `fraiseql.caching.enabled` |
+| `FRAISEQL_CACHING_BACKEND` | `fraiseql.caching.backend` |
+| `FRAISEQL_REDIS_URL` | `fraiseql.caching.redis_url` |
 
 Example:
 
@@ -240,16 +231,16 @@ Verify caching is active and rules match your queries:
 
 ```bash
 # Check caching is enabled
-grep -A5 '\[caching\]' fraiseql.toml
+grep -A5 '\[fraiseql.caching\]' fraiseql.toml
 
-# Verify rules match query names
-# If your query is named `getPosts`, the rule should be `query = "getPosts*"` or `query = "*Posts*"`
+# Verify your queries have cache_ttl_seconds set in the Python schema
+grep cache_ttl_seconds schema/*.py
 ```
 
 **"Cache invalidation not working"**
 
 1. Check that the mutation returns the correct entity type name
-2. Verify `invalidation_triggers` includes that exact entity name (case-sensitive)
+2. Verify the `invalidates` list on the mutation includes that exact view name (case-sensitive)
 3. Ensure the entity name in the rule matches the name in your schema
 
 **"Out of memory with in-memory cache"**
@@ -257,7 +248,7 @@ grep -A5 '\[caching\]' fraiseql.toml
 The in-memory backend has no automatic eviction. For production use cases, switch to Redis:
 
 ```toml
-[caching]
+[fraiseql.caching]
 backend = "redis"
 redis_url = "redis://localhost:6379"
 ```
@@ -286,14 +277,14 @@ redis_url = "redis://localhost:6379/0"
 
 ## Best Practices
 
-**Use specific invalidation triggers.** Broad triggers (e.g., invalidating all `posts*` on any `User` change) reduce cache effectiveness:
+**Use specific invalidation views.** Broad invalidation reduces cache effectiveness:
 
-```toml
-# Good: Only invalidate when Post or Comment changes
-invalidation_triggers = ["Post", "Comment"]
+```python
+# Good: Only invalidate the view this mutation affects
+@fraiseql.mutation(fn_name="create_post", invalidates=["v_post"])
 
-# Avoid: Invalidating on unrelated entity changes
-invalidation_triggers = ["Post", "User", "Config", "Settings"]
+# Avoid: Invalidating unrelated views
+@fraiseql.mutation(fn_name="create_post", invalidates=["v_post", "v_user", "v_config"])
 ```
 
 **Choose TTLs based on data change frequency.** Static data can cache longer; frequently changing data needs shorter TTLs or no caching.

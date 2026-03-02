@@ -32,31 +32,17 @@ Use this table to decide when to reach for Arrow Flight versus the standard Grap
 | **Filtering** | GraphQL `where` arguments | Pushed down to PostgreSQL |
 | **Streaming** | NDJSON via Wire protocol | Native chunked record batches |
 | **Authentication** | JWT / API key | Bearer token (same as GraphQL) |
-| **Port** | 8080 (default) | 8081 (default) |
+| **Port** | 3000 (default) | 50051 (default) |
 
-## Configuration
+## Enabling Arrow Flight
 
-### Enable Arrow Flight
+Arrow Flight is a compile-time feature — there is no `[arrow]` TOML configuration section. Enable it by building FraiseQL with the `arrow` feature flag:
 
-```toml
-[arrow]
-enabled = true
-port = 8081
-host = "0.0.0.0"
-
-[arrow.options]
-max_batch_size = 65536
-compression = "zstd"
+```bash
+cargo build --release --features arrow
 ```
 
-### Authentication
-
-```toml
-[arrow.auth]
-enabled = true
-type = "bearer"
-validate_endpoint = "http://auth-service/validate"
-```
+When the `arrow` feature is compiled in, the Flight gRPC server starts automatically on port **50051** alongside the HTTP server (port 3000). Authentication uses the same JWT/API key tokens as the GraphQL endpoint — pass the token as a gRPC `authorization` header (`Bearer eyJ...`). TLS follows the server-level TLS configuration.
 
 ## Defining Arrow Views
 
@@ -138,7 +124,7 @@ import pyarrow.flight as flight
 import json
 
 # Connect to FraiseQL Arrow Flight server
-client = flight.connect("grpc://localhost:8081")
+client = flight.connect("grpc://localhost:50051")
 
 # Authenticate
 token = client.authenticate_basic_token("user", "password")
@@ -176,7 +162,7 @@ import json
 
 def query_fraiseql(query: str, variables: dict | None = None) -> pd.DataFrame:
     """Execute FraiseQL Arrow query and return DataFrame."""
-    client = flight.connect("grpc://localhost:8081")
+    client = flight.connect("grpc://localhost:50051")
 
     payload = {"query": query, "variables": variables or {}}
     ticket = flight.Ticket(json.dumps(payload).encode())
@@ -208,7 +194,7 @@ async function queryArrowFlight(
     query: string,
     variables: Record<string, unknown> = {}
 ): Promise<RecordBatch[]> {
-    const client = new FlightClient({ address: 'grpc://localhost:8081' });
+    const client = new FlightClient({ address: 'grpc://localhost:50051' });
 
     const ticket = Buffer.from(JSON.stringify({ query, variables }));
     const batches: RecordBatch[] = [];
@@ -258,7 +244,7 @@ result = duckdb.execute("""
     SELECT
         order_date,
         SUM(revenue) as total_revenue
-    FROM arrow_scan('grpc://localhost:8081', 'orders_daily')
+    FROM arrow_scan('grpc://localhost:50051', 'orders_daily')
     WHERE order_date >= '2024-01-01'
     GROUP BY order_date
     ORDER BY order_date
@@ -279,7 +265,7 @@ import pandas as pd
 
 def stream_large_dataset(query: str, chunk_size: int = 100000) -> Iterator[pd.DataFrame]:
     """Stream large datasets in chunks."""
-    client = flight.connect("grpc://localhost:8081")
+    client = flight.connect("grpc://localhost:50051")
 
     ticket = flight.Ticket(json.dumps({"query": query}).encode())
     reader = client.do_get(ticket)
@@ -303,7 +289,7 @@ import pyarrow.compute as pc
 
 def aggregate_without_loading_all(query: str) -> dict:
     """Sum revenue without loading entire dataset into memory."""
-    client = flight.connect("grpc://localhost:8081")
+    client = flight.connect("grpc://localhost:50051")
 
     ticket = flight.Ticket(json.dumps({"query": query}).encode())
     reader = client.do_get(ticket)
@@ -394,24 +380,7 @@ GROUP BY 1;
 
 ## Performance
 
-### Compression
-
-Configure compression for transfer:
-
-```toml
-[arrow.options]
-compression = "zstd"  # or "lz4", "none"
-compression_level = 3
-```
-
 ### Batch Size
-
-Tune batch size for your workload:
-
-```toml
-[arrow.options]
-max_batch_size = 65536  # Rows per batch
-```
 
 | Batch Size | Use Case |
 |------------|----------|
@@ -466,22 +435,13 @@ fraiseql status --arrow
 
 # Arrow Flight Server
 # Status: Running
-# Port: 8081
+# Port: 50051
 # Active connections: 12
 # Bytes sent (24h): 1.2 TB
 # Queries (24h): 45,230
 ```
 
 ## Security
-
-### TLS
-
-```toml
-[arrow.tls]
-enabled = true
-cert_file = "/path/to/cert.pem"
-key_file = "/path/to/key.pem"
-```
 
 ### Query Authorization
 
@@ -528,14 +488,14 @@ CREATE INDEX idx_ta_events_user ON ta_events(user_id);
    ```
    Check logs for Arrow Flight startup:
    ```
-   INFO: Arrow Flight dataplane listening on 0.0.0.0:8081
+   INFO: Arrow Flight dataplane listening on 0.0.0.0:50051
    ```
 
 2. **Test with a simple query**:
    ```python
    import pyarrow.flight as flight
    
-   client = flight.connect("grpc://localhost:8081")
+   client = flight.connect("grpc://localhost:50051")
    ticket = flight.Ticket(b'{"query": "orders_daily"}')
    reader = client.do_get(ticket)
    table = reader.read_all()
@@ -552,7 +512,7 @@ CREATE INDEX idx_ta_events_user ON ta_events(user_id);
 3. **Verify streaming for large datasets**:
    ```python
    # Count rows without loading all into memory
-   client = flight.connect("grpc://localhost:8081")
+   client = flight.connect("grpc://localhost:50051")
    ticket = flight.Ticket(b'{"query": "large_export"}')
    reader = client.do_get(ticket)
    
@@ -592,18 +552,17 @@ CREATE INDEX idx_ta_events_user ON ta_events(user_id);
 
 If you get `Connection refused` when connecting:
 
-1. Verify Arrow is enabled in `fraiseql.toml`:
-   ```toml
-   [arrow]
-   enabled = true
+1. Verify FraiseQL was compiled with the `arrow` feature:
+   ```bash
+   fraiseql --version  # should mention Arrow Flight
    ```
 
 2. Check the port is correct:
    ```bash
-   netstat -tlnp | grep 8081
+   netstat -tlnp | grep 50051
    ```
 
-3. Check FraiseQL logs for startup errors
+3. Check FraiseQL logs for Arrow Flight startup errors
 
 ### Slow Query Performance
 

@@ -81,7 +81,7 @@ fraiseql run schema.json --introspection
 
 ```
 $ fraiseql run
-🍓 FraiseQL v2.0.0-rc.13
+🍓 FraiseQL v2.0.0
    GraphQL endpoint: http://localhost:8080/graphql
    Health check:     http://localhost:8080/health
    Schema:           3 types, 5 queries, 3 mutations
@@ -89,9 +89,6 @@ $ fraiseql run
    Press Ctrl+C to stop
 ```
 
-<Aside type="note">
-Prior to rc.13, `fraiseql run` was called `fraiseql serve`. If you have scripts or documentation that use `fraiseql serve`, update them to `fraiseql run`.
-</Aside>
 
 <Aside type="tip">
 Use `--watch` during development so the server restarts automatically when you edit the schema. In production, omit `--watch` and set `--database` via the `DATABASE_URL` environment variable.
@@ -556,6 +553,36 @@ fraiseql sbom [OPTIONS] [SCHEMA]
 
 ---
 
+### `fraiseql validate-documents`
+
+Validate a trusted documents manifest — checks that the file is well-formed JSON and that every key is a valid SHA-256 hex string matching its query body hash.
+
+```bash
+fraiseql validate-documents <MANIFEST>
+```
+
+**Arguments:**
+- `MANIFEST` — Path to the trusted documents manifest JSON file
+
+**Examples:**
+
+```bash
+# Validate the manifest before deploying
+fraiseql validate-documents trusted-documents.json
+
+# Use in CI to catch manifest errors early
+fraiseql validate-documents ./manifests/trusted-documents.json && echo "Manifest OK"
+```
+
+**Exit codes:**
+- `0` — Manifest is valid
+- `1` — Manifest has structural errors or hash mismatches
+- `2` — File not found or not valid JSON
+
+See [Trusted Documents](/features/security#trusted-documents) for the manifest format.
+
+---
+
 ## Global Options
 
 All commands support the following options:
@@ -584,6 +611,7 @@ All commands support the following options:
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string (overrides `[database] url`) |
 | `FRAISEQL_REQUIRE_REDIS=1` | Refuse to start if PKCE state or rate limiting is using in-memory storage. Recommended for Kubernetes and other multi-replica deployments — catches misconfiguration at startup rather than at request time. |
+| `FRAISEQL_MCP_STDIO=1` | Start the MCP (Model Context Protocol) server in stdio transport mode instead of HTTP. Used for Claude Desktop and other local MCP clients. Requires the server to be compiled with `--features mcp`. |
 
 ---
 
@@ -624,8 +652,8 @@ Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if 
 
 ```bash
 # Typical CI pipeline
-fraiseql config validate          # Validate configuration
-fraiseql compile --check          # Compile and validate schema  
+fraiseql validate                 # Validate configuration
+fraiseql compile --check          # Compile and validate schema
 fraiseql lint --fail-on warning   # Run all audits
 fraiseql test                     # Run tests (if configured)
 fraiseql migrate up               # Apply migrations
@@ -643,12 +671,12 @@ fraiseql run                      # Start server
    
    Expected output:
    ```
-   fraiseql 0.9.0
+   fraiseql 2.0.0
    ```
 
 2. **Validate a configuration file**:
    ```bash
-   fraiseql config validate
+   fraiseql validate
    ```
    
    Expected output:

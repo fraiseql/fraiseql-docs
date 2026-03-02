@@ -1,0 +1,79 @@
+---
+title: LangChain Integration
+description: Use FraiseQL queries as LangChain tools and retrievers in agent pipelines
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The FraiseQL LangChain integration exposes your GraphQL API as LangChain tools and retrievers, enabling agents to query your database as part of reasoning chains.
+
+## Installation
+
+```bash
+pip install "fraiseql[langchain]"
+```
+
+## FraiseQLToolkit
+
+`FraiseQLToolkit` introspects a FraiseQL server and generates a `BaseTool` for every query and mutation. Pass the tools to any LangChain agent.
+
+```python
+import asyncio
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_anthropic import ChatAnthropic
+from fraiseql.integrations.langchain import FraiseQLToolkit
+
+async def main() -> None:
+    # Introspect schema and generate tools
+    toolkit = await FraiseQLToolkit.from_url(
+        "http://localhost:8080/graphql",
+        auth_token="Bearer eyJ..."
+    )
+    tools = toolkit.get_tools(
+        exclude=["adminUsers"]   # hide admin operations from the agent
+    )
+
+    llm = ChatAnthropic(model="claude-opus-4-6")
+    agent = create_tool_calling_agent(llm, tools, prompt=...)
+    executor = AgentExecutor(agent=agent, tools=tools)
+
+    result = await executor.ainvoke({
+        "input": "Show me all orders placed today"
+    })
+    print(result["output"])
+
+asyncio.run(main())
+```
+
+Each tool's description is taken from the GraphQL field description in your schema — write clear docstrings in your Python `@fraiseql.query` definitions and the agent will know how to use each tool.
+
+## FraiseQLRetriever
+
+`FraiseQLRetriever` wraps a single query as a LangChain retriever, returning results as `Document` objects. Use it with RAG chains or as a memory source.
+
+```python
+from fraiseql.client import FraiseQLClient
+from fraiseql.integrations.langchain import FraiseQLRetriever
+
+client = FraiseQLClient("http://localhost:8080/graphql")
+
+retriever = FraiseQLRetriever(
+    client=client,
+    query="""
+        query SearchProducts($search: String) {
+            products(search: $search) { id name description price }
+        }
+    """,
+    text_key="description",          # field used as Document.page_content
+    metadata_keys=["id", "name", "price"],
+)
+
+docs = await retriever.ainvoke("wireless headphones under $100")
+for doc in docs:
+    print(doc.page_content)
+    print(doc.metadata)
+```
+
+<Aside type="note">
+Both `FraiseQLTool` and `FraiseQLRetriever` are async-only. Use `ainvoke()` / `_arun()` rather than the sync variants.
+</Aside>

@@ -51,11 +51,14 @@ The `"type": "next"` field is part of the [graphql-ws protocol](https://github.c
 1. **Enable subscriptions** in `fraiseql.toml`:
    ```toml
    [subscriptions]
-   enabled = true
-   transport = "websocket"
-   path = "/ws"
-   ping_interval = 30
-   connection_timeout = 5
+   max_active_per_connection = 10
+   max_fields_per_subscription = 50
+
+   [subscriptions.hooks]
+   on_connect    = "http://localhost:8001/hooks/ws-connect"
+   on_disconnect = "http://localhost:8001/hooks/ws-disconnect"
+   on_subscribe  = "http://localhost:8001/hooks/ws-subscribe"
+   timeout_ms    = 500
    ```
 
 2. **Define a subscription** in your Python schema:
@@ -95,11 +98,7 @@ The default transport for browser clients. Uses the modern graphql-ws protocol.
 
 ```toml
 [subscriptions]
-enabled = true
-transport = "websocket"
-path = "/ws"
-ping_interval = 30  # keepalive ping every 30s
-connection_timeout = 5  # 5s to send connection_init
+max_active_per_connection = 10
 ```
 
 **Client examples:**
@@ -260,15 +259,6 @@ func main() {
 
 For server-to-server communication without WebSocket overhead.
 
-**Configuration:**
-
-```toml
-[subscriptions]
-enabled = true
-transport = "postgres_notify"
-channel_prefix = "fraiseql_"
-```
-
 **Database trigger:**
 
 ```sql
@@ -286,71 +276,6 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-```
-
-### Webhook Delivery
-
-Push events to HTTP endpoints. Useful for serverless or third-party integrations.
-
-**Configuration:**
-
-```toml
-[subscriptions]
-enabled = true
-transport = "webhook"
-
-[subscriptions.webhook]
-endpoint = "${WEBHOOK_ENDPOINT}"
-secret = "${WEBHOOK_SECRET}"
-timeout = 10
-retry_attempts = 3
-retry_delay = 1000
-```
-
-**Webhook payload:**
-
-```json
-{
-    "subscription": "orderUpdated",
-    "data": {
-        "id": "order-456",
-        "status": "shipped"
-    },
-    "timestamp": "2024-01-15T10:30:00Z",
-    "signature": "sha256=..."
-}
-```
-
-**Signature verification:**
-
-```python
-import hmac
-import hashlib
-
-def verify_webhook(payload: bytes, signature: str, secret: str) -> bool:
-    expected = 'sha256=' + hmac.new(
-        secret.encode(),
-        payload,
-        hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(signature, expected)
-```
-
-### Kafka Streaming
-
-For high-throughput event streaming.
-
-**Configuration:**
-
-```toml
-[subscriptions]
-enabled = true
-transport = "kafka"
-
-[subscriptions.kafka]
-brokers = ["${KAFKA_BROKERS}"]
-topic_prefix = "fraiseql."
-client_id = "fraiseql-server"
 ```
 
 ## Defining Subscriptions
@@ -562,24 +487,6 @@ client.subscribe(
 
 ## Performance
 
-### Connection Limits
-
-```toml
-[subscriptions]
-max_connections = 10000
-max_subscriptions_per_connection = 100
-```
-
-### Batching
-
-FraiseQL batches notifications within a time window:
-
-```toml
-[subscriptions]
-batch_interval_ms = 50  # Batch events within 50ms
-max_batch_size = 100    # Max events per batch
-```
-
 ### Metrics
 
 | Metric | Description |
@@ -593,23 +500,18 @@ max_batch_size = 100    # Max events per batch
 
 ### Authentication
 
-WebSocket connections require authentication:
+WebSocket connections are authenticated via the same JWT/API key middleware as HTTP requests. The token is passed in the `connectionParams` of the `connection_init` message:
 
-```toml
-[subscriptions.auth]
-required = true
-token_header = "Authorization"
-validate_on_subscribe = true
+```javascript
+const client = createClient({
+    url: 'wss://api.example.com/ws',
+    connectionParams: {
+        authToken: 'Bearer eyJ...'
+    }
+});
 ```
 
-### Rate Limiting
-
-```toml
-[subscriptions.rate_limit]
-connections_per_ip = 100
-subscriptions_per_connection = 50
-events_per_second = 1000
-```
+The server validates the token before accepting the connection. Rate limiting uses the same `[security.rate_limiting]` configuration as the GraphQL HTTP endpoint.
 
 ### Subscription Depth
 

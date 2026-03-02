@@ -227,6 +227,76 @@ Each mutation maps to a PostgreSQL function in `db/schema/03_functions/`. The Py
 
 ---
 
+## Advanced Decorator Parameters
+
+### Subscription Filter Fields
+
+Declare which arguments are used as server-side event filters. Only events matching the argument values are delivered to each subscriber.
+
+```python
+@fraiseql.subscription(
+    sql_source="tb_order",
+    event="UPDATE",
+    filter_fields=["user_id", "status"]  # filter events server-side
+)
+def order_updated(user_id: fraiseql.ID | None = None, status: str | None = None) -> Order:
+    pass
+```
+
+### Mutation Cache Invalidation
+
+Declare which SQL views a mutation modifies so FraiseQL can purge cached responses automatically.
+
+```python
+@fraiseql.mutation(
+    fn_name="create_post",
+    invalidates=["v_post", "v_post_list"]  # purge these view caches on success
+)
+def create_post(input: PostInput) -> PostResult:
+    pass
+```
+
+### Field-Level Access Control
+
+Use `fraiseql.field()` to restrict individual fields:
+
+```python
+@fraiseql.type
+class User:
+    id: fraiseql.ID
+    name: str
+    email: str
+    # Only users with admin:read scope can see internal_notes; others get null
+    internal_notes: Annotated[str | None, fraiseql.field(
+        requires_scope="admin:read",
+        on_deny="mask"      # "mask" returns null | "error" raises an error
+    )]
+```
+
+### Type-Level Role Restriction
+
+Restrict an entire type to users with a specific role:
+
+```python
+@fraiseql.type(requires_role="admin")
+class AdminDashboard:
+    """Only visible to users with the admin role."""
+    total_users: int
+    revenue_today: float
+    pending_reports: int
+```
+
+### Query-Level Role Restriction
+
+```python
+@fraiseql.query(sql_source="v_admin_log", requires_role="admin")
+def admin_logs(limit: int = 100) -> list[AdminLog]:
+    """Only admin-role users can execute this query."""
+    pass
+```
+
+---
+
 ## Authorization
 
 Use `@fraiseql.authenticated` and `@requires_scope` to protect queries and mutations:

@@ -265,6 +265,50 @@ See [Rate Limiting](/features/rate-limiting) for the full configuration referenc
 
 ---
 
+## API Keys
+
+<Aside type="note">
+Added in rc.14.
+</Aside>
+
+For service-to-service authentication where JWT is impractical, FraiseQL supports static API keys stored hashed in the database. Keys are issued once (plaintext returned at creation, never stored) and validated on every request.
+
+```toml
+[security.api_keys]
+enabled        = true
+header         = "X-API-Key"    # HTTP header to read the key from
+hash_algorithm = "argon2"       # "sha256" (fast) or "argon2" (production)
+storage        = "postgres"     # "postgres" (production) or "env" (CI only)
+```
+
+See [Authentication](/guides/authentication#api-key-authentication) for the database schema and key issuance mutations.
+
+---
+
+## Token Revocation
+
+<Aside type="note">
+Added in rc.14.
+</Aside>
+
+Revoke JWTs before their `exp` claim expires — for logout, security incidents, or key rotation.
+
+```toml
+[security.token_revocation]
+enabled     = true
+backend     = "redis"   # "redis" (recommended) or "postgres"
+require_jti = true      # reject JWTs without a jti claim
+fail_open   = false     # deny requests if revocation store is unreachable
+```
+
+When enabled, two endpoints become available:
+- `POST /auth/revoke` — revoke the caller's own token (self-logout)
+- `POST /auth/revoke-all` — revoke all tokens for a user (requires `admin:revoke` scope)
+
+See [Authentication](/guides/authentication) for the full revocation workflow.
+
+---
+
 ## OAuth State Security
 
 ### State encryption

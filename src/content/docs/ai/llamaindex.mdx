@@ -1,0 +1,82 @@
+---
+title: LlamaIndex Integration
+description: Load FraiseQL query results as LlamaIndex Documents for RAG and knowledge-base agents
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`FraiseQLReader` is a LlamaIndex `BaseReader` that executes GraphQL queries and returns the results as `Document` objects, making FraiseQL a first-class data source for RAG pipelines and knowledge-base agents.
+
+## Installation
+
+```bash
+pip install "fraiseql[llamaindex]"
+```
+
+## Basic Usage
+
+```python
+import asyncio
+from fraiseql.client import FraiseQLClient
+from fraiseql.integrations.llamaindex import FraiseQLReader
+
+async def main() -> None:
+    client = FraiseQLClient(
+        "http://localhost:8080/graphql",
+        auth_token="Bearer eyJ..."
+    )
+    reader = FraiseQLReader(client=client)
+
+    documents = await reader.aload_data(
+        query="{ products { id name description category price } }",
+        text_template="{name}: {description}",
+        metadata_fields=["id", "category", "price"],
+    )
+
+    for doc in documents:
+        print(doc.text)        # "Widget Pro: The best widget for everyday use"
+        print(doc.metadata)    # {"id": "p-123", "category": "tools", "price": 29.99}
+
+asyncio.run(main())
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | `str` | GraphQL query string |
+| `variables` | `dict \| None` | Query variables |
+| `text_template` | `str \| None` | Python format string for `Document.text`. Uses field names as keys. If `None`, the full JSON is used. |
+| `metadata_fields` | `list[str] \| None` | Fields to include in `Document.metadata`. If `None`, all fields are included. |
+
+## With LlamaIndex VectorStore
+
+Load FraiseQL results into a vector index for semantic search:
+
+```python
+from llama_index.core import VectorStoreIndex
+from fraiseql.client import FraiseQLClient
+from fraiseql.integrations.llamaindex import FraiseQLReader
+
+client = FraiseQLClient("http://localhost:8080/graphql")
+reader = FraiseQLReader(client=client)
+
+# Load product catalog as documents
+documents = await reader.aload_data(
+    query="{ products { id name description } }",
+    text_template="{name}: {description}",
+)
+
+# Build vector index for semantic search
+index = VectorStoreIndex.from_documents(documents)
+query_engine = index.as_query_engine()
+
+response = await query_engine.aquery(
+    "Which products are suitable for outdoor use?"
+)
+print(response)
+```
+
+<Aside type="note">
+`aload_data()` is async. For sync contexts, run it inside `asyncio.run()` or use a compatible event loop.
+</Aside>
