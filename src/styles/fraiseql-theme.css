@@ -169,8 +169,8 @@ p {
   margin-bottom: 1.25rem;
 }
 
-/* Code styling */
-code {
+/* Inline code styling — scoped to avoid interfering with ExpressiveCode pre blocks */
+:not(pre) > code {
   font-family: var(--font-mono);
   font-size: 0.9em;
   font-feature-settings: 'liga' 0;
@@ -179,7 +179,7 @@ code {
   border-radius: var(--radius-sm);
 }
 
-:root[data-theme='dark'] code {
+:root[data-theme='dark'] :not(pre) > code {
   background: var(--gray-800);
 }
 
@@ -194,6 +194,11 @@ a {
 
 a:hover {
   color: var(--fraise-500);
+}
+
+/* Starlight logo link — override Tailwind @layer base which beats @layer starlight.core */
+a.site-title {
+  text-decoration: none;
 }
 
 /* Buttons */
