@@ -9,9 +9,13 @@ FraiseQL generates a complete GraphQL API from your schema. This reference cover
 
 ## Schema Structure
 
+<Aside type="note">
+FraiseQL does not auto-generate CRUD mutations. Every mutation must be explicitly declared with `@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")` in your Python schema. The example below shows what a user-declared schema might look like after compilation — not auto-generated output.
+</Aside>
+
 ```graphql
 type Query {
-    # Entity queries
+    # Entity queries (declared with @fraiseql.query)
     user(id: ID!): User
     users(where: UserWhereInput, limit: Int, offset: Int, orderBy: UserOrderByInput): [User!]!
 
@@ -20,7 +24,7 @@ type Query {
 }
 
 type Mutation {
-    # CRUD operations
+    # Explicitly declared mutations (backed by PostgreSQL functions)
     createUser(input: CreateUserInput!): User!
     updateUser(id: ID!, input: UpdateUserInput!): User!
     deleteUser(id: ID!): Boolean!
@@ -30,7 +34,7 @@ type Mutation {
 }
 
 type Subscription {
-    # Real-time updates
+    # Real-time updates (declared with @fraiseql.subscription)
     userCreated: User!
     postUpdated(authorId: ID): Post!
 }
@@ -236,22 +240,32 @@ subscription OnPostUpdated($authorId: ID) {
 
 ### Using with WebSocket
 
+The server implements both `graphql-transport-ws` (modern) and `graphql-ws` (Apollo legacy) protocols, negotiated via the `Sec-WebSocket-Protocol` header. The default WebSocket path is `/ws`.
+
+The `graphql-transport-ws` protocol requires a `connection_init` handshake before subscribing:
+
 ```javascript
-const ws = new WebSocket('ws://localhost:8080/subscriptions');
+const ws = new WebSocket('ws://localhost:8080/ws', 'graphql-transport-ws');
 
 ws.onopen = () => {
-    ws.send(JSON.stringify({
-        type: 'subscribe',
-        id: '1',
-        payload: {
-            query: `subscription { userCreated { id name } }`
-        }
-    }));
+    // Step 1: Initialize connection
+    ws.send(JSON.stringify({ type: 'connection_init', payload: {} }));
 };
 
 ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    console.log('New user:', data.payload.data.userCreated);
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'connection_ack') {
+        // Step 2: Send subscription after ack
+        ws.send(JSON.stringify({
+            type: 'subscribe',
+            id: '1',
+            payload: {
+                query: `subscription { userCreated { id name } }`
+            }
+        }));
+    } else if (msg.type === 'next') {
+        console.log('New user:', msg.payload.data.userCreated);
+    }
 };
 ```
 
@@ -439,7 +453,7 @@ fraiseql run --introspection
 Access the GraphQL playground at:
 
 ```
-http://localhost:8080/graphql
+http://localhost:8080/playground
 ```
 
 Features:

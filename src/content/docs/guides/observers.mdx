@@ -5,7 +5,7 @@ description: Trigger side effects after mutations — send emails, update projec
 
 import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
-Observers are functions that run after a mutation completes successfully. The mutation commits to the database first, then your observers fire. This means observers cannot roll back the write — they are for side effects: sending emails, updating projection tables, publishing events, calling webhooks, writing audit logs.
+Observers are actions that run after a mutation completes successfully. The mutation commits to the database first, then FraiseQL dispatches configured observer actions. This means observers cannot roll back the write — they are for side effects: sending emails, updating projection tables, publishing events, calling webhooks.
 
 This guide builds directly on the blog API from [Your First API](/getting-started/first-api) — users, posts, and comments.
 
@@ -15,103 +15,141 @@ When a `createUser` mutation runs:
 
 1. FraiseQL executes your SQL function inside a transaction
 2. The transaction commits
-3. The result (a `User` object) is passed to every registered observer for `createUser`
-4. The GraphQL response returns to the client — it does not wait for observers to finish
+3. The Rust runtime evaluates configured observers for `createUser`
+4. Matching observer actions (webhooks, Slack) are dispatched asynchronously
+5. The GraphQL response returns to the client — it does not wait for observers to finish
 
-Observers receive the same object returned to the client. They have access to the request context, which carries your database connection, auth token, and any injected services.
+Observers are **configured in TOML**, not in Python. The Python SDK is compile-time only — it defines the GraphQL schema (types, queries, mutations) and exports it to JSON. Observer delivery, retry logic, and side-effect dispatch are handled entirely by the Rust runtime.
+
+<Aside type="note" title="Python SDK is schema-authoring only">
+The FraiseQL Python SDK has no runtime component. There is no `@fraiseql.observer` decorator in Python. Observer actions are wired up in `fraiseql.toml` — the Rust runtime handles delivery at request time.
+</Aside>
+
+## Architecture
+
+```
+schema.py           fraiseql compile       Rust runtime
+─────────────────   ──────────────────►   ────────────────────────────
+@fraiseql.type          schema.json           mutation executes
+@fraiseql.mutation  ──────────────────►   ────────────────────────────
+                    schema.compiled.json      result dispatched to
+                                              observers (from TOML)
+fraiseql.toml
+─────────────────   (read at runtime)         webhook / Slack actions
+[observers]         ──────────────────►       POST to your endpoints
+backend = "nats"
+```
+
+## Configuring Observers in TOML
+
+Observer backend and actions are configured in `fraiseql.toml`. The Rust runtime reads this configuration and handles event dispatch after each mutation commits.
+
+```toml title="fraiseql.toml"
+[observers]
+backend = "nats"          # Options: "nats", "redis", "postgres", "in-memory"
+nats_url = "nats://localhost:4222"
+
+# For Redis backend:
+# backend = "redis"
+# redis_url = "redis://localhost:6379"
+```
+
+Each observer action maps a database event to an action (webhook, Slack). They are configured alongside the `[observers]` backend:
+
+```toml title="fraiseql.toml"
+[[observers.handlers]]
+name        = "welcome-email"
+event       = "user.created"
+action      = "webhook"
+webhook_url = "${WELCOME_EMAIL_WEBHOOK_URL}"
+```
 
 ## Step 1: Your First Observer — Welcome Email on createUser
 
-Register an observer that sends a welcome email after a user account is created.
+When a user is created, your email service should be notified. Configure a webhook observer in `fraiseql.toml` and implement an HTTP endpoint in your email service to receive the event.
+
+**`fraiseql.toml`** — configure the observer:
+
+```toml
+[[observers.handlers]]
+name        = "welcome-email"
+event       = "user.created"
+action      = "webhook"
+webhook_url = "${WELCOME_EMAIL_SERVICE_URL}"
+```
+
+**Your email service** — implement the webhook receiver:
 
 <Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="observers.py"
-    import fraiseql
-    from fraiseql import Context
-    from schema import User
+  <TabItem label="TypeScript (Express)">
+    ```typescript title="email-service/src/routes/fraiseql-webhook.ts"
+    import express from 'express';
+    import { sendEmail } from '../mailer';
 
-    @fraiseql.observer("createUser")
-    async def send_welcome_email(result: User, context: Context) -> None:
-        await context.email_client.send(
-            to=result.email,
-            subject="Welcome to the blog",
-            body=f"Hi {result.username}, your account is ready.",
-        )
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="observers.ts"
-    import fraiseql, { type Context } from 'fraiseql';
-    import { type User } from './schema';
+    const router = express.Router();
 
-    fraiseql.observe('createUser', async (result: User, context: Context) => {
-      await context.emailClient.send({
-        to: result.email,
+    router.post('/hooks/fraiseql', async (req, res) => {
+      const event = req.body;
+
+      // FraiseQL sends: { event, table, timestamp, data: { new, old } }
+      if (event.event !== 'INSERT' || event.table !== 'tb_user') {
+        return res.sendStatus(204);
+      }
+
+      const user = event.data.new;
+
+      await sendEmail({
+        to: user.email,
         subject: 'Welcome to the blog',
-        body: `Hi ${result.username}, your account is ready.`,
+        body: `Hi ${user.name}, your account is ready.`,
       });
+
+      res.sendStatus(200);
     });
+
+    export default router;
     ```
   </TabItem>
   <TabItem label="Go">
-    ```go title="observers.go"
-    package observers
-
-    import (
-        "context"
-        "fmt"
-
-        "github.com/fraiseql/fraiseql-go"
-        "your-module/schema"
-        "your-module/email"
-    )
-
-    func Register(app *fraiseql.App) {
-        fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
-            return email.Send(ctx, email.Message{
-                To:      result.Email,
-                Subject: "Welcome to the blog",
-                Body:    fmt.Sprintf("Hi %s, your account is ready.", result.Username),
-            })
-        })
-    }
-    ```
-  </TabItem>
-</Tabs>
-
-Register your observers at startup, after the app is configured:
-
-<Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="main.py"
-    import fraiseql
-    import observers  # registers all observers on import
-
-    app = fraiseql.create_app(config="fraiseql.toml")
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="main.ts"
-    import fraiseql from 'fraiseql';
-    import './observers'; // registers all observers on import
-
-    const app = fraiseql.createApp({ config: 'fraiseql.toml' });
-    ```
-  </TabItem>
-  <TabItem label="Go">
-    ```go title="main.go"
+    ```go title="email-service/main.go"
     package main
 
     import (
-        "github.com/fraiseql/fraiseql-go"
-        "your-module/observers"
+        "encoding/json"
+        "net/http"
+
+        "your-module/mailer"
     )
 
-    func main() {
-        app := fraiseql.NewApp("fraiseql.toml")
-        observers.Register(app)
-        app.Serve()
+    type FraiseQLEvent struct {
+        Event string `json:"event"`
+        Table string `json:"table"`
+        Data  struct {
+            New map[string]any `json:"new"`
+            Old map[string]any `json:"old"`
+        } `json:"data"`
+    }
+
+    func fraiseqlWebhookHandler(w http.ResponseWriter, r *http.Request) {
+        var event FraiseQLEvent
+        if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+            http.Error(w, err.Error(), http.StatusBadRequest)
+            return
+        }
+
+        if event.Event != "INSERT" || event.Table != "tb_user" {
+            w.WriteHeader(http.StatusNoContent)
+            return
+        }
+
+        user := event.Data.New
+        mailer.Send(r.Context(), mailer.Message{
+            To:      user["email"].(string),
+            Subject: "Welcome to the blog",
+            Body:    "Hi " + user["name"].(string) + ", your account is ready.",
+        })
+
+        w.WriteHeader(http.StatusOK)
     }
     ```
   </TabItem>
@@ -119,447 +157,253 @@ Register your observers at startup, after the app is configured:
 
 ## Step 2: Observer on createComment — Notify the Post Author
 
-When someone comments on a post, the post author should receive a notification. The observer receives the new `Comment` — it can use the context to look up the post author.
+When someone comments on a post, notify the post author. Configure a second observer in `fraiseql.toml` and implement the receiver in your notification service.
+
+**`fraiseql.toml`:**
+
+```toml
+[[observers.handlers]]
+name        = "comment-notification"
+event       = "comment.created"
+action      = "webhook"
+webhook_url = "${NOTIFICATION_SERVICE_URL}"
+```
+
+**Your notification service:**
 
 <Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="observers.py"
-    @fraiseql.observer("createComment")
-    async def notify_post_author(result: Comment, context: Context) -> None:
-        # The comment result embeds the post and its author
-        # (as shaped by v_comment joining v_post and v_user)
-        post_author = result.post.author
+  <TabItem label="TypeScript (Express)">
+    ```typescript title="notification-service/src/routes/fraiseql-webhook.ts"
+    router.post('/hooks/fraiseql', async (req, res) => {
+      const event = req.body;
 
-        # Don't notify if the commenter is the post author
-        if post_author.id == result.author.id:
-            return
+      if (event.event !== 'INSERT' || event.table !== 'tb_comment') {
+        return res.sendStatus(204);
+      }
 
-        await context.email_client.send(
-            to=post_author.email,
-            subject=f"New comment on \"{result.post.title}\"",
-            body=(
-                f"{result.author.username} commented: "
-                f"\"{result.content[:100]}\""
-            ),
-        )
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="observers.ts"
-    fraiseql.observe('createComment', async (result: Comment, context: Context) => {
-      // The comment result embeds the post and its author
-      const postAuthor = result.post.author;
+      const comment = event.data.new;
 
-      // Don't notify if the commenter is the post author
-      if (postAuthor.id === result.author.id) return;
-
-      await context.emailClient.send({
-        to: postAuthor.email,
-        subject: `New comment on "${result.post.title}"`,
-        body: `${result.author.username} commented: "${result.content.slice(0, 100)}"`,
-      });
-    });
-    ```
-  </TabItem>
-  <TabItem label="Go">
-    ```go title="observers.go"
-    fraiseql.Observe(app, "createComment", func(ctx context.Context, result schema.Comment) error {
-        // The comment result embeds the post and its author
-        postAuthor := result.Post.Author
-
-        // Don't notify if the commenter is the post author
-        if postAuthor.ID == result.Author.ID {
-            return nil
-        }
-
-        return emailClient.Send(ctx, email.Message{
-            To:      postAuthor.Email,
-            Subject: fmt.Sprintf("New comment on %q", result.Post.Title),
-            Body: fmt.Sprintf(
-                "%s commented: %q",
-                result.Author.Username,
-                truncate(result.Content, 100),
-            ),
-        })
-    })
-    ```
-  </TabItem>
-</Tabs>
-
-The observer uses data already present on the result object — no extra database query needed, because `v_comment` joins through to `v_post` and `v_user`.
-
-If you need data that is not on the result, the context provides a database connection:
-
-<Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="observers.py"
-    @fraiseql.observer("createComment")
-    async def notify_post_author(result: Comment, context: Context) -> None:
-        # Fetch additional data via the context db connection
-        row = await context.db.fetchrow(
-            "SELECT email FROM tb_user WHERE pk_user = $1",
-            result.post.fk_author,
-        )
-        await context.email_client.send(to=row["email"], ...)
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="observers.ts"
-    fraiseql.observe('createComment', async (result: Comment, context: Context) => {
-      const row = await context.db.queryOne(
-        'SELECT email FROM tb_user WHERE pk_user = $1',
-        [result.post.fkAuthor],
+      // Look up the post and its author using your own DB connection
+      const post = await db.query(
+        'SELECT author_email, title FROM tb_post WHERE pk_post = $1',
+        [comment.fk_post]
       );
-      await context.emailClient.send({ to: row.email, ... });
+      if (!post || post.author_email === comment.author_email) {
+        return res.sendStatus(200); // Don't notify if commenter is the author
+      }
+
+      await sendEmail({
+        to: post.author_email,
+        subject: `New comment on "${post.title}"`,
+        body: `${comment.author_name} commented: "${comment.content.slice(0, 100)}"`,
+      });
+
+      res.sendStatus(200);
     });
     ```
   </TabItem>
   <TabItem label="Go">
-    ```go title="observers.go"
-    fraiseql.Observe(app, "createComment", func(ctx context.Context, result schema.Comment) error {
-        var authorEmail string
-        err := db.QueryRowContext(ctx,
-            "SELECT email FROM tb_user WHERE pk_user = $1",
-            result.Post.FkAuthor,
-        ).Scan(&authorEmail)
-        if err != nil {
-            return err
+    ```go title="notification-service/main.go"
+    func commentWebhookHandler(w http.ResponseWriter, r *http.Request) {
+        var event FraiseQLEvent
+        json.NewDecoder(r.Body).Decode(&event)
+
+        if event.Event != "INSERT" || event.Table != "tb_comment" {
+            w.WriteHeader(http.StatusNoContent)
+            return
         }
-        return emailClient.Send(ctx, email.Message{To: authorEmail})
-    })
+
+        comment := event.Data.New
+
+        // Look up post author using your own DB connection
+        var authorEmail, postTitle string
+        err := db.QueryRowContext(r.Context(),
+            `SELECT u.email, p.title
+             FROM tb_post p JOIN tb_user u ON u.pk_user = p.fk_user
+             WHERE p.pk_post = $1`,
+            comment["fk_post"],
+        ).Scan(&authorEmail, &postTitle)
+        if err != nil || authorEmail == comment["author_email"].(string) {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+
+        mailer.Send(r.Context(), mailer.Message{
+            To:      authorEmail,
+            Subject: "New comment on " + postTitle,
+        })
+
+        w.WriteHeader(http.StatusOK)
+    }
     ```
   </TabItem>
 </Tabs>
 
 ## Step 3: Observer on publishPost — Update a Projection Table
 
-Observers are the natural place to keep projection tables in sync. The [Projection Tables](/guides/projection-tables) guide introduces `tv_post_stats`. When a post is published, you can update its `published_at` timestamp from an observer.
+Observers are the natural place to keep projection tables in sync. The [Projection Tables](/guides/projection-tables) guide introduces `tv_post_stats`. When a post is published, your receiver can update the projection directly.
+
+**`fraiseql.toml`:**
+
+```toml
+[[observers.handlers]]
+name        = "update-post-stats"
+event       = "post.updated"
+condition   = "status == 'published'"
+action      = "webhook"
+webhook_url = "${PROJECTION_SERVICE_URL}"
+```
+
+**Your projection service:**
 
 <Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="observers.py"
-    from datetime import datetime, timezone
+  <TabItem label="TypeScript (Express)">
+    ```typescript title="projection-service/src/routes/fraiseql-webhook.ts"
+    router.post('/hooks/fraiseql', async (req, res) => {
+      const event = req.body;
 
-    @fraiseql.observer("publishPost")
-    async def update_post_stats_on_publish(result: Post, context: Context) -> None:
-        await context.db.execute(
-            """
-            UPDATE tv_post_stats
-            SET published_at = $1
-            WHERE post_id = $2
-            """,
-            datetime.now(timezone.utc),
-            result.id,
-        )
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="observers.ts"
-    fraiseql.observe('publishPost', async (result: Post, context: Context) => {
-      await context.db.query(
+      if (event.table !== 'tb_post' || event.data.new?.status !== 'published') {
+        return res.sendStatus(204);
+      }
+
+      const post = event.data.new;
+
+      // Update projection table using your own DB connection
+      await db.query(
         `UPDATE tv_post_stats
          SET published_at = $1
          WHERE post_id = $2`,
-        [new Date(), result.id],
+        [event.timestamp, post.id],
       );
+
+      res.sendStatus(200);
     });
     ```
   </TabItem>
   <TabItem label="Go">
-    ```go title="observers.go"
-    fraiseql.Observe(app, "publishPost", func(ctx context.Context, result schema.Post) error {
-        _, err := db.ExecContext(ctx,
-            `UPDATE tv_post_stats
-             SET published_at = $1
-             WHERE post_id = $2`,
-            time.Now().UTC(),
-            result.ID,
-        )
-        return err
-    })
-    ```
-  </TabItem>
-</Tabs>
+    ```go title="projection-service/main.go"
+    func projectionWebhookHandler(w http.ResponseWriter, r *http.Request) {
+        var event FraiseQLEvent
+        json.NewDecoder(r.Body).Decode(&event)
 
-This is the connection between observers and projection tables: mutations write to the canonical tables, observers keep your read models current.
-
-## Step 4: Error Handling in Observers
-
-An observer failure does not roll back the mutation. The write has already committed. Your observer must handle its own errors — failing silently is worse than failing loudly.
-
-### Log errors, do not re-raise
-
-<Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="observers.py"
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    @fraiseql.observer("createUser")
-    async def send_welcome_email(result: User, context: Context) -> None:
-        try:
-            await context.email_client.send(
-                to=result.email,
-                subject="Welcome to the blog",
-                body=f"Hi {result.username}, your account is ready.",
-            )
-        except Exception:
-            logger.exception(
-                "Failed to send welcome email to user %s", result.id
-            )
-            # Do not re-raise — observer failure must not affect the mutation response
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="observers.ts"
-    fraiseql.observe('createUser', async (result: User, context: Context) => {
-      try {
-        await context.emailClient.send({
-          to: result.email,
-          subject: 'Welcome to the blog',
-          body: `Hi ${result.username}, your account is ready.`,
-        });
-      } catch (err) {
-        context.logger.error('Failed to send welcome email', {
-          userId: result.id,
-          error: err,
-        });
-        // Do not re-throw — observer failure must not affect the mutation response
-      }
-    });
-    ```
-  </TabItem>
-  <TabItem label="Go">
-    ```go title="observers.go"
-    fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
-        err := emailClient.Send(ctx, email.Message{
-            To:      result.Email,
-            Subject: "Welcome to the blog",
-            Body:    fmt.Sprintf("Hi %s, your account is ready.", result.Username),
-        })
-        if err != nil {
-            // Log and return nil — observer error must not surface to the client
-            slog.ErrorContext(ctx, "failed to send welcome email",
-                "user_id", result.ID,
-                "error", err,
-            )
-            return nil
+        if event.Table != "tb_post" {
+            w.WriteHeader(http.StatusNoContent)
+            return
         }
-        return nil
-    })
-    ```
-  </TabItem>
-</Tabs>
 
-### Dead-letter queue for critical observers
-
-For observers that must not lose events (billing, compliance, audit), push failures to a dead-letter queue rather than discarding them:
-
-<Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="observers.py"
-    @fraiseql.observer("createUser")
-    async def record_signup_event(result: User, context: Context) -> None:
-        try:
-            await context.event_bus.publish("user.created", {
-                "user_id": result.id,
-                "email": result.email,
-                "created_at": result.created_at.isoformat(),
-            })
-        except Exception:
-            logger.exception("Failed to publish user.created event for %s", result.id)
-            # Push to dead-letter queue for later replay
-            await context.dlq.enqueue("user.created", {
-                "user_id": result.id,
-                "email": result.email,
-            })
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="observers.ts"
-    fraiseql.observe('createUser', async (result: User, context: Context) => {
-      try {
-        await context.eventBus.publish('user.created', {
-          userId: result.id,
-          email: result.email,
-          createdAt: result.createdAt,
-        });
-      } catch (err) {
-        context.logger.error('Failed to publish user.created', { userId: result.id, err });
-        // Push to dead-letter queue for later replay
-        await context.dlq.enqueue('user.created', {
-          userId: result.id,
-          email: result.email,
-        });
-      }
-    });
-    ```
-  </TabItem>
-  <TabItem label="Go">
-    ```go title="observers.go"
-    fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
-        err := eventBus.Publish(ctx, "user.created", map[string]any{
-            "user_id":    result.ID,
-            "email":      result.Email,
-            "created_at": result.CreatedAt,
-        })
-        if err != nil {
-            slog.ErrorContext(ctx, "failed to publish user.created",
-                "user_id", result.ID, "error", err)
-            // Push to dead-letter queue for later replay
-            _ = dlq.Enqueue(ctx, "user.created", result.ID)
+        post := event.Data.New
+        if post["status"] != "published" {
+            w.WriteHeader(http.StatusNoContent)
+            return
         }
-        return nil
-    })
-    ```
-  </TabItem>
-</Tabs>
 
-### Retry configuration
-
-FraiseQL supports configuring retries on observers for transient failures:
-
-<Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="observers.py"
-    from fraiseql import RetryConfig
-
-    @fraiseql.observer(
-        "createUser",
-        retry=RetryConfig(
-            max_attempts=3,
-            backoff_strategy="exponential",
-            initial_delay_ms=200,
-        ),
-    )
-    async def send_welcome_email(result: User, context: Context) -> None:
-        await context.email_client.send(
-            to=result.email,
-            subject="Welcome to the blog",
-            body=f"Hi {result.username}, your account is ready.",
+        db.ExecContext(r.Context(),
+            `UPDATE tv_post_stats SET published_at = $1 WHERE post_id = $2`,
+            event.Timestamp,
+            post["id"],
         )
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="observers.ts"
-    fraiseql.observe(
-      'createUser',
-      async (result: User, context: Context) => {
-        await context.emailClient.send({
-          to: result.email,
-          subject: 'Welcome to the blog',
-          body: `Hi ${result.username}, your account is ready.`,
-        });
-      },
-      {
-        retry: {
-          maxAttempts: 3,
-          backoffStrategy: 'exponential',
-          initialDelayMs: 200,
-        },
-      },
-    );
-    ```
-  </TabItem>
-  <TabItem label="Go">
-    ```go title="observers.go"
-    fraiseql.Observe(app, "createUser", sendWelcomeEmail,
-        fraiseql.WithRetry(fraiseql.RetryConfig{
-            MaxAttempts:      3,
-            BackoffStrategy:  fraiseql.BackoffExponential,
-            InitialDelayMs:   200,
-        }),
-    )
-    ```
-  </TabItem>
-</Tabs>
 
-Retries are appropriate for idempotent observers — sending the same welcome email twice is acceptable. For non-idempotent actions (e.g. charging a card), set `max_attempts=1` or handle idempotency in the action itself.
-
-## Step 5: Multiple Observers on One Mutation
-
-You can register multiple observers on the same mutation. They run sequentially in registration order.
-
-<Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="observers.py"
-    # Observer 1 — runs first
-    @fraiseql.observer("createUser")
-    async def send_welcome_email(result: User, context: Context) -> None:
-        try:
-            await context.email_client.send(
-                to=result.email,
-                subject="Welcome to the blog",
-                body=f"Hi {result.username}, your account is ready.",
-            )
-        except Exception:
-            logger.exception("Failed to send welcome email to %s", result.id)
-
-    # Observer 2 — runs second
-    @fraiseql.observer("createUser")
-    async def record_signup_event(result: User, context: Context) -> None:
-        try:
-            await context.event_bus.publish("user.created", {
-                "user_id": result.id,
-                "username": result.username,
-            })
-        except Exception:
-            logger.exception("Failed to publish user.created for %s", result.id)
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="observers.ts"
-    // Observer 1 — runs first
-    fraiseql.observe('createUser', async (result: User, context: Context) => {
-      try {
-        await context.emailClient.send({
-          to: result.email,
-          subject: 'Welcome to the blog',
-          body: `Hi ${result.username}, your account is ready.`,
-        });
-      } catch (err) {
-        context.logger.error('Failed to send welcome email', { userId: result.id, err });
-      }
-    });
-
-    // Observer 2 — runs second
-    fraiseql.observe('createUser', async (result: User, context: Context) => {
-      try {
-        await context.eventBus.publish('user.created', {
-          userId: result.id,
-          username: result.username,
-        });
-      } catch (err) {
-        context.logger.error('Failed to publish user.created', { userId: result.id, err });
-      }
-    });
-    ```
-  </TabItem>
-  <TabItem label="Go">
-    ```go title="observers.go"
-    func Register(app *fraiseql.App) {
-        // Observer 1 — runs first
-        fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
-            if err := sendWelcomeEmail(ctx, result); err != nil {
-                slog.ErrorContext(ctx, "welcome email failed", "user_id", result.ID, "error", err)
-            }
-            return nil
-        })
-
-        // Observer 2 — runs second
-        fraiseql.Observe(app, "createUser", func(ctx context.Context, result schema.User) error {
-            if err := publishSignupEvent(ctx, result); err != nil {
-                slog.ErrorContext(ctx, "signup event failed", "user_id", result.ID, "error", err)
-            }
-            return nil
-        })
+        w.WriteHeader(http.StatusOK)
     }
     ```
   </TabItem>
 </Tabs>
 
-Each observer catches its own errors independently. A failure in observer 1 does not prevent observer 2 from running.
+This is the connection between observers and projection tables: mutations write to the canonical tables, observer webhook receivers keep your read models current.
+
+## Step 4: Error Handling in Observer Webhooks
+
+An observer failure does not roll back the mutation. The write has already committed. Your webhook endpoint must handle its own errors — returning a non-2xx status triggers FraiseQL's retry logic.
+
+### Return 200 on handled errors; log internally
+
+<Tabs syncKey="lang">
+  <TabItem label="TypeScript (Express)">
+    ```typescript title="email-service/src/routes/fraiseql-webhook.ts"
+    router.post('/hooks/fraiseql', async (req, res) => {
+      const event = req.body;
+      const user = event.data.new;
+
+      try {
+        await sendEmail({
+          to: user.email,
+          subject: 'Welcome to the blog',
+          body: `Hi ${user.name}, your account is ready.`,
+        });
+        res.sendStatus(200);
+      } catch (err) {
+        // Log internally — return 200 so FraiseQL does not retry a transient client error
+        logger.error('Failed to send welcome email', { userId: user.id, error: err });
+        res.sendStatus(200);
+      }
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go title="email-service/main.go"
+    func fraiseqlWebhookHandler(w http.ResponseWriter, r *http.Request) {
+        var event FraiseQLEvent
+        json.NewDecoder(r.Body).Decode(&event)
+
+        user := event.Data.New
+        err := mailer.Send(r.Context(), mailer.Message{To: user["email"].(string)})
+        if err != nil {
+            // Log internally — return 200 so FraiseQL does not retry a non-retryable error
+            slog.ErrorContext(r.Context(), "failed to send welcome email",
+                "user_id", user["id"], "error", err)
+        }
+        w.WriteHeader(http.StatusOK)
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+### Return 5xx to trigger retry (for transient failures)
+
+Return a `5xx` status when the failure is transient (network timeout, downstream service unavailable) and retrying is appropriate. FraiseQL will retry according to the configured backoff strategy.
+
+```typescript
+router.post('/hooks/fraiseql', async (req, res) => {
+  try {
+    await publishEvent(req.body);
+    res.sendStatus(200);
+  } catch (err) {
+    if (err.code === 'ECONNREFUSED') {
+      // Downstream service unreachable — ask FraiseQL to retry
+      return res.status(503).json({ error: 'Event bus unavailable' });
+    }
+    // Other errors — log and acknowledge
+    logger.error('Observer error', err);
+    res.sendStatus(200);
+  }
+});
+```
+
+## Step 5: Multiple Observers on One Mutation
+
+Register multiple handlers for the same event in `fraiseql.toml`. Each handler executes independently — a failure in one does not block the others.
+
+```toml title="fraiseql.toml"
+# Observer 1 — send welcome email
+[[observers.handlers]]
+name        = "welcome-email"
+event       = "user.created"
+action      = "webhook"
+webhook_url = "${WELCOME_EMAIL_SERVICE_URL}"
+max_attempts = 3
+backoff_strategy = "exponential"
+
+# Observer 2 — publish signup event to event bus
+[[observers.handlers]]
+name        = "signup-event"
+event       = "user.created"
+action      = "webhook"
+webhook_url = "${EVENT_BUS_INGEST_URL}"
+max_attempts = 5
+backoff_strategy = "exponential"
+```
+
+Handlers execute in definition order. Each has its own retry budget.
 
 ## Observers vs Database Triggers
 
@@ -570,9 +414,9 @@ Both observers and database triggers react to data changes. They serve different
 | Runs | After commit, outside transaction | Inside transaction |
 | Can call external services | Yes | No |
 | Rolls back on failure | No | Yes |
-| Access to context / auth | Yes | No |
-| Can read application state | Yes | No |
-| Visible in application code | Yes | Only as SQL |
+| Access to context / auth | Via webhook request body | No |
+| Can read application state | Via your own DB connection | Only as SQL |
+| Visible in application code | Yes (webhook receiver) | Only as SQL |
 
 **Use a database trigger when** the action must be atomic with the write — for example, enforcing a derived column or maintaining a denormalized counter that must never be out of sync.
 
@@ -580,62 +424,51 @@ Both observers and database triggers react to data changes. They serve different
 
 ## Webhook Payload Format
 
-When an observer calls `context.webhook_client.send()` or when FraiseQL dispatches a built-in webhook action, the payload it sends to the external endpoint looks like this:
+When FraiseQL dispatches a webhook observer action (no `body_template` specified), the payload it sends to your endpoint looks like this:
 
 ```json
 {
-  "event": "createUser",
-  "timestamp": "2024-03-15T14:22:05.123Z",
-  "payload": {
-    "id": "usr_01HV3KQBN7MXSZQZQR4F5P0G2Y",
-    "username": "alice",
-    "email": "alice@example.com",
-    "created_at": "2024-03-15T14:22:04.987Z"
-  },
-  "meta": {
-    "fraiseql_version": "0.9.1",
-    "request_id": "req_01HV3KQBN7MXSZQZQR4F5P0G2Y"
+  "event": "INSERT",
+  "table": "tb_user",
+  "timestamp": "2026-02-25T10:00:00Z",
+  "data": {
+    "new": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "email": "alice@example.com",
+      "name": "Alice"
+    },
+    "old": null
   }
 }
 ```
 
-The `payload` field contains the full object returned by the mutation — the same shape your GraphQL client receives. You can use any field in your webhook endpoint logic.
+For UPDATE events, `"old"` contains the previous field values. For DELETE events, `"new"` is `null` and `"old"` contains the deleted record. Use `event.timestamp` as a stable deduplication key.
 
-<Aside type="tip">
-FraiseQL includes an `X-FraiseQL-Signature` header (HMAC-SHA256) on every outbound webhook. Verify this header in your endpoint to confirm the request originates from your FraiseQL instance and has not been tampered with.
-</Aside>
+You can override the payload shape with a Mustache `body_template` in the handler config. See the [Observers concept](/concepts/observers) for the full webhook action configuration reference.
 
 ## Debugging Observers
 
 Run FraiseQL with debug logging to see observer dispatch in real time:
 
 ```bash
-LOG_LEVEL=debug fraiseql run
+RUST_LOG=debug fraiseql run
 ```
 
 With debug logging enabled, every observer invocation prints to stdout:
 
 ```
-[observer] createUser fired → send_welcome_email
-[observer] send_welcome_email: dispatching email to alice@example.com
-[observer] send_welcome_email: completed in 142ms
-[observer] createUser fired → record_signup_event
-[observer] record_signup_event: publishing user.created to event bus
-[observer] record_signup_event: completed in 18ms
+[observer] createUser fired → welcome-email
+[observer] welcome-email: dispatching webhook to https://email-svc/hooks/fraiseql
+[observer] welcome-email: completed in 142ms (status=200)
+[observer] createUser fired → signup-event
+[observer] signup-event: dispatching webhook to https://events/ingest
+[observer] signup-event: completed in 18ms (status=200)
 ```
 
-If an observer fails, the log includes the full stack trace and the retry schedule:
-
-```
-[observer] send_welcome_email: attempt 1/3 failed — ConnectionRefusedError
-[observer] send_welcome_email: retrying in 200ms (exponential backoff)
-[observer] send_welcome_email: attempt 2/3 succeeded
-```
-
-To trace a specific mutation end-to-end, filter by the request ID that FraiseQL prints at query start:
+To trace a specific mutation end-to-end, filter by request ID:
 
 ```bash
-LOG_LEVEL=debug fraiseql run 2>&1 | grep "req_01HV3KQBN7"
+RUST_LOG=debug fraiseql run 2>&1 | grep "req_01HV3KQBN7"
 ```
 
 ## What's Next

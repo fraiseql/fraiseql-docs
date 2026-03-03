@@ -1,332 +1,229 @@
 ---
 title: Federation
-description: Query across multiple databases with FraiseQL's multi-database federation support
+description: Use FraiseQL as an Apollo Federation v2 subgraph to compose multiple services into a unified GraphQL API
 ---
 
-import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
-FraiseQL supports two federation modes:
-
-1. **Multi-Database Federation** — A single FraiseQL process connects to multiple databases simultaneously and routes queries to the appropriate database
-2. **Apollo Federation v2** — FraiseQL acts as a GraphQL subgraph that can be composed with other services in an Apollo Federation gateway
-
-This page covers multi-database federation. For Apollo Federation, see [Apollo Federation Support](#apollo-federation-support) below.
-
-## Multi-Database Federation
-
-FraiseQL Federation lets you expose data from multiple databases — PostgreSQL, MySQL, SQLite — through a single GraphQL endpoint. Each database is a named connection in `fraiseql.toml`. Queries that touch different databases are resolved in parallel and merged before the response leaves the server.
+FraiseQL supports **Apollo Federation v2**. Each FraiseQL service operates as a standalone GraphQL subgraph — its own Python schema, its own compiled Rust runtime, and its own PostgreSQL database. An Apollo Router composes the subgraphs into a single entry point for clients.
 
 <Aside type="note">
-**Multi-database federation is not Apollo Federation.** Apollo Federation is a protocol for composing multiple GraphQL subgraph services. FraiseQL multi-database federation is a single FraiseQL process that holds connections to multiple databases. There are no subgraph schemas, no `@key` directives, and no gateway involved when using multi-database federation.
+FraiseQL federation means running multiple independent FraiseQL services. There is no single FraiseQL process that connects to multiple databases. Each service has exactly one `[database]` section in its `fraiseql.toml`. Cross-service data access is the Apollo Router's responsibility.
 </Aside>
 
-## When to Use Multi-Database Federation
+## Architecture
 
-Multi-database federation is a good fit when:
+```
+Client
+  │
+  ▼
+Apollo Router :4000     ← single entry point, routes and merges queries
+  │         │
+  ▼         ▼
+User        Order
+Service     Service
+:4001       :4002
+  │           │
+  ▼           ▼
+PostgreSQL  PostgreSQL  ← each service owns its own database
+(users)     (orders)
+```
 
-- You have **microservices** where each service owns its own database, but you want a unified API layer
-- You are **migrating a legacy database** to a new schema and need to serve both simultaneously
-- You have a **dedicated analytics database** (read replica or separate OLAP store) alongside your transactional database
-- You are running **PostgreSQL + MySQL** together and do not want two separate APIs
+Each FraiseQL service is fully standalone:
+- Its own `fraiseql.toml` with a single `[database]` section
+- Its own Python schema file compiled to `schema.compiled.json`
+- Its own Rust runtime process
+
+## When to Use Federation
+
+Federation is a good fit when:
+
+- You have **multiple teams** where each team owns its own service and database
+- You are **migrating from an Apollo Gateway** and want to maintain subgraph boundaries
+- You need **independent deployment** of services without coordinating a combined release
+
+If you have a single team with multiple databases and want a unified API without the operational overhead of Apollo Router, consider separate FraiseQL services each exposing their own endpoint instead.
 
 ## Configuration
 
-Declare each database as a named entry under `[databases]` in `fraiseql.toml`:
+### Per-Service `fraiseql.toml`
 
-```toml
-[databases.primary]
+Every FraiseQL service has exactly one database. Use the `[database]` section (singular — there is no `[databases.service_name]` multi-database configuration):
+
+```toml title="user-service/fraiseql.toml"
+[project]
+name = "user-service"
+version = "1.0.0"
+
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[database]
 url = "${DATABASE_URL}"
-type = "postgresql"
 
-[databases.analytics]
-url = "${ANALYTICS_DB_URL}"
-type = "postgresql"
+[federation]
+enabled      = true
+apollo_version = 2
 
-[databases.legacy]
-url = "${LEGACY_DB_URL}"
-type = "mysql"
+[[federation.entities]]
+name       = "User"
+key_fields = ["id"]
 ```
 
-FraiseQL reads `type` to choose the correct driver. Supported values: `"postgresql"`, `"mysql"`, `"sqlite"`, `"sqlserver"`.
+```toml title="order-service/fraiseql.toml"
+[project]
+name = "order-service"
+version = "1.0.0"
 
-<Aside type="caution">
-If you configure any non-PostgreSQL database, the **Arrow Flight DataPlane is unavailable** for that connection. Only PostgreSQL connections support the `[analytics]` Flight endpoint. The standard GraphQL endpoint works with all configured databases.
-</Aside>
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
 
-## Defining Federated Queries
+[database]
+url = "${DATABASE_URL}"
 
-Assign each query to its database with the `database` parameter:
+[federation]
+enabled      = true
+apollo_version = 2
+
+[[federation.entities]]
+name       = "Order"
+key_fields = ["id"]
+```
+
+### Enabling Apollo Federation
+
+The `[federation]` section enables Apollo Federation v2 and declares which entity types the service owns:
+
+```toml
+[federation]
+enabled        = true
+apollo_version = 2
+
+[[federation.entities]]
+name       = "User"
+key_fields = ["id"]
+
+[[federation.entities]]
+name       = "Order"
+key_fields = ["id"]
+```
+
+## Defining Federated Schemas
+
+Each subgraph defines its own types and queries using the standard FraiseQL Python decorators. There is no special federation decorator — entity ownership is declared in `fraiseql.toml`.
 
 <Tabs>
-<TabItem label="Python SDK">
+<TabItem label="User Service">
 ```python
 import fraiseql
-from dataclasses import dataclass
+from fraiseql.scalars import ID, DateTime
 
 @fraiseql.type
 class User:
-    """User record from the primary transactional database."""
-    id: str
+    """User record owned by the user service."""
+    id: ID
     name: str
     email: str
+    created_at: DateTime
 
-@fraiseql.type
-class UserAnalytics:
-    """Engagement metrics from the analytics database."""
-    user_id: str
-    total_orders: int
-    lifetime_value: float
-    last_order_date: str
-
-@fraiseql.query(sql_source="v_user", database="primary")
-def user(id: str) -> User:
-    """Fetch a user from the primary database."""
+@fraiseql.query(sql_source="v_user")
+def user(id: ID) -> User | None:
+    """Fetch a user by ID."""
     pass
 
-@fraiseql.query(sql_source="v_user_analytics", database="analytics")
-def user_analytics(user_id: str) -> UserAnalytics:
-    """Fetch engagement metrics from the analytics database."""
+@fraiseql.query(sql_source="v_user")
+def users(limit: int = 20, offset: int = 0) -> list[User]:
+    """List users."""
     pass
 ```
 </TabItem>
-<TabItem label="TypeScript SDK">
-```typescript
-import { type, query } from 'fraiseql';
+<TabItem label="Order Service">
+```python
+import fraiseql
+from fraiseql.scalars import ID, DateTime, Decimal
 
-@type()
-class User {
-  id!: string;
-  name!: string;
-  email!: string;
-}
+@fraiseql.type
+class Order:
+    """Order record owned by the order service."""
+    id: ID
+    total: Decimal
+    status: str
+    created_at: DateTime
 
-@type()
-class UserAnalytics {
-  userId!: string;
-  totalOrders!: number;
-  lifetimeValue!: number;
-  lastOrderDate!: string;
-}
+@fraiseql.query(sql_source="v_order")
+def order(id: ID) -> Order | None:
+    """Fetch an order by ID."""
+    pass
 
-@query({ sqlSource: 'v_user', database: 'primary' })
-async user(id: string): Promise<User> {
-  return {} as User;
-}
-
-@query({ sqlSource: 'v_user_analytics', database: 'analytics' })
-async userAnalytics(userId: string): Promise<UserAnalytics> {
-  return {} as UserAnalytics;
-}
+@fraiseql.query(sql_source="v_order")
+def orders(limit: int = 20, offset: int = 0) -> list[Order]:
+    """List orders."""
+    pass
 ```
 </TabItem>
 </Tabs>
 
-## Querying Across Databases
+## Entity Resolvers
 
-A single GraphQL operation can reference resolvers backed by different databases. FraiseQL dispatches the sub-queries in parallel and assembles the result:
+Entity resolution is configured entirely in TOML via `[[federation.entities]]`. FraiseQL automatically generates the `_entities` resolver required by the Apollo Federation spec — no additional Python code is needed. When the Apollo Router sends a `_entities` query with `{ __typename: "User", id: "..." }`, FraiseQL resolves it using the view mapped to that entity type.
+
+## Apollo Router Setup
+
+The Apollo Router composes subgraphs by URL. It reads a supergraph schema composed by Rover CLI:
+
+```yaml title="router.yaml"
+supergraph:
+  listen: 0.0.0.0:4000
+
+# Forward the client's Authorization header to every subgraph
+headers:
+  all:
+    request:
+      - propagate:
+          named: Authorization
+
+subgraphs:
+  users:
+    routing_url: http://user-service:4001/graphql
+  orders:
+    routing_url: http://order-service:4002/graphql
+```
+
+<Aside type="tip">
+The `headers.all.request` block forwards the client's JWT to all subgraphs. This is required for per-subgraph authorization to work — each FraiseQL service validates the JWT independently.
+</Aside>
+
+Compose the supergraph schema with [Rover CLI](https://www.apollographql.com/docs/rover/):
+
+```bash
+rover supergraph compose --config supergraph.yaml > supergraph.graphql
+router --config router.yaml --supergraph supergraph.graphql
+```
+
+## Querying Across Services
+
+After composing the supergraph, clients send queries to the Apollo Router. The router plans which subgraphs to query and merges responses:
 
 ```graphql
-query UserDashboard($id: ID!) {
-  user(id: $id) {
+query UserDashboard($userId: ID!, $orderId: ID!) {
+  user(id: $userId) {
     id
     name
     email
   }
-  userAnalytics(userId: $id) {
-    totalOrders
-    lifetimeValue
-    lastOrderDate
-  }
-}
-```
-
-Expected response:
-
-```json
-{
-  "data": {
-    "user": {
-      "id": "usr_123",
-      "name": "Alice",
-      "email": "alice@example.com"
-    },
-    "userAnalytics": {
-      "totalOrders": 47,
-      "lifetimeValue": 3240.50,
-      "lastOrderDate": "2024-01-10"
-    }
-  }
-}
-```
-
-`user` is resolved against `v_user` on the `primary` PostgreSQL connection. `userAnalytics` is resolved against `v_user_analytics` on the `analytics` PostgreSQL connection. Both queries run concurrently. The client receives a single merged response.
-
-## Cross-Database Joins
-
-FraiseQL does not execute SQL `JOIN`s across database boundaries — that would require moving data between servers. Instead, FraiseQL resolves each database segment independently and joins results in application memory before sending the response.
-
-**What this means in practice:**
-
-| Scenario | Behaviour |
-|----------|-----------|
-| Two fields from the same database | Single SQL query with a real `JOIN` |
-| Two fields from different databases | Two parallel queries; joined in FraiseQL memory |
-| Filtering by a field from another database | Not pushable to SQL; filter applied in memory |
-| Ordering by a field from another database | Not pushable to SQL; sort applied in memory |
-
-For list queries, FraiseQL batches lookups automatically. A query for 500 users followed by their analytics records produces two SQL queries — not 501:
-
-```graphql
-query {
-  users(limit: 500) {
+  order(id: $orderId) {
     id
-    name
+    total
+    status
   }
-  # userAnalytics is fetched for all 500 users in a single batched query
 }
 ```
 
-## Cross-Service Events with NATS
+The `user` field is resolved by the user service. The `order` field is resolved by the order service. Apollo Router executes both in parallel and merges the result before sending it to the client.
 
-When a write on one database needs to trigger an event consumed by another service, FraiseQL can integrate with [NATS](/features/nats) for durable cross-service messaging.
-
-<Aside type="note">
-NATS integration is **optional** — multi-database federation works without it. NATS is only required when you need cross-service event fanout or event-driven communication between microservices.
-</Aside>
-
-To enable NATS integration:
-
-```toml
-[observers]
-transport = "nats"
-
-[observers.nats]
-url = "nats://localhost:4222"
-```
-
-When a mutation executes, FraiseQL can publish events to NATS via the observer system. Downstream services subscribe to these events independently of their database connection.
-
-## Handling Partial Failures
-
-When one database is unavailable, FraiseQL returns data from the healthy databases and `null` for fields backed by the unavailable one. The response includes a structured error:
-
-```json
-{
-  "data": {
-    "user": { "id": "usr_123", "name": "Alice", "email": "alice@example.com" },
-    "userAnalytics": null
-  },
-  "errors": [
-    {
-      "message": "Database 'analytics' unavailable",
-      "path": ["userAnalytics"],
-      "extensions": { "code": "DATABASE_UNAVAILABLE", "database": "analytics" }
-    }
-  ]
-}
-```
-
-This allows read-heavy UIs to degrade gracefully. The client receives partial data rather than a complete failure.
-
-## Migration Pattern: Legacy + New Schema in Parallel
-
-A common use of federation is serving a legacy MySQL database alongside a new PostgreSQL schema during a migration. Both databases are exposed through the same API, and the client is unaware of the boundary:
-
-```toml
-[databases.primary]
-url = "${NEW_POSTGRES_URL}"
-type = "postgresql"
-
-[databases.legacy]
-url = "${OLD_MYSQL_URL}"
-type = "mysql"
-```
-
-<Tabs>
-<TabItem label="Python SDK">
-```python
-@fraiseql.query(sql_source="v_order", database="primary")
-def order(id: str) -> Order:
-    """New orders in PostgreSQL."""
-    pass
-
-@fraiseql.query(sql_source="v_legacy_order", database="legacy")
-def legacy_order(id: str) -> LegacyOrder:
-    """Orders not yet migrated, still in MySQL."""
-    pass
-```
-</TabItem>
-<TabItem label="TypeScript SDK">
-```typescript
-@query({ sqlSource: 'v_order', database: 'primary' })
-async order(id: string): Promise<Order> {
-  return {} as Order;
-}
-
-@query({ sqlSource: 'v_legacy_order', database: 'legacy' })
-async legacyOrder(id: string): Promise<LegacyOrder> {
-  return {} as LegacyOrder;
-}
-```
-</TabItem>
-</Tabs>
-
-Once migration is complete, remove the `legacy` database from `fraiseql.toml` and deprecate the `legacyOrder` query.
-
-## Apollo Federation Support
-
-In addition to multi-database federation, FraiseQL supports Apollo Federation v2. This allows FraiseQL to participate in a larger GraphQL architecture where multiple services expose their schemas through a gateway.
-
-### Enabling Apollo Federation
-
-```toml
-[federation]
-enabled = true
-apollo_version = 2
-
-[[federation.entities]]
-name = "User"
-key_fields = ["id"]
-
-[[federation.entities]]
-name = "Order"
-key_fields = ["id"]
-```
-
-### Entity Resolvers
-
-When using Apollo Federation, define entity resolvers that the gateway can call to resolve references:
-
-<Tabs>
-<TabItem label="Python SDK">
-```python
-@fraiseql.entity_resolver(entity="User", key_fields=["id"])
-def resolve_user(id: str) -> User:
-    """Resolve a User entity by ID for the Apollo gateway."""
-    pass
-```
-</TabItem>
-<TabItem label="TypeScript SDK">
-```typescript
-@entityResolver({ entity: 'User', keyFields: ['id'] })
-async resolveUser(id: string): Promise<User> {
-  return {} as User;
-}
-```
-</TabItem>
-</Tabs>
-
-### When to Use Apollo Federation vs. Multi-Database
-
-| Use Case | Recommended Approach |
-|----------|---------------------|
-| Single team, multiple databases | Multi-database federation |
-| Multiple teams, service boundaries | Apollo Federation |
-| Migrating from Apollo Gateway | Apollo Federation |
-| Maximum query performance | Multi-database federation (no gateway hop) |
-| Independent service deployment | Apollo Federation |
-
-## Circuit Breaker (Apollo Federation)
+## Circuit Breaker
 
 When FraiseQL acts as a subgraph in an Apollo Federation setup, a per-entity circuit breaker prevents cascading failures. After a configured number of consecutive errors the circuit opens: further calls to that entity are rejected immediately with `503 Service Unavailable` and a `Retry-After` header rather than waiting for a timeout.
 
@@ -379,36 +276,52 @@ fraiseql_federation_circuit_breaker_state{entity="Order"} 1
 
 ---
 
+## Cross-Service Events with NATS
+
+When a write on one service needs to trigger an action in another service, FraiseQL can integrate with [NATS](/features/nats) for durable cross-service messaging.
+
+```toml title="order-service/fraiseql.toml"
+[observers]
+backend  = "nats"
+nats_url = "${NATS_URL}"
+```
+
+When a mutation executes, FraiseQL publishes events to NATS via the observer system. The downstream service subscribes to these events independently of its own database operations.
+
+<Aside type="note">
+NATS integration is optional — federation works without it. NATS is only required when you need cross-service event fanout or event-driven communication between services.
+</Aside>
+
+---
+
 ## Limitations
 
-Multi-database federation has these limitations:
+Apollo Federation with FraiseQL has these limitations:
 
-1. **No cross-database transactions**: Each database operation is independent. There is no two-phase commit or distributed transaction coordinator.
-2. **No cross-database foreign keys**: Referential integrity must be enforced at the application level.
-3. **In-memory joins**: Cross-database field resolution happens in FraiseQL memory, which can be slower than database-level joins for large result sets.
-4. **Consistency**: Different databases may have different replication lags. Data returned from multiple databases may not be point-in-time consistent.
+1. **No cross-service transactions**: Each service operation is independent. There is no two-phase commit or distributed transaction coordinator.
+2. **No cross-service SQL joins**: Each service queries its own database only. Field resolution across services happens at the Apollo Router level.
+3. **Each service has one database**: FraiseQL does not support connecting a single service to multiple databases simultaneously. Split data ownership across services instead.
+
+---
 
 ## Best Practices
 
-**Minimize cross-database queries.** If two fields are frequently requested together, consider:
-- Moving them to the same database
-- Using materialized views to replicate data
-- Accepting the in-memory join performance tradeoff
+**Each service owns its domain.** Define entity types only in the service that owns the underlying database table. Reference types from other services via the Apollo Federation `@key` directive in the composed supergraph.
 
-**Handle partial failures gracefully.** When a database is unavailable, your client should be prepared to receive `null` for fields from that database with appropriate error handling.
+**Forward JWTs through the router.** Configure Apollo Router to propagate the `Authorization` header to all subgraphs so each FraiseQL service can independently validate the JWT and apply its own authorization policies.
 
-**Document your database boundaries.** Make it clear in your schema which types come from which databases. This helps developers understand potential consistency and performance implications.
+**Monitor circuit breaker state.** Use the Prometheus metric `fraiseql_federation_circuit_breaker_state` to alert when any subgraph's circuit opens in production.
 
 ## Next Steps
 
 <CardGrid>
+  <Card title="Federation Configuration" icon="setting">
+    [Federation Configuration](/guides/federation-configuration) — Full per-service TOML reference and Docker Compose example
+  </Card>
   <Card title="NATS Integration" icon="random">
     [NATS Integration](/features/nats) — Durable cross-service event streaming
   </Card>
-  <Card title="Multi-Database" icon="setting">
-    [Multi-Database](/features/multi-database) — Configuration reference for multiple databases
-  </Card>
   <Card title="Observers" icon="document">
-    [Observers](/guides/observers) — React to cross-database changes
+    [Observers](/guides/observers) — React to cross-service changes
   </Card>
 </CardGrid>

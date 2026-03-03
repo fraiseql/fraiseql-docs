@@ -8,7 +8,7 @@ import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 FraiseQL provides scalar types that map between Python, GraphQL, and PostgreSQL. This reference covers all available scalars and their usage.
 
 <Aside type="note">
-Looking for **semantic scalar types** with advanced filtering capabilities? See [Semantic Scalars](/reference/semantic-scalars) for 49 specialized types like `EmailAddress`, `Coordinates`, `IBAN`, and more, each with domain-specific operators and validation rules.
+Looking for **semantic scalar types** with advanced filtering capabilities? See [Semantic Scalars](/reference/semantic-scalars) for 50+ specialized types like `Email`, `Coordinates`, `IBAN`, and more, each with domain-specific operators and validation rules.
 </Aside>
 
 ## Importing Scalars
@@ -47,7 +47,7 @@ from fraiseql.scalars import (
 )
 ```
 
-FraiseQL provides **47+ domain-specific scalar types** with built-in validation, organized into logical categories.
+FraiseQL provides **50+ domain-specific scalar types** with built-in validation, organized into logical categories.
 
 ## Core Scalars
 
@@ -350,8 +350,9 @@ class Document:
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE tb_document (
-    pk_document INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pk_document BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT UNIQUE NOT NULL,
     content TEXT NOT NULL,
     embedding vector(1536)  -- OpenAI ada-002 dimension
 );
@@ -453,24 +454,22 @@ class User:
 | PostgreSQL | `TEXT` |
 | Validation | RFC 5322 format |
 
-**Filter Operators:**
+**Filter Operators** (camelCase, no underscore prefix):
 
 | Operator | Description | Example |
 |----------|-------------|---------|
-| `_domain_eq` | Match domain exactly | `"acme.com"` |
-| `_domain_in` | Domain in list | `["acme.com", "corp.com"]` |
-| `_domain_endswith` | Domain suffix | `".edu"` |
-| `_is_freemail` | Gmail, Yahoo, etc. | `true` |
-| `_is_corporate` | Not freemail | `true` |
-| `_local_startswith` | Local part prefix | `"sales."` |
+| `domainEq` | Match domain exactly | `"acme.com"` |
+| `domainIn` | Domain in list | `["acme.com", "corp.com"]` |
+| `domainEndswith` | Domain suffix | `".edu"` |
+| `localPartStartswith` | Local part prefix | `"sales."` |
 
 ```graphql
 query {
-    # Corporate emails only
-    leads(where: { email: { _is_corporate: true } }) { id email }
+    # Find company domain emails
+    leads(where: { email: { domainEq: "acme.com" } }) { id email }
 
     # All .edu domains
-    students(where: { email: { _domain_endswith: ".edu" } }) { id email }
+    students(where: { email: { domainEndswith: ".edu" } }) { id email }
 }
 ```
 
@@ -604,16 +603,12 @@ class Address:
 
 | Operator | Description | Example |
 |----------|-------------|---------|
-| `_continent_eq` | Continent | `"EU"`, `"AS"`, `"NA"` |
-| `_in_eu` | EU member state | `true` |
-| `_in_eurozone` | Uses Euro | `true` |
-| `_gdpr_applicable` | GDPR applies | `true` |
-| `_in_g20` | G20 economy | `true` |
+| `eq` | Exact country code match | `"US"` |
 
 ```graphql
 query {
-    # Find EU customers (GDPR-applicable)
-    customers(where: { country: { _gdpr_applicable: true } }) {
+    # Find US customers
+    customers(where: { country: { eq: "US" } }) {
         id name country
     }
 }
@@ -1156,12 +1151,12 @@ Every rich type has specialized filter operators tailored to its domain. Below i
 
 | Category | Type | Key Operators |
 |----------|------|---------------|
-| **Contact** | Email | `_domain_eq`, `_domain_endswith`, `_is_freemail`, `_is_corporate` |
-| | PhoneNumber | `_country_code_eq`, `_is_mobile`, `_region_eq` |
-| | URL | `_domain_eq`, `_protocol_eq`, `_path_startswith`, `_is_secure` |
-| **Geography** | CountryCode | `_continent_eq`, `_in_eu`, `_gdpr_applicable`, `_in_g20` |
-| | Coordinates | `_within_radius`, `_within_bounds`, `_distance_from_lt` |
-| | PostalCode | `_startswith`, `_zip5_eq`, `_area_eq` |
+| **Contact** | Email | `domainEq`, `domainIn`, `domainEndswith`, `localPartStartswith` |
+| | PhoneNumber | `countryCodeEq`, `countryCodeIn`, `isValid`, `typeEq` |
+| | URL | `protocolEq`, `hostEq`, `pathStartswith` |
+| **Geography** | CountryCode | `eq` |
+| | Coordinates | `distanceWithin` |
+| | DomainName | `tldEq`, `tldIn` |
 | **Financial** | CurrencyCode | `_is_fiat`, `_is_major`, `_is_crypto` |
 | | Money | `_amount_gte`, `_currency_eq`, `_converted_gt` |
 | | IBAN | `_country_eq`, `_bank_code_eq`, `_is_sepa` |
@@ -1181,10 +1176,10 @@ Every rich type has specialized filter operators tailored to its domain. Below i
 
 ```graphql
 query {
-    # EU customers with corporate emails
+    # EU customers with company domain emails
     customers(where: {
-        country: { _in_eu: true }
-        email: { _is_corporate: true }
+        country: { eq: "DE" }
+        email: { domainEndswith: ".de" }
     }) {
         id name email country
     }
@@ -1252,29 +1247,33 @@ ProductSKU = NewType("ProductSKU", str)
 
 @fraiseql.type
 class Order:
-    id: str
+    id: ID
     company_id: CompanyId   # serializes as String, documents intent
     sku: ProductSKU
 
 ```
 
-For scalars with custom validation:
+For scalars with custom validation, inherit from `CustomScalar` and implement `serialize`, `parse_value`, and `parse_literal`:
 
 ```python
-@fraiseql.scalar
-class TaxId:
-    """Tax identification number with validation."""
+from fraiseql import CustomScalar, scalar
 
-    @staticmethod
-    def serialize(value: str) -> str:
+@scalar
+class TaxId(CustomScalar):
+    """Tax identification number with validation."""
+    name = "TaxId"
+
+    def serialize(self, value: str) -> str:
         return value.upper().replace("-", "")
 
-    @staticmethod
-    def parse(value: str) -> str:
+    def parse_value(self, value: str) -> str:
         cleaned = value.upper().replace("-", "")
         if len(cleaned) != 9:
             raise ValueError("Tax ID must be 9 characters")
         return cleaned
+
+    def parse_literal(self, ast) -> str:
+        return self.parse_value(ast.value)
 ```
 
 ## JSONB Views

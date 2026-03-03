@@ -3,69 +3,185 @@ title: Mutual Exclusivity Validation
 description: OneOf, AnyOf, ConditionalRequired, and RequiredIfAbsent patterns for complex input validation
 ---
 
+import { Aside } from '@astrojs/starlight/components';
 import EmbeddedSandbox from '../../../components/EmbeddedSandbox.astro';
 
-## Input Validation, Reimagined
+## Input Validation Patterns
 
-FraiseQL provides four powerful validators for handling complex field relationships and conditional requirements. These validators are part of **FraiseQL's compile-time validation system** — validation rules are enforced before any SQL executes, eliminating entire classes of bugs that plague traditional GraphQL frameworks.
+FraiseQL provides four validators for handling complex field relationships and conditional requirements in GraphQL inputs. These validators run in the Rust engine at request time, before any SQL executes, eliminating entire classes of bugs that plague traditional GraphQL frameworks.
 
-### The Problem with Traditional GraphQL
-
-Apollo Server, Strawberry, and TypeGraphQL validate input at runtime:
-
-```
-
-    │
-
-    │
-               ─
-    │
-
-    │
-                        ─
-    │
-```
-
-This means validation failures often happen in production, not during development.
-
-### The FraiseQL Approach
-
-Validation happens at compile time, when your schema is generated:
-
-```
-
-    │
-                         ─
-    │
-
-    │
-
-    │
-                               ─
-    │
-
-    │
-## Complete Validator Set
-
-FraiseQL provides four validators that go beyond the GraphQL specification:
-
-- **OneOf**: Exactly one field from a set must be provided *(in GraphQL spec)*
+- **OneOf**: Exactly one field from a set must be provided *(mirrors the GraphQL `@oneOf` directive)*
 - **AnyOf**: At least one field from a set must be provided *(FraiseQL exclusive)*
 - **ConditionalRequired**: If one field is present, others must be too *(FraiseQL exclusive)*
 - **RequiredIfAbsent**: If one field is absent, others must be provided *(FraiseQL exclusive)*
 
 Three of these patterns are not part of the GraphQL specification — they enable validation patterns impossible with standard `@oneOf`.
 
-## Compile-Time Validation Benefits
+<Aside type="note">
+These validators are implemented in the FraiseQL Rust engine (`fraiseql-core::validation`). They operate on request inputs before SQL is generated. There is no Python or TOML configuration for them — they are an internal engine capability. Application-level mutual exclusivity constraints belong in SQL CHECK constraints or in separate mutation operations (see below).
+</Aside>
 
-Because these validators are part of FraiseQL's schema compilation process, you get:
+## Validation Benefits
 
-✅ **No Runtime Overhead** - Validation is enforced during schema generation, not per-request
-✅ **Impossible to Deploy Invalid Schemas** - Validation rule conflicts caught during compilation
-✅ **Zero Database Errors** - Invalid data never reaches the database
-✅ **Better Developer Experience** - Errors appear in development, not production
+Because these validators run before SQL execution, you get:
 
-Compare this to traditional GraphQL frameworks where validation happens after the GraphQL parser runs — meaning invalid requests can already be in flight before validators run.
+- **No bad data reaches the database** — invalid inputs are rejected at the GraphQL layer
+- **Clear error messages** — specific, actionable messages suitable for UI display
+- **Zero SQL overhead** — failed validations never generate a SQL query
+- **Better developer experience** — errors appear at the client, not buried in database logs
+
+## Expressing Mutual Exclusivity in Your Schema
+
+The recommended approach for mutual exclusivity constraints in a FraiseQL application is to design them into your GraphQL input types and enforce them in SQL.
+
+### Approach 1: Separate Mutations (Clearest)
+
+Instead of a single mutation with optional exclusive fields, define separate mutations for each case:
+
+```graphql
+# Instead of one mutation with confusing exclusive options...
+# createPost(input: CreatePostInput)  # where authorId XOR authorPayload
+
+# Use two clearly-named mutations:
+mutation CreatePostByAuthor($authorId: ID!, $title: String!, $content: String!) {
+  createPostByAuthor(authorId: $authorId, title: $title, content: $content) {
+    id
+    title
+  }
+}
+
+mutation CreatePostWithNewAuthor($authorName: String!, $title: String!, $content: String!) {
+  createPostWithNewAuthor(authorName: $authorName, title: $title, content: $content) {
+    id
+    title
+  }
+}
+```
+
+```python
+import fraiseql
+from fraiseql.scalars import ID
+
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    content: str
+
+@fraiseql.mutation(sql_source="fn_create_post_by_author", operation="CREATE")
+def create_post_by_author(author_id: ID, title: str, content: str) -> Post:
+    """Create a post linked to an existing author."""
+    pass
+
+@fraiseql.mutation(sql_source="fn_create_post_with_new_author", operation="CREATE")
+def create_post_with_new_author(author_name: str, title: str, content: str) -> Post:
+    """Create a post and create its author in one step."""
+    pass
+```
+
+### Approach 2: SQL CHECK Constraints
+
+For exclusive fields that must coexist in one mutation, enforce the constraint in PostgreSQL:
+
+```sql
+CREATE TABLE tb_post (
+    pk_post    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT   UNIQUE NOT NULL,
+    title      TEXT   NOT NULL,
+    content    TEXT   NOT NULL,
+    -- Mutual exclusivity: either fk_author or author_name, never both, never neither
+    fk_author BIGINT REFERENCES tb_user(pk_user),
+    author_name TEXT,
+    CONSTRAINT chk_post_author_xor CHECK (
+        (fk_author IS NOT NULL AND author_name IS NULL)
+        OR
+        (fk_author IS NULL AND author_name IS NOT NULL)
+    )
+);
+```
+
+The mutation function enforces the constraint at the database level:
+
+```sql
+CREATE FUNCTION fn_create_post(
+    p_title      TEXT,
+    p_content    TEXT,
+    p_author_id  UUID  DEFAULT NULL,
+    p_author_name TEXT DEFAULT NULL
+) RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_fk_author BIGINT;
+    v_id         UUID := gen_random_uuid();
+    v_identifier TEXT;
+BEGIN
+    -- Resolve author ID to internal FK if provided
+    IF p_author_id IS NOT NULL THEN
+        SELECT pk_user INTO v_fk_author FROM tb_user WHERE id = p_author_id;
+        IF NOT FOUND THEN
+            RETURN ROW('failed:not_found', 'Author not found', NULL, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+        END IF;
+    END IF;
+
+    v_identifier := 'post-' || v_id::text;
+
+    INSERT INTO tb_post (id, identifier, title, content, fk_author, author_name)
+    VALUES (v_id, v_identifier, p_title, p_content, v_fk_author, p_author_name);
+    -- CHECK constraint fires here; PostgreSQL raises an error if violated
+
+    RETURN ROW('success', 'Post created', v_id, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+EXCEPTION
+    WHEN check_violation THEN
+        RETURN ROW('failed:validation', 'Provide either authorId or authorName, not both', NULL, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+END;
+$$;
+```
+
+### Approach 3: Address Reference vs. Inline Address
+
+A common "required if absent" pattern — provide either a saved address ID or full address details:
+
+```sql
+CREATE TABLE tb_order (
+    pk_order   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT   UNIQUE NOT NULL,
+    fk_address BIGINT REFERENCES tb_address(pk_address),
+    street     TEXT,
+    city       TEXT,
+    state      TEXT,
+    zip        TEXT,
+    CONSTRAINT chk_order_address CHECK (
+        fk_address IS NOT NULL
+        OR (street IS NOT NULL AND city IS NOT NULL AND state IS NOT NULL AND zip IS NOT NULL)
+    )
+);
+```
+
+```python
+import fraiseql
+from fraiseql.scalars import ID
+
+@fraiseql.input
+class CreateOrderInput:
+    items: list[str]
+    address_id: ID | None = None   # Reference an existing saved address
+    street: str | None = None      # OR provide address details inline
+    city: str | None = None
+    state: str | None = None
+    zip: str | None = None
+
+@fraiseql.type
+class Order:
+    id: ID
+    identifier: str
+
+@fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
+def create_order(input: CreateOrderInput) -> Order:
+    """Create an order with either a saved address or inline address details."""
+    pass
+```
 
 ## Try It Yourself
 
@@ -74,7 +190,7 @@ Execute mutations with different validation patterns below:
 <EmbeddedSandbox
   endpoint="https://demo.fraiseql.dev/graphql"
   title="Mutual Exclusivity Validation Example"
-  description="Try submitting valid and invalid input to see compile-time validation in action. Modify the mutation to test different validator patterns!"
+  description="Try submitting valid and invalid input to see validation in action. Modify the mutation to test different validator patterns!"
   height="700px"
   preloadedQuery={`mutation CreatePost($input: CreatePostInput!) {
   createPost(input: $input) {
@@ -94,345 +210,69 @@ Execute mutations with different validation patterns below:
 # }`}
 />
 
-## OneOf - Exactly One Required
-
-The `OneOf` validator enforces that **exactly one** field from a specified set must be provided. This is perfect for "create or reference" patterns where users must choose one approach.
-
-### Use Case: Create vs Reference
-
-```graphql
-input CreatePostInput {
-  title: String!
-  content: String!
-  authorId: ID!
-
-  # Validation: either provide authorId OR authorPayload, but not both
-}
-```
-
-### Validation Rule
-
-```python
-from fraiseql.validation import OneOfValidator
-
-# In your mutation resolver
-def create_post(input: CreatePostInput):
-    OneOfValidator.validate(
-        input_data,
-        field_names=["authorId", "authorPayload"],
-        context_path="createPostInput"
-    )
-```
-
-### TOML Configuration
-
-```toml
-[fraiseql.validation]
-# Exactly one must be provided
-create_post_input = {
-    one_of = ["authorId", "authorPayload"]
-}
-```
-
-### Errors
-
-```
-Exactly one of [authorId, authorPayload] must be provided, but 0 were provided
-Exactly one of [authorId, authorPayload] must be provided, but 2 were provided
-```python
-
-## AnyOf - At Least One Required
-
-The `AnyOf` validator enforces that **at least one** field from a specified set must be provided. This prevents all-empty inputs while allowing multiple fields simultaneously.
-
-### Use Case: Contact Methods
-
-A user update must include at least one contact method, but can include multiple:
-
-```graphql
-input UpdateUserInput {
-  name: String
-  email: String
-  phone: String
-  address: String
-
-  # Validation: at least one contact method required
-}
-```
-
-### Validation Rule
-
-```python
-from fraiseql.validation import AnyOfValidator
-
-def update_user(input: UpdateUserInput):
-    AnyOfValidator.validate(
-        input_data,
-        field_names=["email", "phone", "address"],
-        context_path="updateUserInput"
-    )
-```
-
-### TOML Configuration
-
-```toml
-[fraiseql.validation]
-# At least one must be provided
-update_user_input = {
-    any_of = ["email", "phone", "address"]
-}
-```
-
-### Errors
-
-```
-At least one of [email, phone, address] must be provided
-```
-
-## ConditionalRequired - Dependent Fields
-
-The `ConditionalRequired` validator enforces that **if one field is present, other fields must also be present**. This creates dependencies between fields.
-
-### Use Case: Premium Features
-
-```graphql
-input CheckoutInput {
-  items: [CartItem!]!
-  isPremium: Boolean
-  paymentMethod: String  # Required if isPremium is true
-  billingAddress: Address  # Required if isPremium is true
-}
-```
-
-### Validation Rule
-
-```python
-from fraiseql.validation import ConditionalRequiredValidator
-
-def checkout(input: CheckoutInput):
-    # If isPremium is true, paymentMethod must be provided
-    ConditionalRequiredValidator.validate(
-        input_data,
-        if_field_present="isPremium",
-        then_required=["paymentMethod", "billingAddress"],
-        context_path="checkoutInput"
-    )
-```
-
-### TOML Configuration
-
-```toml
-[fraiseql.validation]
-checkout_input = {
-    conditional_required = {
-        if_field_present = "isPremium",
-        then_required = ["paymentMethod", "billingAddress"]
-    }
-}
-```
-
-### Error Messages
-
-```
-Since 'isPremium' is provided, 'paymentMethod', 'billingAddress' must also be provided
-```
-
-## RequiredIfAbsent - "This OR That" Pattern
-
-The `RequiredIfAbsent` validator enforces that **if one field is absent/null, other fields must be provided**. This creates alternative requirement patterns.
-
-### Use Case: Address Reference vs Details
-
-```graphql
-input CreateOrderInput {
-  items: [OrderItem!]!
-  addressId: ID          # Reference existing address
-  street: String         # OR provide address details
-  city: String
-  state: String
-  zip: String
-}
-```
-
-Instead of providing an `addressId`, customers can provide the full address details. At least one approach must be used.
-
-### Validation Rule
-
-```python
-from fraiseql.validation import RequiredIfAbsentValidator
-
-def create_order(input: CreateOrderInput):
-    # If addressId is not provided, street+city+state+zip are required
-    RequiredIfAbsentValidator.validate(
-        input_data,
-        absent_field="addressId",
-        then_required=["street", "city", "state", "zip"],
-        context_path="createOrderInput"
-    )
-```
-
-### TOML Configuration
-
-```toml
-[fraiseql.validation]
-create_order_input = {
-    required_if_absent = {
-        absent_field = "addressId",
-        then_required = ["street", "city", "state", "zip"]
-    }
-}
-```
-
-### Error Messages
-
-```
-Since 'addressId' is not provided, 'street', 'city', 'state', 'zip' must be provided
-```
-
-## Combining Validators
-
-You can combine multiple validators on the same input to express complex requirements:
-
-### Example: Product Variant Selection
-
-```graphql
-input AddToCartInput {
-  productId: ID!
-  quantity: Int!
-
-  # Variant selection: either pick from predefined OR customize
-  variantId: ID
-  customSize: String
-  customColor: String
-
-  # Delivery: either standard OR express with extra fee
-  deliveryMethod: String  # "standard" or "express"
-  expressFeePaid: Boolean  # Only if deliveryMethod is "express"
-}
-```
-
-### Validation Rules
-
-```python
-def add_to_cart(input: AddToCartInput):
-    # Either select predefined variant OR customize
-    OneOfValidator.validate(
-        input_data,
-        field_names=["variantId", "customSize"],
-        context_path="addToCartInput.variant"
-    )
-
-    # If express delivery, express fee must be confirmed
-    ConditionalRequiredValidator.validate(
-        input_data,
-        if_field_present="deliveryMethod",  # if == "express"
-        then_required=["expressFeePaid"],
-        context_path="addToCartInput.delivery"
-    )
-```
-
-## Real-World Examples
+## Use Cases
 
 ### E-Commerce: Product Creation
 
-Products can be created by uploading images from a URL or from local files, but not both:
-
-```graphql
-input CreateProductInput {
-  name: String!
-  price: Decimal!
-
-  # Image source: either URL OR upload
-  imageUrl: String
-  imageFile: Upload
-}
-```
+Products can be created by uploading an image from a URL or from a local file, but not both. Define two mutations:
 
 ```python
-OneOfValidator.validate(
-    input_data,
-    field_names=["imageUrl", "imageFile"]
-)
+@fraiseql.mutation(sql_source="fn_create_product_from_url", operation="CREATE")
+def create_product_from_url(name: str, price: float, image_url: str) -> Product:
+    """Create a product with an image fetched from a URL."""
+    pass
+
+@fraiseql.mutation(sql_source="fn_create_product_with_upload", operation="CREATE")
+def create_product_with_upload(name: str, price: float, image_upload_id: ID) -> Product:
+    """Create a product with a previously uploaded image."""
+    pass
 ```
 
-### B2B: Enterprise Customer Setup
+### B2B: Enterprise vs. Standard Customer
 
-Large enterprises have different requirements than small businesses:
+Different required fields for enterprise versus standard customers — use a SQL CHECK constraint:
 
-```graphql
-input CreateCustomerInput {
-  name: String!
-  email: String!
-
-  # Small business: just contact email
-  # Enterprise: name, TAX ID, legal address required
-  isEnterprise: Boolean
-  taxId: String
-  legalAddress: AddressInput
-  contractDate: DateTime
-}
-```
-
-```python
-ConditionalRequiredValidator.validate(
-    input_data,
-    if_field_present="isEnterprise",
-    then_required=["taxId", "legalAddress", "contractDate"]
-)
+```sql
+CREATE TABLE tb_customer (
+    pk_customer  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id           UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier   TEXT   UNIQUE NOT NULL,
+    name         TEXT   NOT NULL,
+    email        TEXT   NOT NULL,
+    is_enterprise BOOLEAN NOT NULL DEFAULT false,
+    tax_id       TEXT,
+    legal_address TEXT,
+    contract_date DATE,
+    CONSTRAINT chk_customer_enterprise CHECK (
+        NOT is_enterprise
+        OR (tax_id IS NOT NULL AND legal_address IS NOT NULL AND contract_date IS NOT NULL)
+    )
+);
 ```
 
 ### Travel Booking: Flexible Destinations
 
-Travelers can either go to a specific city or a region, but must specify at least one:
+Travelers provide a specific city, a region, or mark themselves as flexible — at least one is required:
 
-```graphql
-input CreateTripInput {
-  startDate: DateTime!
-  endDate: DateTime!
-  budget: Int!
-
-  # Destination: specific city OR region OR flexible
-  cityId: ID
-  regionId: ID
-  isFlexible: Boolean
-}
+```sql
+CREATE TABLE tb_trip (
+    pk_trip    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT   UNIQUE NOT NULL,
+    start_date DATE   NOT NULL,
+    end_date   DATE   NOT NULL,
+    fk_city BIGINT REFERENCES tb_city(pk_city),
+    fk_region BIGINT REFERENCES tb_region(pk_region),
+    is_flexible BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT chk_trip_destination CHECK (
+        fk_city IS NOT NULL OR fk_region IS NOT NULL OR is_flexible
+    )
+);
 ```
 
-```python
-AnyOfValidator.validate(
-    input_data,
-    field_names=["cityId", "regionId", "isFlexible"]
-)
-```
+## Error Messages
 
-### Hybrid: Location Selection
-
-Users can reference a saved location or provide new coordinates:
-
-```graphql
-input SearchNearbyInput {
-  query: String!
-  radius: Int!
-
-  # Location: saved OR coordinates
-  savedLocationId: ID
-  latitude: Float
-  longitude: Float
-}
-```
-
-```python
-# If savedLocationId is not provided, coordinates are required
-RequiredIfAbsentValidator.validate(
-    input_data,
-    absent_field="savedLocationId",
-    then_required=["latitude", "longitude"]
-)
-```
-
-## Error Messages and UX
-
-All validators provide clear, actionable error messages:
+When the Rust engine's built-in validators reject a request, they return clear, actionable messages:
 
 | Validator | Error Message |
 |-----------|---------------|
@@ -441,10 +281,18 @@ All validators provide clear, actionable error messages:
 | ConditionalRequired | `Since 'field' is provided, 'requiredField1', 'requiredField2' must also be provided` |
 | RequiredIfAbsent | `Since 'field' is not provided, 'requiredField1', 'requiredField2' must be provided` |
 
-These messages are:
-- ✅ Specific (exactly what went wrong)
-- ✅ Actionable (tells user how to fix it)
-- ✅ Non-technical (suitable for UI display)
+When a SQL CHECK constraint is violated, the mutation function returns a structured error via `mutation_response`:
+
+```json
+{
+  "data": {
+    "createPost": {
+      "status": "failed:validation",
+      "message": "Provide either authorId or authorName, not both"
+    }
+  }
+}
+```
 
 ## Performance Notes
 
@@ -454,7 +302,9 @@ All validators are:
 - **Zero overhead** for non-constrained fields
 - Suitable for high-throughput APIs
 
-## API Reference
+## API Reference (Rust)
+
+These validators are used internally by the FraiseQL Rust engine. They are documented here for contributors and Rust integration authors.
 
 ### OneOfValidator
 
@@ -516,12 +366,12 @@ impl RequiredIfAbsentValidator {
 
 ## Migration from Custom Logic
 
-If you have custom validation code, consider switching to these validators:
+If you have custom validation code in a resolver-based framework, here is the recommended mapping for FraiseQL:
 
-### Before: Custom JavaScript
+### Before: Custom JavaScript resolver
 
 ```javascript
-// Manual validation - error prone
+// Apollo Server — manual validation in resolver
 function validateCheckout(input) {
   if (input.isPremium && !input.paymentMethod) {
     throw new Error("Payment method required for premium");
@@ -532,21 +382,21 @@ function validateCheckout(input) {
 }
 ```
 
-### After: Declarative Validation
+### After: SQL CHECK constraint in FraiseQL
 
-```toml
-[fraiseql.validation]
-checkout_input = {
-    conditional_required = {
-        if_field_present = "isPremium",
-        then_required = ["paymentMethod", "billingAddress"]
-    }
-}
+```sql
+-- Enforce the constraint at the database level
+ALTER TABLE tb_checkout
+ADD CONSTRAINT chk_checkout_premium CHECK (
+    NOT is_premium
+    OR (payment_method IS NOT NULL AND billing_address IS NOT NULL)
+);
 ```
+
+The mutation function returns a structured error via `mutation_response` when the constraint is violated, which FraiseQL surfaces to the client cleanly.
 
 ## Next Steps
 
 - [Validation Rules Reference](/reference/validation-rules) - Complete rule documentation
-- [TOML Configuration](/reference/toml-config#validation) - Configure validators in schema
 - [Error Handling](/guides/error-handling) - Handle validation errors gracefully
-- [Input Processing](/reference/validation-rules) - Process and normalize inputs before validation
+- [Schema Design](/guides/schema-design) - Designing inputs for your use cases

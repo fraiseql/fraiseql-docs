@@ -1,272 +1,570 @@
 ---
 title: Multi-Tenant SaaS with Federation & NATS
-description: Complete real-world example combining federation, NATS events, and custom resolvers
+description: Complete real-world example combining federation, NATS events, and RLS tenant isolation
 ---
 
 import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-A complete multi-tenant SaaS application combining federation, NATS messaging, and custom resolvers for a production-ready system.
+A complete multi-tenant SaaS application combining per-tenant database isolation, Apollo Federation v2, NATS messaging for cross-service events, and Row Level Security for data isolation.
 
 ## Architecture Overview
 
 ```
 Tenant A ──┐
-           ├─► API Gateway (Auth + RBAC)
+           ├─► Apollo Gateway (Federation v2)
 Tenant B ──┘         |
                       |
-          +-----------+-----------+
-          |           |           |
-     Tenant DB A  Tenant DB B  Master DB
-          |                       |
-          +──── NATS Events ──────+
+         +------------+------------+
+         |            |            |
+    Auth Service  Content Service  Billing Service
+    (FraiseQL)    (FraiseQL)       (FraiseQL)
+         |            |            |
+    auth DB       tenant DBs   billing DB
+         |                         |
+         +──────── NATS ───────────+
                       |
-               Analytics DB
+               Analytics Worker
+               (nats.py + asyncpg)
 ```
+
+<Aside type="note">
+Each FraiseQL service is a **separate process** with its own `fraiseql.toml` and database. Apollo Federation v2 composes them into a single unified GraphQL API. NATS events flow from each service's `[observers]` TOML config — no Python code publishes to NATS. External workers subscribe to NATS using `nats.py` to sync analytics. The Python SDK is compile-time only.
+</Aside>
 
 ## Configuration
 
-### fraiseql.toml
+### Auth Service — fraiseql.toml
 
-```toml
-[multi_tenancy]
-enabled = true
-strategy = "database_per_tenant"
-auth_header = "X-Tenant-ID"
+```toml title="auth-service/fraiseql.toml"
+[project]
+name = "auth-service"
+version = "1.0.0"
 
-# Tenant database pool
-[databases.tenant]
+[database]
 type = "postgresql"
-pool_max = 20
+url  = "${AUTH_DATABASE_URL}"
 
-# Shared services
-[databases.shared]
-type = "postgresql"
-url = "${SHARED_DB_URL}"
-pool_max = 10
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[auth]
+issuer_url = "${OIDC_ISSUER_URL}"
+client_id  = "${OIDC_CLIENT_ID}"
+
+[federation]
+enabled       = true
+service_name  = "auth"
+subgraph_url  = "http://auth-service:8081/graphql"
 
 [observers]
-enabled = true
-backend = "nats"
+backend  = "nats"
 nats_url = "${NATS_URL}"
+
+[[observers]]
+table   = "tb_organization"
+event   = "INSERT"
+subject = "analytics.organization_created"
+
+[fraiseql.security.audit_logging]
+enabled   = true
+log_level = "info"
+```
+
+### Content Service — fraiseql.toml
+
+```toml title="content-service/fraiseql.toml"
+[project]
+name = "content-service"
+version = "1.0.0"
+
+[database]
+type = "postgresql"
+url  = "${CONTENT_DATABASE_URL}"
+
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[auth]
+issuer_url = "${OIDC_ISSUER_URL}"
+client_id  = "${OIDC_CLIENT_ID}"
+
+[federation]
+enabled       = true
+service_name  = "content"
+subgraph_url  = "http://content-service:8082/graphql"
+
+[observers]
+backend  = "nats"
+nats_url = "${NATS_URL}"
+
+[[observers]]
+table   = "tb_project"
+event   = "INSERT"
+subject = "analytics.project_created"
+
+[[observers]]
+table   = "tb_task"
+event   = "INSERT"
+subject = "analytics.task_created"
+
+[fraiseql.security.audit_logging]
+enabled   = true
+log_level = "info"
 ```
 
 ## Database Schema
 
 ```sql
--- Tenant databases (one per tenant)
+-- ============================================================
+-- Auth service database: organizations and members
+-- ============================================================
+
 CREATE TABLE tb_organization (
-    pk_org      SERIAL PRIMARY KEY,
+    pk_org      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier  TEXT NOT NULL UNIQUE,
-    tenant_id   UUID NOT NULL,
     name        TEXT NOT NULL,
     created_at  TIMESTAMPTZ DEFAULT now(),
     subscription_tier TEXT NOT NULL DEFAULT 'free'
 );
 
+CREATE UNIQUE INDEX idx_tb_organization_id ON tb_organization(id);
+
 CREATE TABLE tb_member (
-    pk_member  SERIAL PRIMARY KEY,
+    pk_member  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier TEXT NOT NULL UNIQUE,
-    fk_org     INTEGER NOT NULL REFERENCES tb_organization(pk_org),
+    fk_org BIGINT NOT NULL REFERENCES tb_organization(pk_org),
     name       TEXT NOT NULL,
-    email      TEXT NOT NULL,
+    email      TEXT NOT NULL UNIQUE,
+    role       TEXT NOT NULL DEFAULT 'member',
     created_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE UNIQUE INDEX idx_tb_member_id ON tb_member(id);
+CREATE INDEX idx_tb_member_fk_org ON tb_member(fk_org);
+
+-- ============================================================
+-- Content service database: projects and tasks
+-- ============================================================
 
 CREATE TABLE tb_project (
-    pk_project SERIAL PRIMARY KEY,
+    pk_project BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier TEXT NOT NULL UNIQUE,
-    tenant_id  UUID NOT NULL,
-    fk_org     INTEGER NOT NULL REFERENCES tb_organization(pk_org),
+    -- org_id from JWT injected as RLS context; no FK across service boundaries
+    org_id     UUID NOT NULL,
     name       TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE UNIQUE INDEX idx_tb_project_id ON tb_project(id);
+CREATE INDEX idx_tb_project_org_id ON tb_project(org_id);
+
 CREATE TABLE tb_task (
-    pk_task    SERIAL PRIMARY KEY,
+    pk_task    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier TEXT NOT NULL UNIQUE,
-    fk_project INTEGER NOT NULL REFERENCES tb_project(pk_project),
+    fk_project BIGINT NOT NULL REFERENCES tb_project(pk_project),
     title      TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'todo',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Views with JSONB data column
+CREATE UNIQUE INDEX idx_tb_task_id ON tb_task(id);
+CREATE INDEX idx_tb_task_fk_project ON tb_task(fk_project);
+
+-- ============================================================
+-- Read views (JSONB data column — pk_ never exposed)
+-- ============================================================
+
 CREATE VIEW v_organization AS
 SELECT
     o.id,
-    o.identifier,
     jsonb_build_object(
         'id',                o.id::text,
         'identifier',        o.identifier,
         'name',              o.name,
         'subscription_tier', o.subscription_tier,
         'created_at',        o.created_at
-    ) AS data,
-    o.tenant_id,
-    o.pk_org
+    ) AS data
 FROM tb_organization o;
+
+CREATE VIEW v_member AS
+SELECT
+    m.id,
+    jsonb_build_object(
+        'id',         m.id::text,
+        'identifier', m.identifier,
+        'name',       m.name,
+        'email',      m.email,
+        'role',       m.role,
+        'created_at', m.created_at
+    ) AS data
+FROM tb_member m;
 
 CREATE VIEW v_project AS
 SELECT
     p.id,
-    p.identifier,
     jsonb_build_object(
         'id',         p.id::text,
         'identifier', p.identifier,
         'name',       p.name,
-        'org_id',     o.id::text,
+        'org_id',     p.org_id::text,
         'created_at', p.created_at
-    ) AS data,
-    p.tenant_id,
-    p.fk_org
-FROM tb_project p
-JOIN tb_organization o ON o.pk_org = p.fk_org;
+    ) AS data
+FROM tb_project p;
+
+CREATE VIEW v_task AS
+SELECT
+    t.id,
+    jsonb_build_object(
+        'id',         t.id::text,
+        'identifier', t.identifier,
+        'title',      t.title,
+        'status',     t.status,
+        'created_at', t.created_at
+    ) AS data
+FROM tb_task t;
+
+-- ============================================================
+-- Mutation functions
+-- ============================================================
+
+CREATE FUNCTION fn_create_organization(
+    p_identifier TEXT,
+    p_name       TEXT
+) RETURNS mutation_response LANGUAGE plpgsql AS $$
+DECLARE
+    v_id     UUID;
+    v_result mutation_response;
+BEGIN
+    INSERT INTO tb_organization (identifier, name)
+    VALUES (p_identifier, p_name)
+    RETURNING id INTO v_id;
+
+    v_result.status      := 'success';
+    v_result.entity_id   := v_id;
+    v_result.entity_type := 'Organization';
+    RETURN v_result;
+END;
+$$;
+
+CREATE FUNCTION fn_create_project(
+    p_identifier TEXT,
+    p_org_id     UUID,
+    p_name       TEXT
+) RETURNS mutation_response LANGUAGE plpgsql AS $$
+DECLARE
+    v_id     UUID;
+    v_result mutation_response;
+BEGIN
+    INSERT INTO tb_project (identifier, org_id, name)
+    VALUES (p_identifier, p_org_id, p_name)
+    RETURNING id INTO v_id;
+
+    v_result.status      := 'success';
+    v_result.entity_id   := v_id;
+    v_result.entity_type := 'Project';
+    RETURN v_result;
+END;
+$$;
+
+CREATE FUNCTION fn_create_task(
+    p_identifier  TEXT,
+    p_fk_project BIGINT,
+    p_title       TEXT
+) RETURNS mutation_response LANGUAGE plpgsql AS $$
+DECLARE
+    v_id     UUID;
+    v_result mutation_response;
+BEGIN
+    INSERT INTO tb_task (identifier, fk_project, title)
+    VALUES (p_identifier, p_fk_project, p_title)
+    RETURNING id INTO v_id;
+
+    v_result.status      := 'success';
+    v_result.entity_id   := v_id;
+    v_result.entity_type := 'Task';
+    RETURN v_result;
+END;
+$$;
 ```
 
-## Python Schema
+## Row Level Security — Tenant Isolation
 
-```python
+```sql
+-- Enable RLS for tenant isolation in the content service
+ALTER TABLE tb_project ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tb_task ENABLE ROW LEVEL SECURITY;
+
+-- Projects visible only to the org extracted from JWT (set by FraiseQL Rust runtime)
+CREATE POLICY project_org_isolation ON tb_project
+    USING (org_id = current_setting('app.org_id')::uuid);
+
+-- Tasks inherit project isolation via JOIN — no separate policy needed if accessed via v_task
+-- filtered by fk_project.
+
+-- For organizations in auth service
+ALTER TABLE tb_organization ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY org_owner_only ON tb_organization
+    USING (id = current_setting('app.org_id')::uuid);
+```
+
+## Auth Service — Python Schema
+
+```python title="auth-service/schema.py"
 import fraiseql
-from fraiseql.scalars import ID
-from fraiseql import TenantContext
-from datetime import datetime
+from fraiseql.scalars import ID, DateTime
+from typing import Annotated
 
 
-@fraiseql.type(database="tenant")
+@fraiseql.type
 class Organization:
-    """Tenant-specific organization."""
+    """A tenant organization."""
     id: ID
+    identifier: str
     name: str
-    created_at: datetime
     subscription_tier: str
-
-    @fraiseql.field_resolver
-    async def member_count(self, ctx: TenantContext) -> int:
-        """Count organization members."""
-        result = await ctx.db.query_one(
-            """
-            SELECT COUNT(*) as count
-            FROM tb_member
-            WHERE fk_org = (SELECT pk_org FROM tb_organization WHERE id = $1)
-            """,
-            [self.id]
-        )
-        return result.get("count", 0)
+    created_at: DateTime
 
 
-@fraiseql.type(database="tenant")
-class Project:
-    """Tenant-specific project."""
+@fraiseql.type
+class Member:
+    """A member of an organization."""
     id: ID
+    identifier: str
     name: str
-    created_at: datetime
+    email: Annotated[str, fraiseql.field(requires_scope="read:Member.email", on_deny="mask")]
+    role: str
+    created_at: DateTime
 
-    # Multi-database federation
-    organization: Organization = fraiseql.federated(
-        database="tenant",
-        lookup="fk_org"
-    )
 
-    @fraiseql.field_resolver
-    async def task_count(self, ctx: TenantContext) -> int:
-        """Count tasks in project."""
-        result = await ctx.db.query_one(
+@fraiseql.input
+class CreateOrganizationInput:
+    identifier: str
+    name: str
+
+
+@fraiseql.input
+class CreateMemberInput:
+    identifier: str
+    name: str
+    email: str
+    role: str = "member"
+
+
+@fraiseql.query(
+    sql_source="v_organization",
+    inject={"org_id": "jwt:org_id"},
+)
+def organizations(limit: int = 50) -> list[Organization]:
+    """
+    Get organizations for the authenticated tenant.
+    org_id is injected from the JWT claim and applied as RLS context.
+    """
+    pass
+
+
+@fraiseql.query(
+    sql_source="v_member",
+    inject={"org_id": "jwt:org_id"},
+)
+def members(limit: int = 100) -> list[Member]:
+    """Get members of the authenticated tenant's organization."""
+    pass
+
+
+@fraiseql.mutation(
+    sql_source="fn_create_organization",
+    operation="CREATE",
+    inject={"org_id": "jwt:org_id"},
+)
+def create_organization(input: CreateOrganizationInput) -> Organization:
+    """
+    Create a new organization.
+    Rust runtime calls fn_create_organization(); pg_notify fires;
+    observer publishes analytics.organization_created to NATS.
+    """
+    pass
+
+
+@fraiseql.mutation(
+    sql_source="fn_create_member",
+    operation="CREATE",
+    inject={"org_id": "jwt:org_id"},
+)
+def create_member(input: CreateMemberInput) -> Member:
+    """Add a member to the authenticated organization."""
+    pass
+
+
+fraiseql.export_schema("schema.json")
+```
+
+## Content Service — Python Schema
+
+```python title="content-service/schema.py"
+import fraiseql
+from fraiseql.scalars import ID, DateTime
+
+
+@fraiseql.type
+class Project:
+    """A project belonging to an organization."""
+    id: ID
+    identifier: str
+    name: str
+    org_id: ID
+    created_at: DateTime
+
+
+@fraiseql.type
+class Task:
+    """A task within a project."""
+    id: ID
+    identifier: str
+    title: str
+    status: str
+    created_at: DateTime
+
+
+@fraiseql.input
+class CreateProjectInput:
+    identifier: str
+    name: str
+
+
+@fraiseql.input
+class CreateTaskInput:
+    identifier: str
+    fk_project: int
+    title: str
+
+
+@fraiseql.query(
+    sql_source="v_project",
+    inject={"org_id": "jwt:org_id"},
+    cache_ttl_seconds=30,
+)
+def projects(limit: int = 50) -> list[Project]:
+    """
+    Get projects for the authenticated organization.
+    org_id injected from JWT; RLS policy enforces tenant isolation.
+    """
+    pass
+
+
+@fraiseql.query(
+    sql_source="v_task",
+    cache_ttl_seconds=30,
+)
+def tasks(fk_project: int | None = None, limit: int = 100) -> list[Task]:
+    """Get tasks, optionally filtered by project."""
+    pass
+
+
+@fraiseql.mutation(
+    sql_source="fn_create_project",
+    operation="CREATE",
+    inject={"org_id": "jwt:org_id"},
+    invalidates_views=["v_project"],
+)
+def create_project(input: CreateProjectInput) -> Project:
+    """
+    Create a project for the authenticated organization.
+    Rust runtime calls fn_create_project(); pg_notify fires;
+    observer publishes analytics.project_created to NATS.
+    """
+    pass
+
+
+@fraiseql.mutation(
+    sql_source="fn_create_task",
+    operation="CREATE",
+    invalidates_views=["v_task"],
+)
+def create_task(input: CreateTaskInput) -> Task:
+    """Create a task within a project."""
+    pass
+
+
+@fraiseql.subscription(
+    entity_type="Task",
+    topic="analytics.task_created",
+)
+def task_created(fk_project: int | None = None) -> Task:
+    """Subscribe to new task creation events in real time."""
+    pass
+
+
+fraiseql.export_schema("schema.json")
+```
+
+## Analytics Worker — External nats.py Service
+
+<Aside type="note">
+The analytics worker is a **standalone Python process** using `nats.py` and `asyncpg`. It listens for events published by FraiseQL's `[observers]` TOML config and writes to a shared analytics database. This is not a FraiseQL schema file — FraiseQL has no Python NATS subscription API.
+</Aside>
+
+```python title="analytics-worker/main.py"
+"""
+Analytics sync worker.
+Subscribes to NATS analytics.* events and records them in the shared analytics DB.
+Standalone service — not a FraiseQL schema file.
+"""
+import asyncio
+import json
+import asyncpg
+import nats
+
+
+async def sync_analytics_event(msg):
+    """Record analytics events from any service into the shared analytics DB."""
+    event_type = msg.subject
+    data = json.loads(msg.data)
+
+    conn = await asyncpg.connect(ANALYTICS_POSTGRES_URL)
+    try:
+        await conn.execute(
             """
-            SELECT COUNT(*) as count
-            FROM tb_task
-            WHERE fk_project = (SELECT pk_project FROM tb_project WHERE id = $1)
+            INSERT INTO tb_analytics_event
+                (identifier, event_type, tenant_id, data, recorded_at)
+            VALUES (gen_random_uuid()::text, $1, $2, $3::jsonb, NOW())
             """,
-            [self.id]
+            event_type,
+            data.get("tenant_id"),
+            json.dumps(data),
         )
-        return result["count"]
+        await msg.ack()
+    except Exception as exc:
+        print(f"[analytics-worker] ERROR {event_type}: {exc}")
+        await msg.nak(delay=5)
+    finally:
+        await conn.close()
 
 
-# Root queries
-@fraiseql.query(sql_source="v_organization")
-async def organizations(limit: int = 50) -> list[Organization]:
-    """
-    Get all organizations for tenant.
-    Automatically filtered by tenant_id from context (RLS).
-    """
-    pass
+async def main():
+    nc = await nats.connect(NATS_URL)
+    js = nc.jetstream()
 
-@fraiseql.query(sql_source="v_project")
-async def projects_by_org(org_id: ID) -> list[Project]:
-    """Get projects for organization (with RLS)."""
-    pass
-
-
-# Mutations
-@fraiseql.mutation(operation="CREATE")
-async def create_project(
-    ctx: TenantContext,
-    org_id: ID,
-    name: str
-) -> Project:
-    """Create project and emit event."""
-    # Verify ownership (RLS ensures tenant isolation)
-    org = await ctx.db.query_one(
-        """
-        SELECT pk_org FROM tb_organization
-        WHERE id = $1 AND tenant_id = $2
-        """,
-        [org_id, ctx.tenant_id]
+    await js.subscribe(
+        "analytics.>",
+        durable="analytics_sync",
+        cb=sync_analytics_event,
     )
-    if not org:
-        raise Exception("Organization not found")
-
-    project = await ctx.db.query_one(
-        """
-        INSERT INTO tb_project (tenant_id, fk_org, name, identifier)
-        VALUES ($1, $2, $3, lower(regexp_replace($3, '[^a-zA-Z0-9]+', '-', 'g')))
-        RETURNING id, identifier, name, created_at
-        """,
-        [ctx.tenant_id, org['pk_org'], name]
-    )
-
-    return Project(**project)
+    print("Analytics worker listening on analytics.>")
+    await asyncio.sleep(float("inf"))
 
 
-# Observers for event-driven features
-@fraiseql.observer(
-    entity="Project",
-    event="CREATE",
-    database="tenant"
-)
-async def on_project_created_event(project: Project, ctx: TenantContext):
-    """
-    React to project creation:
-    - Notify shared analytics
-    - Update usage metrics
-    """
-    await fraiseql.nats.publish(
-        subject="analytics.project_created",
-        data={
-            "tenant_id": str(ctx.tenant_id),
-            "project_id": str(project.id),
-            "timestamp": datetime.now().isoformat()
-        }
-    )
-
-@fraiseql.nats.subscribe(
-    subject="analytics.>",
-    consumer_group="analytics_sync"
-)
-async def sync_analytics(message):
-    """Sync analytics events to shared database."""
-    data = message.data
-    await ctx.db.execute(
-        """
-        INSERT INTO tb_analytics_event (event_type, tenant_id, data, recorded_at)
-        VALUES ($1, $2, $3::jsonb, NOW())
-        """,
-        [data["event_type"], data["tenant_id"], json.dumps(data)]
-    )
-    await message.ack()
+if __name__ == "__main__":
+    import os
+    NATS_URL = os.environ["NATS_URL"]
+    ANALYTICS_POSTGRES_URL = os.environ["ANALYTICS_DATABASE_URL"]
+    asyncio.run(main())
 ```
 
 ## Deployment Considerations
@@ -274,127 +572,37 @@ async def sync_analytics(message):
 ### Database Isolation
 
 ```sql
--- For each tenant, create isolated database
+-- For each tenant, create an isolated database in the content service
+-- (database-per-tenant strategy)
 CREATE DATABASE tenant_acme_corp;
 CREATE USER tenant_acme_corp WITH PASSWORD '...';
 GRANT CONNECT ON DATABASE tenant_acme_corp TO tenant_acme_corp;
 
--- Enable RLS for extra safety
-ALTER TABLE tb_organization ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tb_project ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY tenant_isolation ON tb_organization
-USING (tenant_id = current_setting('app.tenant_id')::uuid);
-
-CREATE POLICY project_tenant_isolation ON tb_project
-USING (tenant_id = current_setting('app.tenant_id')::uuid);
+-- Then run migrations for each tenant database:
+-- confiture migrate --database $TENANT_DATABASE_URL
 ```
 
-### Performance Optimization
+### Apollo Federation Gateway
 
-```python
-# Cache tenant configurations
-@fraiseql.query(sql_source="v_tenant_config", cache_ttl=3600)
-async def tenant_config(ctx: TenantContext) -> dict:
-    """Frequently accessed configuration."""
-    pass
+```yaml title="gateway/supergraph.yaml"
+federation_version: =2.0.0
 
-# Batch operations for multi-tenant deployments
-@fraiseql.mutation(operation="CREATE")
-async def bulk_create_projects(
-    ctx: TenantContext,
-    org_id: ID,
-    names: list[str]
-) -> list[Project]:
-    """Batch create projects efficiently."""
-    org = await ctx.db.query_one(
-        "SELECT pk_org FROM tb_organization WHERE id = $1 AND tenant_id = $2",
-        [org_id, ctx.tenant_id]
-    )
-    if not org:
-        raise Exception("Organization not found")
+subgraphs:
+  auth:
+    routing_url: http://auth-service:8081/graphql
+    schema:
+      subgraph_url: http://auth-service:8081/graphql
 
-    projects = []
-    for name in names:
-        project = await ctx.db.query_one(
-            """
-            INSERT INTO tb_project (tenant_id, fk_org, name, identifier)
-            VALUES ($1, $2, $3, lower(regexp_replace($3, '[^a-zA-Z0-9]+', '-', 'g')))
-            RETURNING id, identifier, name, created_at
-            """,
-            [ctx.tenant_id, org['pk_org'], name]
-        )
-        projects.append(Project(**project))
-
-    return projects
+  content:
+    routing_url: http://content-service:8082/graphql
+    schema:
+      subgraph_url: http://content-service:8082/graphql
 ```
 
-## Testing
+Compose the supergraph:
 
-```python
-import pytest
-from fraiseql.testing import FraiseQLTestClient
-
-@pytest.fixture
-async def client():
-    return await FraiseQLTestClient.create(
-        config="fraiseql.test.toml"
-    )
-
-@pytest.mark.asyncio
-async def test_tenant_isolation(client):
-    """Verify tenants cannot access each other's data."""
-    # Create as tenant A
-    client.set_tenant("tenant-a")
-    org_a = await client.execute("""
-        mutation {
-            createOrganization(name: "Org A") { id }
-        }
-    """)
-
-    # Try to access as tenant B
-    client.set_tenant("tenant-b")
-    result = await client.execute(f"""
-        query {{
-            organization(id: "{org_a['data']['createOrganization']['id']}") {{
-                name
-            }}
-        }}
-    """)
-
-    # Should return null due to RLS
-    assert result["data"]["organization"] is None
-
-@pytest.mark.asyncio
-async def test_nats_event_publishing(client):
-    """Verify events are published on mutations."""
-    client.set_tenant("tenant-a")
-
-    project = await client.execute("""
-        mutation {
-            createProject(orgId: "org-1", name: "Test") { id }
-        }
-    """)
-
-    # Give NATS time to process
-    await asyncio.sleep(0.5)
-
-    # Verify event was published
-    events = await get_published_events("analytics.project_created")
-    assert len(events) >= 1
-```
-
-## Monitoring
-
-```python
-# Track per-tenant metrics (Prometheus labels)
-fraiseql_tenant_requests_total{tenant_id="acme_corp", endpoint="/graphql"}
-fraiseql_tenant_latency_seconds{tenant_id="acme_corp", operation="query"}
-fraiseql_tenant_errors_total{tenant_id="acme_corp", error_type="validation"}
-
-# Monitor event processing
-fraiseql_nats_events_processed{tenant_id="acme_corp", event_type="project_created"}
-fraiseql_nats_consumer_lag{consumer="analytics_sync"}
+```bash
+rover supergraph compose --config gateway/supergraph.yaml > supergraph.graphql
 ```
 
 ## Verify It Works
@@ -404,10 +612,10 @@ fraiseql_nats_consumer_lag{consumer="analytics_sync"}
 1. **Set up environment**:
    ```bash
    cp .env.example .env
-   # Edit .env with your database credentials
+   # Edit .env with your database credentials and OIDC config
    ```
 
-2. **Start services**:
+2. **Start infrastructure**:
    ```bash
    docker-compose up -d postgres nats
    ```
@@ -422,44 +630,42 @@ fraiseql_nats_consumer_lag{consumer="analytics_sync"}
 
 4. **Run migrations for each tenant**:
    ```bash
-   export TENANT_ID=acme_corp
+   export TENANT_DATABASE_URL=postgresql://postgres:password@localhost:5432/tenant_acme_corp
    confiture migrate
-   
-   export TENANT_ID=global_corp
+
+   export TENANT_DATABASE_URL=postgresql://postgres:password@localhost:5432/tenant_global_corp
    confiture migrate
    ```
 
-5. **Start FraiseQL server**:
+5. **Start all FraiseQL services**:
    ```bash
-   fraiseql run
+   docker-compose up -d auth-service content-service billing-service analytics-worker
    ```
-   
-   Expected output:
+
+   Expected output from auth-service:
    ```
-   🍓 FraiseQL v0.9.0
-      GraphQL endpoint: http://localhost:8080/graphql
-      Multi-tenancy: database_per_tenant
-      NATS: connected
-      Tenants: 2 configured
+   FraiseQL v2.0.0 — auth-service
+   GraphQL endpoint: http://localhost:8081/graphql
+   Federation: enabled (subgraph: auth)
+   NATS observers: connected (nats://nats:4222)
    ```
 
 6. **Create organization as tenant A**:
    ```bash
    curl -X POST http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
-     -H "X-Tenant-ID: acme_corp" \
      -H "Authorization: Bearer $TOKEN_A" \
      -d '{
-       "query": "mutation { createOrganization(name: \"Acme Corp\") { id name subscriptionTier } }"
+       "query": "mutation { createOrganization(input: { identifier: \"acme-corp\", name: \"Acme Corp\" }) { id name subscriptionTier } }"
      }'
    ```
-   
+
    Expected response:
    ```json
    {
      "data": {
        "createOrganization": {
-         "id": "org-abc123",
+         "id": "550e8400-e29b-41d4-a716-446655440000",
          "name": "Acme Corp",
          "subscriptionTier": "free"
        }
@@ -471,14 +677,11 @@ fraiseql_nats_consumer_lag{consumer="analytics_sync"}
    ```bash
    curl -X POST http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
-     -H "X-Tenant-ID: global_corp" \
      -H "Authorization: Bearer $TOKEN_B" \
-     -d '{
-       "query": "query { organizations { id name } }"
-     }'
+     -d '{"query": "query { organizations { id name } }"}'
    ```
-   
-   Expected response (empty list):
+
+   Expected response (empty list due to RLS):
    ```json
    {
      "data": {
@@ -487,18 +690,17 @@ fraiseql_nats_consumer_lag{consumer="analytics_sync"}
    }
    ```
 
-8. **Create project and verify event is published**:
+8. **Create project and verify NATS event is published**:
    ```bash
    curl -X POST http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
-     -H "X-Tenant-ID: acme_corp" \
      -H "Authorization: Bearer $TOKEN_A" \
      -d '{
-       "query": "mutation { createProject(orgId: \"org-abc123\", name: \"Project Alpha\") { id name taskCount } }"
+       "query": "mutation { createProject(input: { identifier: \"alpha\", name: \"Project Alpha\" }) { id name } }"
      }'
    ```
-   
-   Wait for NATS event:
+
+   Wait for the observer to publish to NATS and the analytics worker to consume:
    ```bash
    sleep 1
    ```
@@ -506,14 +708,15 @@ fraiseql_nats_consumer_lag{consumer="analytics_sync"}
 9. **Verify event in analytics**:
    ```bash
    docker-compose exec postgres psql -U postgres -d shared_analytics -c \
-     "SELECT * FROM tb_analytics_event WHERE tenant_id = 'acme_corp';"
+     "SELECT event_type, tenant_id, recorded_at FROM tb_analytics_event ORDER BY recorded_at DESC LIMIT 5;"
    ```
-   
+
    Expected output:
    ```
-        event_type      |  tenant_id   |          data          | recorded_at
-   ---------------------+--------------+------------------------+--------------
-   analytics.project_created | acme_corp | {"project_id": ...} | 2024-01-15...
+          event_type        | tenant_id  |         recorded_at
+   -------------------------+------------+----------------------------
+   analytics.project_created | acme_corp | 2024-01-15 10:30:01+00
+   analytics.org_created     | acme_corp | 2024-01-15 10:30:00+00
    ```
 
 10. **Run tests**:
@@ -521,7 +724,7 @@ fraiseql_nats_consumer_lag{consumer="analytics_sync"}
     pytest tests/test_tenant_isolation.py -v
     pytest tests/test_nats_events.py -v
     ```
-    
+
     Expected output:
     ```
     tests/test_tenant_isolation.py::test_tenant_isolation PASSED
@@ -531,6 +734,19 @@ fraiseql_nats_consumer_lag{consumer="analytics_sync"}
     ```
 
 </Steps>
+
+## Monitoring
+
+```
+# Prometheus metrics exported by each FraiseQL service (labels by tenant from JWT claims)
+fraiseql_graphql_requests_total{service="auth", operation="mutation"}
+fraiseql_graphql_latency_seconds{service="content", operation="query"}
+fraiseql_observer_events_published_total{service="content", subject="analytics.project_created"}
+
+# Analytics worker metrics (custom, in the nats.py worker)
+analytics_worker_events_processed_total{event_type="analytics.project_created"}
+analytics_worker_consumer_lag{consumer="analytics_sync"}
+```
 
 ## Troubleshooting
 
@@ -542,10 +758,7 @@ Error: Database tenant_acme_corp does not exist
 
 **Solution**:
 ```bash
-# Create database manually
 docker-compose exec postgres psql -U postgres -c "CREATE DATABASE tenant_acme_corp;"
-
-# Or use the tenant provisioning script
 ./scripts/create-tenant.sh acme_corp
 ```
 
@@ -561,10 +774,11 @@ Error: Cannot connect to NATS at nats://localhost:4222
    docker-compose ps nats
    ```
 
-2. Check NATS URL in configuration:
+2. Check `[observers]` section in `fraiseql.toml`:
    ```toml
-   [nats]
-   servers = ["nats://nats:4222"]  # Use service name, not localhost in Docker
+   [observers]
+   backend  = "nats"
+   nats_url = "nats://nats:4222"  # Use service name, not localhost, in Docker
    ```
 
 3. Test NATS connection:
@@ -572,23 +786,24 @@ Error: Cannot connect to NATS at nats://localhost:4222
    docker-compose exec nats nats server info
    ```
 
-### Events Not Being Published
+### Events Not Being Published to Analytics
 
-If analytics table remains empty:
+If the analytics table remains empty:
 
-1. Check NATS consumer is running:
+1. Check FraiseQL observer log:
    ```bash
-   docker-compose logs fraiseql | grep "analytics_sync"
+   docker-compose logs content-service | grep "observer"
    ```
 
-2. Verify stream exists:
+2. Verify the NATS stream exists:
    ```bash
    docker-compose exec nats nats stream report
    ```
 
-3. Check consumer group:
+3. Check the analytics worker consumer:
    ```bash
    docker-compose exec nats nats consumer report
+   docker-compose logs analytics-worker | tail -20
    ```
 
 ### RLS Not Working
@@ -597,100 +812,80 @@ If tenant B can see tenant A's data:
 
 1. Verify RLS is enabled:
    ```sql
-   \d tb_organization
-   -- Look for "Policies:"
+   \d tb_project
+   -- Look for "Policies:" section
    ```
 
-2. Check policy is active:
+2. Check the policy is active:
    ```sql
-   SELECT * FROM pg_policies WHERE tablename = 'tb_organization';
+   SELECT * FROM pg_policies WHERE tablename = 'tb_project';
    ```
 
-3. Verify tenant_id is being set:
+3. Verify `org_id` JWT claim is being injected:
    ```bash
-   # Check HTTP headers are being passed
-   curl -v http://localhost:8080/graphql -H "X-Tenant-ID: acme_corp" ...
+   # Decode your JWT and verify it contains org_id claim
+   echo $TOKEN_A | cut -d. -f2 | base64 -d | python3 -m json.tool
+   ```
+
+### Federation Queries Failing
+
+If cross-service queries fail at the gateway:
+
+1. Validate each subgraph is reachable:
+   ```bash
+   curl http://localhost:8081/graphql -d '{"query": "{ __typename }"}'
+   curl http://localhost:8082/graphql -d '{"query": "{ __typename }"}'
+   ```
+
+2. Re-compose the supergraph if schema changed:
+   ```bash
+   rover supergraph compose --config gateway/supergraph.yaml > supergraph.graphql
+   ```
+
+3. Check gateway logs for composition errors:
+   ```bash
+   docker-compose logs gateway | grep "error"
    ```
 
 ### Performance Issues
 
 If queries are slow with multiple tenants:
 
-1. Check database connection pool:
-   ```toml
-   [databases.tenant]
-   pool_max = 50  # Increase if needed
-   ```
+1. Check database connection pool sizes in each service's `fraiseql.toml`.
 
-2. Enable connection pooling at PostgreSQL level:
+2. Enable connection pooling at the PostgreSQL level:
    ```sql
    ALTER SYSTEM SET max_connections = 200;
+   SELECT pg_reload_conf();
    ```
 
-3. Monitor per-tenant metrics:
+3. Monitor per-service metrics:
    ```bash
-   curl http://localhost:8080/metrics | grep fraiseql_tenant
+   curl http://localhost:8081/metrics | grep fraiseql_graphql_latency
    ```
-
-### Federation Queries Failing
-
-If cross-database queries fail:
-
-1. Verify all databases are accessible:
-   ```bash
-   fraiseql config validate
-   ```
-
-2. Check foreign data wrappers (if using PostgreSQL FDW):
-   ```sql
-   \des  -- List foreign servers
-   ```
-
-3. Test individual database connections:
-   ```bash
-   psql $DATABASE_URL_TENANT_A -c "SELECT 1"
-   psql $DATABASE_URL_TENANT_B -c "SELECT 1"
-   ```
-
-### Testing Failures
-
-If tenant isolation tests fail:
-
-1. Clear test data:
-   ```bash
-   docker-compose exec postgres psql -U postgres -d tenant_acme_corp -c \
-     "TRUNCATE tb_organization, tb_project, tb_member CASCADE;"
-   ```
-
-2. Ensure test client sets tenant correctly:
-   ```python
-   client.set_tenant("tenant-a")  # Must be called before each test
-   ```
-
-3. Check test database is separate from dev database
 
 ## Production Checklist
 
-- [ ] Database per tenant created and configured
-- [ ] RLS policies enabled on all tables
-- [ ] NATS cluster deployed and replicated
-- [ ] Consumer groups configured for reliability
-- [ ] Monitoring and alerting configured (per-tenant metrics)
-- [ ] Backup strategy for each tenant DB
+- [ ] Database per tenant created and migrations applied
+- [ ] RLS policies enabled and tested on all tables
+- [ ] NATS cluster deployed with JetStream replication
+- [ ] `[observers]` configured and tested per service
+- [ ] Analytics worker running with durable consumer group
+- [ ] Monitoring and alerting configured per service
+- [ ] Backup strategy for each tenant database
 - [ ] Failover procedures documented
-- [ ] Load testing completed with multiple tenants
-- [ ] Security audit passed (tenant isolation verified)
-- [ ] Documentation updated
+- [ ] Load testing completed with concurrent tenants
+- [ ] Security audit: tenant isolation verified end-to-end
 
 <CardGrid>
   <Card title="Advanced Federation" icon="seti:db">
-    Deep dive on federation patterns.
+    Deep dive on Apollo Federation v2 patterns.
   </Card>
-  <Card title="Advanced NATS" icon="random">
-    Event streaming advanced patterns.
+  <Card title="Observers Reference" icon="random">
+    TOML observer configuration for NATS events.
   </Card>
-  <Card title="Custom Resolvers" icon="puzzle">
-    Business logic integration.
+  <Card title="JWT Injection" icon="puzzle">
+    Using inject= to pass JWT claims to SQL functions.
   </Card>
   <Card title="Multi-Tenancy Guide" icon="document">
     RLS and tenant isolation strategies.

@@ -576,11 +576,17 @@ input JsonFilter {
 
 FraiseQL provides specialized filters for domain-specific scalar types. These filters offer operators tailored to each type's semantics, enabling powerful queries that understand your data.
 
+<Aside type="note">
+Rich type filter operators use `camelCase` naming **without** an underscore prefix — unlike basic operators (`_eq`, `_in`, etc.). For example: `domainEq`, `countryCodeIn`, `distanceWithin`. Using underscore-prefixed names for these operators will produce a GraphQL validation error.
+</Aside>
+
 ---
 
 ### Contact & Communication
 
 #### EmailFilter
+
+The `Email` scalar provides 4 domain-specific operators using `camelCase` naming (no underscore prefix).
 
 ```graphql
 input EmailFilter {
@@ -591,51 +597,38 @@ input EmailFilter {
     _nin: [Email!]
     _is_null: Boolean
 
-    # Domain extraction
-    _domain_eq: String           # Match domain exactly
-    _domain_neq: String
-    _domain_in: [String!]        # Domain in list
-    _domain_nin: [String!]
-    _domain_endswith: String     # Domain ends with (e.g., ".edu")
-    _domain_contains: String     # Domain contains substring
+    # Domain extraction (camelCase, no underscore prefix)
+    domainEq: String             # Match domain exactly
+    domainIn: [String!]          # Domain in list
+    domainEndswith: String       # Domain ends with (e.g., ".edu")
 
     # Local part extraction
-    _local_eq: String            # Match local part (before @)
-    _local_startswith: String
-    _local_contains: String
-
-    # Pattern detection
-    _is_freemail: Boolean        # gmail.com, yahoo.com, hotmail.com, etc.
-    _is_corporate: Boolean       # NOT freemail
-    _is_disposable: Boolean      # Known disposable email domains
+    localPartStartswith: String  # Local part (before @) starts with
 }
 ```
 
 ```graphql
 query {
     # Find company emails
-    users(where: { email: { _domain_eq: "acme.com" } }) {
+    users(where: { email: { domainEq: "acme.com" } }) {
         id email
     }
 
     # Find all .edu emails
-    users(where: { email: { _domain_endswith: ".edu" } }) {
+    users(where: { email: { domainEndswith: ".edu" } }) {
         id email
     }
 
-    # Exclude freemail addresses
-    leads(where: { email: { _is_freemail: false } }) {
-        id email company
-    }
-
     # Filter by local part pattern
-    users(where: { email: { _local_startswith: "sales." } }) {
+    users(where: { email: { localPartStartswith: "sales." } }) {
         id email
     }
 }
 ```
 
 #### PhoneNumberFilter
+
+The `PhoneNumber` scalar provides 4 operators using `camelCase` naming.
 
 ```graphql
 input PhoneNumberFilter {
@@ -646,53 +639,35 @@ input PhoneNumberFilter {
     _nin: [PhoneNumber!]
     _is_null: Boolean
 
-    # Country code extraction
-    _country_code_eq: String     # +1, +44, +33
-    _country_code_in: [String!]
-    _country_code_nin: [String!]
+    # Country code extraction (camelCase, no underscore prefix)
+    countryCodeEq: String        # "+1", "+44", "+33"
+    countryCodeIn: [String!]
 
-    # Geographic grouping
-    _country_eq: CountryCode     # Derived from country code
-    _country_in: [CountryCode!]
-    _region_eq: String           # North America, Europe, Asia
+    # Validation
+    isValid: Boolean             # Is a structurally valid phone number
 
-    # Number type detection
-    _is_mobile: Boolean
-    _is_landline: Boolean
-    _is_toll_free: Boolean
-    _is_premium: Boolean
-
-    # Pattern matching
-    _national_startswith: String # Area code matching
-    _national_contains: String
+    # Number type
+    typeEq: String               # e.g. "MOBILE", "FIXED_LINE"
 }
 ```
 
 ```graphql
 query {
     # Find US phone numbers
-    contacts(where: { phone: { _country_code_eq: "+1" } }) {
+    contacts(where: { phone: { countryCodeEq: "+1" } }) {
         id phone
     }
 
-    # Find mobile numbers in Europe
-    contacts(where: {
-        phone: {
-            _region_eq: "Europe"
-            _is_mobile: true
-        }
-    }) {
+    # Find valid phone numbers only
+    contacts(where: { phone: { isValid: true } }) {
         id phone
-    }
-
-    # Find toll-free numbers
-    support_lines(where: { phone: { _is_toll_free: true } }) {
-        id department phone
     }
 }
 ```
 
 #### URLFilter
+
+The `URL` scalar provides 3 operators using `camelCase` naming.
 
 ```graphql
 input URLFilter {
@@ -703,59 +678,35 @@ input URLFilter {
     _nin: [URL!]
     _is_null: Boolean
 
-    # Protocol
-    _protocol_eq: String         # "https", "http", "ftp"
-    _protocol_in: [String!]
-    _is_secure: Boolean          # protocol = "https"
-
-    # Host extraction
-    _host_eq: String             # Full host: "api.example.com"
-    _host_in: [String!]
-    _host_endswith: String       # ".example.com" (subdomain matching)
-    _host_contains: String
-
-    # Domain (excludes subdomain)
-    _domain_eq: String           # "example.com"
-    _domain_in: [String!]
-    _tld_eq: String              # "com", "org", "io"
-    _tld_in: [String!]
-
-    # Path
-    _path_eq: String
-    _path_startswith: String     # "/api/v1/"
-    _path_contains: String
-    _path_matches: String        # Regex
-
-    # Query parameters
-    _has_query_param: String     # Has parameter "utm_source"
+    # URL component extraction (camelCase, no underscore prefix)
+    protocolEq: String           # "https", "http", "ftp"
+    hostEq: String               # Full host: "api.example.com"
+    pathStartswith: String       # "/api/v1/"
 }
 ```
 
 ```graphql
 query {
     # Find HTTPS links only
-    links(where: { url: { _is_secure: true } }) {
+    links(where: { url: { protocolEq: "https" } }) {
         id url
     }
 
-    # Find links to specific domain
-    links(where: { url: { _domain_eq: "github.com" } }) {
+    # Find links to specific host
+    links(where: { url: { hostEq: "github.com" } }) {
         id url
     }
 
     # Find API endpoints
-    webhooks(where: { url: { _path_startswith: "/api/" } }) {
+    webhooks(where: { url: { pathStartswith: "/api/" } }) {
         id url
-    }
-
-    # Find links with tracking params
-    links(where: { url: { _has_query_param: "utm_source" } }) {
-        id url campaign
     }
 }
 ```
 
 #### DomainNameFilter
+
+The `DomainName` scalar provides 2 operators using `camelCase` naming.
 
 ```graphql
 input DomainNameFilter {
@@ -766,21 +717,9 @@ input DomainNameFilter {
     _nin: [DomainName!]
     _is_null: Boolean
 
-    # TLD extraction
-    _tld_eq: String              # "com", "org", "co.uk"
-    _tld_in: [String!]
-    _tld_category: TLDCategory   # GENERIC, COUNTRY, SPONSORED
-
-    # Hierarchy
-    _parent_domain_eq: String    # "example.com" matches "api.example.com"
-    _subdomain_of: String        # Is subdomain of given domain
-    _depth_eq: Int               # Number of labels (api.example.com = 3)
-    _depth_gte: Int
-    _depth_lte: Int
-
-    # Pattern
-    _endswith: String            # ".example.com"
-    _contains: String
+    # TLD extraction (camelCase, no underscore prefix)
+    tldEq: String                # "com", "org", "co.uk"
+    tldIn: [String!]
 }
 ```
 
@@ -789,6 +728,8 @@ input DomainNameFilter {
 ### Location & Geography
 
 #### CountryCodeFilter
+
+The `CountryCode` scalar exposes 1 operator via GraphQL.
 
 ```graphql
 input CountryCodeFilter {
@@ -799,47 +740,15 @@ input CountryCodeFilter {
     _nin: [CountryCode!]
     _is_null: Boolean
 
-    # Geographic grouping
-    _continent_eq: Continent     # AF, AN, AS, EU, NA, OC, SA
-    _continent_in: [Continent!]
-    _region_eq: String           # "Western Europe", "Southeast Asia"
-    _subregion_eq: String
-
-    # Political/Economic groupings
-    _in_eu: Boolean              # European Union member
-    _in_eurozone: Boolean        # Uses Euro
-    _in_schengen: Boolean        # Schengen Area
-    _in_nato: Boolean
-    _in_g7: Boolean
-    _in_g20: Boolean
-    _in_oecd: Boolean
-    _in_commonwealth: Boolean
-    _in_brics: Boolean
-
-    # Regulatory
-    _gdpr_applicable: Boolean    # EU + EEA + adequacy decisions
+    # Equality (camelCase, no underscore prefix)
+    eq: CountryCode              # Exact country code match
 }
 ```
 
 ```graphql
 query {
-    # Find EU customers
-    customers(where: { country: { _in_eu: true } }) {
-        id name country
-    }
-
-    # Find customers in Asia
-    customers(where: { country: { _continent_eq: "AS" } }) {
-        id name country
-    }
-
-    # Find GDPR-applicable users
-    users(where: { country: { _gdpr_applicable: true } }) {
-        id email country
-    }
-
-    # Find G20 economies
-    companies(where: { country: { _in_g20: true } }) {
+    # Find US customers
+    customers(where: { country: { eq: "US" } }) {
         id name country
     }
 }
@@ -847,50 +756,22 @@ query {
 
 #### CoordinatesFilter
 
+The `Coordinates` scalar exposes 1 geospatial operator via GraphQL.
+
 ```graphql
 input CoordinatesFilter {
     # Basic
     _eq: Coordinates
     _is_null: Boolean
 
-    # Geospatial (PostGIS)
-    _within_radius: RadiusInput  # Center point + radius in km
-    _within_bounds: BoundsInput  # Bounding box
-    _within_polygon: [[Float!]!] # GeoJSON polygon
-    _within_geojson: JSON        # Arbitrary GeoJSON geometry
-
-    # Distance calculations
-    _distance_from_lt: DistanceInput
-    _distance_from_lte: DistanceInput
-    _distance_from_gt: DistanceInput
-    _distance_from_gte: DistanceInput
-
-    # Hemisphere
-    _hemisphere_lat: Hemisphere  # NORTH, SOUTH
-    _hemisphere_lng: Hemisphere  # EAST, WEST
-
-    # Named regions (with geocoding data)
-    _in_country: CountryCode
-    _in_timezone: Timezone
+    # Geospatial (camelCase, no underscore prefix)
+    distanceWithin: DistanceWithinInput  # Find points within a radius (uses PostGIS ST_DWithin)
 }
 
-input RadiusInput {
+input DistanceWithinInput {
     lat: Float!
     lng: Float!
     radius_km: Float!
-}
-
-input BoundsInput {
-    min_lat: Float!
-    max_lat: Float!
-    min_lng: Float!
-    max_lng: Float!
-}
-
-input DistanceInput {
-    lat: Float!
-    lng: Float!
-    km: Float!
 }
 ```
 
@@ -899,31 +780,10 @@ query {
     # Find stores within 50km of NYC
     stores(where: {
         location: {
-            _within_radius: { lat: 40.7128, lng: -74.0060, radius_km: 50 }
+            distanceWithin: { lat: 40.7128, lng: -74.0060, radius_km: 50 }
         }
     }) {
         id name location
-    }
-
-    # Find locations in bounding box
-    locations(where: {
-        coords: {
-            _within_bounds: {
-                min_lat: 40.0, max_lat: 41.0,
-                min_lng: -74.5, max_lng: -73.5
-            }
-        }
-    }) {
-        id name coords
-    }
-
-    # Find drivers less than 5km away
-    drivers(where: {
-        position: {
-            _distance_from_lt: { lat: 40.7128, lng: -74.0060, km: 5 }
-        }
-    }) {
-        id name position
     }
 }
 ```
@@ -1008,17 +868,6 @@ input LanguageCodeFilter {
     _in: [LanguageCode!]
     _nin: [LanguageCode!]
     _is_null: Boolean
-
-    # Language families
-    _family_eq: String           # "Indo-European", "Sino-Tibetan"
-    _branch_eq: String           # "Germanic", "Romance", "Slavic"
-
-    # Script
-    _script_eq: ScriptCode       # "Latn", "Cyrl", "Hans", "Arab"
-    _script_in: [ScriptCode!]
-
-    # Properties
-    _is_rtl: Boolean             # Right-to-left script
 }
 ```
 
@@ -2004,26 +1853,15 @@ query {
 
 | Category | Types | Key Operators |
 |----------|-------|---------------|
-| **Contact** | Email | `_domain_eq`, `_domain_endswith`, `_is_freemail`, `_is_corporate` |
-| | PhoneNumber | `_country_code_eq`, `_is_mobile`, `_region_eq` |
-| | URL | `_domain_eq`, `_protocol_eq`, `_path_startswith`, `_is_secure` |
-| **Geography** | CountryCode | `_continent_eq`, `_in_eu`, `_gdpr_applicable`, `_in_g20` |
-| | Coordinates | `_within_radius`, `_within_bounds`, `_distance_from_lt` |
-| | PostalCode | `_startswith`, `_zip5_eq`, `_area_eq` |
-| **Financial** | CurrencyCode | `_is_fiat`, `_is_major`, `_is_crypto` |
-| | Money | `_amount_gte`, `_currency_eq`, `_converted_gt` |
-| | IBAN | `_country_eq`, `_bank_code_eq`, `_is_sepa` |
-| **Identifiers** | VIN | `_wmi_eq`, `_manufacturer_eq`, `_model_year_gte` |
-| | SemanticVersion | `_major_eq`, `_satisfies`, `_is_stable` |
-| | TrackingNumber | `_carrier_eq`, `_service_type_eq` |
-| **Transportation** | AirportCode | `_country_eq`, `_is_hub`, `_within_radius` |
-| | FlightNumber | `_airline_eq`, `_airline_alliance_eq` |
-| **Content** | MimeType | `_is_image`, `_is_document`, `_type_eq` |
-| | Color | `_is_dark`, `_hue_gte`, `_is_grayscale` |
-| **Networking** | IPAddress | `_in_subnet`, `_is_private`, `_is_ipv6` |
-| | Port | `_is_privileged`, `_is_database` |
-| **Database** | LTree | `_ancestor_of`, `_descendant_of`, `_nlevel_eq` |
-| | DateRange | `_contains_date`, `_overlaps`, `_adjacent` |
+| **Contact** | Email | `domainEq`, `domainIn`, `domainEndswith`, `localPartStartswith` |
+| | PhoneNumber | `countryCodeEq`, `countryCodeIn`, `isValid`, `typeEq` |
+| | URL | `protocolEq`, `hostEq`, `pathStartswith` |
+| | DomainName | `tldEq`, `tldIn` |
+| **Geography** | CountryCode | `eq` |
+| | Coordinates | `distanceWithin` |
+| **Financial** | IBAN | `countryEq`, `checkDigitEq` |
+| | VIN | `wmiEq` |
+| | TrackingNumber | `carrierEq` |
 
 ## Performance Tips
 

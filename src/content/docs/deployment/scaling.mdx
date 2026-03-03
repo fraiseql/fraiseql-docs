@@ -29,7 +29,7 @@ All major platforms support load balancing to multiple FraiseQL instances. Each 
 **Health check configuration** (all platforms):
 
 ```
-Endpoint: /health/ready
+Endpoint: /health
 Interval: 30 seconds
 Timeout: 5 seconds
 Unhealthy threshold: 3 failures
@@ -169,14 +169,15 @@ Limit connections to prevent database overload:
 
 Without pooling, 1000 instances at 20 connections each would require 20,000 database connections — well beyond what most databases support (typically capped at ~5,000).
 
-With PgBouncer, 50 instances with a minimum pool of 5 results in only 250 connections to the database:
+With PgBouncer, 50 instances with a minimum pool of 5 results in only 250 connections to the database.
 
-```bash
-# PgBouncer for PostgreSQL
-PGBOUNCER_MIN_POOL_SIZE=5
-PGBOUNCER_MAX_POOL_SIZE=20    # Per database
-PGBOUNCER_CONNECTION_TIMEOUT=30
-PGBOUNCER_IDLE_IN_TRANSACTION_SESSION_TIMEOUT=600
+Configure FraiseQL's own connection pool in `fraiseql.toml`:
+
+```toml
+[database]
+url = "postgresql://user:pass@host:5432/dbname"
+pool_min = 5    # Minimum connections per instance
+pool_max = 20   # Maximum connections per instance
 ```
 
 ### Read Replicas
@@ -196,8 +197,6 @@ done
 # Configure FraiseQL to read from replicas
 DATABASE_URL_PRIMARY=postgresql://user:pass@fraiseql-prod:5432/db
 DATABASE_URL_REPLICA=postgresql://user:pass@fraiseql-read-1:5432/db
-
-# In code: Route read queries to replica, writes to primary
 ```
 
 ### Database Query Optimization
@@ -221,55 +220,49 @@ LIMIT 10;
 ```sql
 -- Find missing indexes
 EXPLAIN ANALYZE
-SELECT * FROM users WHERE email = 'user@example.com';
+SELECT * FROM tb_user WHERE identifier = 'user@example.com';
 
 -- If seq scan, add index
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_tb_user_identifier ON tb_user(identifier);
 
 -- Composite index for common filters
-CREATE INDEX idx_posts_user_published
-  ON posts(user_id, published)
-  WHERE published = true;
+CREATE INDEX idx_tb_post_published
+  ON tb_post(fk_user, is_published)
+  WHERE is_published = true;
 ```
 
 **Optimize N+1 queries**:
 
-FraiseQL automatically batches queries. But verify with monitoring:
+Use query profiling to identify N+1 problems:
 
 ```sql
--- If you see 1000 queries per request, something is wrong
--- Use query profiling to identify N+1 problems
+-- If you see many queries per request, something may be wrong
+-- Use pg_stat_statements to identify repeated patterns
 
 -- Before (N+1):
-SELECT * FROM users LIMIT 10;  -- 1 query
-SELECT * FROM posts WHERE user_id = ? (×10)  -- 10 queries
+SELECT id, data FROM v_user LIMIT 10;          -- 1 query
+SELECT id, data FROM v_post WHERE fk_user = ?  -- repeated 10×
 -- Total: 11 queries
 
 -- After (batched):
-SELECT * FROM users LIMIT 10;  -- 1 query
-SELECT * FROM posts WHERE user_id IN (?, ?, ...) -- 1 query
+SELECT id, data FROM v_user LIMIT 10;                            -- 1 query
+SELECT id, data FROM v_post WHERE fk_user IN (?, ?, ...) -- 1 query
 -- Total: 2 queries
-
--- FraiseQL does this automatically!
 ```
+
+FraiseQL's Rust engine operates against your PostgreSQL views — ensure your views and indexes are designed to support set-based lookups.
 
 ### Database Sharding (Advanced)
 
-For massive scale (millions of users), shard by a key such as `user_id`:
+For massive scale (millions of users), FraiseQL does not currently provide first-class sharding support. The recommended approach is to deploy separate FraiseQL instances each pointing to an independent database shard:
 
-- Shard 1: Users 1–1M → `shard-1.db.example.com`
-- Shard 2: Users 1M–2M → `shard-2.db.example.com`
-- Shard 3: Users 2M–3M → `shard-3.db.example.com`
+- Shard 1: Users 1–1M → `shard-1.db.example.com` — FraiseQL instance A
+- Shard 2: Users 1M–2M → `shard-2.db.example.com` — FraiseQL instance B
+- Shard 3: Users 2M–3M → `shard-3.db.example.com` — FraiseQL instance C
 
-Configure in FraiseQL:
+Route requests at the load balancer or API gateway layer based on the shard key.
 
-```python
-@fraiseql.query
-def get_user(user_id: ID) -> User:
-    # Route query to correct shard
-    shard_num = hash(user_id) % 3
-    return query_shard(f"shard-{shard_num}", user_id)
-```
+Each shard has its own `fraiseql.toml` pointing to its own `[database]` URL.
 
 ## Phase 4: Caching
 
@@ -277,102 +270,41 @@ Reduce database load with intelligent caching.
 
 ### HTTP Caching (Easiest)
 
-Use HTTP cache headers for static data:
-
-```graphql
-query GetUser($id: ID!) {
-  user(id: $id) @cache(ttl: 3600) {  # Cache for 1 hour
-    id
-    name
-    email
-  }
-}
-```
-
-Configure HTTP caching:
+Use HTTP cache headers in your reverse proxy or load balancer for static data:
 
 ```bash
-# In load balancer or reverse proxy
+# In nginx or Caddy
 cache-control: public, max-age=3600
 etag: "user-123-v1"
 ```
 
 ### Application-Level Caching (Redis)
 
-Cache expensive query results:
+FraiseQL's caching is configured via `fraiseql.toml` — FraiseQL is a Rust binary, and Python is only used at compile time to define the schema. There is no Python runtime to write cache logic in. Enable the Redis backend in your TOML:
 
-```python
-import redis
-from functools import wraps
-
-cache = redis.Redis(host='cache.example.com', port=6379)
-
-def cached(ttl: int = 3600):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Create cache key
-            key = f"{func.__name__}:{args}:{kwargs}"
-
-            # Try cache
-            cached_result = cache.get(key)
-            if cached_result:
-                return json.loads(cached_result)
-
-            # Execute query
-            result = func(*args, **kwargs)
-
-            # Cache result
-            cache.setex(key, ttl, json.dumps(result))
-            return result
-        return wrapper
-    return decorator
-
-@fraiseql.query
-@cached(ttl=3600)
-def get_user(id: ID) -> User:
-    # Expensive query executed only once per hour
-    return ...
+```toml
+[caching]
+enabled = true
+backend = "redis"
+redis_url = "redis://cache.example.com:6379"
 ```
 
-### Cache Invalidation Strategies
+Cache TTL is specified at the query level in your Python schema file (compile-time only):
 
-<Tabs>
-<TabItem label="Time-based (Simplest)">
 ```python
-# Cache expires after X seconds
-@cached(ttl=3600)  # 1 hour
-def get_user(id: ID) -> User:
-    pass
+@fraiseql.query(sql_source="v_user", cache_ttl_seconds=3600)
+def get_user(id: ID) -> User | None: ...
 ```
-</TabItem>
-<TabItem label="Event-based (Most Accurate)">
-```python
-@fraiseql.mutation
-def update_user(id: ID, name: str) -> User:
-    result = update_db(id, name)
 
-    # Invalidate cache
-    cache.delete(f"get_user:{id}")
+### Cache Invalidation
 
-    # Notify subscribers
-    pubsub.publish(f"user:{id}:updated", result)
+Cache invalidation is handled through the observers system in `fraiseql.toml`. When a mutation runs, FraiseQL publishes events to the configured observer backend, which triggers cache invalidation for related queries:
 
-    return result
+```toml
+[observers]
+backend = "nats"
+nats_url = "nats://nats-server:4222"
 ```
-</TabItem>
-<TabItem label="Dependency-based (Advanced)">
-```python
-# Cache depends on tag
-@cached(tags=["user:123"])
-def get_user(id: ID) -> User:
-    pass
-
-# Invalidate all queries tagged "user:123"
-cache.delete_by_tag("user:123")
-```
-</TabItem>
-</Tabs>
 
 ### Cache Metrics to Monitor
 

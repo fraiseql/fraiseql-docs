@@ -165,8 +165,7 @@ EXPLAIN SELECT * FROM posts WHERE user_id = 123\G
 
 # 4. For complex filters, use composite index
 CREATE INDEX idx_posts_user_published
-ON posts(user_id, published)
-WHERE published = 1;
+ON posts(user_id, published);
 
 # 5. Rebuild index if corrupted
 OPTIMIZE TABLE posts;

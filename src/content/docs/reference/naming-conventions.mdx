@@ -22,9 +22,9 @@ Every entity uses the **Trinity Identifier Pattern**:
 Internal-only, auto-incrementing integer:
 
 ```sql
-pk_user INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY
-pk_post INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY
-pk_order INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+pk_user BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+pk_post BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+pk_order BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
 ```
 
 **Properties:**
@@ -150,7 +150,7 @@ Master calendar table providing pre-computed temporal dimensions for all fact ta
 
 ```sql
 CREATE TABLE tb_calendar (
-    id UUID DEFAULT gen_random_uuid() UNIQUE,
+    id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
     reference_date DATE PRIMARY KEY,
 
     -- Time period numbers
@@ -265,7 +265,7 @@ CREATE TABLE tf_sales (
     -- Calendar foreign key (joins to tb_calendar)
     occurred_at DATE NOT NULL,
 
-    -- Denormalized columns for indexed filtering
+    -- Denormalized UUID copies for analytics filtering (not foreign keys — intentionally bypasses the FK pattern for analytics performance)
     customer_id UUID NOT NULL,
     product_id UUID NOT NULL,
     product_category TEXT,
@@ -277,6 +277,10 @@ CREATE INDEX idx_tf_sales_data ON tf_sales USING GIN(data);
 ```
 
 **Query-side view with calendar JOIN:**
+
+<Aside type="note">
+Fact table views (`tf_`/`v_sales`) do not follow the standard `id, data` view shape. Fact tables are analytics-only and not directly exposed as GraphQL entities — they use `pk_` for internal joins and return custom JSONB shapes for aggregation queries.
+</Aside>
 
 ```sql
 CREATE VIEW v_sales AS
@@ -324,13 +328,24 @@ LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at;
 
 ## Foreign Keys
 
-Foreign keys reference internal primary keys:
+Foreign keys reference internal primary keys. The FK type must match the PK type for the target database:
 
+<Tabs>
+<TabItem label="PostgreSQL">
 ```sql
-fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user)
-fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post)
-fk_parent_comment INTEGER REFERENCES tb_comment(pk_comment)
+fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user)
+fk_post BIGINT NOT NULL REFERENCES tb_post(pk_post)
+fk_parent_comment BIGINT REFERENCES tb_comment(pk_comment)
 ```
+</TabItem>
+<TabItem label="SQLite">
+```sql
+fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user)
+fk_post BIGINT NOT NULL REFERENCES tb_post(pk_post)
+fk_parent_comment BIGINT REFERENCES tb_comment(pk_comment)
+```
+</TabItem>
+</Tabs>
 
 **Convention:** `fk_{entity}` references `pk_{entity}`
 
@@ -341,13 +356,13 @@ fk_parent_comment INTEGER REFERENCES tb_comment(pk_comment)
 
 ### Composite Foreign Keys
 
-For junction tables:
+For junction tables (PostgreSQL):
 
 ```sql
 CREATE TABLE tb_post_tag (
-    pk_post_tag INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post),
-    fk_tag INTEGER NOT NULL REFERENCES tb_tag(pk_tag),
+    pk_post_tag BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    fk_post BIGINT NOT NULL REFERENCES tb_post(pk_post),
+    fk_tag BIGINT NOT NULL REFERENCES tb_tag(pk_tag),
     UNIQUE(fk_post, fk_tag)
 );
 ```
@@ -358,11 +373,25 @@ CREATE TABLE tb_post_tag (
 
 Mutation functions:
 
+All mutation functions return the `mutation_response` composite type:
+
 ```sql
-CREATE FUNCTION fn_create_user(...) RETURNS UUID
-CREATE FUNCTION fn_update_user(...) RETURNS BOOLEAN
-CREATE FUNCTION fn_delete_user(...) RETURNS BOOLEAN
-CREATE FUNCTION fn_publish_post(...) RETURNS BOOLEAN
+-- Define once per database
+CREATE TYPE mutation_response AS (
+    status         TEXT,       -- 'success', 'failed:reason', 'conflict:reason'
+    message        TEXT,
+    entity_id      UUID,
+    entity_type    TEXT,
+    entity         JSONB,
+    updated_fields TEXT[],
+    cascade        JSONB,
+    metadata       JSONB
+);
+
+CREATE FUNCTION fn_create_user(...) RETURNS mutation_response
+CREATE FUNCTION fn_update_user(...) RETURNS mutation_response
+CREATE FUNCTION fn_delete_user(...) RETURNS mutation_response
+CREATE FUNCTION fn_publish_post(...) RETURNS mutation_response
 ```
 
 **Convention:** `fn_{action}_{entity}`
@@ -374,7 +403,7 @@ Projection synchronization:
 ```sql
 CREATE FUNCTION sync_tv_user() RETURNS VOID
 CREATE FUNCTION sync_tv_post() RETURNS VOID
-CREATE FUNCTION sync_tv_user_single(user_id UUID) RETURNS VOID
+CREATE FUNCTION sync_tv_user_single(p_id UUID) RETURNS VOID
 ```
 
 **Convention:** `sync_{target_table}` or `sync_{target_table}_single`
@@ -482,7 +511,7 @@ CREATE INDEX idx_post_published_only ON tb_post(published_at DESC)
 ```sql
 -- Write table
 CREATE TABLE tb_user (
-    pk_user INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pk_user BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
     identifier TEXT UNIQUE NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
@@ -528,16 +557,26 @@ $$ LANGUAGE plpgsql;
 CREATE FUNCTION fn_create_user(
     user_email TEXT,
     user_name TEXT
-) RETURNS UUID AS $$
+) RETURNS mutation_response AS $$
 DECLARE
-    new_id UUID;
+    v_id UUID;
 BEGIN
     INSERT INTO tb_user (email, name, identifier)
     VALUES (user_email, user_name, user_email)
-    RETURNING id INTO new_id;
+    RETURNING id INTO v_id;
 
     PERFORM sync_tv_user();
-    RETURN new_id;
+
+    RETURN ROW(
+        'success',
+        'User created',
+        v_id,
+        'User',
+        (SELECT data FROM v_user WHERE id = v_id),
+        NULL,
+        NULL,
+        NULL
+    )::mutation_response;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -604,5 +643,11 @@ def create_user(email: str, name: str) -> User:
   </Card>
   <Card title="Scalars" icon="list-format">
     [Scalars](/reference/scalars) — Type reference
+  </Card>
+  <Card title="Decorators" icon="puzzle">
+    [Decorators](/reference/decorators) — Python decorator reference
+  </Card>
+  <Card title="GraphQL API" icon="information">
+    [GraphQL API](/reference/graphql-api) — GraphQL API reference
   </Card>
 </CardGrid>

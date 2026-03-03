@@ -1,423 +1,267 @@
 ---
 title: Authentication
-description: Configure JWT, API key, OAuth, and SAML authentication in FraiseQL
+description: Configure JWT, OIDC, and field-level access control in FraiseQL
 ---
 
 import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
-FraiseQL validates authentication tokens automatically — set the appropriate environment variables and tokens are verified before every request reaches your schema.
+FraiseQL validates authentication tokens automatically in the Rust runtime — configure the appropriate settings and tokens are verified before every request reaches your schema. The Python SDK is **compile-time only**: it declares what requires authentication, and the Rust runtime enforces it.
 
-## Strategies
-
-| Strategy | Best For | Config Key |
-|----------|----------|------------|
-| **JWT** | Web and mobile apps | `type = "jwt"` |
-| **API Key** | Service-to-service | `type = "api_key"` |
-| **OAuth 2.0** | Third-party login | `type = "oauth2"` |
-| **SAML** | Enterprise SSO | `type = "saml"` |
+<Aside type="note">
+**Architecture reminder:** Python decorators produce `schema.json`. The `fraiseql-cli` compiler bakes that JSON into `schema.compiled.json`. The Rust runtime executes queries — no Python runs at request time. Auth enforcement happens entirely in Rust.
+</Aside>
 
 ---
 
-## JWT Authentication
+## How Authentication Works
 
-### Configuration
+```
+Client request → Rust runtime verifies JWT → Scope check per field → PostgreSQL query
+                        ↑
+                 schema.compiled.json
+                 (produced by fraiseql-cli from schema.json)
+```
 
-JWT authentication is configured via environment variables:
+Your Python schema declares **what** requires authentication. The compiled schema carries that metadata into the Rust runtime, which enforces it on every request.
+
+---
+
+## OIDC / JWT Configuration
+
+Configure your OIDC provider in `fraiseql.toml`. The Rust runtime uses these settings to validate JWTs on every request.
+
+```toml title="fraiseql.toml"
+[auth]
+client_id   = "your-client-id"
+issuer_url  = "https://your-idp.example.com/"
+redirect_uri = "https://your-app.example.com/auth/callback"
+```
+
+The `client_secret` is **never** placed in `fraiseql.toml`. Supply it at runtime via the `OIDC_CLIENT_SECRET` environment variable.
 
 ```bash
-# Required
-JWT_SECRET=your-256-bit-secret-key    # signing secret (HS256) or public key path (RS256)
-
-# Optional
-JWT_ALGORITHM=HS256                   # HS256 | RS256 | ES256 (default: HS256)
-JWT_ISSUER=your-app                   # expected iss claim (optional)
-JWT_AUDIENCE=your-api                 # expected aud claim (optional)
+export OIDC_CLIENT_SECRET=your-client-secret
 ```
 
-FraiseQL validates every incoming token against these settings before routing the request to your schema. No middleware code required.
+FraiseQL fetches the provider's JWKS from `{issuer_url}/.well-known/openid-configuration` and validates every incoming JWT against it. No middleware code required.
 
-### Issuing Tokens
+---
 
-Your login mutation issues tokens. FraiseQL validates them on subsequent requests.
+## Field-Level Access Control
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
+FraiseQL implements scope-based access control at the field level. Use `fraiseql.field(requires_scope=...)` inside a `@fraiseql.type` to declare which JWT scope a client must hold to read a field.
 
 ```python title="schema.py"
+from typing import Annotated
 import fraiseql
-from fraiseql.scalars import Email
-import jwt
-import os
-from datetime import datetime, timedelta
-
-@fraiseql.input
-class LoginInput:
-    email: Email
-    password: str
+from fraiseql.scalars import ID
 
 @fraiseql.type
-class AuthPayload:
-    access_token: str
-    expires_in: int
-    token_type: str
-
-@fraiseql.mutation
-def login(info, input: LoginInput) -> AuthPayload:
-    """Authenticate and issue a JWT."""
-    # fn_login validates credentials and returns user_id + scopes
-    # (implemented as a PostgreSQL function)
-    pass
+class User:
+    id: ID
+    name: str
+    # Any authenticated user can read email
+    email: str
+    # Requires the users:read scope
+    phone: Annotated[str | None, fraiseql.field(requires_scope="users:read")]
+    # Requires admin:read — returns null for unauthorized users instead of rejecting
+    admin_notes: Annotated[str | None, fraiseql.field(
+        requires_scope="admin:read",
+        on_deny="mask",
+    )]
+    # Requires hr:view_pii — rejects the entire query if scope is missing
+    salary: Annotated[int | None, fraiseql.field(requires_scope="hr:view_pii")]
 ```
 
-The PostgreSQL function `fn_login` handles credential validation and returns a user record. Your Python mutation calls it and issues the token:
+### `on_deny` Policies
 
-```python title="auth.py"
-import jwt, os
-from datetime import datetime, timedelta
+| Value | Behaviour |
+|-------|-----------|
+| `"reject"` (default) | Entire query fails with a `FORBIDDEN` error if the scope is missing |
+| `"mask"` | Query succeeds; the field is returned as `null` for unauthorized users |
 
-def create_token(user_id: str, scopes: list[str]) -> str:
-    return jwt.encode(
-        {
-            "sub": user_id,
-            "scopes": scopes,
-            "iss": "your-app",
-            "aud": "your-api",
-            "iat": datetime.utcnow(),
-            "exp": datetime.utcnow() + timedelta(hours=1),
-        },
-        os.environ["JWT_SECRET"],
-        algorithm="HS256",
-    )
+Use `"mask"` for fields that are optional enrichments (e.g. internal notes). Use `"reject"` (or omit `on_deny`) for fields that must never leak.
+
+### Using `Annotated`
+
+The `fraiseql.field(...)` call returns a `FieldConfig` object. It must be wrapped with `Annotated` so that the Python type annotation still names the correct GraphQL type:
+
+```python
+from typing import Annotated
+import fraiseql
+
+@fraiseql.type
+class Post:
+    id: fraiseql.ID
+    title: str
+    # Annotated[<GraphQL type>, <field metadata>]
+    internal_notes: Annotated[str | None, fraiseql.field(
+        requires_scope="admin:read",
+        description="Internal editorial notes, never shown publicly.",
+    )]
 ```
 
-  </TabItem>
-  <TabItem label="TypeScript">
+The compiler reads the `FieldConfig` metadata and bakes the scope requirement into `schema.compiled.json`. The Rust runtime checks the JWT's `scopes` claim against these requirements before returning field values.
 
-```typescript title="schema.ts"
-import { fraiseqlInput, fraiseqlType, fraiseqlMutation } from 'fraiseql';
-import { Email } from 'fraiseql/scalars';
-import jwt from 'jsonwebtoken';
+---
 
-@fraiseqlInput()
-class LoginInput {
-  email: Email;
-  password: string;
-}
+## Injecting JWT Claims into Queries
 
-@fraiseqlType()
-class AuthPayload {
-  accessToken: string;
-  expiresIn: number;
-  tokenType: string;
-}
-
-@fraiseqlMutation()
-function login(input: LoginInput): AuthPayload {
-  // fn_login validates credentials via PostgreSQL function
-}
-
-function createToken(userId: string, scopes: string[]): string {
-  return jwt.sign(
-    { sub: userId, scopes, iss: 'your-app', aud: 'your-api' },
-    process.env.JWT_SECRET!,
-    { expiresIn: '1h' },
-  );
-}
-```
-
-  </TabItem>
-</Tabs>
-
-### Accessing the Current User
-
-Once a request is authenticated, FraiseQL makes the verified claims available in middleware:
-
-<Tabs syncKey="language">
-  <TabItem label="Python">
+Use `inject=` on `@fraiseql.query` or `@fraiseql.mutation` to forward a JWT claim directly to a SQL parameter. This is the correct way to scope data by the authenticated user — no Python runtime code involved.
 
 ```python title="schema.py"
 import fraiseql
 from fraiseql.scalars import ID
 
-@fraiseql.middleware
-def set_user_context(request, next):
-    """Make verified JWT claims available to queries and mutations."""
-    if request.auth:
-        request.context["current_user_id"] = request.auth.claims.get("sub")
-        request.context["user_scopes"] = request.auth.claims.get("scopes", [])
-    return next(request)
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    content: str
 
-# Use request.context in your query's row_filter
 @fraiseql.query(
-    sql_source="v_user",
-    id_arg="id",
-    row_filter="id = {current_user_id}"
+    sql_source="v_post",
+    inject={"author_id": "jwt:sub"},   # injects JWT sub claim as $author_id
 )
-def me() -> "User | None":
-    """Get the currently authenticated user."""
-    pass
-
-@fraiseql.query(sql_source="v_post")
-@fraiseql.authenticated
-def my_posts(limit: int = 20) -> list["Post"]:
-    """Get the current user's posts."""
+def my_posts(limit: int = 20) -> list[Post]:
+    """Returns only the posts authored by the authenticated user."""
     pass
 ```
 
-  </TabItem>
-  <TabItem label="TypeScript">
+The `inject` mapping has the form `{"sql_param_name": "jwt:<claim_name>"}`. The Rust runtime reads the verified JWT claim and passes it to the SQL view as a parameter — the claim value is never supplied by the client.
 
-```typescript title="schema.ts"
-import { fraiseqlMiddleware, fraiseqlQuery, authenticated } from 'fraiseql';
+Your PostgreSQL view filters by it:
 
-fraiseqlMiddleware((request, next) => {
-  if (request.auth) {
-    request.context.currentUserId = request.auth.claims.sub;
-    request.context.userScopes = request.auth.claims.scopes ?? [];
-  }
-  return next(request);
-});
-
-@fraiseqlQuery({ sqlSource: 'v_user', rowFilter: 'id = {currentUserId}' })
-@authenticated
-function me(): User | null {}
-```
-
-  </TabItem>
-</Tabs>
-
-### Protecting Queries and Mutations
-
-<Tabs syncKey="language">
-  <TabItem label="Python">
-
-```python title="schema.py"
-from fraiseql.auth import authenticated, requires_scope
-import fraiseql
-
-@fraiseql.query(sql_source="v_post")
-@authenticated
-def posts(limit: int = 20) -> list["Post"]:
-    """Requires valid JWT."""
-    pass
-
-@fraiseql.mutation
-@authenticated
-@requires_scope("write:posts")
-def create_post(info, input: "CreatePostInput") -> "Post":
-    """Requires valid JWT with write:posts scope."""
-    pass
-
-@fraiseql.mutation
-@authenticated
-@requires_scope("admin:posts")
-def delete_post(info, id: "ID") -> bool:
-    """Requires admin:posts scope."""
-    pass
-```
-
-  </TabItem>
-  <TabItem label="TypeScript">
-
-```typescript title="schema.ts"
-import { authenticated, requiresScope, fraiseqlMutation, fraiseqlQuery } from 'fraiseql';
-
-@fraiseqlQuery({ sqlSource: 'v_post' })
-@authenticated
-function posts(limit = 20): Post[] {}
-
-@fraiseqlMutation()
-@authenticated
-@requiresScope('write:posts')
-function createPost(input: CreatePostInput): Post {}
-```
-
-  </TabItem>
-</Tabs>
-
-### Token Refresh
-
-```python title="schema.py"
-@fraiseql.input
-class RefreshInput:
-    refresh_token: str
-
-@fraiseql.mutation
-def refresh_token(info, input: RefreshInput) -> AuthPayload:
-    """Exchange a refresh token for a new access token."""
-    # fn_refresh_token validates the refresh token and returns new claims
-    pass
+```sql title="db/schema/02_read/v_post.sql"
+CREATE VIEW v_post AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id',         p.id::text,
+        'identifier', p.identifier,
+        'title',      p.title,
+        'content',    p.content,
+        'author_id',  u.id::text
+    ) AS data
+FROM tb_post p
+JOIN tb_user u ON u.pk_user = p.fk_user
+WHERE u.id = $author_id;   -- injected from JWT sub claim
 ```
 
 ---
 
-## Token Revocation
+## Type-Level Access Control
 
-Revoke a JWT before its `exp` claim expires — for logout, key rotation, or security incidents. Configure the revocation store in `fraiseql.toml`:
+To require a role for an entire type (all fields), use `requires_role=` on `@fraiseql.type`:
 
-```toml
-[security.token_revocation]
-enabled     = true
-backend     = "redis"   # or "postgres"
-require_jti = true      # reject JWTs without a jti claim
-fail_open   = false     # if store unreachable, deny (not allow) the request
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID
+
+@fraiseql.type(requires_role="admin")
+class AuditLog:
+    id: ID
+    user_id: str
+    action: str
+    occurred_at: str
 ```
 
-Two endpoints are available once enabled:
+Any query returning `AuditLog` will be rejected unless the JWT contains the required role. This is validated by the Rust runtime before PostgreSQL is queried.
+
+---
+
+## Server-Level Security Configuration
+
+Security behaviour is configured in `fraiseql.toml` under `[fraiseql.security.*]`. These settings are baked into the compiled schema and enforced by the Rust runtime.
+
+### Audit Logging
+
+```toml title="fraiseql.toml"
+[fraiseql.security.audit_logging]
+enabled               = true
+log_level             = "info"        # "debug" | "info" | "warn"
+include_sensitive_data = false        # Never true in production
+async_logging         = true
+buffer_size           = 1000
+flush_interval_secs   = 5
+```
+
+### Error Sanitization
+
+Prevents internal details from leaking to clients:
+
+```toml title="fraiseql.toml"
+[fraiseql.security.error_sanitization]
+enabled              = true
+generic_messages     = true           # Always true in production
+internal_logging     = true
+leak_sensitive_details = false        # Never true in production
+user_facing_format   = "generic"      # "generic" | "simple" | "detailed"
+```
+
+### Rate Limiting
+
+Protects authentication endpoints from brute-force attacks:
+
+```toml title="fraiseql.toml"
+[fraiseql.security.rate_limiting]
+enabled = true
+
+# Per-IP limits on public auth endpoints
+auth_start_max_requests    = 100
+auth_start_window_secs     = 60
+auth_callback_max_requests = 50
+auth_callback_window_secs  = 60
+
+# Per-user limits on authenticated endpoints
+auth_refresh_max_requests  = 10
+auth_refresh_window_secs   = 60
+auth_logout_max_requests   = 20
+auth_logout_window_secs    = 60
+
+# Failed login lockout
+failed_login_max_requests  = 5
+failed_login_window_secs   = 3600    # 1 hour lockout
+```
+
+### State Encryption (PKCE)
+
+```toml title="fraiseql.toml"
+[fraiseql.security.state_encryption]
+enabled   = true
+algorithm = "chacha20-poly1305"
+```
+
+The encryption key is **never** stored in `fraiseql.toml`. Provide it at runtime:
 
 ```bash
-# Revoke own token (self-logout)
-POST /auth/revoke
-Authorization: Bearer <token>
-Body: { "token": "<JWT>" }
-→ 200 { "revoked": true, "expires_at": "..." }
-
-# Revoke all tokens for a user (admin only, requires scope "admin:revoke")
-POST /auth/revoke-all
-Body: { "sub": "<user UUID>" }
-→ 200 { "revoked_count": 3 }
+export STATE_ENCRYPTION_KEY=$(openssl rand -base64 32)
 ```
 
-Revoked JTIs are stored until the token's `exp` expires — no manual cleanup needed.
+### Constant-Time Comparisons
 
----
+Prevents timing attacks on token validation:
 
-## API Key Authentication
-
-API key authentication lets service accounts and CI pipelines authenticate without a JWT. Configure it via `[security.api_keys]` in `fraiseql.toml`:
-
-```toml
-[security.api_keys]
-enabled        = true
-header         = "X-API-Key"
-hash_algorithm = "sha256"   # "sha256" (fast, CI use) or "argon2" (production)
-storage        = "postgres"  # or "env" for static keys (testing/CI only)
-
-# Static keys — testing and CI only. Never in production.
-[[security.api_keys.static]]
-key_hash = "sha256:abc123..."  # echo -n "secret" | sha256sum
-scopes   = ["read:*"]
-name     = "ci-readonly"
+```toml title="fraiseql.toml"
+[fraiseql.security.constant_time]
+enabled                  = true
+apply_to_jwt             = true
+apply_to_session_tokens  = true
+apply_to_csrf_tokens     = true
+apply_to_refresh_tokens  = true
 ```
-
-For production, store hashed keys in PostgreSQL:
-
-```sql
-CREATE TABLE fraiseql_api_keys (
-    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    key_hash   TEXT NOT NULL UNIQUE,
-    name       TEXT NOT NULL,
-    scopes     JSONB NOT NULL DEFAULT '[]',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    revoked_at TIMESTAMPTZ
-);
-CREATE INDEX ON fraiseql_api_keys(key_hash) WHERE revoked_at IS NULL;
-```
-
-Requests authenticate with the key in the `X-API-Key` header. FraiseQL checks the key before falling through to JWT extraction — a missing key does not cause a 401 by itself.
-
-### Configuration
-
-### Protecting Endpoints
-
-<Tabs syncKey="language">
-  <TabItem label="Python">
-
-```python title="schema.py"
-from fraiseql.auth import api_key_required, requires_scope
-import fraiseql
-
-@fraiseql.query(sql_source="v_report")
-@api_key_required
-def reports(limit: int = 100) -> list["Report"]:
-    """Requires a valid API key."""
-    pass
-
-@fraiseql.mutation
-@api_key_required
-@requires_scope("write:data")
-def ingest_data(info, payload: "IngestInput") -> bool:
-    """Requires an API key with write:data scope."""
-    pass
-```
-
-  </TabItem>
-</Tabs>
-
-### Issuing API Keys
-
-```python title="schema.py"
-import fraiseql
-import secrets
-
-@fraiseql.mutation
-@fraiseql.authenticated
-def create_api_key(info, name: str, scopes: list[str]) -> "ApiKey":
-    """Create a new API key for the current user."""
-    # The key value is returned once and never stored in plaintext
-    # fn_create_api_key stores a hash and returns the full key for display
-    pass
-```
-
-<Aside type="caution">
-Return the API key value exactly once — at creation. Store only a hash in your database. If the user loses their key, issue a new one.
-</Aside>
-
----
-
-## OAuth 2.0
-
-<Aside type="caution">
-The `[auth]` TOML namespace does not exist. OAuth provider credentials are configured via environment variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, etc.). See [OAuth Providers](/features/oauth-providers) for the full provider reference.
-</Aside>
-
-### Configuration
-
-OAuth provider credentials are configured via environment variables:
-
-```bash
-# Google
-GOOGLE_CLIENT_ID=your-client-id
-GOOGLE_CLIENT_SECRET=your-client-secret
-
-# GitHub
-GITHUB_CLIENT_ID=your-client-id
-GITHUB_CLIENT_SECRET=your-client-secret
-```
-
-### OAuth Callback Mutation
-
-```python title="schema.py"
-import fraiseql
-
-@fraiseql.input
-class OAuthCallbackInput:
-    code: str
-    provider: str  # "google", "github", etc.
-
-@fraiseql.mutation
-def oauth_callback(info, input: OAuthCallbackInput) -> "AuthPayload":
-    """Exchange an OAuth code for a FraiseQL JWT.
-
-    FraiseQL exchanges the code for the provider's token,
-    fetches user info, and calls fn_upsert_oauth_user.
-    """
-    pass
-```
-
-FraiseQL handles the OAuth token exchange. Your PostgreSQL function `fn_upsert_oauth_user` receives the normalized user info and returns a user record.
 
 ---
 
 ## SAML (Enterprise SSO)
 
-FraiseQL does not implement a SAML Service Provider natively. The standard approach for microservices is an **identity proxy** that accepts SAML assertions from your IdP and issues JWKS-signed JWTs to FraiseQL:
+FraiseQL does not implement a SAML Service Provider natively. The standard pattern is an **identity proxy** that accepts SAML assertions and issues JWKS-signed JWTs:
 
 ```
 Browser → SAML IdP → Identity Proxy (Keycloak / Dex / Auth0 / Okta) → JWT → FraiseQL
 ```
 
-Configure `[security.pkce]` to point at the proxy's OIDC endpoint. The proxy handles SAML assertion validation and attribute mapping — no code changes to FraiseQL needed.
+Configure the `[auth]` section to point at the proxy's OIDC endpoint. The proxy handles SAML assertion validation and attribute mapping — no changes to FraiseQL are needed.
 
 **Recommended proxies:**
 - **Keycloak** — self-hosted, open source, full SAML federation
@@ -425,37 +269,67 @@ Configure `[security.pkce]` to point at the proxy's OIDC endpoint. The proxy han
 - **Auth0** — managed, supports SAML federation
 - **Okta** — managed enterprise
 
-### Auth0 Configuration
+### Auth0 Example
 
-Auth0 is a supported OIDC provider. Configure FraiseQL with your Auth0 tenant:
-
-```toml
-[security.pkce]
-issuer_url    = "https://{your-auth0-domain}.auth0.com/"
-client_id     = "${AUTH0_CLIENT_ID}"
-audience      = "https://api.yourdomain.com"  # your Auth0 API audience
+```toml title="fraiseql.toml"
+[auth]
+issuer_url   = "https://your-tenant.auth0.com/"
+client_id    = "your-auth0-client-id"
+redirect_uri = "https://your-app.example.com/auth/callback"
 ```
 
 ```bash
-AUTH0_CLIENT_ID=your-client-id
-AUTH0_DOMAIN=your-tenant.auth0.com
-OIDC_CLIENT_SECRET=your-client-secret
+export OIDC_CLIENT_SECRET=your-auth0-client-secret
 ```
 
-If you use Auth0 Rules or Actions to add custom claims (e.g. roles), they are available in `jwt:*` inject parameters using the full claim namespace.
+Custom claims added via Auth0 Rules or Actions (e.g. roles, `org_id`) are available as `jwt:<claim_name>` in `inject=` parameters.
+
+---
+
+## Preset Configurations
+
+### Development
+
+```toml title="fraiseql.toml (development)"
+[fraiseql.security.audit_logging]
+log_level             = "debug"
+include_sensitive_data = true
+async_logging         = false
+
+[fraiseql.security.error_sanitization]
+user_facing_format = "detailed"
+
+[fraiseql.security.rate_limiting]
+auth_start_max_requests   = 10000
+failed_login_max_requests = 10000
+```
+
+### Production
+
+```toml title="fraiseql.toml (production)"
+[fraiseql.security.audit_logging]
+log_level             = "info"
+include_sensitive_data = false
+
+[fraiseql.security.error_sanitization]
+generic_messages       = true
+leak_sensitive_details = false
+
+[fraiseql.security.rate_limiting]
+auth_start_max_requests   = 100
+failed_login_max_requests = 5
+```
 
 ---
 
 ## Security Best Practices
 
-1. **Use HTTPS everywhere** — Never transmit tokens over unencrypted connections
-2. **Store secrets in environment variables** — Never commit `JWT_SECRET` to version control
-3. **Use a strong secret** — At least 32 random bytes: `openssl rand -base64 32`
-4. **Set short expiration** — Access tokens: 1 hour. Refresh tokens: 7-30 days
-5. **Restrict CORS** — Set `[server.cors] origins` in `fraiseql.toml` to your frontend domain only
-6. **Use `HttpOnly` cookies** for web apps — FraiseQL sets the cookie as `__Host-access_token` (the `__Host-` prefix mandates `Secure`, `Path=/`, and no `Domain` attribute, blocking subdomain override attacks)
-7. **Rate-limit login** — Protect against brute force via `[security.rate_limiting]` in `fraiseql.toml`
-8. **Rotate secrets regularly** — Use RS256 with key rotation for zero-downtime rotation
+1. **Never store secrets in `fraiseql.toml`** — Use environment variables for `OIDC_CLIENT_SECRET`, `STATE_ENCRYPTION_KEY`, and any other secrets.
+2. **Use HTTPS everywhere** — Never transmit tokens over unencrypted connections.
+3. **Use `on_deny="mask"` carefully** — Masking is appropriate for optional enrichment fields. For sensitive data, prefer `"reject"` (the default).
+4. **Derive identity from JWT claims, never from client input** — Use `inject={"user_id": "jwt:sub"}` rather than accepting a `user_id` GraphQL argument.
+5. **Enable rate limiting in production** — Set `failed_login_max_requests = 5` to limit brute-force attempts.
+6. **Rotate OIDC keys via the provider** — FraiseQL fetches the JWKS endpoint automatically; key rotation requires no redeploy.
 
 ---
 
@@ -468,13 +342,13 @@ If you use Auth0 Rules or Actions to add custom claims (e.g. roles), they are av
   <Card title="Multi-Tenancy" icon="setting">
     [Tenant-scoped authentication](/guides/multi-tenancy)
   </Card>
-  <Card title="OAuth Providers" icon="external">
-    [Supported OAuth providers and configuration](/features/oauth-providers)
+  <Card title="TOML Config Reference" icon="document">
+    [All fraiseql.toml keys explained](/reference/toml-config)
   </Card>
   <Card title="Troubleshooting" icon="warning">
     [Common authentication errors and fixes](/troubleshooting/security-issues)
   </Card>
   <Card title="Auth Starter" icon="rocket">
-    [Working example: @inject + RLS + structured errors](/getting-started/starters#auth)
+    [Working example: inject + RLS + structured errors](/getting-started/starters#auth)
   </Card>
 </CardGrid>

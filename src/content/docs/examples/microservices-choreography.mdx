@@ -1,60 +1,72 @@
 ---
 title: Microservices Choreography with NATS
-description: Event-driven microservices coordination using federation and NATS
+description: Event-driven microservices coordination using separate FraiseQL services and NATS
 ---
 
 import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-A complete microservices architecture using event-driven choreography with federation and NATS for distributed order processing.
+A complete microservices architecture using event-driven choreography with separate FraiseQL services and NATS for distributed order processing.
 
 ## System Architecture
 
 ```
 Order Service  ──── events.order.created ────►  Inventory Service
+(FraiseQL)                                       (external worker)
                                                        │
                                            events.inventory.reserved
                                                        │
                                                        ▼
                                                Payment Service
+                                               (external worker)
                                                        │
                                            events.payment.charged
                                                        │
                                                        ▼
                                                Shipping Service
+                                               (external worker)
                                                        │
                                             events.order.shipped
+                                                       │
+                                                       ▼
+                                        Order Service NATS observer
+                                        updates order status via SQL
 ```
+
+<Aside type="note">
+FraiseQL is the **write side** for the Order Service — it exposes the GraphQL API and publishes NATS events via `[observers]` TOML config when mutations change order state. The downstream services (inventory, payment, shipping) are **external workers** that subscribe to NATS using the standard `nats.py` library. They update state by calling PostgreSQL directly or through their own FraiseQL services.
+</Aside>
 
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant OS as Order Service
-    participant INV as Inventory Service
-    participant PAY as Payment Service
-    participant SHP as Shipping Service
+    participant OS as Order Service (FraiseQL)
     participant N as NATS
+    participant INV as Inventory Worker (nats.py)
+    participant PAY as Payment Worker (nats.py)
+    participant SHP as Shipping Worker (nats.py)
 
     C->>OS: createOrder(items, total)
-    OS->>N: events.order.created
+    OS->>OS: fn_create_order() → status "pending"
+    OS->>N: events.order.created (via pg_notify → observer)
     OS-->>C: Order{status: "pending"}
 
     N->>INV: events.order.created
+    INV->>INV: reserve stock in tb_inventory
     INV->>N: events.inventory.reserved
-    Note over INV: Reserve stock
 
     N->>PAY: events.inventory.reserved
+    PAY->>PAY: charge card, insert tb_payment
     PAY->>N: events.payment.charged
-    Note over PAY: Charge card
 
     N->>OS: events.payment.charged
-    OS->>OS: status = "paid"
+    OS->>OS: fn_update_order_status() → "paid"
 
     N->>SHP: events.payment.charged
+    SHP->>SHP: create label, insert tb_shipping
     SHP->>N: events.order.shipped
-    Note over SHP: Create label
 
     N->>OS: events.order.shipped
-    OS->>OS: status = "shipped"
+    OS->>OS: fn_update_order_status() → "shipped"
 ```
 
 ## Running the Full System
@@ -84,22 +96,22 @@ services:
       DATABASE_URL: postgresql://fraiseql:password@postgres:5432/orders
       NATS_URL: nats://nats:4222
 
-  inventory-service:
-    build: ./inventory-service
+  inventory-worker:
+    build: ./inventory-worker
     depends_on: [postgres, nats]
     environment:
       DATABASE_URL: postgresql://fraiseql:password@postgres:5432/orders
       NATS_URL: nats://nats:4222
 
-  payment-service:
-    build: ./payment-service
+  payment-worker:
+    build: ./payment-worker
     depends_on: [postgres, nats]
     environment:
       DATABASE_URL: postgresql://fraiseql:password@postgres:5432/orders
       NATS_URL: nats://nats:4222
 
-  shipping-service:
-    build: ./shipping-service
+  shipping-worker:
+    build: ./shipping-worker
     depends_on: [postgres, nats]
     environment:
       DATABASE_URL: postgresql://fraiseql:password@postgres:5432/orders
@@ -112,424 +124,659 @@ Start all services with:
 docker-compose up -d
 ```
 
-## Order Service (Initiator)
+## Order Service — SQL Schema
+
+```sql
+CREATE TABLE tb_order (
+    pk_order    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id          UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier  TEXT UNIQUE NOT NULL,
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
+    total       NUMERIC(10, 2) NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX idx_tb_order_id ON tb_order(id);
+CREATE INDEX idx_tb_order_fk_user ON tb_order(fk_user);
+CREATE INDEX idx_tb_order_status ON tb_order(status);
+
+CREATE TABLE tb_order_item (
+    pk_order_item BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id            UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier    TEXT UNIQUE NOT NULL,
+    fk_order BIGINT NOT NULL REFERENCES tb_order(pk_order),
+    fk_product BIGINT NOT NULL REFERENCES tb_product(pk_product),
+    quantity      INTEGER NOT NULL,
+    unit_price    NUMERIC(10, 2) NOT NULL
+);
+
+CREATE INDEX idx_tb_order_item_fk_order ON tb_order_item(fk_order);
+
+CREATE TABLE tb_event_log (
+    pk_event_log BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id           UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier   TEXT UNIQUE NOT NULL,
+    event_type   TEXT NOT NULL,
+    fk_order BIGINT REFERENCES tb_order(pk_order),
+    data         JSONB NOT NULL DEFAULT '{}',
+    recorded_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_tb_event_log_fk_order ON tb_event_log(fk_order);
+
+-- Read view: order status
+CREATE VIEW v_order AS
+SELECT
+    o.id,
+    jsonb_build_object(
+        'id',         o.id::text,
+        'identifier', o.identifier,
+        'total',      o.total,
+        'status',     o.status,
+        'created_at', o.created_at
+    ) AS data
+FROM tb_order o;
+
+-- Mutation function: create order
+CREATE FUNCTION fn_create_order(
+    p_identifier  TEXT,
+    p_fk_user BIGINT,
+    p_total       NUMERIC
+) RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id UUID;
+    v_result mutation_response;
+BEGIN
+    INSERT INTO tb_order (identifier, fk_user, total, status)
+    VALUES (p_identifier, p_fk_user, p_total, 'pending')
+    RETURNING id INTO v_id;
+
+    v_result.status      := 'success';
+    v_result.entity_id   := v_id;
+    v_result.entity_type := 'Order';
+    RETURN v_result;
+END;
+$$;
+
+-- Mutation function: update order status (called by NATS observer via SQL)
+CREATE FUNCTION fn_update_order_status(
+    p_order_id UUID,
+    p_status   TEXT
+) RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_result mutation_response;
+BEGIN
+    UPDATE tb_order SET status = p_status WHERE id = p_order_id;
+    v_result.status      := 'success';
+    v_result.entity_type := 'Order';
+    RETURN v_result;
+END;
+$$;
+```
+
+## Order Service — FraiseQL Python Schema
 
 <Aside type="tip">
-The order service uses fire-and-forget publishing. It does not block waiting for downstream services — event-driven choreography handles the rest asynchronously.
+The FraiseQL Python SDK is **compile-time only**. Decorators declare the GraphQL schema; the Rust runtime handles all execution. Mutations have no body — just `pass`. NATS event publishing happens automatically via `[observers]` TOML config when pg_notify fires after an INSERT or UPDATE.
 </Aside>
 
-```python
+```python title="order-service/schema.py"
 import fraiseql
-from fraiseql.scalars import ID
-from datetime import datetime
+from fraiseql.scalars import ID, DateTime
 from decimal import Decimal
 
 
 @fraiseql.type
 class Order:
+    """A customer order."""
     id: ID
-    user_id: ID
+    identifier: str
     total: Decimal
     status: str
-    created_at: datetime
+    created_at: DateTime
 
 
-@fraiseql.mutation(operation="CREATE")
-async def create_order(
-    user_id: ID,
-    items: list[dict],
+@fraiseql.input
+class CreateOrderInput:
+    identifier: str
     total: Decimal
-) -> Order:
-    """
-    Create order and emit event.
-    Does NOT block waiting for downstream services.
-    Event-driven choreography handles the rest.
-    """
-    order = await ctx.db.execute(
-        """
-        INSERT INTO tb_order (user_id, total, status, created_at)
-        VALUES ($1, $2, 'pending', NOW())
-        RETURNING id, user_id, total, status, created_at
-        """,
-        [user_id, total]
-    )
-
-    # Publish event (fire and forget)
-    await fraiseql.nats.publish(
-        subject="events.order.created",
-        data={
-            "order_id": str(order['id']),
-            "user_id": str(user_id),
-            "items": items,
-            "total": float(total),
-            "timestamp": datetime.now().isoformat()
-        }
-    )
-
-    return Order(**order)
 
 
-# Track order status updates from other services
-@fraiseql.observer(
-    entity="Order",
-    event="CUSTOM:inventory.reserved"
-)
-async def on_inventory_reserved(message, ctx):
-    """Update order status when inventory is reserved."""
-    await ctx.db.execute(
-        "UPDATE tb_order SET status = 'reserved' WHERE id = $1",
-        [message.data["order_id"]]
-    )
+@fraiseql.query(sql_source="v_order")
+def order(id: ID) -> Order | None:
+    """Get a single order by UUID."""
+    pass
 
-@fraiseql.observer(
-    entity="Order",
-    event="CUSTOM:payment.charged"
-)
-async def on_payment_charged(message, ctx):
-    """Update order status when payment is charged."""
-    await ctx.db.execute(
-        "UPDATE tb_order SET status = 'paid' WHERE id = $1",
-        [message.data["order_id"]]
-    )
 
-@fraiseql.observer(
-    entity="Order",
-    event="CUSTOM:order.shipped"
-)
-async def on_order_shipped(message, ctx):
-    """Update order status when shipped."""
-    await ctx.db.execute(
-        "UPDATE tb_order SET status = 'shipped' WHERE id = $1",
-        [message.data["order_id"]]
-    )
+@fraiseql.query(sql_source="v_order")
+def orders(limit: int = 20, offset: int = 0) -> list[Order]:
+    """List orders. RLS ensures users see only their own."""
+    pass
+
+
+@fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
+def create_order(input: CreateOrderInput) -> Order:
+    """Create a new order. Rust runtime calls fn_create_order(), pg_notify fires, observer publishes to NATS."""
+    pass
+
+
+@fraiseql.subscription(entity_type="Order", topic="events.order.status_updated")
+def order_status_updated(order_id: ID | None = None) -> Order:
+    """Subscribe to order status changes in real time."""
+    pass
+
+
+fraiseql.export_schema("schema.json")
 ```
 
-## Inventory Service (Consumer)
+## Order Service — fraiseql.toml
 
-```python
-import fraiseql
+```toml title="order-service/fraiseql.toml"
+[project]
+name = "order-service"
+version = "1.0.0"
 
-# Listen for order events
-@fraiseql.nats.subscribe(
-    subject="events.order.created",
-    consumer_group="inventory_processors",
-    max_concurrent=10
-)
-async def on_order_created(message):
+[database]
+type = "postgresql"
+url = "${DATABASE_URL}"
+
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[auth]
+issuer_url = "${OIDC_ISSUER_URL}"
+client_id  = "${OIDC_CLIENT_ID}"
+
+# NATS observer: when tb_order changes, publish to events.order.created
+# The Rust runtime receives pg_notify from PostgreSQL and forwards to NATS.
+[[observers]]
+table   = "tb_order"
+event   = "INSERT"
+subject = "events.order.created"
+
+[[observers]]
+table   = "tb_order"
+event   = "UPDATE"
+subject = "events.order.status_updated"
+
+[observers]
+backend  = "nats"
+nats_url = "${NATS_URL}"
+
+[fraiseql.security.audit_logging]
+enabled   = true
+log_level = "info"
+```
+
+## Inventory Worker — External nats.py Service
+
+<Aside type="note">
+The inventory worker is a **separate Python process** — not part of FraiseQL. It uses the standard `nats.py` library to subscribe to NATS subjects and writes directly to PostgreSQL via `asyncpg`. FraiseQL has no Python NATS subscription API.
+</Aside>
+
+```python title="inventory-worker/main.py"
+"""
+Inventory worker: subscribes to NATS events using nats.py.
+This is a standalone service, not a FraiseQL schema file.
+"""
+import asyncio
+import json
+import asyncpg
+import nats
+from nats.js import JetStreamContext
+
+
+async def on_order_created(msg):
     """
     React to order creation.
     Reserve inventory or emit failure event.
     """
-    order_data = message.data
-    order_id = order_data["order_id"]
-    items = order_data["items"]
+    nc = msg._client  # nats.py connection reference
+    js: JetStreamContext = nc.jetstream()
+    data = json.loads(msg.data)
+    order_id = data["order_id"]
+    items = data["items"]
 
+    conn = await asyncpg.connect(POSTGRES_URL)
     try:
-        # Check and reserve inventory
         for item in items:
-            available = await ctx.db.query_one(
+            row = await conn.fetchrow(
                 """
                 SELECT pk_inventory, quantity, reserved
                 FROM tb_inventory
-                WHERE fk_product = (SELECT pk_product FROM tb_product WHERE identifier = $1)
+                WHERE fk_product = (
+                    SELECT pk_product FROM tb_product WHERE identifier = $1
+                )
                 """,
-                [item["sku"]]
+                item["sku"],
+            )
+            if row is None or (row["quantity"] - row["reserved"]) < item["quantity"]:
+                await js.publish(
+                    "events.order.failed",
+                    json.dumps({
+                        "order_id": order_id,
+                        "reason": "inventory_unavailable",
+                        "sku": item["sku"],
+                    }).encode(),
+                )
+                await msg.nak()
+                return
+
+            await conn.execute(
+                "UPDATE tb_inventory SET reserved = reserved + $1 WHERE pk_inventory = $2",
+                item["quantity"],
+                row["pk_inventory"],
             )
 
-            if available["quantity"] - available["reserved"] < item["quantity"]:
-                raise Exception(f"Insufficient inventory for {item['sku']}")
-
-            # Reserve (increase reserved count)
-            await ctx.db.execute(
-                """
-                UPDATE tb_inventory
-                SET reserved = reserved + $1
-                WHERE pk_inventory = $2
-                """,
-                [item["quantity"], available["pk_inventory"]]
-            )
-
-        # Emit success event
-        await fraiseql.nats.publish(
-            subject="events.inventory.reserved",
-            data={
-                "order_id": order_id,
-                "reserved_at": datetime.now().isoformat()
-            }
+        await js.publish(
+            "events.inventory.reserved",
+            json.dumps({"order_id": order_id}).encode(),
         )
-
-        await message.ack()
-
-    except Exception as e:
-        # Emit failure event
-        await fraiseql.nats.publish(
-            subject="events.order.failed",
-            data={
-                "order_id": order_id,
-                "reason": "inventory_unavailable",
-                "error": str(e)
-            }
+        await msg.ack()
+    except Exception as exc:
+        await js.publish(
+            "events.order.failed",
+            json.dumps({"order_id": order_id, "reason": str(exc)}).encode(),
         )
+        await msg.nak(delay=5)
+    finally:
+        await conn.close()
 
-        # Don't ack - will be retried
-        await message.nak(timeout=5000)
+
+async def main():
+    nc = await nats.connect(NATS_URL)
+    js = nc.jetstream()
+
+    await js.subscribe(
+        "events.order.created",
+        durable="inventory_processors",
+        cb=on_order_created,
+    )
+    print("Inventory worker listening on events.order.created")
+    await asyncio.sleep(float("inf"))
+
+
+if __name__ == "__main__":
+    import os
+    NATS_URL = os.environ["NATS_URL"]
+    POSTGRES_URL = os.environ["DATABASE_URL"]
+    asyncio.run(main())
 ```
 
-## Payment Service (Sequential Consumer)
+## Payment Worker — External nats.py Service
 
-```python
-@fraiseql.nats.subscribe(
-    subject="events.inventory.reserved",
-    consumer_group="payment_processors",
-    max_concurrent=5  # Limit concurrency for payment processing
-)
-async def on_inventory_reserved(message):
+```python title="payment-worker/main.py"
+"""
+Payment worker: subscribes to NATS events using nats.py.
+This is a standalone service, not a FraiseQL schema file.
+"""
+import asyncio
+import json
+import asyncpg
+import nats
+
+
+async def on_inventory_reserved(msg):
     """
     Process payment after inventory is reserved.
-    Risk: inventory reserved but payment fails - must compensate.
+    Risk: inventory reserved but payment fails — must compensate.
     """
-    event_data = message.data
-    order_id = event_data["order_id"]
+    nc = msg._client
+    js = nc.jetstream()
+    data = json.loads(msg.data)
+    order_id = data["order_id"]
 
+    conn = await asyncpg.connect(POSTGRES_URL)
     try:
-        # Get order details
-        order = await ctx.db.query_one(
-            "SELECT id, user_id, total FROM tb_order WHERE id = $1",
-            [order_id]
+        order = await conn.fetchrow(
+            "SELECT pk_order, total FROM tb_order WHERE id = $1::uuid",
+            order_id,
         )
+        if order is None:
+            await msg.ack()
+            return
 
-        # Attempt payment
+        # Charge the card via external payment provider
         payment = await charge_credit_card(
-            customer_id=order["user_id"],
-            amount=order["total"]
+            order_pk=order["pk_order"],
+            amount=order["total"],
         )
 
-        # Record payment
-        await ctx.db.execute(
+        await conn.execute(
             """
-            INSERT INTO tb_payment (order_id, amount, status, payment_id, created_at)
-            VALUES ($1, $2, 'succeeded', $3, NOW())
+            INSERT INTO tb_payment (identifier, fk_order, amount, status, provider_id)
+            VALUES (gen_random_uuid()::text, $1, $2, 'succeeded', $3)
             """,
-            [order_id, order["total"], payment.id]
+            order["pk_order"],
+            order["total"],
+            payment.id,
         )
 
-        # Emit success
-        await fraiseql.nats.publish(
-            subject="events.payment.charged",
-            data={
+        await js.publish(
+            "events.payment.charged",
+            json.dumps({
                 "order_id": order_id,
                 "payment_id": payment.id,
-                "amount": float(order["total"])
-            }
+                "amount": float(order["total"]),
+            }).encode(),
         )
+        await msg.ack()
 
-        await message.ack()
-
-    except Exception as e:
-        # Payment failed - emit compensation event
-        await fraiseql.nats.publish(
-            subject="events.payment.failed",
-            data={
+    except Exception as exc:
+        # Payment failed — emit compensation event so inventory releases
+        await js.publish(
+            "events.payment.failed",
+            json.dumps({
                 "order_id": order_id,
-                "reason": str(e),
-                "action": "release_inventory"
-            }
+                "reason": str(exc),
+            }).encode(),
         )
+        await msg.nak(delay=10)
+    finally:
+        await conn.close()
 
-        await message.nak(timeout=10000)
 
+async def on_payment_failed(msg):
+    """Release reserved inventory when payment fails."""
+    data = json.loads(msg.data)
+    order_id = data["order_id"]
 
-# Handle payment failures with compensation
-@fraiseql.nats.subscribe(
-    subject="events.payment.failed",
-    consumer_group="compensation_handlers"
-)
-async def on_payment_failed(message):
-    """Release reserved inventory if payment fails."""
-    event_data = message.data
-    order_id = event_data["order_id"]
-
-    # Get original order items
-    items = await ctx.db.query(
-        """
-        SELECT oi.product_id, oi.quantity
-        FROM tb_order_item oi
-        WHERE oi.fk_order = (SELECT pk_order FROM tb_order WHERE id = $1)
-        """,
-        [order_id]
-    )
-
-    # Release inventory
-    for item in items:
-        await ctx.db.execute(
+    conn = await asyncpg.connect(POSTGRES_URL)
+    try:
+        items = await conn.fetch(
             """
-            UPDATE tb_inventory
-            SET reserved = reserved - $1
-            WHERE fk_product = (SELECT pk_product FROM tb_product WHERE id = $2)
+            SELECT oi.fk_product, oi.quantity
+            FROM tb_order_item oi
+            JOIN tb_order o ON o.pk_order = oi.fk_order
+            WHERE o.id = $1::uuid
             """,
-            [item["quantity"], item["product_id"]]
+            order_id,
         )
+        for item in items:
+            await conn.execute(
+                "UPDATE tb_inventory SET reserved = reserved - $1 WHERE fk_product = $2",
+                item["quantity"],
+                item["fk_product"],
+            )
 
-    # Emit order failed event
-    await fraiseql.nats.publish(
-        subject="events.order.failed",
-        data={
-            "order_id": order_id,
-            "reason": "payment_failed",
-            "compensated": True
-        }
+        js = msg._client.jetstream()
+        await js.publish(
+            "events.order.failed",
+            json.dumps({
+                "order_id": order_id,
+                "reason": "payment_failed",
+                "compensated": True,
+            }).encode(),
+        )
+        await msg.ack()
+    finally:
+        await conn.close()
+
+
+async def main():
+    nc = await nats.connect(NATS_URL)
+    js = nc.jetstream()
+
+    await js.subscribe(
+        "events.inventory.reserved",
+        durable="payment_processors",
+        cb=on_inventory_reserved,
     )
+    await js.subscribe(
+        "events.payment.failed",
+        durable="compensation_handlers",
+        cb=on_payment_failed,
+    )
+    print("Payment worker listening")
+    await asyncio.sleep(float("inf"))
 
-    await message.ack()
+
+if __name__ == "__main__":
+    import os
+    NATS_URL = os.environ["NATS_URL"]
+    POSTGRES_URL = os.environ["DATABASE_URL"]
+    asyncio.run(main())
 ```
 
-## Shipping Service (Final Consumer)
+## Shipping Worker — External nats.py Service
 
-```python
-@fraiseql.nats.subscribe(
-    subject="events.payment.charged",
-    consumer_group="shipping_handlers"
-)
-async def on_payment_charged(message):
+```python title="shipping-worker/main.py"
+"""
+Shipping worker: subscribes to NATS events using nats.py.
+This is a standalone service, not a FraiseQL schema file.
+"""
+import asyncio
+import json
+import asyncpg
+import nats
+
+
+async def on_payment_charged(msg):
     """
     Create shipping label after payment succeeds.
-    Last step in the choreography - no compensation needed.
+    Last step in the choreography.
     """
-    event_data = message.data
-    order_id = event_data["order_id"]
+    nc = msg._client
+    js = nc.jetstream()
+    data = json.loads(msg.data)
+    order_id = data["order_id"]
 
+    conn = await asyncpg.connect(POSTGRES_URL)
     try:
-        # Get order details
-        order = await ctx.db.query_one(
-            "SELECT id, shipping_address FROM tb_order WHERE id = $1",
-            [order_id]
+        order = await conn.fetchrow(
+            "SELECT pk_order, shipping_address FROM tb_order WHERE id = $1::uuid",
+            order_id,
         )
+        if order is None:
+            await msg.ack()
+            return
 
-        # Create shipping label
         label = await create_shipping_label(
-            order_id=order_id,
-            address=order["shipping_address"]
+            order_pk=order["pk_order"],
+            address=order["shipping_address"],
         )
 
-        # Store label
-        await ctx.db.execute(
+        await conn.execute(
             """
-            INSERT INTO tb_shipping (order_id, label_id, carrier, tracking, created_at)
-            VALUES ($1, $2, $3, $4, NOW())
+            INSERT INTO tb_shipping (identifier, fk_order, provider_label_id, carrier, tracking_number)
+            VALUES (gen_random_uuid()::text, $1, $2, $3, $4)
             """,
-            [order_id, label.id, label.carrier, label.tracking_number]
+            order["pk_order"],
+            label.id,
+            label.carrier,
+            label.tracking_number,
         )
 
-        # Publish completion event
-        await fraiseql.nats.publish(
-            subject="events.order.shipped",
-            data={
+        await js.publish(
+            "events.order.shipped",
+            json.dumps({
                 "order_id": order_id,
-                "tracking_number": label.tracking_number
-            }
+                "tracking_number": label.tracking_number,
+            }).encode(),
         )
+        await msg.ack()
 
-        await message.ack()
+    except Exception as exc:
+        # Log for manual intervention — shipping is the last step
+        print(f"[shipping-worker] ERROR order={order_id}: {exc}")
+        await msg.nak(delay=60)
+    finally:
+        await conn.close()
 
-    except Exception as e:
-        # Log for manual intervention
-        await log_error({
-            "order_id": order_id,
-            "step": "shipping",
-            "error": str(e)
-        })
-        # Don't ack - manual retry needed
-        await message.nak(timeout=60000)
+
+async def main():
+    nc = await nats.connect(NATS_URL)
+    js = nc.jetstream()
+
+    await js.subscribe(
+        "events.payment.charged",
+        durable="shipping_handlers",
+        cb=on_payment_charged,
+    )
+    print("Shipping worker listening on events.payment.charged")
+    await asyncio.sleep(float("inf"))
+
+
+if __name__ == "__main__":
+    import os
+    NATS_URL = os.environ["NATS_URL"]
+    POSTGRES_URL = os.environ["DATABASE_URL"]
+    asyncio.run(main())
 ```
 
-## Event Flow Monitoring
+## Event Flow Monitoring — External Worker
 
-```python
-# Track event propagation
-@fraiseql.nats.subscribe(
-    subject="events.>",
-    consumer_group="event_monitoring"
-)
-async def monitor_events(message):
-    """Monitor all events for debugging."""
-    event_type = message.subject
-    data = message.data
+```python title="monitoring-worker/main.py"
+"""
+Event monitor: logs all events to tb_event_log.
+Standalone nats.py service — not a FraiseQL schema file.
+"""
+import asyncio
+import json
+import asyncpg
+import nats
 
-    await ctx.db.execute(
-        """
-        INSERT INTO tb_event_log (event_type, order_id, data, recorded_at)
-        VALUES ($1, $2, $3::jsonb, NOW())
-        """,
-        [event_type, data.get("order_id"), json.dumps(data)]
-    )
 
-    # Alert on failures
-    if "failed" in event_type:
-        await send_alert({
-            "severity": "warning",
-            "event": event_type,
-            "details": data
-        })
+async def monitor_events(msg):
+    """Record all events in tb_event_log for audit trail."""
+    event_type = msg.subject
+    data = json.loads(msg.data)
+    order_id = data.get("order_id")
 
-    await message.ack()
+    conn = await asyncpg.connect(POSTGRES_URL)
+    try:
+        # Look up pk_order for the FK
+        order_pk = None
+        if order_id:
+            row = await conn.fetchrow(
+                "SELECT pk_order FROM tb_order WHERE id = $1::uuid",
+                order_id,
+            )
+            if row:
+                order_pk = row["pk_order"]
+
+        await conn.execute(
+            """
+            INSERT INTO tb_event_log (identifier, event_type, fk_order, data)
+            VALUES (gen_random_uuid()::text, $1, $2, $3::jsonb)
+            """,
+            event_type,
+            order_pk,
+            json.dumps(data),
+        )
+
+        if "failed" in event_type:
+            await send_alert({"severity": "warning", "event": event_type, "details": data})
+
+        await msg.ack()
+    finally:
+        await conn.close()
+
+
+async def main():
+    nc = await nats.connect(NATS_URL)
+    js = nc.jetstream()
+
+    await js.subscribe("events.>", durable="event_monitoring", cb=monitor_events)
+    print("Monitoring worker listening on events.>")
+    await asyncio.sleep(float("inf"))
+
+
+if __name__ == "__main__":
+    import os
+    NATS_URL = os.environ["NATS_URL"]
+    POSTGRES_URL = os.environ["DATABASE_URL"]
+    asyncio.run(main())
 ```
 
 ## Testing Choreography
 
-```python
+```python title="tests/test_choreography.py"
+import asyncio
+import pytest
+import httpx
+
+
 @pytest.mark.asyncio
 async def test_full_order_choreography():
-    """Test complete happy path through all services."""
-    # Create order
-    order = await order_service.create_order(
-        user_id="user-1",
-        items=[{"sku": "WIDGET", "quantity": 2}],
-        total=49.99
-    )
+    """Test complete happy path through all services via GraphQL API."""
+    async with httpx.AsyncClient(base_url="http://localhost:8080") as client:
+        # Create order via FraiseQL GraphQL API
+        response = await client.post(
+            "/graphql",
+            json={
+                "query": """
+                    mutation {
+                        createOrder(input: { identifier: "ord-test-1", total: "49.99" }) {
+                            id
+                            status
+                        }
+                    }
+                """
+            },
+            headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+        )
+        data = response.json()
+        order_id = data["data"]["createOrder"]["id"]
+        assert data["data"]["createOrder"]["status"] == "pending"
 
-    # Give services time to process
-    await asyncio.sleep(1.0)
+    # Give all workers time to process the choreography
+    await asyncio.sleep(3.0)
 
-    # Verify final state
-    final_order = await get_order(order.id)
-    assert final_order.status == "shipped"
+    async with httpx.AsyncClient(base_url="http://localhost:8080") as client:
+        response = await client.post(
+            "/graphql",
+            json={"query": f'query {{ order(id: "{order_id}") {{ id status }} }}'},
+            headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+        )
+        final = response.json()
+        assert final["data"]["order"]["status"] == "shipped"
 
-    # Verify all events were published
-    events = await get_event_history(order.id)
-    assert "order.created" in events
-    assert "inventory.reserved" in events
-    assert "payment.charged" in events
-    assert "order.shipped" in events
 
 @pytest.mark.asyncio
 async def test_payment_failure_compensation():
-    """Test compensation when payment fails."""
-    order = await order_service.create_order(
-        user_id="user-with-bad-card",
-        items=[{"sku": "WIDGET", "quantity": 2}],
-        total=49.99
-    )
+    """Test inventory release when payment fails."""
+    # Use a known-bad order identifier to trigger payment failure
+    async with httpx.AsyncClient(base_url="http://localhost:8080") as client:
+        response = await client.post(
+            "/graphql",
+            json={
+                "query": """
+                    mutation {
+                        createOrder(input: { identifier: "ord-bad-card-1", total: "49.99" }) {
+                            id
+                        }
+                    }
+                """
+            },
+            headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+        )
+        order_id = response.json()["data"]["createOrder"]["id"]
 
-    # Payment will fail due to bad card
-    await asyncio.sleep(1.0)
+    await asyncio.sleep(3.0)
 
-    # Verify compensation occurred
-    final_order = await get_order(order.id)
-    assert final_order.status == "failed"
-
-    # Verify inventory was released
-    inventory = await get_inventory("WIDGET")
-    assert inventory.reserved == 0
+    async with httpx.AsyncClient(base_url="http://localhost:8080") as client:
+        response = await client.post(
+            "/graphql",
+            json={"query": f'query {{ order(id: "{order_id}") {{ status }} }}'},
+            headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+        )
+        assert response.json()["data"]["order"]["status"] == "failed"
 ```
 
 ## Key Patterns
 
-1. **Fire and Forget**: Order service doesn't wait for other services
-2. **Event-Driven**: Services communicate only through events
-3. **No Transactions**: Each service manages its own state
-4. **Compensation**: Services can undo work if downstream fails
-5. **Idempotency**: Each event handler is idempotent (safe to replay)
-6. **Visibility**: Event log provides complete audit trail
+1. **FraiseQL owns the write side**: Mutations call SQL functions; the Rust runtime handles GraphQL execution.
+2. **NATS events via observers**: `[observers]` TOML config routes pg_notify events to NATS — no Python code required.
+3. **External workers use nats.py**: Downstream services are independent processes; they are not FraiseQL schema files.
+4. **No transactions across services**: Each service manages its own state; NATS delivers events asynchronously.
+5. **Compensation pattern**: Payment failure triggers an `events.payment.failed` event that the compensation handler processes to release inventory.
+6. **Idempotency**: Each worker handler is idempotent — safe to replay if NATS redelivers a message.
+7. **Audit trail**: The monitoring worker logs all events to `tb_event_log` for observability.
 
 ## Verify It Works
 
@@ -539,53 +786,53 @@ async def test_payment_failure_compensation():
    ```bash
    docker-compose up -d
    ```
-   
+
    Verify services are running:
    ```bash
    docker-compose ps
    ```
-   
+
    Expected output:
    ```
-   NAME                           STATUS         PORTS
-   microservices-choreography-postgres-1      Up (healthy)   0.0.0.0:5432->5432/tcp
-   microservices-choreography-nats-1          Up (healthy)   0.0.0.0:4222->4222/tcp
-   microservices-choreography-order-service-1   Up           0.0.0.0:8080->8080/tcp
-   microservices-choreography-inventory-service-1 Up           
-   microservices-choreography-payment-service-1   Up           
-   microservices-choreography-shipping-service-1  Up           
+   NAME                                        STATUS         PORTS
+   microservices-choreography-postgres-1       Up (healthy)   0.0.0.0:5432->5432/tcp
+   microservices-choreography-nats-1           Up (healthy)   0.0.0.0:4222->4222/tcp
+   microservices-choreography-order-service-1  Up             0.0.0.0:8080->8080/tcp
+   microservices-choreography-inventory-worker-1 Up
+   microservices-choreography-payment-worker-1   Up
+   microservices-choreography-shipping-worker-1  Up
    ```
 
 2. **Check NATS is ready**:
    ```bash
-   # Verify NATS JetStream is enabled
    docker-compose exec nats nats server info
    ```
-   
+
    Look for `jetstream: enabled: true` in output.
 
 3. **Create a test order**:
    ```bash
    curl -X POST http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $TOKEN" \
      -d '{
-       "query": "mutation { createOrder(userId: \"user-123\", items: [{sku: \"WIDGET\", quantity: 2}], total: 49.99) { id status } }"
+       "query": "mutation { createOrder(input: { identifier: \"ord-001\", total: \"49.99\" }) { id status } }"
      }'
    ```
-   
+
    Expected response:
    ```json
    {
      "data": {
        "createOrder": {
-         "id": "ord-abc123",
+         "id": "550e8400-e29b-41d4-a716-446655440000",
          "status": "pending"
        }
      }
    }
    ```
 
-4. **Wait for choreography to complete** (5-10 seconds for all services):
+4. **Wait for choreography to complete** (allow all workers time to process):
    ```bash
    sleep 5
    ```
@@ -594,19 +841,19 @@ async def test_payment_failure_compensation():
    ```bash
    curl -X POST http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $TOKEN" \
      -d '{
-       "query": "query { order(id: \"ord-abc123\") { id status trackingNumber } }"
+       "query": "query { order(id: \"550e8400-e29b-41d4-a716-446655440000\") { id status } }"
      }'
    ```
-   
+
    Expected response:
    ```json
    {
      "data": {
        "order": {
-         "id": "ord-abc123",
-         "status": "shipped",
-         "trackingNumber": "TRK-789XYZ"
+         "id": "550e8400-e29b-41d4-a716-446655440000",
+         "status": "shipped"
        }
      }
    }
@@ -615,49 +862,49 @@ async def test_payment_failure_compensation():
 6. **Check event log for complete flow**:
    ```bash
    docker-compose exec postgres psql -U fraiseql -d orders -c \
-     "SELECT event_type, order_id, recorded_at FROM tb_event_log WHERE order_id = 'ord-abc123' ORDER BY recorded_at;"
+     "SELECT event_type, recorded_at FROM tb_event_log ORDER BY recorded_at;"
    ```
-   
+
    Expected output:
    ```
-         event_type         |  order_id   |         recorded_at
-   ------------------------+-------------+----------------------------
-   events.order.created   | ord-abc123  | 2024-01-15 10:30:00
-   events.inventory.reserved | ord-abc123 | 2024-01-15 10:30:01
-   events.payment.charged | ord-abc123  | 2024-01-15 10:30:02
-   events.order.shipped   | ord-abc123  | 2024-01-15 10:30:05
+         event_type              |         recorded_at
+   --------------------------------+----------------------------
+   events.order.created            | 2024-01-15 10:30:00
+   events.inventory.reserved       | 2024-01-15 10:30:01
+   events.payment.charged          | 2024-01-15 10:30:02
+   events.order.shipped            | 2024-01-15 10:30:05
    ```
 
 7. **Test compensation (failure scenario)**:
    ```bash
-   # Create order with insufficient inventory
    curl -X POST http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $TOKEN" \
      -d '{
-       "query": "mutation { createOrder(userId: \"user-123\", items: [{sku: \"OUTOFSTOCK\", quantity: 999}], total: 9999.99) { id } }"
+       "query": "mutation { createOrder(input: { identifier: \"ord-fail-001\", total: \"9999.99\" }) { id } }"
      }'
    ```
-   
+
    Wait and verify order failed:
    ```bash
-   sleep 2
+   sleep 3
    curl -X POST http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
-     -d '{"query": "query { order(id: \"ord-failed\") { status } }"}'
+     -H "Authorization: Bearer $TOKEN" \
+     -d '{"query": "query { order(id: \"<id-from-above>\") { status } }"}'
    ```
-   
+
    Expected: `{"status": "failed"}`
 
 8. **Run integration tests**:
    ```bash
    pytest tests/test_choreography.py -v
    ```
-   
+
    Expected output:
    ```
    tests/test_choreography.py::test_full_order_choreography PASSED
    tests/test_choreography.py::test_payment_failure_compensation PASSED
-   tests/test_choreography.py::test_inventory_failure PASSED
    ```
 
 </Steps>
@@ -678,22 +925,22 @@ docker-compose logs order-service
 
 ### Order Stuck in "pending"
 
-If order doesn't progress:
+If order does not progress:
 
 1. **Check NATS consumers**:
    ```bash
    docker-compose exec nats nats consumer report
    ```
 
-2. **Verify consumers are connected**:
+2. **Verify workers are connected**:
    ```bash
    docker-compose exec nats nats consumer info events inventory_processors
    ```
 
-3. **Check service logs**:
+3. **Check worker logs**:
    ```bash
-   docker-compose logs inventory-service | tail -20
-   docker-compose logs payment-service | tail -20
+   docker-compose logs inventory-worker | tail -20
+   docker-compose logs payment-worker | tail -20
    ```
 
 4. **Manual event inspection**:
@@ -705,29 +952,28 @@ If order doesn't progress:
 
 If `tb_event_log` is empty:
 
-1. Verify NATS publishing is working:
-   ```python
-   # In Python console
-   import asyncio
-   from fraiseql import nats
-   await nats.publish("test.subject", {"test": "data"})
+1. Check the FraiseQL observer configuration:
+   ```bash
+   docker-compose logs order-service | grep "observer"
    ```
 
-2. Check NATS stream exists:
+2. Verify the `[observers]` section in `fraiseql.toml` is correct and `nats_url` is reachable.
+
+3. Check NATS stream exists:
    ```bash
    docker-compose exec nats nats stream report
    ```
 
 ### Compensation Not Working
 
-If payment failure doesn't release inventory:
+If payment failure does not release inventory:
 
-1. Check compensation handler is registered:
+1. Check the payment worker compensation handler log:
    ```bash
-   docker-compose logs payment-service | grep "compensation"
+   docker-compose logs payment-worker | grep "compensation"
    ```
 
-2. Verify events.payment.failed subject:
+2. Verify `events.payment.failed` subject is being published:
    ```bash
    docker-compose exec nats nats sub events.payment.failed
    ```
@@ -742,14 +988,7 @@ If choreography is slow:
    ```
    Look for `num_pending` (should be near 0)
 
-2. **Increase concurrency**:
-   ```python
-   @fraiseql.nats.subscribe(
-       subject="events.order.created",
-       consumer_group="inventory_processors",
-       max_concurrent=20  # Increase from 10
-   )
-   ```
+2. **Scale workers horizontally**: Run multiple instances of each worker with the same durable consumer name — NATS JetStream distributes messages across them.
 
 3. **Monitor database connections**:
    ```bash
@@ -757,33 +996,14 @@ If choreography is slow:
      "SELECT count(*) FROM pg_stat_activity;"
    ```
 
-### Testing Failures
-
-If tests fail:
-
-1. Ensure all services are healthy:
-   ```bash
-   docker-compose ps
-   ```
-
-2. Clear test data between runs:
-   ```bash
-   docker-compose exec postgres psql -U fraiseql -d orders -c \
-     "TRUNCATE tb_order, tb_event_log CASCADE;"
-   ```
-
-3. Increase sleep time in tests if services are slow:
-   ```python
-   await asyncio.sleep(2.0)  # Instead of 1.0
-   ```
-
 ## Production Considerations
 
-- Monitor event lag (how far behind consumers are)
-- Set up DLQ for permanently failed messages
-- Implement circuit breakers for external service calls
-- Use consumer groups for load distribution
-- Enable metrics for each service and event type
+- Monitor NATS consumer lag (how far behind consumers are)
+- Set up a Dead Letter Queue (DLQ) stream for permanently failed messages
+- Implement circuit breakers in workers for external service calls (payment provider, shipping API)
+- Use durable consumer groups for load distribution across worker replicas
+- Enable per-service metrics; instrument each worker with Prometheus counters on ack/nak
+- Tune FraiseQL `[observers]` batch size and flush interval for throughput
 
 <CardGrid>
   <Card title="Advanced Federation" icon="seti:db">
@@ -792,7 +1012,7 @@ If tests fail:
   <Card title="Advanced NATS" icon="random">
     Reliability patterns and JetStream.
   </Card>
-  <Card title="Custom Resolvers" icon="puzzle">
-    Service-specific business logic.
+  <Card title="Observers Reference" icon="puzzle">
+    TOML observer configuration reference.
   </Card>
 </CardGrid>

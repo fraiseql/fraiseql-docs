@@ -7,18 +7,33 @@ import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
 ## Introduction
 
-SQL Server is an **excellent choice for FraiseQL** in enterprise Windows/Azure environments:
+SQL Server is a **first-class FraiseQL runtime target** — not a fallback for teams that cannot migrate to PostgreSQL. If your organization already runs SQL Server, your existing T-SQL investment maps directly onto FraiseQL's SQL-as-business-logic architecture.
+
+FraiseQL compiles your Python schema definitions into a runtime configuration and executes against your existing T-SQL views and stored procedures. There is no ORM layer to fight, no migration required, and no PostgreSQL parity gap to work around.
+
+### Why SQL Server Teams Choose FraiseQL
+
+| Capability | SQL Server advantage |
+|---|---|
+| **T-SQL debugging** | SSMS and Azure Data Studio support breakpoints, variable inspection, and step-through execution inside stored procedures — debuggability that PostgreSQL's `plpgsql` doesn't match |
+| **Enterprise adoption** | Most .NET, finance, healthcare, and government teams have decades of T-SQL expertise and existing stored procedure libraries |
+| **FOR JSON PATH** | Native JSON generation maps cleanly onto FraiseQL's single-column `data` view pattern |
+| **Service Broker** | Built-in async messaging for decoupled mutation side-effects without an external queue |
+| **Temporal tables** | `SYSTEM_TIME` versioning provides point-in-time audit trails as a first-class engine feature |
+| **Always On AG** | Built-in HA/DR with automatic failover — no Patroni, no Repmgr |
+| **Always Encrypted** | Column-level encryption for PCI-DSS and HIPAA without application changes |
+| **Azure SQL** | Seamless cloud deployment with managed identity, auto-backup, and geo-replication |
+
+### Feature Summary
 
 - **~18 WHERE Operators**: Suitable for complex GraphQL input types
 - **FOR JSON PATH**: Native JSON generation matching GraphQL schema
-- **Indexed Views**: Materialized views with automatic maintenance (unique to SQL Server)
+- **Indexed Views**: Automatic materialized view maintenance (unique to SQL Server)
 - **Always On Availability Groups**: Built-in HA/DR without additional tools
 - **Transparent Data Encryption**: Enterprise security at database level
 - **Row-Level Security**: Column and row filtering for multi-tenancy
 - **Azure SQL**: Seamless cloud deployment with managed backup/HA
 - **Strong Windows Integration**: Active Directory, Azure AD authentication
-
-FraiseQL works perfectly on SQL Server; schema and patterns mirror PostgreSQL/MySQL, with enterprise-specific optimizations.
 
 ## Core Architecture
 
@@ -28,13 +43,11 @@ Like all FraiseQL databases, views expose entities as **single JSON columns** na
 
 ```sql
 -- Every v_* view returns:
--- 1. Metadata columns (id, tenant_id, organization_id, etc.)
+-- 1. Metadata columns (id, is_current, etc.)
 -- 2. Single JSON column named 'data' containing complete entity
 
 SELECT
   id,
-  tenant_id,
-  organization_id,
   is_current,
   data
 FROM v_user
@@ -49,43 +62,49 @@ FraiseQL uses dual identifiers:
 
 ```sql
 CREATE TABLE dbo.tb_user (
-  pk_user BIGINT PRIMARY KEY IDENTITY(1,1),                    -- Internal, fast FKs
-  id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(), -- Public UUID
-  email NVARCHAR(255) NOT NULL UNIQUE,
-  name NVARCHAR(255) NOT NULL,
-  deleted_at DATETIMEOFFSET NULL,
-  created_at DATETIMEOFFSET DEFAULT GETUTCDATE(),
-  updated_at DATETIMEOFFSET DEFAULT GETUTCDATE()
+  pk_user    BIGINT           PRIMARY KEY IDENTITY(1,1),
+  id         UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),  -- Public UUID
+  identifier NVARCHAR(255)   NOT NULL UNIQUE,  -- Human-readable key (e.g. email, username)
+  name       NVARCHAR(255)   NOT NULL,
+  deleted_at DATETIMEOFFSET  NULL,
+  created_at DATETIMEOFFSET  DEFAULT GETUTCDATE(),
+  updated_at DATETIMEOFFSET  DEFAULT GETUTCDATE()
 );
 
 CREATE TABLE dbo.tb_post (
-  pk_post BIGINT PRIMARY KEY IDENTITY(1,1),
-  id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),
-  fk_user BIGINT NOT NULL REFERENCES dbo.tb_user(pk_user) ON DELETE CASCADE,
-  title NVARCHAR(255) NOT NULL,
-  deleted_at DATETIMEOFFSET NULL,
-  created_at DATETIMEOFFSET DEFAULT GETUTCDATE()
+  pk_post    BIGINT           PRIMARY KEY IDENTITY(1,1),
+  id         UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),
+  identifier NVARCHAR(255)   NOT NULL UNIQUE,  -- Human-readable key (e.g. slug)
+  fk_user    BIGINT           NOT NULL REFERENCES dbo.tb_user(pk_user) ON DELETE CASCADE,
+  title      NVARCHAR(255)   NOT NULL,
+  deleted_at DATETIMEOFFSET  NULL,
+  created_at DATETIMEOFFSET  DEFAULT GETUTCDATE()
 );
 ```
 
 **Why?**
+- `pk_*` (BIGINT IDENTITY): Fast joins, small FK storage, internal only — never exposed in GraphQL
 - `id` (UNIQUEIDENTIFIER): UUID exposed in GraphQL, immutable across systems
-- `pk_*` (BIGINT): Fast joins, small FK storage, internal only
+- `identifier` (NVARCHAR): Human-readable domain key (email, slug, SKU, etc.) — always unique
 - `NEWSEQUENTIALID()`: Sequential UUIDs avoid index fragmentation
+
+<Aside type="note">
+SQL Server uses `IDENTITY(1,1)` in place of the ANSI standard `GENERATED ALWAYS AS IDENTITY` used on PostgreSQL. Both are equivalent for FraiseQL's purposes — the column is internal and never exposed in the GraphQL API.
+</Aside>
 
 ### Resolver Functions
 
-Every table has UUID to INTEGER resolver functions:
+Every table has UUID to BIGINT resolver functions:
 
 ```sql
 -- File: 02001_resolver_functions.sql
-CREATE FUNCTION dbo.core_get_pk_user(@user_id UNIQUEIDENTIFIER)
+CREATE FUNCTION dbo.fn_get_pk_user(@user_id UNIQUEIDENTIFIER)
 RETURNS BIGINT AS
 BEGIN
   RETURN (SELECT pk_user FROM dbo.tb_user WHERE id = @user_id);
 END;
 
-CREATE FUNCTION dbo.core_get_user_id(@pk_user BIGINT)
+CREATE FUNCTION dbo.fn_get_user_id(@pk_user BIGINT)
 RETURNS UNIQUEIDENTIFIER AS
 BEGIN
   RETURN (SELECT id FROM dbo.tb_user WHERE pk_user = @pk_user);
@@ -98,14 +117,14 @@ SQL Server stored procedures return JSON results:
 
 ```json
 {
-  "status": "success:created",
+  "status": "success",
   "message": "User created successfully",
   "entity_id": "550e8400-e29b-41d4-a716-446655440000",
   "entity_type": "User",
-  "entity": { "id": "...", "email": "john@example.com", "name": "John Doe" },
-  "updated_fields": ["email", "name"],
+  "entity": { "id": "...", "identifier": "john@example.com", "name": "John Doe" },
+  "updated_fields": ["identifier", "name"],
   "cascade": { "updated": [] },
-  "metadata": { "operation": "INSERT", "tenant_id": "...", "timestamp": "2024-02-08T10:30:00Z" }
+  "metadata": { "operation": "INSERT", "timestamp": "2024-02-08T10:30:00Z" }
 }
 ```
 
@@ -118,14 +137,11 @@ Views are the **source truth** for read operations:
 CREATE OR ALTER VIEW dbo.v_user AS
 SELECT
   u.id,
-  u.organization_id,
-  u.tenant_id,
   CASE WHEN u.deleted_at IS NULL THEN 1 ELSE 0 END AS is_current,
   (SELECT
-    u.id AS id,
-    u.email AS email,
-    u.name AS name,
-    u.status AS status,
+    u.id         AS id,
+    u.identifier AS identifier,
+    u.name       AS name,
     u.created_at AS created_at
   FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS data
 FROM dbo.tb_user u
@@ -143,22 +159,21 @@ SQL Server uses `FOR JSON PATH, WITHOUT_ARRAY_WRAPPER` to generate JSON objects 
 CREATE OR ALTER VIEW dbo.v_user_with_posts AS
 SELECT
   u.id,
-  u.organization_id,
-  u.tenant_id,
-  u.is_current,
+  CASE WHEN u.deleted_at IS NULL THEN 1 ELSE 0 END AS is_current,
   (SELECT
-    u.id AS id,
-    u.email AS email,
-    u.name AS name,
+    u.id         AS id,
+    u.identifier AS identifier,
+    u.name       AS name,
     (SELECT
-      p.id AS id,
-      p.title AS title,
-      p.status AS status
+      p.id         AS id,
+      p.identifier AS identifier,
+      p.title      AS title
     FROM dbo.tb_post p
     WHERE p.fk_user = u.pk_user AND p.deleted_at IS NULL
     FOR JSON PATH) AS posts
   FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS data
-FROM dbo.v_user u;
+FROM dbo.tb_user u
+WHERE u.deleted_at IS NULL;
 ```
 
 <Aside type="note">
@@ -173,25 +188,22 @@ SQL Server's **indexed views** are the equivalent of materialized views — they
 -- File: 02414_tv_user.sql
 -- Standard table-backed projection (like other databases)
 CREATE TABLE dbo.tv_user (
-  id UNIQUEIDENTIFIER PRIMARY KEY,
-  organization_id UNIQUEIDENTIFIER NOT NULL,
-  tenant_id UNIQUEIDENTIFIER NOT NULL,
-  is_current BIT DEFAULT 1,
-  data NVARCHAR(MAX) NOT NULL,  -- JSON stored as NVARCHAR
-  updated_at DATETIMEOFFSET DEFAULT GETUTCDATE(),
-  last_synced_at DATETIMEOFFSET NULL,
-  sync_count BIGINT DEFAULT 0,
-  is_stale BIT DEFAULT 0
+  id            UNIQUEIDENTIFIER PRIMARY KEY,
+  is_current    BIT              DEFAULT 1,
+  data          NVARCHAR(MAX)    NOT NULL,  -- JSON stored as NVARCHAR
+  updated_at    DATETIMEOFFSET   DEFAULT GETUTCDATE(),
+  last_synced_at DATETIMEOFFSET  NULL,
+  sync_count    BIGINT           DEFAULT 0,
+  is_stale      BIT              DEFAULT 0
 );
 
-CREATE INDEX idx_tv_user_organization ON dbo.tv_user(organization_id);
 CREATE INDEX idx_tv_user_is_current ON dbo.tv_user(is_current);
 ```
 
 **Refresh stored procedure:**
 
 ```sql
-CREATE OR ALTER PROCEDURE dbo.core_refresh_user
+CREATE OR ALTER PROCEDURE dbo.sync_tv_user_single
   @user_id UNIQUEIDENTIFIER
 AS
 BEGIN
@@ -212,43 +224,13 @@ BEGIN
 END;
 ```
 
-## Mutation Stored Procedures: app vs core
+## Mutation Stored Procedures
 
-### app Procedures: API Layer
+FraiseQL calls mutation stored procedures by name, matching the `sql_source` parameter of the `@fraiseql.mutation` decorator. Procedures must follow the `fn_{action}_{entity}` naming convention.
 
 ```sql
 -- File: 03311_create_user.sql
-CREATE OR ALTER PROCEDURE dbo.app_create_user
-  @input_tenant_id UNIQUEIDENTIFIER,
-  @input_user_id UNIQUEIDENTIFIER,
-  @input_payload NVARCHAR(MAX)
-AS
-BEGIN
-  DECLARE @email NVARCHAR(255) = JSON_VALUE(@input_payload, '$.email');
-  DECLARE @name NVARCHAR(255) = JSON_VALUE(@input_payload, '$.name');
-
-  IF @email IS NULL OR @email = ''
-  BEGIN
-    SELECT JSON_QUERY('{"status":"invalid_input","message":"email is required"}') AS result;
-    RETURN;
-  END;
-
-  EXEC dbo.core_create_user @input_tenant_id, @input_user_id, @email, @name, @input_payload;
-END;
-```
-
-<Aside type="note">
-**Security**: All input examples use **parameterized queries** (`@param` placeholders) to prevent SQL injection. JSON values are extracted using `JSON_VALUE()` before SQL composition.
-</Aside>
-
-### core Procedures: Business Logic Layer
-
-```sql
-CREATE OR ALTER PROCEDURE dbo.core_create_user
-  @input_tenant_id UNIQUEIDENTIFIER,
-  @input_user_id UNIQUEIDENTIFIER,
-  @input_email NVARCHAR(255),
-  @input_name NVARCHAR(255),
+CREATE OR ALTER PROCEDURE dbo.fn_create_user
   @input_payload NVARCHAR(MAX)
 AS
 BEGIN
@@ -256,27 +238,35 @@ BEGIN
   BEGIN TRY
     BEGIN TRANSACTION;
 
-    DECLARE @user_id UNIQUEIDENTIFIER = NEWSEQUENTIALID();
+    DECLARE @identifier NVARCHAR(255) = JSON_VALUE(@input_payload, '$.identifier');
+    DECLARE @name       NVARCHAR(255) = JSON_VALUE(@input_payload, '$.name');
+    DECLARE @user_id    UNIQUEIDENTIFIER = NEWSEQUENTIALID();
     DECLARE @entity_data NVARCHAR(MAX);
 
-    -- Check for duplicate email
-    IF EXISTS(SELECT 1 FROM dbo.tb_user WHERE email = @input_email AND deleted_at IS NULL)
+    IF @identifier IS NULL OR @identifier = ''
     BEGIN
-      SELECT '{"status":"conflict:email","message":"Email already in use"}' AS result;
+      SELECT JSON_QUERY('{"status":"failed:validation","message":"identifier is required"}') AS result;
       ROLLBACK; RETURN;
     END;
 
-    INSERT INTO dbo.tb_user (id, email, name, created_by)
-    VALUES (@user_id, @input_email, @input_name, @input_user_id);
+    -- Check for duplicate identifier
+    IF EXISTS(SELECT 1 FROM dbo.tb_user WHERE identifier = @identifier AND deleted_at IS NULL)
+    BEGIN
+      SELECT '{"status":"conflict:duplicate_identifier","message":"Identifier already in use"}' AS result;
+      ROLLBACK; RETURN;
+    END;
+
+    INSERT INTO dbo.tb_user (id, identifier, name)
+    VALUES (@user_id, @identifier, @name);
 
     SELECT @entity_data = data FROM dbo.v_user WHERE id = @user_id;
 
-    EXEC dbo.core_refresh_user @user_id;
+    EXEC dbo.sync_tv_user_single @user_id;
 
     COMMIT;
 
     SELECT JSON_MODIFY(
-      JSON_MODIFY('{"status":"success:created","message":"User created successfully"}',
+      JSON_MODIFY('{"status":"success","message":"User created successfully"}',
         '$.entity_id', CAST(@user_id AS NVARCHAR(36))),
       '$.entity', JSON_QUERY(@entity_data)
     ) AS result;
@@ -284,10 +274,100 @@ BEGIN
   END TRY
   BEGIN CATCH
     IF @@TRANCOUNT > 0 ROLLBACK;
-    SELECT '{"status":"database_error","message":"Create user failed"}' AS result;
+    SELECT '{"status":"error","message":"Create user failed"}' AS result;
   END CATCH;
 END;
 ```
+
+<Aside type="note">
+**Security**: All input examples use **parameterized queries** (`@param` placeholders) to prevent SQL injection. JSON values are extracted using `JSON_VALUE()` before SQL composition.
+</Aside>
+
+## T-SQL as Business Logic
+
+FraiseQL's mutation model assumes that business logic lives in the database, not in application code. SQL Server's T-SQL ecosystem is among the most mature for this pattern.
+
+### Debugging Stored Procedures
+
+SSMS and Azure Data Studio both support stepping through stored procedures with breakpoints — something PostgreSQL's `plpgsql` debugger requires an extension to do:
+
+```sql
+-- In SSMS: Debug > Step Into, set breakpoints on any line
+-- In Azure Data Studio: use the "SQL Debugger" extension
+-- Both support: variable watch, call stack, step over/into/out
+
+CREATE OR ALTER PROCEDURE dbo.fn_create_order
+  @input_payload NVARCHAR(MAX)
+AS
+BEGIN
+  DECLARE @user_id UNIQUEIDENTIFIER = JSON_VALUE(@input_payload, '$.user_id');
+  DECLARE @total DECIMAL(10,2) = JSON_VALUE(@input_payload, '$.total');
+
+  -- Set breakpoint here in SSMS to inspect @user_id before the insert
+  INSERT INTO dbo.tb_order (fk_user, total) VALUES (
+    dbo.fn_get_pk_user(@user_id), @total
+  );
+  -- ...
+END;
+```
+
+Teams migrating existing stored procedure libraries to FraiseQL do not need to rewrite debugging workflows — existing SSMS-based development practices carry over directly.
+
+### Service Broker for Async Side-Effects
+
+SQL Server's built-in Service Broker provides transactional async messaging for mutation side-effects (email delivery, downstream sync, audit writes) without an external queue:
+
+```sql
+-- Send a background task from within a mutation stored procedure
+CREATE OR ALTER PROCEDURE dbo.fn_create_user
+  @input_payload NVARCHAR(MAX)
+AS
+BEGIN
+  SET NOCOUNT ON;
+  BEGIN TRANSACTION;
+
+  -- ... insert user ...
+
+  -- Queue a background notification (transactional — rolls back if insert fails)
+  DECLARE @msg NVARCHAR(MAX) = JSON_MODIFY('{}', '$.user_id', CAST(@user_id AS NVARCHAR(36)));
+  DECLARE @handle UNIQUEIDENTIFIER;
+  BEGIN DIALOG CONVERSATION @handle
+    FROM SERVICE [FraiseQLSender]
+    TO SERVICE 'FraiseQLReceiver'
+    ON CONTRACT [FraiseQLContract]
+    WITH ENCRYPTION = OFF;
+  SEND ON CONVERSATION @handle
+    MESSAGE TYPE [FraiseQLEvent] (@msg);
+
+  COMMIT;
+  -- ...
+END;
+```
+
+Unlike external queues (Redis, SQS, RabbitMQ), Service Broker messages are committed or rolled back with the surrounding transaction — no dual-write problem.
+
+### Temporal Tables for Audit Trails
+
+SQL Server's temporal tables (`SYSTEM_TIME`) automatically record row history as a first-class engine feature, complementing FraiseQL's `deleted_at` soft-delete pattern:
+
+```sql
+-- Add system-time versioning to any table
+ALTER TABLE dbo.tb_user
+ADD
+  valid_from DATETIMEOFFSET GENERATED ALWAYS AS ROW START NOT NULL
+    CONSTRAINT df_user_valid_from DEFAULT SYSUTCDATETIME(),
+  valid_to   DATETIMEOFFSET GENERATED ALWAYS AS ROW END   NOT NULL
+    CONSTRAINT df_user_valid_to   DEFAULT CONVERT(DATETIMEOFFSET, '9999-12-31 23:59:59.9999999'),
+  PERIOD FOR SYSTEM_TIME (valid_from, valid_to);
+ALTER TABLE dbo.tb_user SET (SYSTEM_VERSIONING = ON (HISTORY_TABLE = dbo.tb_user_history));
+
+-- Query point-in-time state from a view (expose via a va_* analytics view)
+CREATE VIEW dbo.va_user_at_date AS
+SELECT u.id, u.identifier, u.name, u.valid_from, u.valid_to
+FROM dbo.tb_user FOR SYSTEM_TIME ALL AS u;
+```
+
+Temporal history is queryable through standard T-SQL — no application-layer event sourcing infrastructure required.
 
 ## Enterprise Features
 
@@ -411,8 +491,11 @@ ALTER INDEX ALL ON dbo.tv_user REBUILD;
   <Card title="Database Overview" icon="seti:db">
     [Compare all supported databases](/databases/)
   </Card>
+  <Card title="SQL Server Enterprise Guide" icon="approve-check">
+    [Azure AD, Always On, TDE, and compliance patterns](/databases/sqlserver-enterprise)
+  </Card>
   <Card title="PostgreSQL Guide" icon="seti:db">
-    [Optimal database for FraiseQL](/databases/postgresql)
+    [PostgreSQL patterns for FraiseQL](/databases/postgresql)
   </Card>
   <Card title="SQL Server Troubleshooting" icon="warning">
     [SQL Server-specific troubleshooting](/troubleshooting/by-database/sqlserver)

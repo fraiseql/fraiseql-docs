@@ -27,10 +27,10 @@ This guide covers solutions for common issues when using FraiseQL's federation a
 
 ```bash
 # 1. Test database connectivity
-fraiseql health --database inventory
+curl http://localhost:8080/health
 
 # 2. Check configuration
-cat fraiseql.toml | grep -A 5 "\[databases.inventory\]"
+cat fraiseql.toml | grep -A 5 "\[database\]"
 
 # 3. Verify credentials
 echo $INVENTORY_DATABASE_URL  # Check URL format
@@ -63,12 +63,10 @@ pool_max = 10
 
 ```toml
 # 1. Increase pool size
-[databases.inventory]
+[database]
 pool_size = 50  # Was 10, now 50
 pool_timeout = 30000  # Timeout waiting for connection
-
-[databases.inventory.idle]
-max_age = 3600000  # Close idle connections after 1 hour
+pool_idle_max_age = 3600000  # Close idle connections after 1 hour
 ```
 
 ```bash
@@ -123,7 +121,7 @@ class Order:
 
 ```sql
 -- 3. Add database indexes on the inventory database:
-CREATE INDEX idx_order_item_order_id ON tb_order_item(order_id);
+CREATE INDEX idx_tb_order_item_fk_order ON tb_order_item(fk_order);
 ```
 
 #### "Circular reference in federation"
@@ -168,37 +166,43 @@ class OrderItem:
 **Solutions**:
 
 ```python
-# 1. Add validation before federation
-@fraiseql.mutation
-async def add_item_to_order(order_id: ID, product_id: ID) -> OrderItem:
-    """Validate product exists before adding."""
+# The Python type declares the shape only — no runtime DB access in Python
+@fraiseql.mutation(sql_source="fn_add_item_to_order", operation="CREATE")
+def add_item_to_order(order_id: ID, product_id: ID) -> OrderItem:
+    """Add item to order. Validation is handled in the SQL function."""
+    pass
+```
 
-    # Check product exists in inventory database
-    product = await fraiseql.query(
-        f"""
-        query {{
-            product(id: "{product_id}") {{
-                id
-            }}
-        }}
-        """
-    )
+```sql
+-- Validation belongs in the SQL function (fn_add_item_to_order).
+-- The function can return a mutation_response with status 'failed:not_found'
+-- if the product doesn't exist:
+--
+-- CREATE FUNCTION fn_add_item_to_order(p_order_id UUID, p_product_id UUID)
+-- RETURNS mutation_response AS $$
+-- DECLARE
+--   v_product_exists BOOLEAN;
+--   v_result mutation_response;
+-- BEGIN
+--   SELECT EXISTS(SELECT 1 FROM tb_product WHERE id = p_product_id)
+--     INTO v_product_exists;
+--   IF NOT v_product_exists THEN
+--     v_result.status := 'failed:not_found';
+--     v_result.message := 'Product not found';
+--     RETURN v_result;
+--   END IF;
+--   -- ... insert logic
+-- END;
+-- $$ LANGUAGE plpgsql;
+```
 
-    if not product:
-        raise ValueError(f"Product {product_id} not found")
-
-    # Now safe to create item
-    return await create_order_item(order_id, product_id)
-
-# 2. Implement foreign key constraints
--- On primary database
+```sql
+-- Enforce referential integrity at the database level:
 ALTER TABLE tb_order_item
-ADD CONSTRAINT fk_product_exists
-CHECK (
-    product_id IN (
-        SELECT id FROM v_product_from_inventory
-    )
-);
+    ADD CONSTRAINT fk_tb_order_item_fk_order
+        FOREIGN KEY (fk_order) REFERENCES tb_order(pk_order),
+    ADD CONSTRAINT fk_tb_order_item_fk_product
+        FOREIGN KEY (fk_product) REFERENCES tb_product(pk_product);
 ```
 
 ### Saga/Transaction Issues
@@ -214,65 +218,31 @@ CHECK (
 
 **Solutions**:
 
-```python
-# 1. Add detailed compensation logging
-@compensate("reserve_inventory")
-async def compensate_reserve_inventory(ctx):
-    """Release reserved inventory with logging."""
+```sql
+-- Saga compensation is implemented as SQL functions.
+-- The fn_ function should be idempotent and return a mutation_response.
+-- Example: make fn_release_reservation idempotent:
+CREATE OR REPLACE FUNCTION fn_release_reservation(p_id UUID)
+RETURNS mutation_response AS $$
+DECLARE v_result mutation_response;
+BEGIN
+    -- Idempotent: only update if not already released
+    UPDATE tb_reservation
+       SET status = 'released'
+     WHERE id = p_id AND status != 'released';
 
-    try:
-        logging.info(f"Compensating reservations: {ctx.reservations}")
+    v_result.status  := 'success';
+    v_result.message := 'Reservation released';
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql;
+```
 
-        for reservation_id in ctx.reservations:
-            logging.debug(f"Releasing reservation {reservation_id}")
-
-            await execute_sql(
-                "UPDATE tb_reservation SET status = 'released' WHERE id = $1",
-                [reservation_id]
-            )
-
-            logging.debug(f"Released reservation {reservation_id}")
-
-    except Exception as e:
-        logging.error(f"Compensation failed: {e}", exc_info=True)
-
-        # Re-raise so saga knows it failed
-        raise SagaCompensationError(
-            step="reserve_inventory",
-            reason=str(e)
-        ) from e
-
-# 2. Make compensation idempotent
-@compensate("process_payment")
-async def compensate_payment(ctx):
-    """Refund payment (idempotent)."""
-
-    transaction = await execute_sql(
-        "SELECT status FROM tb_transaction WHERE id = $1",
-        [ctx.transaction_id]
-    )
-
-    # Only refund if not already refunded
-    if transaction['status'] == 'refunded':
-        logging.info(f"Payment already refunded: {ctx.transaction_id}")
-        return
-
-    # Process refund
-    await refund_payment(ctx.transaction_id)
-
-    # Mark as refunded
-    await execute_sql(
-        "UPDATE tb_transaction SET status = 'refunded' WHERE id = $1",
-        [ctx.transaction_id]
-    )
-
-# 3. Increase timeout for compensation
-@saga(
-    steps=["create_order", "reserve_inventory"],
-    compensation_timeout=30000  # 30 seconds for compensation
-)
-async def create_order(...):
-    pass
+```toml
+# Configure saga/observer timeout in fraiseql.toml:
+[observers]
+backend = "nats"
+nats_url = "nats://localhost:4222"
 ```
 
 #### "Saga stuck in pending state"
@@ -290,48 +260,32 @@ async def create_order(...):
 # 1. Monitor saga/mutation progress via structured logs.
 # Set FRAISEQL_LOG=debug to see each request with its requestId.
 # Use pg_notify observers in fraiseql.toml to track step completions:
-# [[observers]]
-# channel = "saga_step_completed"
-# nats_subject = "fraiseql.saga.step"
+# [observers]
+# backend = "nats"
+# nats_url = "nats://localhost:4222"
+```
 
-# 2. Implement saga timeout
-@saga(
-    steps=["create_order", "reserve_inventory"],
-    timeout=60000  # Overall saga timeout: 60 seconds
-)
-async def create_order(...):
-    pass
-
-# 3. Check stuck sagas in database
+```sql
+-- 2. Check stuck sagas in database
 SELECT *
 FROM tb_saga_execution
 WHERE status = 'pending'
   AND created_at < NOW() - INTERVAL '5 minutes'
 ORDER BY created_at DESC;
 
-# 4. Manual cleanup of stuck sagas
-@fraiseql.mutation
-async def cleanup_stuck_saga(saga_id: ID) -> bool:
+-- 3. Manual cleanup of stuck sagas (as a SQL function called via mutation)
+-- Define a fn_cleanup_stuck_saga SQL function that:
+-- - Validates the saga is in pending state
+-- - Marks it as compensated or triggers compensation steps
+-- - Returns a mutation_response with the outcome
+```
+
+```python
+# Expose the cleanup as a FraiseQL mutation (compile-time definition only):
+@fraiseql.mutation(sql_source="fn_cleanup_stuck_saga", operation="CUSTOM")
+def cleanup_stuck_saga(saga_id: ID) -> bool:
     """Manually trigger compensation for stuck saga."""
-
-    saga = await execute_sql(
-        "SELECT * FROM tb_saga_execution WHERE id = $1",
-        [saga_id]
-    )
-
-    if saga['status'] != 'pending':
-        raise ValueError(f"Saga not pending: {saga['status']}")
-
-    # Trigger compensations in reverse order
-    for step in reversed(saga['completed_steps']):
-        await trigger_compensation(step, saga)
-
-    await execute_sql(
-        "UPDATE tb_saga_execution SET status = 'compensated' WHERE id = $1",
-        [saga_id]
-    )
-
-    return True
+    pass
 ```
 
 ### Performance Issues
@@ -350,46 +304,43 @@ async def cleanup_stuck_saga(saga_id: ID) -> bool:
 
 ```python
 # 1. Check if federation is batching correctly
-@fraiseql.query
+@fraiseql.query(sql_source="v_order")
 def orders_with_items(limit: int = 100) -> list[Order]:
     """
     With batching: Should be 2 queries total
-    - 1 query: SELECT * FROM orders LIMIT 100
-    - 1 query: SELECT * FROM order_items WHERE order_id IN (...)
+    - 1 query: SELECT id, data FROM v_order LIMIT 100
+    - 1 query: SELECT id, data FROM v_order_item WHERE fk_order IN (...)
     """
     pass
-
-# Enable query logging to verify
-await fraiseql.enable_query_logging(
-    database="primary",
-    database="inventory"
-)
 
 # 2. Denormalize to reduce federated queries
 @fraiseql.type
 class Order:
-    item_count: int  # Denormalized count from SQL view
+    id: ID
+    item_count: int  # Denormalized count from SQL view — avoids federation
 
     # Federated from inventory DB — configured in fraiseql.toml
     items: list[OrderItem]
 
-# 3. Use selective federation
-@fraiseql.query
-def order_summary(id: ID) -> dict:
+# 3. Use selective queries to avoid full federation
+@fraiseql.query(sql_source="v_order_summary")
+def order_summary(id: ID) -> OrderSummary | None:
     """
-    Return only needed fields to avoid full federation.
+    Query a summary view instead of the full federated type
+    when only aggregate fields are needed.
     """
-    return {
-        "id": order.id,
-        "total": order.total,
-        "item_count": order.item_count
-        # Don't federate full items if not needed
-    }
+    pass
+```
 
-# 4. Add indexes
--- On inventory database
-CREATE INDEX idx_order_items_order_id_product_id
-ON tb_order_item(order_id, product_id);
+```bash
+# Enable query logging to verify batching — set via environment variable:
+# FRAISEQL_LOG=debug fraiseql run
+```
+
+```sql
+-- 4. Add indexes on the inventory database:
+CREATE INDEX idx_tb_order_item_fk_order_fk_product
+    ON tb_order_item(fk_order, fk_product);
 ```
 
 ## NATS Issues
@@ -524,24 +475,13 @@ nats consumer info orders order-processor
 ack_wait = "60s"  # Increased from 30s
 ```
 
-```python
-# 5. Optimize event handler
-@subscribe("fraiseql.order.created", queue_group="order-processors")
-async def process_order(event: dict):
-    """Process order efficiently."""
-
-    order_id = event["data"]["order_id"]
-
-    # Batch process if possible
-    cache_key = f"processed:{order_id}"
-    if await redis.exists(cache_key):
-        return  # Already processed
-
-    # Do work
-    await process_order_work(event)
-
-    # Mark as done
-    await redis.set(cache_key, "true", ex=3600)
+```toml
+# 5. Configure NATS observers in fraiseql.toml.
+# FraiseQL's Rust runtime handles NATS event dispatch — not Python.
+# Use the [observers] section to configure subjects and topics:
+[observers]
+backend = "nats"
+nats_url = "nats://localhost:4222"
 ```
 
 #### "Messages not being delivered"
@@ -569,13 +509,10 @@ nats consumer info orders order-processor
 # Subscribed to: orders.created    (no match)
 ```
 
-```python
-# 3. Verify subscriber is running
-@subscribe("fraiseql.order.created")
-async def handle_order_created(event: dict):
-    """Handle order created."""
-    logging.info(f"Received order event: {event['order_id']}")
-    # If this log never appears, subscriber isn't running
+```bash
+# 3. Verify FraiseQL is running and observers are configured in fraiseql.toml.
+# FRAISEQL_LOG=debug will log received NATS events.
+# Look for "nats: received message on subject fraiseql.order.created" in the output.
 ```
 
 ```toml
@@ -586,11 +523,10 @@ async def handle_order_created(event: dict):
 max_deliver = 3  # Redelivered max 3 times
 ```
 
-```python
-# Check dead letter queue
-@subscribe("fraiseql.dlq")
-async def handle_dead_letter(event: dict):
-    logging.error(f"Dead letter: {event}")
+```bash
+# Check dead letter queue via NATS CLI:
+nats consumer info orders fraiseql-dlq
+nats stream view fraiseql-dlq
 ```
 
 ### Event Processing Issues
@@ -606,24 +542,23 @@ async def handle_dead_letter(event: dict):
 
 **Solutions**:
 
-```python
-# 1. Process events sequentially per order
-@subscribe("fraiseql.order.>", queue_group="order-seq")
-async def process_order_event_sequentially(event: dict):
-    """Process orders sequentially (one at a time)."""
-
-    order_id = event["data"]["order_id"]
-
-    # Use distributed lock per order
-    async with distributed_lock(f"order:{order_id}"):
-        # Only one process can handle events for this order at a time
-        await process_event(event)
-
-# 2. OR partition by order ID to ensure ordering
+```toml
+# 1. Configure NATS partitioning in fraiseql.toml so the same order ID
+# always routes to the same partition, preserving ordering:
 [nats.partitions]
 enabled = true
 key = "order_id"  # Same order always goes to same partition
 count = 8
+```
+
+```bash
+# 2. Use a single-consumer durable subscriber (no queue group)
+# so events are processed strictly in sequence per subject:
+nats consumer add orders order-seq \
+    --deliver all \
+    --ack explicit \
+    --wait 30s \
+    --max-deliver 3
 ```
 
 ```toml
@@ -650,48 +585,34 @@ NATS JetStream uses at-least-once delivery by default. Always implement idempote
 
 **Solutions**:
 
-```python
-# 1. Implement idempotent handler
-@subscribe("fraiseql.order.created")
-async def handle_order_created_idempotent(event: dict):
-    """Process event idempotently."""
+```sql
+-- 1. Implement idempotency at the database level.
+-- The SQL function that processes the event should be idempotent.
+-- Use INSERT ... ON CONFLICT DO NOTHING with a unique event_id column:
+CREATE TABLE tb_processed_event (
+    pk_processed_event BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id                 UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier         TEXT   UNIQUE NOT NULL,  -- event_id
+    processed_at       TIMESTAMPTZ DEFAULT now()
+);
 
-    # Generate deterministic event ID
-    event_id = f"{event['order_id']}-{event['timestamp']}"
+-- In the processing function:
+-- INSERT INTO tb_processed_event (identifier) VALUES (p_event_id)
+-- ON CONFLICT (identifier) DO NOTHING;
+-- IF NOT FOUND THEN RETURN; END IF;  -- Already processed
+```
 
-    # Check if already processed
-    if await is_processed(event_id):
-        logging.debug(f"Event already processed: {event_id}")
-        return
+```bash
+# 2. Use NATS JetStream's built-in message deduplication.
+# Set a deduplication window when creating the stream:
+nats stream add orders \
+    --subjects "fraiseql.order.>" \
+    --dedup-window 24h \
+    --max-msgs 1000000
 
-    # Process
-    try:
-        await create_order(event)
-        await mark_processed(event_id)
-    except Exception as e:
-        logging.error(f"Error processing event: {e}")
-        raise  # Let NATS retry
-
-async def is_processed(event_id: str) -> bool:
-    """Check if event ID was already processed."""
-    return await redis.exists(f"event_processed:{event_id}")
-
-async def mark_processed(event_id: str):
-    """Mark event as processed (idempotency key)."""
-    await redis.setex(
-        f"event_processed:{event_id}",
-        30 * 24 * 3600,  # 30-day TTL
-        "true"
-    )
-
-# 2. Use event version/correlation ID
-event = {
-    "id": "evt_550e8400",  # Unique event ID
-    "correlation_id": "order_550e8400",  # Links to entity
-    "version": 1,  # Version for this event type
-    "type": "order.created",
-    "data": {...}
-}
+# Publishers include a Nats-Msg-Id header for deduplication:
+nats pub fraiseql.order.created '{"order_id":"..."}' \
+    --header Nats-Msg-Id:evt_550e8400
 ```
 
 ## Federation + NATS Issues
@@ -707,58 +628,42 @@ event = {
 
 **Solutions**:
 
-```python
-# 1. Wait for event confirmation
-@saga.step("publish_confirmation")
-async def step_publish_confirmation(ctx):
-    """Final step: publish confirmation with retry."""
+```sql
+-- 1. Use the transactional outbox pattern for guaranteed delivery.
+-- Write events to a tb_pending_event table inside the same transaction
+-- as the mutation, then a separate process (or pg_notify) publishes to NATS:
+CREATE TABLE tb_pending_event (
+    pk_pending_event BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id               UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier       TEXT   UNIQUE NOT NULL,  -- idempotency key
+    subject          TEXT   NOT NULL,         -- NATS subject
+    payload          JSONB  NOT NULL,
+    created_at       TIMESTAMPTZ DEFAULT now(),
+    published_at     TIMESTAMPTZ
+);
 
-    max_retries = 3
-    retry_count = 0
+-- Inside fn_create_order, after inserting the order, also insert the event:
+-- INSERT INTO tb_pending_event (identifier, subject, payload)
+-- VALUES (
+--   'order.created.' || v_order_id,
+--   'fraiseql.order.confirmed',
+--   jsonb_build_object('order_id', v_order_id, ...)
+-- );
+```
 
-    while retry_count < max_retries:
-        try:
-            await publish(
-                subject="fraiseql.order.confirmed",
-                data={...},
-                timeout=5000
-            )
-            return
+```toml
+# 2. Configure FraiseQL observers to publish tb_pending_event rows to NATS.
+# The Rust runtime handles polling/pg_notify and publishing:
+[observers]
+backend = "nats"
+nats_url = "nats://localhost:4222"
+```
 
-        except Exception as e:
-            retry_count += 1
-            if retry_count >= max_retries:
-                raise
-
-            wait_time = 2 ** retry_count  # Exponential backoff
-            await asyncio.sleep(wait_time)
-
-# 2. Store events in database for guaranteed delivery
-@saga.step("store_events")
-async def step_store_events(ctx):
-    """Store events in DB for async publishing."""
-
-    await execute_sql(
-        """
-        INSERT INTO tb_pending_events (order_id, event_type, payload)
-        VALUES ($1, $2, $3)
-        """,
-        [ctx.order_id, "order.created", json.dumps({...})]
-    )
-
-    # Separate service publishes from DB to NATS
-    # Guaranteed to eventually publish
-
-# 3. Add publishing monitoring
-@fraiseql.after_mutation("create_order")
-async def after_create_order_monitored(order):
-    """Publish with monitoring."""
-
-    try:
-        await metrics.time("event.publish", async_fn=lambda: publish(...))
-    except Exception as e:
-        await metrics.increment("event.publish.error")
-        await alert_ops(f"Failed to publish event for order {order.id}")
+```bash
+# 3. Monitor NATS publish errors via the FraiseQL metrics endpoint:
+curl http://localhost:8080/metrics | grep nats_publish
+# fraiseql_nats_publish_total{status="success"} 1234
+# fraiseql_nats_publish_total{status="error"} 0
 ```
 
 #### "Race condition: Event arrives before federation completes"
@@ -772,54 +677,36 @@ async def after_create_order_monitored(order):
 
 **Solutions**:
 
-```python
-# 1. Only publish after transaction commits
-@saga.step("final_publish")
-async def step_final_publish(ctx):
-    """Publish only after all federation steps complete."""
+```sql
+-- 1. Publish only after transaction commits.
+-- Use the transactional outbox pattern (see above): insert the event row
+-- in the same transaction as the mutation. The outbox publisher only
+-- dispatches to NATS after the PostgreSQL transaction is durably committed.
+```
 
-    # Ensure all federation updates are committed
-    # This is the final step - publish here
-    await publish(
-        subject="fraiseql.order.confirmed",
-        data={...}
-    )
+```bash
+# 2. Include all necessary data in the event payload so downstream services
+# do not need to query the API before the data is replicated.
+# Publish from the SQL function via the outbox, including a full snapshot:
+#
+# INSERT INTO tb_pending_event (identifier, subject, payload)
+# VALUES (
+#   'order.confirmed.' || v_order_id,
+#   'fraiseql.order.confirmed',
+#   jsonb_build_object(
+#     'order_id',     v_order_id,
+#     'customer_id',  v_customer_id,
+#     'total',        v_total::text,
+#     'items',        v_items_json   -- full snapshot, no follow-up query needed
+#   )
+# );
+```
 
-# 2. Event handler waits for data availability
-@subscribe("fraiseql.order.created")
-async def handle_order_created_with_retry(event: dict):
-    """Handle event with retry for data availability."""
-
-    order_id = event["data"]["order_id"]
-
-    # Retry if order not yet available
-    max_retries = 5
-    for attempt in range(max_retries):
-        order = await fraiseql.query(
-            f'query {{ order(id: "{order_id}") {{ id }} }}'
-        )
-
-        if order:
-            await process_order(order)
-            return
-
-        if attempt < max_retries - 1:
-            await asyncio.sleep(2 ** attempt)  # Backoff
-
-    logging.error(f"Order not found after retries: {order_id}")
-
-# 3. Include data in event (denormalization)
-# Don't require subscribers to query federation
-await publish(
-    subject="fraiseql.order.created",
-    data={
-        "order_id": order.id,
-        "customer_id": order.customer_id,
-        "total": str(order.total),
-        "items": [...]  # Include items in event
-        # No need for subscriber to federate
-    }
-)
+```toml
+# 3. Configure retry/backoff for the NATS observer in fraiseql.toml:
+[observers]
+backend = "nats"
+nats_url = "nats://localhost:4222"
 ```
 
 ## Database-Specific Gotchas
@@ -838,34 +725,38 @@ SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
 #### "Federated queries with large result sets OOM"
 
 ```python
-# Use streaming results
-@fraiseql.query
-async def large_order_list():
-    # Use cursor-based pagination
-    cursor = None
-    while True:
-        orders = await fraiseql.query(
-            f'query {{ orders(after: "{cursor}", limit: 100) {{ id }} }}'
-        )
-        if not orders:
-            break
-        for order in orders:
-            yield order
-        cursor = orders[-1]["id"]
+# Use cursor-based (Relay) pagination to avoid loading large result sets at once.
+# Define the query with relay=True in the Python schema:
+@fraiseql.query(sql_source="v_order", relay=True)
+def orders(limit: int = 100) -> list[Order]:
+    """Use cursor pagination — configured in fraiseql.toml federation section."""
+    pass
+```
+
+```graphql
+# Then query with cursor-based pagination from the client:
+query {
+  orders(first: 100, after: "cursor-from-previous-page") {
+    edges { node { id } cursor }
+    pageInfo { hasNextPage endCursor }
+  }
+}
 ```
 </TabItem>
 <TabItem label="SQLite">
 #### "SQLite locking issues with federation"
 
-```python
-# SQLite has single writer - serialize federated writes
-class SQLiteSerializer:
-    _lock = asyncio.Lock()
+```toml
+# SQLite has a single writer. Configure a smaller pool size in fraiseql.toml
+# to reduce write contention:
+[database]
+pool_max = 1        # SQLite: single writer
+pool_min = 1
+```
 
-    @classmethod
-    async def federated_write(cls, query):
-        async with cls._lock:
-            return await execute_federation_write(query)
+```bash
+# Enable WAL mode on the SQLite database for better read concurrency:
+sqlite3 database.db "PRAGMA journal_mode=WAL;"
 ```
 </TabItem>
 </Tabs>

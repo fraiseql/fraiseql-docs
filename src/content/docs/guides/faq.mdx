@@ -73,7 +73,7 @@ A: Validation happens at multiple levels: GraphQL schema validation, application
 A: Yes. FraiseQL integrates with NATS for event streaming and real-time subscriptions. See [NATS integration](/features/nats).
 
 **Q: Does FraiseQL support transactions?**
-A: Yes. FraiseQL respects database transactions and supports distributed transactions across federated databases via the saga pattern.
+A: Yes. FraiseQL respects database transactions — each mutation runs in a PostgreSQL transaction. For distributed workflows spanning multiple services, you can implement the saga pattern in your business logic using a series of FraiseQL mutations with compensating transactions.
 
 ---
 
@@ -95,7 +95,7 @@ A: Depends on query complexity and hardware, but typically 1,000-5,000 RPS per i
 A: 1) Add database indexes, 2) Simplify query complexity, 3) Cache results. See [performance troubleshooting](/troubleshooting/performance-issues).
 
 **Q: Does FraiseQL cache queries?**
-A: Yes, but not by default. You can add caching with `@cached(ttl=3600)` decorator or external cache (Redis).
+A: Yes, but not by default. You can add caching with `cache_ttl_seconds=` on `@fraiseql.query` or use an external cache (Redis).
 
 **Q: What causes N+1 problems in FraiseQL?**
 A: Usually custom resolvers that query separately. FraiseQL's view-based approach eliminates batching concerns by pre-composing joins in SQL views. See [advanced patterns](/guides/advanced-patterns).
@@ -142,7 +142,7 @@ A: Yes, with proper configuration. Like all APIs, security depends on implementa
 A: Use JWT tokens with issuer validation, or OAuth/SAML. FraiseQL integrates with any auth system. See [security guide](/features/security).
 
 **Q: How do I implement authorization?**
-A: Role-Based Access Control (RBAC) with scopes. FraiseQL's `@requires_scope` decorator enforces permissions. See [advanced patterns](/guides/advanced-patterns).
+A: Role-Based Access Control (RBAC) with scopes. Use `fraiseql.field(requires_scope=...)` on type fields to enforce field-level permissions. See [advanced patterns](/guides/advanced-patterns).
 
 **Q: Is GraphQL vulnerable to injection attacks?**
 A: No, GraphQL is type-safe. FraiseQL parameterizes all database queries. SQL injection, NoSQL injection are prevented.
@@ -182,7 +182,7 @@ A: Write custom mutations/resolvers in Python. FraiseQL handles boilerplate; you
 A: Yes. FraiseQL can be a facade over multiple services. Implement custom resolvers that call services.
 
 **Q: How do I handle rate limiting?**
-A: FraiseQL supports global and per-user rate limits. Configure with `RATE_LIMIT_REQUESTS` and window size.
+A: FraiseQL supports per-endpoint rate limits configured in `fraiseql.toml` under `[fraiseql.security.rate_limiting]`. Override at runtime with environment variables such as `RATE_LIMIT_AUTH_START`.
 
 ---
 
@@ -214,7 +214,7 @@ A: Yes, with federation. Query data from multiple databases in single GraphQL re
 ## Troubleshooting (6)
 
 **Q: How do I debug slow queries?**
-A: Enable `LOG_LEVEL=debug`, check database query count (should be < 5 per request), add indexes, analyze with EXPLAIN. See [performance troubleshooting](/troubleshooting/performance-issues).
+A: Enable `RUST_LOG=debug`, check database query count (should be < 5 per request), add indexes, analyze with EXPLAIN. See [performance troubleshooting](/troubleshooting/performance-issues).
 
 **Q: What does "too many connections" mean?**
 A: Database connection pool exhausted. Increase `PGBOUNCER_MAX_POOL_SIZE` or add instances. See [connection issues](/troubleshooting/common-issues#too-many-connections).

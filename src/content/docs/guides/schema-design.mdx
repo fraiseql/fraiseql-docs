@@ -380,7 +380,7 @@ class User:
 
 ### Leverage Rich Scalar Types
 
-FraiseQL provides 47+ domain-specific scalar types with built-in validation and specialized filter operators. Use them instead of generic `str`:
+FraiseQL provides domain-specific scalar types with built-in validation and specialized filter operators. Use them instead of generic `str` (see [reference/scalars](/reference/scalars) for the current list):
 
 <Tabs syncKey="language">
   <TabItem label="Python">
@@ -628,18 +628,20 @@ def create_order(input: CreateOrderInput) -> Order:
     pass
 ```
 
-```python
-# Observer: handles side effects
-@fraiseql.observer(
-    entity_type="Order",
-    on=["CREATE"],
-    actions=[
-        SendEmail(template="order_confirmation"),
-        CallWebhook(url="${WEBHOOK_URL}"),
-        NotifySlack(channel="#orders")
-    ]
-)
-def on_order_created(order: Order): ...
+```toml
+# fraiseql.toml — observers are configured in TOML, not Python
+[observers]
+backend = "nats"
+nats_url = "nats://localhost:4222"
+
+[[observers.handlers]]
+entity_type = "Order"
+on = ["CREATE"]
+actions = [
+    { type = "send_email", template = "order_confirmation" },
+    { type = "call_webhook", url = "${WEBHOOK_URL}" },
+    { type = "notify_slack", channel = "#orders" }
+]
 ```
 
 **Don't design mutations expecting synchronous side effects.** The API returns immediately; side effects happen asynchronously.

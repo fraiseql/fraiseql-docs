@@ -305,7 +305,7 @@ SELECT pg_reload_conf();
 
 # 3. Add automatic reconnection
 # FraiseQL handles this automatically
-# But verify in logs: LOG_LEVEL=debug
+# But verify in logs: RUST_LOG=debug
 
 # 4. Check for database crashes
 # Check /var/log/messages for OOM kills
@@ -510,7 +510,7 @@ token = jwt.encode(
 **Solutions**:
 ```bash
 # 1. Add Authorization header
-curl -H "Authorization: Bearer <token>" http://localhost:8000/graphql
+curl -H "Authorization: Bearer <token>" http://localhost:8080/graphql
 
 # 2. Verify client sends header
 # JavaScript
@@ -522,7 +522,7 @@ fetch(url, {
 
 # 3. Check middleware is enabled
 # FraiseQL should extract token automatically
-# Verify in logs: LOG_LEVEL=debug
+# Verify in logs: RUST_LOG=debug
 
 # 4. For unauthenticated endpoints
 # Mark query with @public
@@ -599,8 +599,8 @@ VALUES (123, (SELECT id FROM roles WHERE name = 'editor'));
 # Scopes are case-sensitive
 write:posts != WRITE:POSTS
 
-# 4. Define custom scope
-@fraiseql.mutation(requires_scope="write:posts")
+# 4. Define role requirement on mutation
+@fraiseql.mutation(requires_role="editor")
 def create_post(title: str) -> Post:
     pass
 ```
@@ -663,7 +663,7 @@ echo $CORS_ORIGINS
 CORS_ORIGINS=https://app.example.com,https://localhost:3000
 
 # 3. Check preflight request (OPTIONS)
-curl -X OPTIONS http://localhost:8000/graphql \
+curl -X OPTIONS http://localhost:8080/graphql \
   -H "Origin: https://app.example.com"
 
 # 4. Verify response headers
@@ -963,7 +963,7 @@ CREATE INDEX idx_posts_created_at ON posts(created_at DESC);
 
 # 5. Check N+1 problems
 # Should have < 5 queries for any request
-LOG_LEVEL=debug fraiseql run
+RUST_LOG=debug fraiseql run
 ```
 
 ### N+1 Queries
@@ -979,7 +979,7 @@ LOG_LEVEL=debug fraiseql run
 # SELECT * FROM posts WHERE user_id IN (1, 2, ..., 10)
 
 # 2. Check logs for individual queries
-LOG_LEVEL=debug
+RUST_LOG=debug
 
 # 3. Monitor query count
 # Should be ≤ 3 for benchmark query
@@ -1033,7 +1033,7 @@ python -m memory_profiler app.py
 **Solutions**:
 ```bash
 # 1. Check which query uses CPU
-LOG_LEVEL=debug
+RUST_LOG=debug
 
 # 2. Profile CPU usage
 python -m cProfile -s cumtime app.py
@@ -1047,9 +1047,9 @@ python -m cProfile -s cumtime app.py
 # Python: Add workers
 # Docker: Add instances
 
-# 5. Cache expensive computations
-@cached(ttl=3600)
-def expensive_query():
+# 5. Cache expensive computations using cache_ttl_seconds= on @fraiseql.query
+@fraiseql.query(sql_source="v_expensive", cache_ttl_seconds=3600)
+def expensive_query() -> list[Result]:
     pass
 ```
 
@@ -1067,9 +1067,11 @@ def expensive_query():
 - Cache not enabled
 
 **Solutions**:
-```bash
-# 1. Increase TTL
-@cached(ttl=86400)  # 24 hours instead of 1 hour
+```python
+# 1. Increase TTL using cache_ttl_seconds= on @fraiseql.query
+@fraiseql.query(sql_source="v_my_query", cache_ttl_seconds=86400)  # 24 hours instead of 1 hour
+def my_cached_query() -> list[Result]:
+    pass
 
 # 2. Check cache is enabled
 # Redis connection working?
@@ -1148,7 +1150,8 @@ class User:
     # NOT: name: (incomplete)
 
 # 4. Import types correctly
-from fraiseql import ID, FraiseQL
+import fraiseql
+from fraiseql import ID
 
 # 5. Validate schema
 fraiseql validate
@@ -1270,25 +1273,34 @@ DRAFT != draft
 **Cause**: Custom scalar not defined
 
 **Solutions**:
-```bash
-# 1. Define custom scalar
+```python
+# 1. Define and register the custom scalar using @fraiseql.scalar.
+# The decorator registers it globally — no separate register call is needed.
+import fraiseql
+from fraiseql import CustomScalar
+
 @fraiseql.scalar
-class JSON:
-    @staticmethod
-    def serialize(value):
+class JSON(CustomScalar):
+    name = "JSON"
+
+    def serialize(self, value):
+        import json
         return json.dumps(value)
 
-    @staticmethod
-    def parse_value(value):
+    def parse_value(self, value):
+        import json
         return json.loads(value)
 
-# 2. Use in schema
+    def parse_literal(self, ast):
+        import json
+        if hasattr(ast, 'value'):
+            return self.parse_value(ast.value)
+        raise ValueError("Invalid JSON literal")
+
+# 2. Use in schema — the scalar is already registered by the decorator above
 @fraiseql.type
 class Post:
-    metadata: JSON  # Now valid
-
-# 3. Check scalar is registered globally
-fraiseql.register_scalar(JSON)
+    metadata: JSON  # Now valid — no further registration required
 ```
 
 ---
@@ -1317,17 +1329,17 @@ docker run fraiseql:test python -c "import fraiseql; print(fraiseql.__version__)
 
 # 5. Check health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health/live || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 ```
 
 ### Port Already In Use
-**Problem**: `Error: Port 8000 already in use`
+**Problem**: `Error: Port 8080 already in use`
 
 **Solutions**:
 ```bash
 # 1. Find process using port
-lsof -i :8000
-netstat -tlnp | grep 8000
+lsof -i :8080
+netstat -tlnp | grep 8080
 
 # 2. Kill process
 kill -9 <PID>

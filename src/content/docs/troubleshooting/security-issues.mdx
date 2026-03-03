@@ -76,7 +76,7 @@ fetch(url, {
 # Not: <token> (no prefix)
 
 # 3. Test with curl
-curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8000/graphql
+curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/graphql
 
 # 4. Check if endpoint requires auth
 # Some endpoints might be public (@public decorator)
@@ -86,7 +86,7 @@ def public_posts() -> list[Post]:
 
 # 5. Check auth middleware is enabled
 # FraiseQL should automatically extract token from header
-# Verify in logs: LOG_LEVEL=debug
+# Verify in logs: RUST_LOG=debug
 ```
 
 ### Token Expired
@@ -102,15 +102,11 @@ exp = decoded.get('exp')  # Timestamp when token expires
 # Token valid for 1 hour (typical)
 # After 1 hour, must authenticate again
 
-# 3. Implement token refresh
-@fraiseql.mutation
+# 3. Implement token refresh — the mutation is a compile-time descriptor only.
+# Token issuance logic lives in the fn_refresh_token SQL function.
+@fraiseql.mutation(sql_source="fn_refresh_token")
 def refresh_token(refresh_token: str) -> TokenResponse:
-    # Validate refresh token
-    # Issue new access token
-    return TokenResponse(
-        access_token=new_token,
-        expires_in=3600
-    )
+    pass
 
 # 4. Client auto-refresh
 // When access token expires:
@@ -138,7 +134,7 @@ echo $CORS_ORIGINS
 CORS_ORIGINS=https://app.example.com,https://localhost:3000
 
 # 3. Test preflight request
-curl -X OPTIONS http://localhost:8000/graphql \
+curl -X OPTIONS http://localhost:8080/graphql \
   -H "Origin: https://app.example.com" \
   -H "Access-Control-Request-Method: POST"
 
@@ -246,7 +242,7 @@ CORS_ORIGINS=https://app.example.com,https://www.example.com
 
 ```python
 # 4. Check query requires correct scope
-@fraiseql.query(requires_scope="read:posts")
+@fraiseql.query(requires_role="reader", sql_source="v_post")
 def posts() -> list[Post]:
     pass
 
@@ -272,7 +268,7 @@ print('Scopes:', decoded.get('scopes'))
 "
 
 # 2. Check what scope is required
-@fraiseql.mutation(requires_scope="write:posts")
+@fraiseql.mutation(requires_role="editor", sql_source="fn_create_post")
 def create_post(...) -> Post:
     pass
 
@@ -787,8 +783,9 @@ PER_USER_RATE_LIMIT_WINDOW_SECONDS=60
 ```toml
 # 1. Configure error sanitization in fraiseql.toml — FraiseQL redacts
 # sensitive fields from error responses and logs automatically.
-# [security.error_sanitization]
-# sanitize_errors = true
+[fraiseql.security.error_sanitization]
+enabled = true
+generic_messages = true
 
 # 2. Check logs for sensitive data
 sudo grep -r "password\|token\|ssn" /var/log/
@@ -825,7 +822,7 @@ def send_email(email: str):
     # Or: "If account exists, email will be sent"
 
 # 2. Check error messages don't leak data
-curl -X POST http://localhost:8000/graphql -d '{"query":"..."}'
+curl -X POST http://localhost:8080/graphql -d '{"query":"..."}'
 # Check response for: email, name, phone, SSN, etc.
 
 # 3. In production, use generic error messages in PostgreSQL functions:

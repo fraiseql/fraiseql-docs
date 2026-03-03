@@ -1,98 +1,121 @@
 ---
 title: Webhooks
-description: Send and receive webhooks with signature verification
+description: Send outgoing webhooks from database events and verify incoming webhooks from external services
 ---
 
 import { Aside, Tabs, TabItem, CardGrid, Card } from '@astrojs/starlight/components';
 
-FraiseQL provides both outgoing webhooks (via Observers) and incoming webhook verification for secure integrations.
+FraiseQL supports two webhook directions: **outgoing webhooks** triggered by database mutations and delivered via the observer system, and **incoming webhook verification** for securely receiving events from external services like Stripe or GitHub.
 
 ## Outgoing Webhooks
 
-Send webhooks when data changes using the Observer system.
+Outgoing webhooks are configured in the observer runtime config (`fraiseql-observer.toml`). When a mutation matches an observer rule, the Rust runtime delivers a POST request to the configured endpoint. No Python code is required.
+
+### Architecture
+
+```
+PostgreSQL mutation
+  → fraiseql runtime emits event
+    → fraiseql-observer picks up event
+      → matches [[observers]] rule
+        → executes webhook action
+          → HTTP POST to endpoint
+```
 
 ### Basic Webhook
 
-```python
-from fraiseql import observer, webhook
-
-@observer(
-    entity="Order",
-    event="INSERT",
-    actions=[
-        webhook("https://api.example.com/orders/new")
-    ]
-)
-def on_new_order():
-    pass
-```
-
-### Custom Headers
-
-```python
-webhook(
-    "https://api.example.com/orders",
-    headers={
-        "Authorization": "Bearer ${WEBHOOK_API_KEY}",
-        "X-Source": "fraiseql"
-    }
-)
-```
-
-### Custom Body
-
-```python
-webhook(
-    "https://api.example.com/orders",
-    body_template='''
-    {
-        "event": "order.created",
-        "order_id": "{{id}}",
-        "total": {{total}},
-        "customer": "{{customer_email}}",
-        "timestamp": "{{_timestamp}}"
-    }
-    '''
-)
-```
-
-### URL from Environment
-
-```python
-webhook(url_env="ORDER_WEBHOOK_URL")
-```
-
-## Webhook Signatures
-
-FraiseQL signs all outgoing webhooks with HMAC-SHA256.
-
-### Configuration
+Configure an observer with a `webhook` action in `fraiseql-observer.toml`:
 
 ```toml
-[webhooks]
-signing_enabled = true
-signing_secret = "${WEBHOOK_SIGNING_SECRET}"
-signing_algorithm = "sha256"  # or "sha512"
+[[observers]]
+entity = "Order"
+event_type = "INSERT"
 
-# Headers for signature
-signature_header = "X-FraiseQL-Signature"
-timestamp_header = "X-FraiseQL-Timestamp"
+[[observers.actions]]
+type = "webhook"
+url_env = "ORDER_WEBHOOK_URL"
 ```
+
+The `url_env` key names an environment variable that holds the webhook URL. This keeps secrets out of config files.
+
+### Custom Headers and Body
+
+```toml
+[[observers]]
+entity = "Order"
+event_type = "INSERT"
+
+[[observers.actions]]
+type = "webhook"
+url_env = "ANALYTICS_WEBHOOK_URL"
+headers = {"Authorization" = "Bearer ${API_TOKEN}", "X-Source" = "fraiseql"}
+body_template = '''
+{
+  "event_id": "{{ event.id }}",
+  "event_type": "{{ event.event_type }}",
+  "entity": "{{ event.entity_type }}",
+  "data": {{ event.data }}
+}
+'''
+```
+
+### Conditional Delivery
+
+Use `condition` on the observer to filter which events trigger the webhook:
+
+```toml
+[[observers]]
+entity = "Order"
+event_type = "UPDATE"
+condition = "data.status == 'shipped'"
+
+[[observers.actions]]
+type = "webhook"
+url_env = "SHIPPING_WEBHOOK_URL"
+```
+
+### Retry Configuration
+
+Configure retries per observer:
+
+```toml
+[[observers]]
+entity = "Order"
+event_type = "INSERT"
+
+[[observers.actions]]
+type = "webhook"
+url_env = "ORDER_WEBHOOK_URL"
+
+[observers.retry]
+backoff_strategy = "exponential"
+initial_delay_ms = 100
+max_attempts = 3
+max_delay_ms = 30000
+```
+
+## Webhook Signatures (Outgoing)
+
+Outgoing webhook payloads are signed with HMAC-SHA256. The receiver uses the signature to confirm the request originated from FraiseQL and was not tampered with.
 
 ### Signature Format
 
+FraiseQL adds two headers to every outgoing webhook:
+
 ```
-X-FraiseQL-Signature: sha256=abc123def456...
-X-FraiseQL-Timestamp: 1704067200
+X-FraiseQL-Signature: sha256=<hex>
+X-FraiseQL-Timestamp: <unix_epoch>
 ```
 
-Signature computed as:
+The signature is computed as:
 
 ```
 HMAC-SHA256(secret, timestamp + "." + body)
 ```
 
-### Verification (Receiver Side)
+### Verifying Signatures (Receiver Side)
+
+The following examples are standalone implementations for webhook receiver services. They do not import any FraiseQL library — they use each language's standard HMAC library.
 
 <Tabs syncKey="language">
 <TabItem label="Python">
@@ -108,10 +131,10 @@ def verify_webhook(
     secret: str,
     max_age_seconds: int = 300
 ) -> bool:
-    # Check timestamp freshness
+    # Check timestamp freshness (replay attack protection)
     ts = int(timestamp)
     if abs(time.time() - ts) > max_age_seconds:
-        return False  # Replay attack protection
+        return False
 
     # Compute expected signature
     message = f"{timestamp}.".encode() + payload
@@ -223,175 +246,118 @@ func verifyWebhook(payload []byte, signature, timestamp, secret string, maxAge i
 
 ## Incoming Webhooks
 
-Receive webhooks from external services with verification.
+The `fraiseql-webhooks` crate handles incoming webhook signature verification from external services. It supports 15+ providers including Stripe, GitHub, Shopify, GitLab, Slack, Twilio, and more.
+
+### How It Works
+
+When an external service sends a webhook to your FraiseQL application, the runtime:
+
+1. Reads the configured `secret_env` environment variable to retrieve the signing secret
+2. Verifies the request signature using the provider-specific algorithm
+3. Checks the timestamp is within the configured tolerance window
+4. Routes the verified event to the configured database function
+
+### Configuration
+
+Incoming webhooks are configured in `fraiseql-observer.toml` under `[webhooks.<name>]`. The `secret_env` key names an environment variable — it is never the secret value itself.
 
 <Tabs syncKey="service">
 <TabItem label="GitHub">
 ```toml
-[webhooks.incoming.github]
-enabled = true
-path = "/webhooks/github"
-secret = "${GITHUB_WEBHOOK_SECRET}"
+[webhooks.github]
+provider = "github"
+secret_env = "GITHUB_WEBHOOK_SECRET"
 signature_header = "X-Hub-Signature-256"
-events = ["push", "pull_request", "issues"]
+timestamp_tolerance = 300
+
+[webhooks.github.events]
+"push" = { function = "fn_handle_github_push" }
+"pull_request" = { function = "fn_handle_github_pr" }
 ```
+
+GitHub uses HMAC-SHA256 with the format `sha256=<hex>` in the `X-Hub-Signature-256` header.
 </TabItem>
 <TabItem label="Stripe">
 ```toml
-[webhooks.incoming.stripe]
-enabled = true
-path = "/webhooks/stripe"
-secret = "${STRIPE_WEBHOOK_SECRET}"
-signature_header = "Stripe-Signature"
-tolerance_seconds = 300
+[webhooks.stripe]
+provider = "stripe"
+secret_env = "STRIPE_WEBHOOK_SECRET"
+timestamp_tolerance = 300
+idempotent = true
+
+[webhooks.stripe.events]
+"payment_intent.succeeded" = { function = "fn_handle_payment_success" }
+"customer.subscription.deleted" = { function = "fn_handle_subscription_cancel" }
 ```
+
+Stripe uses its own signature format: `t=<timestamp>,v1=<signature>` in the `Stripe-Signature` header.
 </TabItem>
 <TabItem label="Custom Provider">
 ```toml
-[webhooks.incoming.custom]
-enabled = true
-path = "/webhooks/custom"
-secret = "${CUSTOM_WEBHOOK_SECRET}"
+[webhooks.my_service]
+provider = "hmac-sha256"
+secret_env = "MY_SERVICE_WEBHOOK_SECRET"
 signature_header = "X-Signature"
-signature_format = "sha256={signature}"
 timestamp_header = "X-Timestamp"
+timestamp_tolerance = 300
+
+[webhooks.my_service.events]
+"order.created" = { function = "fn_handle_external_order" }
 ```
+
+For custom providers, specify `signature_header` and optionally `timestamp_header`. The `hmac-sha256` provider verifies `HMAC-SHA256(secret, payload)`.
 </TabItem>
 </Tabs>
 
-## Retry Configuration
+### WebhookConfig Fields
 
-### Outgoing Webhooks
-
-```toml
-[webhooks.retry]
-enabled = true
-max_attempts = 5
-initial_delay_ms = 1000
-max_delay_ms = 60000
-backoff_multiplier = 2.0
-
-# Retry on these status codes
-retry_status_codes = [408, 429, 500, 502, 503, 504]
-```
-
-### Dead Letter Queue
-
-```toml
-[webhooks.dlq]
-enabled = true
-storage = "postgres"  # or "redis"
-retention_days = 7
-
-[webhooks.dlq.postgres]
-table_name = "tb_webhook_dlq"
-```
-
-Inspect failed webhooks:
-
-```bash
-# List failed webhooks
-fraiseql-cli webhook dlq list
-
-# Retry a specific webhook
-fraiseql-cli webhook dlq retry --id "webhook-123"
-
-# Retry all failed
-fraiseql-cli webhook dlq retry-all --older-than 1h
-```
-
-## Timeouts and Limits
-
-```toml
-[webhooks]
-# Connection timeout
-connect_timeout_ms = 5000
-
-# Request timeout
-request_timeout_ms = 30000
-
-# Max payload size
-max_payload_bytes = 1048576  # 1MB
-
-# Max concurrent requests
-max_concurrent = 100
-```
-
-## Template Variables
-
-Available in webhook body templates:
-
-| Variable | Description |
-|----------|-------------|
-| `{{field_name}}` | Entity field value |
-| `{{_id}}` | Entity ID |
-| `{{_timestamp}}` | Event timestamp (ISO 8601) |
-| `{{_event}}` | Event type (INSERT, UPDATE, DELETE) |
-| `{{_entity}}` | Entity type name |
-| `{{_json}}` | Entire entity as JSON |
-| `{{_old}}` | Previous values (UPDATE only) |
-| `{{_changed}}` | Changed fields (UPDATE only) |
-
-### Example Template
-
-```python
-webhook(
-    "https://api.example.com/events",
-    body_template='''
-    {
-        "event_type": "{{_entity}}.{{_event}}",
-        "entity_id": "{{_id}}",
-        "timestamp": "{{_timestamp}}",
-        "data": {{_json}},
-        "changes": {{_changed}}
-    }
-    '''
-)
-```
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `provider` | string | No | Provider name (`github`, `stripe`, `shopify`, `hmac-sha256`, etc.) |
+| `path` | string | No | Override endpoint path (default: `/webhooks/<name>`) |
+| `secret_env` | string | Yes | Environment variable name containing the signing secret |
+| `signature_header` | string | No | Custom signature header name (for custom providers) |
+| `timestamp_header` | string | No | Custom timestamp header name (for custom providers) |
+| `timestamp_tolerance` | integer | No | Maximum age of webhook in seconds (default: 300) |
+| `idempotent` | boolean | No | Enable idempotency checking (default: true) |
+| `events` | map | No | Event type to database function mappings |
 
 ## Metrics
 
+Webhook actions executed through the observer system are tracked under the standard observer metrics:
+
 | Metric | Description |
 |--------|-------------|
-| `fraiseql_webhook_requests_total` | Total webhook requests |
-| `fraiseql_webhook_success_total` | Successful deliveries |
-| `fraiseql_webhook_failure_total` | Failed deliveries |
-| `fraiseql_webhook_retry_total` | Retry attempts |
-| `fraiseql_webhook_latency_ms` | Delivery latency |
-| `fraiseql_webhook_dlq_size` | Dead letter queue size |
+| `fraiseql_observer_action_executed_total{action_type="webhook"}` | Total webhook deliveries attempted |
+| `fraiseql_observer_action_duration_seconds{action_type="webhook"}` | Webhook delivery latency histogram |
+| `fraiseql_observer_action_errors_total{action_type="webhook"}` | Total webhook delivery errors |
+| `fraiseql_observer_job_retry_attempts_total{action_type="webhook"}` | Total retry attempts for webhook jobs |
+| `fraiseql_observer_dlq_items` | Items in the dead letter queue (all action types) |
 
 ## Best Practices
 
-### Use Idempotency Keys
+### Use Environment Variables for URLs and Secrets
 
-Include idempotency key for safe retries:
+Never put webhook URLs or secrets directly in config files. Always reference environment variables:
 
-```python
-webhook(
-    "https://api.example.com/orders",
-    headers={
-        "Idempotency-Key": "{{_entity}}-{{_id}}-{{_timestamp}}"
-    }
-)
+```toml
+[[observers.actions]]
+type = "webhook"
+url_env = "ORDER_WEBHOOK_URL"     # not url = "https://..."
 ```
 
-### Verify Signatures
-
-Always verify incoming webhook signatures:
-
-```python
-if not verify_webhook(payload, signature, timestamp, secret):
-    raise HTTPException(401, "Invalid signature")
+```toml
+[webhooks.stripe]
+secret_env = "STRIPE_WEBHOOK_SECRET"   # not secret = "whsec_..."
 ```
 
-### Handle Retries Gracefully
+### Design Handlers to be Idempotent
 
-Expect duplicate deliveries:
+Webhook delivery guarantees at-least-once delivery. A message may be redelivered after a crash or timeout. Check for duplicates before processing:
 
 ```python
 @app.post("/webhook")
 def handle_webhook(data: dict):
-    # Use idempotency key to prevent duplicate processing
     key = request.headers.get("Idempotency-Key")
     if already_processed(key):
         return {"status": "already_processed"}
@@ -401,53 +367,51 @@ def handle_webhook(data: dict):
     return {"status": "ok"}
 ```
 
-<Aside type="tip">
-Design webhook handlers to be idempotent. Webhook delivery systems guarantee at-least-once delivery, so duplicate events are possible during failure recovery or retries.
-</Aside>
+### Always Verify Incoming Signatures
 
-### Monitor Delivery
+Never skip signature verification on incoming webhooks:
 
+```python
+if not verify_webhook(payload, signature, timestamp, secret):
+    raise HTTPException(401, "Invalid signature")
 ```
-# Webhook success rate
-sum(rate(fraiseql_webhook_success_total[5m])) /
-sum(rate(fraiseql_webhook_requests_total[5m]))
 
-# Alert on DLQ growth
-fraiseql_webhook_dlq_size > 100
-```
+### Use Timestamp Tolerance to Prevent Replay Attacks
+
+The default tolerance of 300 seconds (5 minutes) rejects replayed requests. Do not increase this value unless your infrastructure has significant clock skew.
 
 ## Troubleshooting
 
 ### Webhook Not Delivered
 
-1. Check endpoint is reachable
-2. Verify URL is correct
-3. Check firewall rules
-4. Review retry attempts in logs
+1. Check the endpoint URL is reachable from the observer process
+2. Confirm `url_env` is set and the environment variable is exported
+3. Review `fraiseql-observer` logs for delivery errors
+4. Check retry configuration — failed deliveries are retried according to `[observers.retry]`
 
-### Signature Mismatch
+### Signature Mismatch (Incoming)
 
-1. Verify secret matches on both sides
-2. Check timestamp tolerance
-3. Ensure payload isn't modified (proxies, encoding)
-4. Verify signature algorithm matches
+1. Verify the environment variable named in `secret_env` is set correctly
+2. Check that the raw request body is used for verification (not parsed JSON)
+3. Confirm the timestamp tolerance has not expired
+4. Verify the provider name matches the expected signature format
 
-### High Latency
+### Webhook Delivered But Not Processed
 
-1. Increase timeout settings
-2. Check endpoint performance
-3. Consider async processing on receiver
+1. Confirm the `[webhooks.<name>.events]` mapping includes the event type
+2. Check the database function named in `function` exists and is callable
+3. Review application logs for function execution errors
 
 ## Next Steps
 
 <CardGrid>
   <Card title="Observers" icon="document">
-    [Observers](/concepts/observers) — Event-driven webhooks
+    [Observers](/concepts/observers) — Configure the full observer system that powers webhook delivery
+  </Card>
+  <Card title="NATS Integration" icon="random">
+    [NATS](/features/nats) — Distributed event streaming for high-volume webhook workloads
   </Card>
   <Card title="Security" icon="shield">
-    [Security](/features/security) — Webhook authentication
-  </Card>
-  <Card title="Rate Limiting" icon="random">
-    [Rate Limiting](/features/rate-limiting) — Protect webhook endpoints
+    [Security](/features/security) — Webhook authentication and request validation
   </Card>
 </CardGrid>

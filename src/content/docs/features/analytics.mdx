@@ -33,24 +33,9 @@ Enable the DataPlane in `fraiseql.toml`:
 enabled = true
 ```
 
-The Arrow Flight service starts on port **8815** by default. This port is in addition to the standard GraphQL port (8080).
+The Arrow Flight service starts on port **50051** by default. This port is in addition to the standard GraphQL port (8080).
 
-### Available Options
-
-```toml
-[analytics]
-enabled = true
-# flight_port = 8815        # gRPC Flight service port (optional)
-# max_batch_size = 65536  # Maximum rows per Arrow record batch (optional)
-# compression = "lz4"       # Compression: "lz4", "zstd", or "none" (optional)
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `enabled` | `false` | Enable the Arrow Flight DataPlane |
-| `flight_port` | `8815` | Port for the gRPC Flight service |
-| `max_batch_size` | `65536` | Maximum rows per Arrow record batch |
-| `compression` | `"lz4"` | Compression codec for data transfer |
+The only configuration key for the `[analytics]` section is `enabled`. Port, batch size, and compression are not configurable via TOML — they are compile-time constants set in the `fraiseql-arrow` crate.
 
 <Aside type="note">
 The GraphQL endpoint continues to serve on its normal port (default 8080). The Flight port is additive — both services run simultaneously.
@@ -78,12 +63,12 @@ The GraphQL endpoint continues to serve on its normal port (default 8080). The F
    You should see a log line confirming the Flight service has started:
 
    ```
-   INFO fraiseql::flight: Arrow Flight DataPlane listening on 0.0.0.0:8815
+   INFO fraiseql::flight: Arrow Flight DataPlane listening on 0.0.0.0:50051
    ```
 
 3. **Connect a client**
 
-   Point your Arrow Flight client at `grpc://localhost:8815`. The service accepts unauthenticated connections on development instances. In production, configure TLS via `[analytics.tls]` in `fraiseql.toml`.
+   Point your Arrow Flight client at `grpc://localhost:50051`. Authentication uses the same JWT/API key tokens as the GraphQL endpoint — pass the token as a gRPC `authorization` header (`Bearer eyJ...`). TLS follows the server-level TLS configuration.
 
 </Steps>
 
@@ -98,7 +83,7 @@ The Flight DataPlane reads any `v_*` view exposed by FraiseQL. Define your aggre
 1. **Create the SQL view**
 
    ```sql
-   CREATE VIEW v_analytics_sales AS
+   CREATE VIEW va_analytics_sales AS
    SELECT
        product_id,
        SUM(revenue)               AS revenue,
@@ -127,7 +112,7 @@ The Flight DataPlane reads any `v_*` view exposed by FraiseQL. Define your aggre
        orders: int
        avg_order_value: Decimal
    
-   @fraiseql.query(sql_source="v_analytics_sales")
+   @fraiseql.query(sql_source="va_analytics_sales")
    def analytics_sales() -> list[SalesAggregate]:
        """Sales aggregates — available via both GraphQL and Arrow Flight."""
        pass
@@ -147,7 +132,7 @@ The Flight DataPlane reads any `v_*` view exposed by FraiseQL. Define your aggre
      avgOrderValue!: number;
    }
    
-   @query({ sqlSource: 'v_analytics_sales' })
+   @query({ sqlSource: 'va_analytics_sales' })
    async analyticsSales(): Promise<SalesAggregate[]> {
      return [];
    }
@@ -166,18 +151,19 @@ The Flight DataPlane reads any `v_*` view exposed by FraiseQL. Define your aggre
 
 ```python
 import pyarrow.flight as flight
+import json
 
 # Connect to the Flight service
-client = flight.connect("grpc://localhost:8815")
+client = flight.connect("grpc://localhost:50051")
 
-# Create a Flight descriptor for your query
-descriptor = flight.FlightDescriptor.for_command(
-    b'{"query": "SELECT data FROM v_analytics_sales"}'
-)
+# Authenticate with Bearer token (same JWT as GraphQL endpoint)
+options = flight.FlightCallOptions(headers=[(b"authorization", b"Bearer <your-jwt-token>")])
 
-# Get flight info and read the data
-info = client.get_flight_info(descriptor)
-reader = client.do_get(info.endpoints[0].ticket)
+# Create a ticket using the registered query name
+ticket = flight.Ticket(json.dumps({"query": "analytics_sales"}).encode())
+
+# Read the data
+reader = client.do_get(ticket, options)
 table = reader.read_all()
 
 # Convert to pandas for analysis
@@ -205,17 +191,12 @@ The returned object is a PyArrow `Table`. From there you can:
 import { tableFromIPC } from 'apache-arrow';
 import { FlightClient } from '@apache-arrow/flight';
 
-const client = new FlightClient({ host: 'localhost', port: 8815 });
+const client = new FlightClient({ host: 'localhost', port: 50051 });
 
-const descriptor = {
-  query: 'SELECT data FROM v_analytics_sales'
-};
-
-const info = await client.getFlightInfo(descriptor);
-const reader = await client.doGet(info.endpoints[0].ticket);
-
+const ticket = Buffer.from(JSON.stringify({ query: 'analytics_sales' }));
 const batches = [];
-for await (const batch of reader) {
+
+for await (const batch of client.doGet({ ticket })) {
   batches.push(batch);
 }
 
@@ -231,11 +212,11 @@ Pass filter parameters in the query JSON to push predicates down to PostgreSQL:
 import json
 import pyarrow.flight as flight
 
-client = flight.connect("grpc://localhost:8815")
+client = flight.connect("grpc://localhost:50051")
 
 command = json.dumps({
-    "query": "SELECT data FROM v_analytics_sales",
-    "params": {
+    "query": "analytics_sales",
+    "variables": {
         "start_date": "2024-01-01",
         "end_date": "2024-03-31",
         "region": "US"
@@ -279,42 +260,31 @@ Always benchmark with your actual workload before deciding between GraphQL and A
 | Data pipelines | **Arrow Flight** — Stream processing, Parquet export |
 | BI tool integration | **Arrow Flight** — Standard Arrow ecosystem |
 
-## Real-Time Analytics with Streaming
+## Reading Large Datasets
 
-For continuously updated dashboards, use the streaming endpoint. The Flight service keeps the gRPC stream open and pushes new record batches as the underlying view refreshes:
+Arrow Flight is pull-based: the client iterates over record batches returned by the server. For large result sets, read batches one at a time rather than loading everything into memory at once:
 
 ```python
 import pyarrow.flight as flight
+import json
 
-client = flight.connect("grpc://localhost:8815")
+client = flight.connect("grpc://localhost:50051")
+options = flight.FlightCallOptions(headers=[(b"authorization", b"Bearer <your-jwt-token>")])
 
-command = b'{"query": "SELECT data FROM v_realtime_counters", "stream": true}'
-descriptor = flight.FlightDescriptor.for_command(command)
+ticket = flight.Ticket(json.dumps({"query": "analytics_sales"}).encode())
+reader = client.do_get(ticket, options)
 
-# Blocks and yields batches as data arrives
-for batch in client.do_get(client.get_flight_info(descriptor).endpoints[0].ticket):
-    df = batch.data.to_pandas()
-    print(f"[{batch.data.num_rows} rows] {df['event_count'].sum()} total events")
+# Process one batch at a time — avoids loading all rows into memory
+for chunk in reader:
+    df = chunk.data.to_pandas()
+    print(f"[{chunk.data.num_rows} rows] revenue sum: {df['revenue'].sum()}")
 ```
 
-<Aside type="caution">
-Streaming requires `v_*` views that read from live tables, not materialized views. Materialized views require an explicit `REFRESH` to pick up new data. For real-time counters, use regular views backed by `tb_*` tables updated by `fn_*` mutation functions.
-</Aside>
+For real-time counters and live dashboards, use GraphQL subscriptions over WebSocket instead — Arrow Flight is not push-based.
 
 ## TLS Configuration
 
-In production, enable TLS for the Flight service:
-
-```toml
-[analytics]
-enabled = true
-
-[analytics.tls]
-enabled = true
-cert_file = "/certs/server.pem"
-key_file = "/certs/server.key"
-ca_file = "/certs/ca.pem"  # Optional: for client cert verification
-```
+TLS for the Arrow Flight service is controlled by the server-level TLS configuration (not a separate `[analytics]` subsection). When the server TLS is enabled, the Flight service uses the same certificates.
 
 Client connection with TLS:
 
@@ -322,7 +292,7 @@ Client connection with TLS:
 import pyarrow.flight as flight
 
 # TLS enabled — use grpcs scheme
-client = flight.connect("grpcs://analytics.example.com:8815")
+client = flight.connect("grpcs://analytics.example.com:50051")
 ```
 
 ## Monitoring
@@ -331,10 +301,10 @@ The Arrow Flight service exposes Prometheus metrics:
 
 | Metric | Description |
 |--------|-------------|
-| `fraiseql_flight_requests_total` | Total Flight requests |
-| `fraiseql_flight_rows_streamed_total` | Total rows streamed |
-| `fraiseql_flight_latency_seconds` | Request latency histogram |
-| `fraiseql_flight_errors_total` | Error count by type |
+| `fraiseql_arrow_requests_total` | Total Arrow Flight requests |
+| `fraiseql_arrow_rows_streamed_total` | Total rows streamed |
+| `fraiseql_arrow_query_duration` | Query execution time |
+| `fraiseql_arrow_bytes_sent` | Bytes transferred |
 
 Health check endpoint:
 
@@ -349,7 +319,7 @@ Includes Flight service status:
   "status": "ok",
   "analytics": {
     "enabled": true,
-    "port": 8815,
+    "port": 50051,
     "connections": 12
   }
 }
@@ -361,13 +331,12 @@ Current Arrow Flight implementation has these limitations:
 
 1. **PostgreSQL only**: MySQL, SQLite, and SQL Server are not supported
 2. **No Flight SQL**: Uses custom JSON descriptors, not standard Flight SQL protocol
-3. **No authentication**: Unauthenticated in development; use TLS and network policies in production
-4. **Read-only**: Mutations must use the GraphQL endpoint
-5. **No subscriptions**: Streaming is pull-based, not push-based like GraphQL subscriptions
+3. **Read-only**: Mutations must use the GraphQL endpoint
+4. **Pull-based only**: Streaming is pull-based — the client reads batches from the server; there is no server-push streaming mode
 
 ## Troubleshooting
 
-**"Connection refused" on port 8815**
+**"Connection refused" on port 50051**
 
 1. Verify the DataPlane is enabled in `fraiseql.toml`:
    ```toml
@@ -377,7 +346,7 @@ Current Arrow Flight implementation has these limitations:
 
 2. Check FraiseQL logs for the startup message:
    ```
-   INFO fraiseql::flight: Arrow Flight DataPlane listening on 0.0.0.0:8815
+   INFO fraiseql::flight: Arrow Flight DataPlane listening on 0.0.0.0:50051
    ```
 
 3. Confirm the port is not blocked by a firewall
@@ -391,20 +360,14 @@ Ensure the view name in your Flight query matches the `sql_source` in your schem
 Arrow Flight is only as fast as the underlying PostgreSQL query. Check:
 
 ```sql
-EXPLAIN ANALYZE SELECT * FROM v_analytics_sales WHERE ...;
+EXPLAIN ANALYZE SELECT * FROM va_analytics_sales WHERE ...;
 ```
 
 Missing indexes on filter columns are the most common cause of slow analytics queries.
 
 **Large memory usage**
 
-The `max_batch_size` setting (default 65,536 rows) controls how many rows are buffered in memory. Reduce it for memory-constrained environments:
-
-```toml
-[analytics]
-enabled = true
-max_batch_size = 10000
-```
+Arrow Flight streams data in record batches. If client memory is a concern, process batches one at a time using the chunked reading pattern instead of `reader.read_all()`. See the "Reading Large Datasets" section above for an example.
 
 ## Next Steps
 

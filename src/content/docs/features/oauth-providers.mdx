@@ -5,10 +5,6 @@ description: Configure OAuth2 and OIDC authentication with multiple providers
 
 import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/components';
 
-<Aside type="caution">
-**TOML examples on this page are being updated.** The `[auth]` TOML namespace used throughout does not exist in the engine. JWT and OAuth configuration is done via **environment variables** (`JWT_SECRET`, `JWT_ALGORITHM`, OAuth provider credentials), not `fraiseql.toml`. See [Security](/features/security#jwt-authentication) for the correct configuration pattern.
-</Aside>
-
 FraiseQL supports multiple OAuth2/OIDC providers for authentication, with built-in support for popular identity platforms.
 
 ## Supported Providers
@@ -21,67 +17,110 @@ FraiseQL supports multiple OAuth2/OIDC providers for authentication, with built-
 | Okta | OIDC | Custom claims, MFA |
 | Auth0 | OIDC | Rules, roles, permissions |
 | Keycloak | OIDC | Self-hosted, realm support |
+| Logto | OIDC | Self-hosted, tenant support |
+| Ory | OIDC | Self-hosted, open source |
 | Generic OIDC | OIDC | Any compliant provider |
 
 ## Configuration
 
-OAuth provider credentials are configured via environment variables — there is no `[auth]` section in `fraiseql.toml`.
+OAuth provider credentials are configured in the `[auth]` section of `fraiseql.toml`. The client secret is never stored in TOML — reference it by environment variable name using `client_secret_env`.
+
+```toml
+[auth]
+discovery_url       = "https://accounts.google.com"
+client_id           = "my-fraiseql-client"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
+```
+
+Set the referenced secret in your environment before starting the server:
+
+```bash
+export OIDC_CLIENT_SECRET=your-client-secret
+```
+
+The `discovery_url` is the OIDC provider's issuer URL. FraiseQL fetches the `/.well-known/openid-configuration` endpoint from this URL at startup to discover the authorization and token endpoints.
 
 <Tabs syncKey="provider">
 <TabItem label="Google">
-```bash
-GOOGLE_CLIENT_ID=your-client-id
-GOOGLE_CLIENT_SECRET=your-client-secret
-OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
+```toml
+[auth]
+discovery_url       = "https://accounts.google.com"
+client_id           = "your-client-id.apps.googleusercontent.com"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="GitHub">
-```bash
-GITHUB_CLIENT_ID=your-client-id
-GITHUB_CLIENT_SECRET=your-client-secret
-OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
+```toml
+[auth]
+discovery_url       = "https://token.actions.githubusercontent.com"
+client_id           = "your-github-app-client-id"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Azure AD">
-```bash
-AZURE_CLIENT_ID=your-client-id
-AZURE_CLIENT_SECRET=your-client-secret
-AZURE_TENANT_ID=your-tenant-id
-OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
+```toml
+[auth]
+discovery_url       = "https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0"
+client_id           = "your-azure-client-id"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Okta">
-```bash
-OKTA_CLIENT_ID=your-client-id
-OKTA_CLIENT_SECRET=your-client-secret
-OKTA_DOMAIN=your-domain.okta.com
-OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
+```toml
+[auth]
+discovery_url       = "https://your-domain.okta.com"
+client_id           = "your-okta-client-id"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Auth0">
-```bash
-AUTH0_CLIENT_ID=your-client-id
-AUTH0_CLIENT_SECRET=your-client-secret
-AUTH0_DOMAIN=your-tenant.auth0.com
-AUTH0_AUDIENCE=https://api.example.com
-OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
+```toml
+[auth]
+discovery_url       = "https://your-tenant.auth0.com"
+client_id           = "your-auth0-client-id"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Keycloak">
-```bash
-KEYCLOAK_CLIENT_ID=your-client-id
-KEYCLOAK_CLIENT_SECRET=your-client-secret
-KEYCLOAK_SERVER_URL=https://keycloak.example.com
-KEYCLOAK_REALM=my-realm
-OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
+```toml
+[auth]
+discovery_url       = "https://keycloak.example.com/realms/my-realm"
+client_id           = "your-keycloak-client-id"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
+```
+</TabItem>
+<TabItem label="Logto">
+```toml
+[auth]
+discovery_url       = "https://your-logto-endpoint/oidc"
+client_id           = "your-logto-client-id"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
+```
+</TabItem>
+<TabItem label="Ory">
+```toml
+[auth]
+discovery_url       = "https://your-ory-issuer-url"
+client_id           = "your-ory-client-id"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Generic OIDC">
-```bash
-OIDC_CLIENT_ID=your-client-id
-OIDC_CLIENT_SECRET=your-client-secret
-OIDC_ISSUER=https://identity.example.com
-OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
+```toml
+[auth]
+discovery_url       = "https://identity.example.com"
+client_id           = "your-client-id"
+client_secret_env   = "OIDC_CLIENT_SECRET"
+server_redirect_uri = "https://api.example.com/auth/callback"
 # Discovery URL auto-detected from issuer (/.well-known/openid-configuration)
 ```
 </TabItem>
@@ -110,17 +149,6 @@ OAUTH_REDIRECT_URI=https://api.example.com/auth/callback
 | `/auth/refresh` | Refresh access token |
 | `/auth/userinfo` | Get current user info |
 
-## Session Management
-
-Sessions are stored in PostgreSQL or Redis. Configuration is via environment variables:
-
-```bash
-SESSION_STORAGE=postgres        # postgres | redis | memory
-SESSION_TTL_SECONDS=86400       # 24 hours
-REFRESH_TTL_SECONDS=604800      # 7 days
-REDIS_URL=redis://host:6379/0   # required when SESSION_STORAGE=redis
-```
-
 ## Security Features
 
 ### PKCE Support
@@ -131,114 +159,74 @@ PKCE (Proof Key for Code Exchange) is configured via `[security.pkce]` in `frais
 
 State blobs are encrypted via `[security.state_encryption]` in `fraiseql.toml` — see [Security](/features/security#oauth-state-security).
 
+## JWT Claims in Queries
+
+FraiseQL is a compiled GraphQL engine. The Python SDK generates a schema at compile time — there are no runtime resolver functions accessing a `Context` object. Instead, JWT claims are injected into SQL parameters using the `inject` decorator argument:
+
+```python
+import fraiseql
+from fraiseql.scalars import ID
+
+@fraiseql.type
+class User:
+    id: ID
+    email: str
+    name: str
+
+# The authenticated user's own profile — user_id is injected from jwt:sub
+@fraiseql.query(
+    sql_source="v_user",
+    inject={"user_id": "jwt:sub"},
+)
+def me() -> User | None:
+    """Get the currently authenticated user."""
+    pass
+
+# Tenant-scoped queries — org_id injected from a custom JWT claim
+@fraiseql.query(
+    sql_source="v_user",
+    inject={"org_id": "jwt:org_id"},
+)
+def users(limit: int = 20, offset: int = 0) -> list[User]:
+    """List users in the caller's organization."""
+    pass
+```
+
+The `inject={"param": "jwt:claim"}` syntax tells the Rust engine to read the named JWT claim and pass it as a SQL parameter, keeping it out of the GraphQL API surface entirely. The SQL view or function receives it as a bound parameter.
+
 ## Role Mapping
 
-Roles are read from the `roles` claim in the JWT returned by your provider. JWT claim names are configured via environment variables:
+Roles are read from a claim in the JWT returned by your provider. FraiseQL maps JWT roles to field-level authorization rules defined in `fraiseql.toml`:
 
-```bash
-JWT_ROLES_CLAIM=roles        # JWT field containing roles (default: roles)
-JWT_DEFAULT_ROLE=user        # fallback if no roles claim present
+```json
+{
+  "sub": "usr_123",
+  "email": "alice@example.com",
+  "roles": ["admin", "editor"],
+  "exp": 1740787200,
+  "iss": "https://auth.example.com"
+}
 ```
+
+Use `requires_role` on a type to restrict access to callers with that role:
+
+```python
+@fraiseql.type(requires_role="admin")
+class AdminDashboard:
+    total_users: int
+    revenue: float
+```
+
+Field-level access control uses `fraiseql.field(requires_scope=...)` — see [Security](/features/security#field-authorization).
 
 ## Multi-Provider Setup
 
-Set the active provider via environment variable:
-
-```bash
-OAUTH_PROVIDER=google         # active provider
-OAUTH_DEFAULT_PROVIDER=google # fallback when ?provider= not specified
-```
-
-Login endpoint accepts provider parameter:
+Login endpoint accepts a provider parameter to select among configured providers:
 
 ```
 /auth/login?provider=github
 /auth/login?provider=google
 ```
-
-## Token Handling
-
-### Access Token in Context
-
-<Tabs syncKey="language">
-<TabItem label="Python">
-```python
-# In resolvers, access the authenticated user
-@fraiseql.query(sql_source="v_user")
-def me(context: Context) -> User:
-    user_id = context.user_id  # From token
-    roles = context.roles      # Mapped roles
-    email = context.email      # From claims
-```
-</TabItem>
-<TabItem label="TypeScript">
-```typescript
-import { query, type Context } from 'fraiseql';
-
-// In resolvers, access the authenticated user
-@query({ sqlSource: 'v_user' })
-function me(context: Context): User {
-  const userId = context.userId;  // From token
-  const roles = context.roles;    // Mapped roles
-  const email = context.email;    // From claims
-}
-```
-</TabItem>
-<TabItem label="Go">
-```go
-// In resolvers, access the authenticated user from context
-func me(ctx context.Context) (*User, error) {
-    userID, ok := ctx.Value("user_id").(string)
-    if !ok {
-        return nil, fmt.Errorf("user not authenticated")
-    }
-    
-    roles, _ := ctx.Value("roles").([]string)
-    email, _ := ctx.Value("email").(string)
-    
-    return &User{
-        ID:    userID,
-        Email: email,
-    }, nil
-}
-```
-</TabItem>
-</Tabs>
-
-### Custom Claims
-
-Custom claim namespacing (used by Auth0, Okta, etc.) is handled automatically — FraiseQL extracts claims from the JWT and makes them available in context. Access in context:
-
-<Tabs syncKey="language">
-<TabItem label="Python">
-```python
-tenant_id = context.claims.get("tenant_id")
-```
-</TabItem>
-<TabItem label="TypeScript">
-```typescript
-const tenantId = context.claims.get('tenant_id');
-```
-</TabItem>
-<TabItem label="Go">
-```go
-// Access custom claims from context
-func getTenantID(ctx context.Context) (string, error) {
-    claims, ok := ctx.Value("claims").(map[string]interface{})
-    if !ok {
-        return "", fmt.Errorf("no claims in context")
-    }
-    
-    tenantID, ok := claims["tenant_id"].(string)
-    if !ok {
-        return "", fmt.Errorf("tenant_id not found in claims")
-    }
-    
-    return tenantID, nil
-}
-```
-</TabItem>
-</Tabs>
 
 ## Test the OAuth Flow
 
@@ -285,7 +273,7 @@ After configuring a provider, verify the full authorization code exchange manual
    curl http://localhost:8080/graphql \
      -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
      -H "Content-Type: application/json" \
-     -d '{"query":"{ me { id email roles } }"}'
+     -d '{"query":"{ me { id email } }"}'
    ```
 </Steps>
 
@@ -293,16 +281,16 @@ After configuring a provider, verify the full authorization code exchange manual
 
 | HTTP Status | Error | Cause | Fix |
 |-------------|-------|-------|-----|
-| `400 Bad Request` | `invalid_client` | Client ID or secret is wrong | Verify `client_id` and `client_secret` match the provider app settings |
-| `400 Bad Request` | `redirect_uri_mismatch` | Callback URL not registered | Add `redirect_uri` exactly as configured to the provider's allowed redirect list |
+| `400 Bad Request` | `invalid_client` | Client ID or secret is wrong | Verify `client_id` in `[auth]` and the secret in the env var named by `client_secret_env` match the provider app settings |
+| `400 Bad Request` | `redirect_uri_mismatch` | Callback URL not registered | Add `server_redirect_uri` exactly as configured to the provider's allowed redirect list |
 | `400 Bad Request` | `invalid_grant` | Authorization code already used or expired | Codes are single-use and expire quickly (usually 60 seconds); do not reuse or delay exchange |
 | `401 Unauthorized` | `invalid_token` | Access token expired or revoked | Use `/auth/refresh` with the refresh token to obtain a new access token |
-| `403 Forbidden` | `access_denied` | User denied consent or lacks required scope | Check required scopes in `fraiseql.toml`; ensure the user approves all requested permissions |
+| `403 Forbidden` | `access_denied` | User denied consent or lacks required scope | Verify the scopes requested in your provider app settings; ensure the user approves all requested permissions |
 | `403 Forbidden` | `org_required` | User is not a member of `required_org` (GitHub) | Verify `required_org` value; user must be a member of that GitHub organization |
-| `500 Internal Server Error` | `token_exchange_failed` | Network error reaching the provider | Check outbound connectivity; verify issuer URL and `discovery_url` are reachable |
+| `500 Internal Server Error` | `token_exchange_failed` | Network error reaching the provider | Check outbound connectivity; verify `discovery_url` and the issuer are reachable |
 
 <Aside type="tip">
-All OAuth errors are logged at `WARN` level. Run `LOG_LEVEL=debug fraiseql run` to see the full error response from the provider, which usually includes a more specific `error_description` field.
+All OAuth errors are logged at `WARN` level. Run `RUST_LOG=debug fraiseql run` to see the full error response from the provider, which usually includes a more specific `error_description` field.
 </Aside>
 
 ## Metrics
@@ -320,14 +308,14 @@ All OAuth errors are logged at `WARN` level. Run `LOG_LEVEL=debug fraiseql run` 
 ### Redirect URI Mismatch
 
 Ensure redirect URI matches exactly in:
-1. FraiseQL config
+1. `server_redirect_uri` in the `[auth]` section of `fraiseql.toml`
 2. Provider app settings
 3. Actual callback URL
 
 ### Token Validation Errors
 
 1. Check clock sync between servers
-2. Verify issuer URL is correct
+2. Verify `discovery_url` is correct and reachable
 3. Check token hasn't expired
 
 ### Missing Claims
@@ -335,22 +323,6 @@ Ensure redirect URI matches exactly in:
 1. Verify scopes include required claims
 2. Check provider-specific claim names
 3. Review claim mapping configuration
-
-## JWT Claims and Role Mapping
-
-FraiseQL maps JWT claims to user roles automatically. Given this token (decoded):
-
-```json
-{
-  "sub": "usr_123",
-  "email": "alice@example.com",
-  "roles": ["admin", "editor"],
-  "exp": 1740787200,
-  "iss": "https://auth.example.com"
-}
-```
-
-FraiseQL grants access to all resolvers decorated with `@role("admin")` or `@role("editor")`. The roles claim field is configured via the `JWT_ROLES_CLAIM` environment variable (default: `roles`).
 
 ## Next Steps
 

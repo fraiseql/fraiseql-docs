@@ -153,7 +153,7 @@ Find solutions to common FraiseQL issues organized by category.
 **"Service unreachable"**
 - Check service exists: `kubectl get svc`
 - Check endpoints: `kubectl get endpoints`
-- Test with port-forward: `kubectl port-forward svc/fraiseql 8000:8000`
+- Test with port-forward: `kubectl port-forward svc/fraiseql 8080:8080`
 - See [Kubernetes Troubleshooting](/deployment/kubernetes#troubleshooting)
 
 ### Cloud Deployment Issues
@@ -184,10 +184,10 @@ For database-specific troubleshooting, refer to the guides for your database eng
 
 ```bash
 # Test API health
-curl http://localhost:8000/health/live
+curl http://localhost:8080/health/live
 
 # Test readiness
-curl http://localhost:8000/health/ready
+curl http://localhost:8080/health/ready
 
 # View logs
 docker logs fraiseql
@@ -259,7 +259,7 @@ SHOW PROCESSLIST;
 
 1. **Check logs** - Most issues are visible in logs
    ```bash
-   LOG_LEVEL=debug fraiseql run
+   RUST_LOG=debug fraiseql run
    ```
 
 2. **Search documentation** - Use Ctrl+F on this page
@@ -272,7 +272,7 @@ SHOW PROCESSLIST;
 4. **Test in isolation** - Narrow down the problem
    ```bash
    # Minimal reproduction
-   curl -X POST http://localhost:8000/graphql \
+   curl -X POST http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
      -d '{"query": "{ __schema { types { name } } }"}'
    ```
@@ -323,7 +323,7 @@ When reporting an issue, include:
    - Database (PostgreSQL 16, MySQL 8.0, etc.)
    - Deployment (Docker, Kubernetes, bare metal)
 
-5. **Logs** (with `LOG_LEVEL=debug`)
+5. **Logs** (with `RUST_LOG=debug`)
    ```json
    [DEBUG] Loading schema...
    [ERROR] Failed to execute query

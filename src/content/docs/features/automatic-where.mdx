@@ -90,8 +90,8 @@ input EmailFilter {
     _neq: Email
     _in: [Email!]
     _nin: [Email!]
-    _contains: String            # Domain contains
-    _endsWith: String            # e.g., "@company.com"
+    _domain_eq: String           # e.g., "company.com"
+    _domain_endswith: String     # e.g., ".edu"
     _is_null: Boolean
 }
 
@@ -118,8 +118,8 @@ Use domain-specific operators for rich types:
 ```graphql
 query {
     users(where: {
-        email: { _endsWith: "@company.com" }  # Email domain filter
-        country: { _continent: "EU" }          # Country continent filter
+        email: { _domain_endswith: ".company.com" }  # Email domain suffix filter
+        country: { _continent_eq: "EU" }              # Country continent filter
     }) {
         id
         name
@@ -366,13 +366,13 @@ class Customer:
 ```graphql
 input CustomerWhereInput {
     id: IDFilter
-    email: EmailFilter              # Domain, freemail detection
-    phone: PhoneNumberFilter        # Country code, mobile detection
-    country: CountryCodeFilter      # Continent, EU, GDPR groupings
+    email: EmailFilter              # Domain, local part
+    phone: PhoneNumberFilter        # Country code, type
+    country: CountryCodeFilter      # Continent, EU, Schengen
     location: CoordinatesFilter     # Geospatial radius/bounds
-    vehicle_vin: VINFilter          # Manufacturer, model year
-    bank_account: IBANFilter        # Country, bank code, SEPA
-    preferred_currency: CurrencyCodeFilter  # Fiat, crypto, major
+    vehicle_vin: VINFilter          # WMI, model year
+    bank_account: IBANFilter        # Country, validity
+    preferred_currency: CurrencyCodeFilter  # Region, decimal places
 
     _and: [CustomerWhereInput!]
     _or: [CustomerWhereInput!]
@@ -385,11 +385,6 @@ input CustomerWhereInput {
 **Email Filtering:**
 ```graphql
 query {
-    # Corporate emails only (not Gmail, Yahoo, etc.)
-    leads(where: {
-        email: { _is_corporate: true }
-    }) { id email company }
-
     # All .edu domain emails
     students(where: {
         email: { _domain_endswith: ".edu" }
@@ -399,25 +394,30 @@ query {
     employees(where: {
         email: { _domain_eq: "acme.com" }
     }) { id email department }
+
+    # Emails from multiple approved domains
+    partners(where: {
+        email: { _domain_in: ["acme.com", "globex.com"] }
+    }) { id email }
 }
 ```
 
 **Country/Region Filtering:**
 ```graphql
 query {
-    # EU customers (for GDPR compliance)
-    customers(where: {
-        country: { _gdpr_applicable: true }
-    }) { id name country }
-
     # Asian market expansion
     leads(where: {
         country: { _continent_eq: "AS" }
     }) { id company country }
 
-    # G20 economies only
-    enterprises(where: {
-        country: { _in_g20: true }
+    # EU member states
+    customers(where: {
+        country: { _in_eu: true }
+    }) { id name country }
+
+    # Schengen area
+    travelers(where: {
+        country: { _in_schengen: true }
     }) { id name country }
 }
 ```
@@ -428,35 +428,35 @@ query {
     # Stores within 50km of NYC
     stores(where: {
         location: {
-            _within_radius: { lat: 40.7128, lng: -74.006, radius_km: 50 }
+            _distance_within: { lat: 40.7128, lng: -74.006, radius_km: 50 }
         }
     }) { id name location }
 
-    # Drivers closer than 5km
-    drivers(where: {
-        position: {
-            _distance_from_lt: { lat: 40.7128, lng: -74.006, km: 5 }
+    # Locations within a bounding box
+    venues(where: {
+        location: {
+            _within_bounding_box: { north: 41.0, south: 40.5, east: -73.7, west: -74.3 }
         }
-    }) { id name position }
+    }) { id name location }
 }
 ```
 
 **VIN Filtering:**
 ```graphql
 query {
-    # German manufacturers (WMI starts with W)
+    # Toyota WMI codes
     vehicles(where: {
-        vin: { _wmi_startswith: "W" }
-    }) { id vin manufacturer }
+        vin: { _wmi_eq: "JT2" }
+    }) { id vin }
 
-    # Toyota and Honda vehicles
+    # Vehicles by WMI code list
     vehicles(where: {
-        vin: { _manufacturer_in: ["Toyota", "Honda"] }
-    }) { id vin model }
+        vin: { _wmi_in: ["1HG", "1FA", "WBA"] }
+    }) { id vin }
 
-    # Model year 2020 and newer
+    # Specific model year
     vehicles(where: {
-        vin: { _model_year_gte: 2020 }
+        vin: { _model_year_eq: 2022 }
     }) { id vin model_year }
 }
 ```
@@ -464,19 +464,19 @@ query {
 **Financial Filtering:**
 ```graphql
 query {
-    # SEPA-compatible accounts
+    # German IBANs
     accounts(where: {
-        iban: { _is_sepa: true }
+        iban: { _country_eq: "DE" }
     }) { id iban holder_name }
 
-    # Major fiat currencies only
-    transactions(where: {
-        currency: { _is_major: true, _is_fiat: true }
-    }) { id amount currency }
+    # IBANs from multiple countries
+    accounts(where: {
+        iban: { _country_in: ["DE", "FR", "NL"] }
+    }) { id iban country }
 
-    # High-value USD transactions
+    # USD transactions
     transactions(where: {
-        amount: { _amount_gte: "10000", _currency_eq: "USD" }
+        money: { _currency_eq: "USD" }
     }) { id amount }
 }
 ```
@@ -489,9 +489,9 @@ query {
         ip: { _is_private: true }
     }) { id ip path }
 
-    # Specific subnet
+    # IPv4 vs IPv6
     requests(where: {
-        ip: { _in_subnet: "10.0.0.0/8" }
+        ip: { _version_eq: 4 }
     }) { id ip user }
 }
 ```
@@ -499,14 +499,14 @@ query {
 **Version Filtering:**
 ```graphql
 query {
-    # Compatible with ^2.0.0
+    # Specific major version
     packages(where: {
-        version: { _satisfies: "^2.0.0" }
+        version: { _major_eq: 2 }
     }) { id name version }
 
-    # Stable releases only
+    # Packages with a prerelease tag
     releases(where: {
-        version: { _is_stable: true }
+        version: { _has_prerelease: false }
     }) { id version published_at }
 }
 ```
@@ -514,14 +514,14 @@ query {
 **Transportation Filtering:**
 ```graphql
 query {
-    # FedEx express shipments
+    # FedEx shipments
     shipments(where: {
-        tracking: { _carrier_eq: "FEDEX", _service_type_eq: "EXPRESS" }
+        tracking: { _carrier_eq: "FedEx" }
     }) { id tracking status }
 
-    # Flights from US hub airports
+    # Flights operated by a specific airline
     flights(where: {
-        departure: { _country_eq: "US", _is_hub: true }
+        flight_number: { _airline_eq: "AA" }
     }) { id flight_number departure }
 }
 ```
@@ -530,26 +530,26 @@ query {
 
 | Category | Type | Key Operators |
 |----------|------|---------------|
-| **Contact** | Email | `_domain_eq`, `_domain_endswith`, `_is_freemail`, `_is_corporate` |
-| | PhoneNumber | `_country_code_eq`, `_is_mobile`, `_region_eq` |
-| | URL | `_domain_eq`, `_protocol_eq`, `_is_secure`, `_path_startswith` |
-| **Geography** | CountryCode | `_continent_eq`, `_in_eu`, `_gdpr_applicable`, `_in_g20` |
-| | Coordinates | `_within_radius`, `_within_bounds`, `_distance_from_lt` |
-| | PostalCode | `_startswith`, `_zip5_eq`, `_area_eq` |
-| **Financial** | CurrencyCode | `_is_fiat`, `_is_major`, `_is_crypto`, `_decimals_eq` |
-| | Money | `_amount_gte`, `_currency_eq`, `_converted_gte` |
-| | IBAN | `_country_eq`, `_bank_code_eq`, `_is_sepa` |
-| **Identifiers** | VIN | `_wmi_eq`, `_manufacturer_eq`, `_model_year_gte`, `_region_eq` |
-| | SemanticVersion | `_major_eq`, `_satisfies`, `_is_stable`, `_gte` |
-| | TrackingNumber | `_carrier_eq`, `_service_type_eq` |
-| **Transport** | AirportCode | `_country_eq`, `_is_hub`, `_within_radius` |
-| | FlightNumber | `_airline_eq`, `_airline_alliance_eq` |
-| **Content** | MimeType | `_is_image`, `_is_document`, `_type_eq` |
-| | Color | `_is_dark`, `_is_grayscale`, `_hue_gte` |
-| **Network** | IPAddress | `_in_subnet`, `_is_private`, `_is_ipv6` |
-| | Port | `_is_privileged`, `_is_database` |
-| **Database** | LTree | `_ancestor_of`, `_descendant_of`, `_nlevel_eq` |
-| | DateRange | `_contains_date`, `_overlaps`, `_adjacent` |
+| **Contact** | Email | `_domain_eq`, `_domain_in`, `_domain_endswith`, `_local_part_startswith` |
+| | PhoneNumber | `_country_code_eq`, `_country_code_in`, `_type_eq` |
+| | URL | `_protocol_eq`, `_host_eq`, `_path_startswith` |
+| **Geography** | CountryCode | `_continent_eq`, `_region_eq`, `_in_eu`, `_in_schengen` |
+| | Coordinates | `_distance_within`, `_within_bounding_box`, `_within_polygon` |
+| | PostalCode | `_country_eq` |
+| **Financial** | CurrencyCode | `_region_eq`, `_decimal_places_eq` |
+| | Money | `_currency_eq` |
+| | IBAN | `_country_eq`, `_country_in` |
+| **Identifiers** | VIN | `_wmi_eq`, `_wmi_in`, `_country_eq`, `_model_year_eq` |
+| | SemanticVersion | `_major_eq`, `_minor_eq`, `_patch_eq`, `_has_prerelease` |
+| | TrackingNumber | `_carrier_eq` |
+| **Transport** | AirportCode | `_country_eq`, `_is_major` |
+| | FlightNumber | `_airline_eq` |
+| **Content** | MimeType | `_type_eq`, `_subtype_eq`, `_charset_eq` |
+| | Color | `_hex_eq` |
+| **Network** | IPAddress | `_version_eq`, `_is_private` |
+| | Port | `_service_eq`, `_is_well_known`, `_is_registered` |
+| **Database** | LTree | `_ancestor_eq`, `_descendant_eq`, `_depth_eq` |
+| | DateRange | `_duration_gte`, `_starts_after`, `_ends_before` |
 
 For complete filter definitions, see [Query Operators](/reference/operators#rich-type-filters).
 
@@ -743,28 +743,22 @@ query {
 
 ## Project-Level Defaults
 
-Since rc.13, you can set project-wide defaults for which auto-parameters are enabled via `[query_defaults]` in `fraiseql.toml`. Individual `auto_params=` on a decorator override only the keys you specify — the rest inherit from `[query_defaults]`.
-
-```toml
-# fraiseql.toml — disable WHERE filtering globally
-[query_defaults]
-where    = false
-order_by = false
-limit    = true
-offset   = true
-```
+You can control which auto-parameters are enabled on a per-query basis via the `auto_params` dict on each decorator. Pass `True` to enable all parameters at once, or specify individual keys:
 
 ```python
-# This query still has limit/offset, but no where or orderBy
-@fraiseql.query(sql_source="v_post")
-def posts() -> list[Post]: ...
+# Enable all auto-params (where, limit, offset, order_by)
+@fraiseql.query(sql_source="v_post", auto_params=True)
+def posts(
+    where: PostWhereInput | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    order_by: PostOrderByInput | None = None
+) -> list[Post]: ...
 
-# Re-enable where for this one query only
+# Enable only where filtering for this query
 @fraiseql.query(sql_source="v_user", auto_params={"where": True})
-def users() -> list[User]: ...
+def users(where: UserWhereInput | None = None) -> list[User]: ...
 ```
-
-See [`[query_defaults]`](/reference/toml-config#query_defaults) in the TOML reference for the full field list and compile-time warnings.
 
 ## Next Steps
 

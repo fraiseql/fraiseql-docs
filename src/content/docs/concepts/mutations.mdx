@@ -9,7 +9,7 @@ import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/compone
 FraiseQL mutations call database functions (`fn_*`). The SQL syntax on this page uses **PostgreSQL**. For MySQL stored procedures, SQLite triggers, or SQL Server stored procedures, see your [database guide](/databases/).
 </Aside>
 
-Mutations are **write operations** in FraiseQL. They call PostgreSQL `fn_*` functions that write to `tb_*` tables, then return data directly from `v_*` views — keeping writes and reads cleanly separated through the CQRS pattern.
+Mutations are **write operations** in FraiseQL. They call PostgreSQL `fn_*` functions that write to `tb_*` tables and return a `mutation_response` composite row — keeping writes and reads cleanly separated through the CQRS pattern.
 
 ## Mutation Flow
 
@@ -18,7 +18,7 @@ graph LR
     A[GraphQL Mutation] --> B[fn_* PostgreSQL Function]
     B --> C[Write to tb_* Tables]
     C --> D[sync_tv_*&#40;&#41; refresh]
-    D --> E[Return from v_* View]
+    D --> E[Return mutation_response&#40;entity JSONB from v_* view&#41;]
 ```
 
 The SQL function does everything: validates input, writes data, optionally syncs projection tables, and returns shaped JSONB from a `v_*` view. FraiseQL never assembles the response in application code.
@@ -32,21 +32,17 @@ The SQL function does everything: validates input, writes data, optionally syncs
     ```python
     import fraiseql
 
-    @fraiseql.mutation(sql_source="fn_create_post")
-    @fraiseql.authenticated
-    @fraiseql.requires_scope("write:posts")
+    @fraiseql.mutation(sql_source="fn_create_post", operation="CREATE")
     def create_post(input: CreatePostInput) -> Post:
         """Create a new blog post. Calls fn_create_post($1::jsonb)."""
         pass
 
-    @fraiseql.mutation(sql_source="fn_update_post")
-    @fraiseql.authenticated
+    @fraiseql.mutation(sql_source="fn_update_post", operation="UPDATE")
     def update_post(id: str, input: UpdatePostInput) -> Post:
         """Update an existing post."""
         pass
 
-    @fraiseql.mutation(sql_source="fn_delete_post")
-    @fraiseql.authenticated
+    @fraiseql.mutation(sql_source="fn_delete_post", operation="DELETE")
     def delete_post(id: str) -> bool:
         """Delete a post. Returns true if the row was removed."""
         pass
@@ -54,23 +50,19 @@ The SQL function does everything: validates input, writes data, optionally syncs
   </TabItem>
   <TabItem label="TypeScript">
     ```typescript
-    import { mutation, authenticated, requiresScope } from 'fraiseql';
+    import { mutation } from 'fraiseql';
 
     @mutation()
-    @authenticated
-    @requiresScope('write:posts')
     function createPost(input: CreatePostInput): Post {
       /** Create a new blog post. Calls fn_create_post($1::jsonb). */
     }
 
     @mutation()
-    @authenticated
     function updatePost(id: string, input: UpdatePostInput): Post {
       /** Update an existing post. */
     }
 
     @mutation()
-    @authenticated
     function deletePost(id: string): boolean {
       /** Delete a post. Returns true if the row was removed. */
     }
@@ -82,13 +74,13 @@ The SQL function does everything: validates input, writes data, optionally syncs
 
 ## PostgreSQL Function Backing
 
-Every mutation maps to a PostgreSQL `fn_*` function. FraiseQL calls the function with a single `jsonb` argument and expects the function to return rows from the corresponding `v_*` view.
+Every mutation maps to a PostgreSQL `fn_*` function. FraiseQL calls the function with a single `jsonb` argument and expects the function to return a `mutation_response` composite row.
 
 <Tabs syncKey="db">
   <TabItem label="PostgreSQL">
     ```sql
     CREATE OR REPLACE FUNCTION fn_create_post(p_input jsonb)
-    RETURNS SETOF v_post
+    RETURNS mutation_response
     LANGUAGE plpgsql AS $$
     DECLARE
       v_post_id UUID;
@@ -99,9 +91,11 @@ Every mutation maps to a PostgreSQL `fn_*` function. FraiseQL calls the function
         p_input->>'content',
         (SELECT pk_user FROM tb_user WHERE id = (p_input->>'authorId')::UUID)
       )
-      RETURNING pk_post INTO v_post_id;
+      RETURNING id INTO v_post_id;
 
-      RETURN QUERY SELECT * FROM v_post WHERE pk_post = v_post_id;
+      RETURN ROW('success', 'Post created', v_post_id::text, 'Post',
+          (SELECT data FROM v_post WHERE id = v_post_id),
+          NULL, NULL, NULL)::mutation_response;
     END;
     $$;
     ```
@@ -129,7 +123,7 @@ Every mutation maps to a PostgreSQL `fn_*` function. FraiseQL calls the function
 </Tabs>
 
 <Aside type="note">
-`RETURNS SETOF v_post` means the function returns the full view row, including the JSONB `data` column. FraiseQL reads this column directly — no additional query needed.
+The function returns a `mutation_response` composite row. FraiseQL reads the `entity` JSONB column (on success) or the `metadata` JSONB column (on error) to build the GraphQL response. The `mutation_response` type is defined in your database migrations and has the fields: `status`, `message`, `entity_id`, `entity_type`, `entity` (JSONB), `updated_fields`, `cascade`, and `metadata`.
 </Aside>
 
 ---
@@ -185,11 +179,13 @@ Group related mutation arguments into a dedicated input type rather than using f
 
 ### Single Entity
 
-Return the created or updated entity by querying the view inside the function:
+Return the created or updated entity by querying the view inside the function and embedding it in `mutation_response`:
 
 ```sql
--- Return the newly created post from the view
-RETURN QUERY SELECT * FROM v_post WHERE pk_post = v_post_id;
+-- Return the newly created post via mutation_response
+RETURN ROW('success', 'Post created', v_post_id::text, 'Post',
+    (SELECT data FROM v_post WHERE id = v_post_id),
+    NULL, NULL, NULL)::mutation_response;
 ```
 
 <Tabs syncKey="language">
@@ -215,7 +211,12 @@ For operations where you only need confirmation:
 ```sql
 -- In the function body
 DELETE FROM tb_post WHERE id = (p_input->>'id')::UUID;
-RETURN FOUND;  -- true if a row was deleted
+IF NOT FOUND THEN
+    RETURN ROW('failed:not_found', 'Post not found', NULL, 'Post',
+        NULL, NULL, NULL, NULL)::mutation_response;
+END IF;
+RETURN ROW('success', 'Post deleted', (p_input->>'id'), 'Post',
+    NULL, NULL, NULL, NULL)::mutation_response;
 ```
 
 <Tabs syncKey="language">
@@ -240,21 +241,21 @@ For batch operations that affect multiple records:
 
 ```sql
 CREATE OR REPLACE FUNCTION fn_publish_posts(p_input jsonb)
-RETURNS SETOF v_post
+RETURNS mutation_response
 LANGUAGE plpgsql AS $$
+DECLARE
+  v_ids UUID[];
 BEGIN
+  v_ids := ARRAY(SELECT jsonb_array_elements_text(p_input->'postIds'))::UUID[];
+
   UPDATE tb_post
   SET is_published = true, published_at = NOW()
-  WHERE id = ANY(
-    ARRAY(SELECT jsonb_array_elements_text(p_input->'postIds'))::UUID[]
-  )
+  WHERE id = ANY(v_ids)
   AND is_published = false;
 
-  RETURN QUERY
-  SELECT * FROM v_post
-  WHERE id = ANY(
-    ARRAY(SELECT jsonb_array_elements_text(p_input->'postIds'))::UUID[]
-  );
+  RETURN ROW('success', 'Posts published', NULL, 'Post',
+      (SELECT jsonb_agg(data) FROM v_post WHERE id = ANY(v_ids)),
+      NULL, NULL, NULL)::mutation_response;
 END;
 $$;
 ```
@@ -282,57 +283,51 @@ $$;
 
 ## Authentication and Authorization
 
-Protect mutations with authentication and scope checks. These decorators are applied in the SDK and enforced before the SQL function is called.
+Protect mutations using role-based access control via the `requires_role` parameter on `@fraiseql.mutation`, or restrict individual fields with `fraiseql.field(requires_scope=...)`. Authentication token validation is configured at the server level via environment variables (`JWT_SECRET`, `JWT_ALGORITHM`).
 
 <Tabs syncKey="language">
   <TabItem label="Python">
     ```python
     import fraiseql
+    from typing import Annotated
+    from fraiseql.scalars import Decimal
 
-    # Require a valid token
-    @fraiseql.mutation(sql_source="fn_create_post")
-    @fraiseql.authenticated
+    # Require any authenticated user (role check)
+    @fraiseql.mutation(sql_source="fn_create_post", operation="CREATE", requires_role="user")
     def create_post(input: CreatePostInput) -> Post:
         pass
 
-    # Require a specific OAuth scope
-    @fraiseql.mutation(sql_source="fn_delete_post")
-    @fraiseql.authenticated
-    @fraiseql.requires_scope("write:posts")
-    def delete_post(id: str) -> bool:
-        pass
-
-    # Admin-only operations
-    @fraiseql.mutation(sql_source="fn_ban_user")
-    @fraiseql.authenticated
-    @fraiseql.requires_scope("admin:users")
+    # Require a specific role for elevated operations
+    @fraiseql.mutation(sql_source="fn_ban_user", operation="CUSTOM", requires_role="admin")
     def ban_user(user_id: str, reason: str) -> bool:
         pass
+
+    # Restrict a sensitive field to a specific scope
+    @fraiseql.type
+    class User:
+        id: str
+        name: str
+        salary: Annotated[Decimal, fraiseql.field(requires_scope="hr:read")]
     ```
   </TabItem>
   <TabItem label="TypeScript">
     ```typescript
-    import { mutation, authenticated, requiresScope } from 'fraiseql';
+    import { mutation } from 'fraiseql';
 
-    // Require a valid token
+    // Role-based protection is configured in fraiseql.toml [security] section
+    // See [[security.policies]] and [[security.rules]] for role enforcement.
     @mutation()
-    @authenticated
     function createPost(input: CreatePostInput): Post {}
 
-    // Require a specific OAuth scope
     @mutation()
-    @authenticated
-    @requiresScope('write:posts')
-    function deletePost(id: string): boolean {}
-
-    // Admin-only operations
-    @mutation()
-    @authenticated
-    @requiresScope('admin:users')
     function banUser(userId: string, reason: string): boolean {}
     ```
   </TabItem>
 </Tabs>
+
+<Aside type="note">
+There are no `@fraiseql.authenticated` or `@fraiseql.requires_scope` standalone decorators. Authentication is enforced at the server level via JWT configuration. Authorization uses `requires_role=` on `@fraiseql.mutation` or `@fraiseql.type`, and `fraiseql.field(requires_scope="...")` for field-level control.
+</Aside>
 
 ---
 
@@ -342,7 +337,7 @@ Use `RAISE EXCEPTION` to communicate errors back to the GraphQL client. FraiseQL
 
 ```sql
 CREATE OR REPLACE FUNCTION fn_update_post(p_input jsonb)
-RETURNS SETOF v_post
+RETURNS mutation_response
 LANGUAGE plpgsql AS $$
 DECLARE
   v_post_id UUID := (p_input->>'id')::UUID;
@@ -370,7 +365,9 @@ BEGIN
     updated_at = NOW()
   WHERE id = v_post_id;
 
-  RETURN QUERY SELECT * FROM v_post WHERE id = v_post_id;
+  RETURN ROW('success', 'Post updated', v_post_id::text, 'Post',
+      (SELECT data FROM v_post WHERE id = v_post_id),
+      NULL, NULL, NULL)::mutation_response;
 END;
 $$;
 ```
@@ -400,7 +397,7 @@ mutation CreatePost {
   createPost(input: {
     title: "Hello World"
     content: "My first post"
-    authorId: "usr_123"
+    authorId: "550e8400-e29b-41d4-a716-446655440000"
   }) {
     id
     title
@@ -412,10 +409,10 @@ mutation CreatePost {
 
 **What happens internally:**
 
-1. FraiseQL validates the authenticated token and checks the `write:posts` scope.
-2. FraiseQL calls `fn_create_post('{"title":"Hello World","content":"My first post","authorId":"usr_123"}'::jsonb)`.
-3. The function inserts into `tb_post`, then runs `RETURN QUERY SELECT * FROM v_post WHERE pk_post = v_post_id`.
-4. FraiseQL reads the `data` JSONB column from the returned row and shapes the response.
+1. FraiseQL validates the authenticated token against the configured JWT settings.
+2. FraiseQL calls `fn_create_post('{"title":"Hello World","content":"My first post","authorId":"550e8400-e29b-41d4-a716-446655440000"}'::jsonb)`.
+3. The function inserts into `tb_post`, then returns `ROW('success', ..., (SELECT data FROM v_post WHERE id = v_post_id), ...)::mutation_response`.
+4. FraiseQL reads the `entity` JSONB column from the `mutation_response` row and shapes the GraphQL response.
 
 **JSON response:**
 
@@ -423,7 +420,7 @@ mutation CreatePost {
 {
   "data": {
     "createPost": {
-      "id": "post_abc456",
+      "id": "550e8400-e29b-41d4-a716-446655440001",
       "title": "Hello World",
       "isPublished": false,
       "author": { "username": "alice" }
@@ -481,11 +478,11 @@ Every PostgreSQL function runs inside a single transaction. If any statement fai
 
 ```sql
 CREATE OR REPLACE FUNCTION fn_create_order(p_input jsonb)
-RETURNS SETOF v_order
+RETURNS mutation_response
 LANGUAGE plpgsql AS $$
 DECLARE
   v_order_id UUID;
-  v_order_pk INTEGER;
+  v_order_pk BIGINT;
   v_item     jsonb;
 BEGIN
   -- Create the order header
@@ -506,7 +503,9 @@ BEGIN
     );
   END LOOP;
 
-  RETURN QUERY SELECT * FROM v_order WHERE id = v_order_id;
+  RETURN ROW('success', 'Order created', v_order_id::text, 'Order',
+      (SELECT data FROM v_order WHERE id = v_order_id),
+      NULL, NULL, NULL)::mutation_response;
 END;
 $$;
 ```
@@ -522,7 +521,7 @@ For real-time features — observers, subscriptions, audit logs — FraiseQL use
 ```sql
 -- Notify after a post is published
 CREATE OR REPLACE FUNCTION fn_publish_post(p_input jsonb)
-RETURNS SETOF v_post
+RETURNS mutation_response
 LANGUAGE plpgsql AS $$
 DECLARE
   v_post_id UUID := (p_input->>'id')::UUID;
@@ -541,7 +540,9 @@ BEGIN
     )::text
   );
 
-  RETURN QUERY SELECT * FROM v_post WHERE id = v_post_id;
+  RETURN ROW('success', 'Post published', v_post_id::text, 'Post',
+      (SELECT data FROM v_post WHERE id = v_post_id),
+      NULL, NULL, NULL)::mutation_response;
 END;
 $$;
 ```

@@ -126,17 +126,18 @@ The complexity lives in the database, where it belongs — not in runtime resolv
   <TabItem label="Python">
     ```python title="schema.py"
     import fraiseql
+    from fraiseql.scalars import ID
 
     @fraiseql.type
     class User:
-        id: str
+        id: ID
         name: str
         email: str
         posts: list['Post']
 
     @fraiseql.type
     class Post:
-        id: str
+        id: ID
         title: str
         content: str
         author: User
@@ -214,7 +215,7 @@ FraiseQL is built on a bet: developers (and AI agents) are better off owning the
 
 ## Enterprise Features
 
-FraiseQL v2.0.0-alpha is production-ready with comprehensive security, scaling, and integration capabilities.
+FraiseQL v2.0.0 is production-ready with comprehensive security, scaling, and integration capabilities.
 
 <CardGrid>
   <Card title="Security & Access Control" icon="shield">

@@ -41,12 +41,13 @@ FraiseQL compiles the relationship between GraphQL types and SQL views at build 
    SELECT
      p.id,
      jsonb_build_object(
-       'id',      p.id,
+       'id',      p.id::text,
        'title',   p.title,
-       'author',  row_to_json(u)
+       'author',  vu.data
      ) AS data
    FROM tb_post p
-   JOIN tb_user u ON u.id = p.author_id;
+   JOIN tb_user u ON u.pk_user = p.fk_user
+   JOIN v_user vu ON vu.id = u.id;
    ```
 
 2. **Define types** in your preferred language.
@@ -57,7 +58,7 @@ FraiseQL compiles the relationship between GraphQL types and SQL views at build 
    ```python
    @fraiseql.type
    class Post:
-       id: UUID
+       id: ID
        title: str
        author: User
    ```
@@ -93,9 +94,9 @@ FraiseQL compiles the relationship between GraphQL types and SQL views at build 
    ```toml title="fraiseql.toml"
    [project]
    name = "my-api"
+   database_target = "postgresql"
 
    [database]
-   type = "postgresql"
    url  = "${DATABASE_URL}"
 
    [server]
@@ -120,13 +121,13 @@ FraiseQL compiles the relationship between GraphQL types and SQL views at build 
     PostgreSQL, MySQL, SQLite, and SQL Server. Full multi-database support with database-specific optimizations.
   </Card>
   <Card title="Any Language" icon="pencil">
-    Define schemas in Python, TypeScript, Go, Java, Rust, and 12+ more. All compile to the same output.
+    Define schemas in Python, TypeScript, Go, Java, Rust, Kotlin, C#, Swift, and Scala. All compile to the same output.
   </Card>
   <Card title="No N+1 by Design" icon="rocket">
     SQL views pre-join relationships. FraiseQL never issues N+1 queries — it's architecturally impossible.
   </Card>
   <Card title="Compile-Time Validation" icon="approve-check">
-    13 built-in validators catch errors at build time. Invalid schemas cannot be deployed.
+    Built-in validators catch errors at build time. Invalid schemas cannot be deployed.
   </Card>
   <Card title="You Own the SQL" icon="open-book">
     You write the views. You see the query that runs. Full debuggability and control.

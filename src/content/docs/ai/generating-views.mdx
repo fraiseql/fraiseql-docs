@@ -111,9 +111,18 @@ DATABASE-SPECIFIC JSON FUNCTIONS:
 - SQL Server:  FOR JSON PATH, WITHOUT_ARRAY_WRAPPER for objects; FOR JSON PATH for arrays
 
 MUTATION FUNCTIONS:
-- fn_create_<entity>(args...) RETURNS UUID
-- fn_update_<entity>(p_id UUID, args...) RETURNS BOOLEAN
-- fn_delete_<entity>(p_id UUID) RETURNS BOOLEAN
+All mutation functions return mutation_response (the canonical v2 composite type):
+  status TEXT, message TEXT, entity_id UUID, entity_type TEXT,
+  entity JSONB, updated_fields TEXT[], cascade JSONB, metadata JSONB
+
+- fn_create_<entity>(args...) RETURNS mutation_response
+- fn_update_<entity>(p_id UUID, args...) RETURNS mutation_response
+- fn_delete_<entity>(p_id UUID) RETURNS mutation_response
+
+Example pattern:
+RETURN ROW('success', 'Entity created', v_id, '<Entity>',
+    (SELECT data FROM v_<entity> WHERE id = v_id),
+    NULL, NULL, NULL)::mutation_response;
 
 When I give you a DDL, generate the corresponding view(s). Output only SQL — no explanation unless I ask.
 ```
@@ -144,8 +153,9 @@ Output: v_<entity> view only.
 **Example input (PostgreSQL):**
 ```sql
 CREATE TABLE tb_product (
-    pk_product  INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pk_product  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier  TEXT NOT NULL UNIQUE,
     name        TEXT NOT NULL,
     price       NUMERIC(10, 2) NOT NULL,
     sku         TEXT NOT NULL UNIQUE,
@@ -197,17 +207,19 @@ Output: v_<parent> view only.
 ```sql
 -- Parent
 CREATE TABLE tb_author (
-    pk_author  INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pk_author  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT NOT NULL UNIQUE,
     name       TEXT NOT NULL,
     bio        TEXT
 );
 
 -- Child (already has v_post view)
 CREATE TABLE tb_post (
-    pk_post    INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pk_post    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
-    fk_author  INTEGER NOT NULL REFERENCES tb_author(pk_author),
+    identifier TEXT NOT NULL UNIQUE,
+    fk_author BIGINT NOT NULL REFERENCES tb_author(pk_author),
     title      TEXT NOT NULL,
     body       TEXT NOT NULL,
     published  BOOLEAN DEFAULT false
@@ -264,20 +276,22 @@ Generate v_<entity_a> that embeds a list of entity_b items.
 **Example input (PostgreSQL):**
 ```sql
 CREATE TABLE tb_article (
-    pk_article  INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pk_article  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier  TEXT NOT NULL UNIQUE,
     title       TEXT NOT NULL
 );
 
 CREATE TABLE tb_tag (
-    pk_tag  INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id      UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
-    name    TEXT NOT NULL
+    pk_tag     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT NOT NULL UNIQUE,
+    name       TEXT NOT NULL
 );
 
 CREATE TABLE tb_article_tag (
-    fk_article  INTEGER NOT NULL REFERENCES tb_article(pk_article),
-    fk_tag      INTEGER NOT NULL REFERENCES tb_tag(pk_tag),
+    fk_article BIGINT NOT NULL REFERENCES tb_article(pk_article),
+    fk_tag BIGINT NOT NULL REFERENCES tb_tag(pk_tag),
     PRIMARY KEY (fk_article, fk_tag)
 );
 ```
@@ -444,9 +458,9 @@ Table:
 [PASTE DDL]
 
 Generate:
-1. fn_create_<entity>(args...) — insert a row, return the new UUID id
-2. fn_update_<entity>(p_id UUID, args...) — update by UUID id, return BOOLEAN
-3. fn_delete_<entity>(p_id UUID) — soft delete by setting deleted_at, return BOOLEAN
+1. fn_create_<entity>(args...) — insert a row, return mutation_response
+2. fn_update_<entity>(p_id UUID, args...) — update by UUID id, return mutation_response
+3. fn_delete_<entity>(p_id UUID) — soft delete by setting deleted_at, return mutation_response
    (if no deleted_at column, do a hard delete)
 
 Use the pk_* column for internal lookups but never expose it in return values.
@@ -458,7 +472,7 @@ CREATE OR REPLACE FUNCTION fn_create_product(
     p_name      TEXT,
     p_price     NUMERIC(10, 2),
     p_sku       TEXT
-) RETURNS UUID AS $$
+) RETURNS mutation_response AS $$
 DECLARE
     v_id UUID;
 BEGIN
@@ -466,7 +480,9 @@ BEGIN
     VALUES (p_name, p_price, p_sku)
     RETURNING id INTO v_id;
 
-    RETURN v_id;
+    RETURN ROW('success', 'Product created', v_id, 'Product',
+        (SELECT data FROM v_product WHERE id = v_id),
+        NULL, NULL, NULL)::mutation_response;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -475,24 +491,41 @@ CREATE OR REPLACE FUNCTION fn_update_product(
     p_name  TEXT,
     p_price NUMERIC(10, 2),
     p_sku   TEXT
-) RETURNS BOOLEAN AS $$
+) RETURNS mutation_response AS $$
+DECLARE
+    v_id UUID;
 BEGIN
     UPDATE tb_product
     SET name  = p_name,
         price = p_price,
         sku   = p_sku
-    WHERE id = p_id;
+    WHERE id = p_id
+    RETURNING id INTO v_id;
 
-    RETURN FOUND;
+    IF v_id IS NULL THEN
+        RETURN ROW('failed:not_found', 'product not found: ' || p_id,
+            NULL, 'Product', NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+
+    RETURN ROW('success', 'Product updated', v_id, 'Product',
+        (SELECT data FROM v_product WHERE id = v_id),
+        NULL, NULL, NULL)::mutation_response;
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION fn_delete_product(
     p_id UUID
-) RETURNS BOOLEAN AS $$
+) RETURNS mutation_response AS $$
 BEGIN
     DELETE FROM tb_product WHERE id = p_id;
-    RETURN FOUND;
+
+    IF NOT FOUND THEN
+        RETURN ROW('failed:not_found', 'product not found: ' || p_id,
+            NULL, 'Product', NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+
+    RETURN ROW('success', 'Product deleted', p_id, 'Product',
+        NULL, NULL, NULL, NULL)::mutation_response;
 END;
 $$ LANGUAGE plpgsql;
 ```
@@ -591,7 +624,7 @@ curl http://localhost:11434/api/chat -d '{
     },
     {
       "role": "user",
-      "content": "Generate a v_product view for:\n\nCREATE TABLE tb_product (\n    pk_product INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,\n    name TEXT NOT NULL,\n    price NUMERIC(10, 2) NOT NULL\n);"
+      "content": "Generate a v_product view for:\n\nCREATE TABLE tb_product (\n    pk_product BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,\n    identifier TEXT NOT NULL UNIQUE,\n    name TEXT NOT NULL,\n    price NUMERIC(10, 2) NOT NULL\n);"
     }
   ],
   "stream": false

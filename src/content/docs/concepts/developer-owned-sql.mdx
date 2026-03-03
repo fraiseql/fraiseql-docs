@@ -271,11 +271,12 @@ Given this table:
   <TabItem label="PostgreSQL">
     ```sql
     CREATE TABLE tb_order (
-        pk_order INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
-        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
-        total NUMERIC(10, 2) NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
+        pk_order   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id         UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        identifier TEXT UNIQUE NOT NULL,
+        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
+        total      NUMERIC(10, 2) NOT NULL,
+        status     TEXT NOT NULL DEFAULT 'pending',
         created_at TIMESTAMPTZ DEFAULT NOW()
     );
     ```
@@ -284,11 +285,12 @@ Given this table:
   <TabItem label="MySQL">
     ```sql
     CREATE TABLE tb_order (
-        pk_order BIGINT PRIMARY KEY AUTO_INCREMENT,
-        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
+        pk_order   BIGINT PRIMARY KEY AUTO_INCREMENT,
+        id         CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
+        identifier VARCHAR(255) UNIQUE NOT NULL,
         fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
-        total DECIMAL(10, 2) NOT NULL,
-        status VARCHAR(255) NOT NULL DEFAULT 'pending',
+        total      DECIMAL(10, 2) NOT NULL,
+        status     VARCHAR(255) NOT NULL DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     ```
@@ -297,11 +299,12 @@ Given this table:
   <TabItem label="SQLite">
     ```sql
     CREATE TABLE tb_order (
-        pk_order INTEGER PRIMARY KEY AUTOINCREMENT,
-        id TEXT NOT NULL UNIQUE,
-        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
-        total REAL NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
+        pk_order   INTEGER PRIMARY KEY AUTOINCREMENT,
+        id         TEXT NOT NULL UNIQUE,
+        identifier TEXT UNIQUE NOT NULL,
+        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
+        total      REAL NOT NULL,
+        status     TEXT NOT NULL DEFAULT 'pending',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     ```
@@ -310,11 +313,12 @@ Given this table:
   <TabItem label="SQL Server">
     ```sql
     CREATE TABLE dbo.tb_order (
-        pk_order BIGINT PRIMARY KEY IDENTITY(1,1),
-        id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),
+        pk_order   BIGINT PRIMARY KEY IDENTITY(1,1),
+        id         UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWSEQUENTIALID(),
+        identifier NVARCHAR(255) UNIQUE NOT NULL,
         fk_user BIGINT NOT NULL REFERENCES dbo.tb_user(pk_user),
-        total DECIMAL(10, 2) NOT NULL,
-        status NVARCHAR(255) NOT NULL DEFAULT 'pending',
+        total      DECIMAL(10, 2) NOT NULL,
+        status     NVARCHAR(255) NOT NULL DEFAULT 'pending',
         created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
     );
     ```

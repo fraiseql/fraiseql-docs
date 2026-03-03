@@ -59,16 +59,16 @@ Injected values are appended **after** the explicit GraphQL arguments when calli
 CREATE FUNCTION fn_create_document(
     p_title TEXT,       -- client arg
     p_created_by TEXT   -- injected from jwt:sub, must come last
-) RETURNS SETOF v_document ...
+) RETURNS mutation_response ...
 
 -- Wrong: injected param declared first — gets the wrong value at runtime
 CREATE FUNCTION fn_create_document(
     p_created_by TEXT,  -- ← will receive p_title's value instead
     p_title TEXT
-) RETURNS SETOF v_document ...
+) RETURNS mutation_response ...
 ```
 
-`fraiseql compile` validates inject key names and source syntax but cannot verify SQL function arity — parameter order is a developer responsibility.
+The Python authoring layer validates inject key names and source syntax when the decorator is evaluated at import time. `fraiseql compile` emits a warning about parameter ordering when inject params are present but does not independently re-validate key format or source syntax. SQL function arity cannot be verified at compile time — parameter order is a developer responsibility.
 </Aside>
 
 ### Multi-tenant queries
@@ -94,11 +94,15 @@ Only `jwt:<claim_name>` is supported. The claim name must be a valid identifier 
 
 ## Rules and validation
 
-**Compile-time checks (`fraiseql compile`):**
+**Authoring-time checks (Python SDK, at decorator evaluation):**
 
 - Inject key must be a valid identifier: `^[A-Za-z_][A-Za-z0-9_]*$`
 - Source value must match `^jwt:[A-Za-z_][A-Za-z0-9_]*$` — other formats (e.g. `header:`) are rejected
 - Inject key must not conflict with a declared GraphQL argument on the same query or mutation
+
+**`fraiseql compile` checks:**
+
+- Emits a warning when a mutation has inject params to remind about parameter ordering requirements
 
 **Runtime:**
 
@@ -118,10 +122,12 @@ def my_posts() -> list[Post]: ...
 ```
 
 ```sql
--- v_post filters to the injected author_id automatically
+-- FraiseQL runtime appends WHERE author_id = $1 using the jwt:sub value
 CREATE VIEW v_post AS
-  SELECT jsonb_build_object('id', id, 'title', title, 'author_id', author_id) AS data
-  FROM tb_post;
+  SELECT
+    p.id,
+    jsonb_build_object('id', p.id::text, 'title', p.title, 'author_id', p.author_id) AS data
+  FROM tb_post p;
 ```
 
 The SQL layer receives `author_id = '<value from jwt.sub>'` appended to the query, equivalent to `WHERE author_id = $1` with a parameterized value.

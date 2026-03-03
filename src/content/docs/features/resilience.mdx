@@ -23,9 +23,8 @@ FraiseQL maintains a connection pool for each configured database. The pool reus
 Configure pool settings per database in `fraiseql.toml`:
 
 ```toml
-[databases.primary]
+[database]
 url = "${DATABASE_URL}"
-type = "postgresql"
 pool_size = 10
 timeout_seconds = 30
 ```
@@ -433,7 +432,7 @@ The following features are planned for future releases:
 Increase `pool_size` or reduce query concurrency:
 
 ```toml
-[databases.primary]
+[database]
 pool_size = 20  # Increase from default 10
 ```
 
@@ -451,7 +450,7 @@ pool_size = 20  # Increase from default 10
 
 3. Increase timeout for legitimate long-running queries:
    ```toml
-   [databases.analytics]
+   [database]
    timeout_seconds = 120
    ```
 

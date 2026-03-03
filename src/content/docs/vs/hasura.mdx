@@ -176,29 +176,35 @@ Plus separate files for:
 FraiseQL uses **observers** for reactive business logic — you define conditions and actions that trigger on database changes:
 
 <Tabs>
-  <TabItem label="Python">
-    ```python
-    from fraiseql import observer, webhook, slack, email
-    from fraiseql.observers import RetryConfig
+  <TabItem label="TOML">
+    ```toml title="fraiseql.toml"
+    [observers]
+    backend = "nats"
+    nats_url = "nats://localhost:4222"
 
-    @observer(
-        entity="Order",
-        event="INSERT",
-        condition="total > 1000",
-        actions=[
-            webhook("https://api.example.com/high-value-orders"),
-            slack("#sales", "High-value order {id}: ${total}"),
-            email(
-                to="sales@example.com",
-                subject="High-value order {id}",
-                body="Order {id} for ${total} was created",
-            ),
-        ],
-        retry=RetryConfig(max_attempts=5, backoff_strategy="exponential"),
-    )
-    def on_high_value_order():
-        """Triggered when a high-value order is created."""
-        pass
+    [[observers.rules]]
+    entity = "Order"
+    event = "INSERT"
+    condition = "total > 1000"
+
+    [[observers.rules.actions]]
+    type = "webhook"
+    url = "https://api.example.com/high-value-orders"
+
+    [[observers.rules.actions]]
+    type = "slack"
+    channel = "#sales"
+    message = "High-value order {id}: ${total}"
+
+    [[observers.rules.actions]]
+    type = "email"
+    to = "sales@example.com"
+    subject = "High-value order {id}"
+    body = "Order {id} for ${total} was created"
+
+    [observers.rules.retry]
+    max_attempts = 5
+    backoff_strategy = "exponential"
     ```
   </TabItem>
   <TabItem label="TypeScript">
@@ -261,27 +267,35 @@ Plus a separate HTTP service to handle the logic. Hasura also has event triggers
 
 Hasura calls your external HTTP webhook. You own and deploy a separate service to handle the event.
 
-### FraiseQL: `@observer` Decorator
+### FraiseQL: Observer Rules
 
 <Tabs>
-  <TabItem label="Python">
-    ```python
-    from fraiseql import observer, webhook, slack, email
-    from fraiseql.observers import RetryConfig
+  <TabItem label="TOML">
+    ```toml title="fraiseql.toml"
+    [observers]
+    backend = "nats"
+    nats_url = "nats://localhost:4222"
 
-    @observer(
-        entity="Order",
-        event="INSERT",
-        actions=[
-            webhook("https://my-service.example.com/on-order-created",
-                    headers={"X-Webhook-Secret": "{env.WEBHOOK_SECRET}"}),
-            slack("#orders", "New order {id} received"),
-        ],
-        retry=RetryConfig(max_attempts=3, interval_sec=30, timeout_sec=60),
-    )
-    def on_order_created():
-        """Triggered when a new order is inserted."""
-        pass
+    [[observers.rules]]
+    entity = "Order"
+    event = "INSERT"
+
+    [[observers.rules.actions]]
+    type = "webhook"
+    url = "https://my-service.example.com/on-order-created"
+
+    [observers.rules.actions.headers]
+    X-Webhook-Secret = "{env.WEBHOOK_SECRET}"
+
+    [[observers.rules.actions]]
+    type = "slack"
+    channel = "#orders"
+    message = "New order {id} received"
+
+    [observers.rules.retry]
+    max_attempts = 3
+    interval_sec = 30
+    timeout_sec = 60
     ```
   </TabItem>
   <TabItem label="TypeScript">
@@ -321,30 +335,37 @@ Hasura calls your external HTTP webhook. You own and deploy a separate service t
   </TabItem>
 </Tabs>
 
-The key difference: Hasura event triggers require you to host an external HTTP service. FraiseQL observers are declared inline in your schema code — actions like `webhook`, `slack`, and `email` are built-in, with no separate service required.
+The key difference: Hasura event triggers require you to host an external HTTP service. FraiseQL observers are configured in `fraiseql.toml` — actions like `webhook`, `slack`, and `email` are built-in to the FraiseQL runtime, with no separate service required.
 
 ## Input Validation
 
 ### FraiseQL: Compile-Time Validation
 
-FraiseQL enforces validation during schema compilation, before any query executes:
+FraiseQL enforces access control during schema compilation, before any query executes:
 
-- **13 built-in validators** across 4 categories
-  - Standard: required, pattern, length, range, enum, checksum
-  - Cross-field: comparison operators, conditionals
-  - Mutual exclusivity: OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent
-- **No runtime overhead** — validation rules are baked into the schema
-- **Impossible to deploy invalid schemas** — validation rule conflicts caught at build time
-- **Zero database errors** — invalid data never reaches the database
+- **Scope-based field access control** — requires JWT scopes to read or write protected fields
+- **No runtime overhead** — access rules are baked into the compiled schema
+- **Impossible to deploy invalid schemas** — configuration conflicts caught at build time
+- **Zero database errors** — unauthorized writes never reach the database
 
-All validation is declarative — rules are defined via decorators in your schema code:
+Access control rules are declared directly on fields using `fraiseql.field()`:
 
 ```python
-@fraiseql.type
+from typing import Annotated
+import fraiseql
+
+@fraiseql.input
 class CreateUserInput:
-    email: Annotated[str, fraiseql.field(pattern=r"^[^@]+@[^@]+\.[^@]+$")]
-    age: Annotated[int, fraiseql.field(range={"min": 0, "max": 150})]
-    phone: Annotated[str, fraiseql.field(length=10)]
+    email: str
+    age: int
+    phone: str
+
+    # Protected field — requires admin scope to set
+    role: Annotated[str, fraiseql.field(
+        requires_scope="admin:write",
+        on_deny="reject",
+        description="User role — admin only",
+    )]
 ```
 
 ### Hasura: Runtime Validation
@@ -362,11 +383,10 @@ For anything beyond GraphQL type checking, Hasura users must implement custom Ac
 
 | Aspect | FraiseQL | Hasura |
 |--------|----------|--------|
-| Built-in validators | 13 rules | ~3 (via GraphQL types) |
+| Field access control | Scope-based (compile-time) | Permissions YAML |
 | Compile-time enforcement | ✅ Yes | ❌ No |
-| Mutual exclusivity | OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent | @oneOf only |
-| Cross-field validation | ✅ Yes | ❌ Custom Actions required |
-| Database protection | Invalid data impossible | Possible without Actions |
+| Cross-field validation | ✅ Yes (PostgreSQL CHECK constraints) | ❌ Custom Actions required |
+| Database protection | Unauthorized data impossible | Possible without Actions |
 | Configuration | Declarative TOML | GraphQL directives + Actions |
 
 ## When to Use Hasura
@@ -565,20 +585,21 @@ Hasura Action:
     handler: http://payments:3000/process
 ```
 
-FraiseQL observer:
-```python
-@observer(
-    entity="Order",
-    event="UPDATE",
-    condition="status = 'pending_payment'",
-    actions=[
-        webhook("https://payments.internal/process",
-                body={"order_id": "{id}", "amount": "{total}"}),
-    ],
-)
-def on_pending_payment():
-    """Process payment when order status changes."""
-    pass
+FraiseQL observer (TOML-based configuration):
+
+```toml title="fraiseql.toml"
+[[observers.rules]]
+entity = "Order"
+event = "UPDATE"
+condition = "status = 'pending_payment'"
+
+[[observers.rules.actions]]
+type = "webhook"
+url = "https://payments.internal/process"
+
+[observers.rules.actions.body]
+order_id = "{id}"
+amount = "{total}"
 ```
 
 ## Quick Migration

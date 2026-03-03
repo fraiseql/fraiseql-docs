@@ -1,81 +1,98 @@
 ---
 title: Real-Time Analytics Platform
-description: Real-time data aggregation with federation, NATS, and custom resolvers
+description: Real-time data aggregation with NATS ingestion, Arrow Flight analytics, and live subscriptions
 ---
 
 import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-A real-time analytics platform combining data federation, NATS event streaming, and custom resolvers for live dashboards.
+A real-time analytics platform combining NATS-based event ingestion, pre-computed aggregates, Arrow Flight columnar analytics, and live GraphQL subscriptions for dashboards.
 
 ## Architecture
 
 ```
 Event Sources (Web, Mobile, Server)
         |
-   NATS Event Bus
+   External Ingestion Worker (nats.py)
         |
-   +----+----+
-   |         |
-Raw Events  Aggregates
-   DB          DB
-   |         |
-   +----+----+
-        |
-  FraiseQL API
-  (Federation + Custom Resolvers)
-        |
-   Dashboards
+    PostgreSQL
+   /          \
+Raw Events   Aggregates
+(tb_)        (tb_ + tv_)
+   |              |
+   +------+-------+
+          |
+    FraiseQL API
+    (queries + subscriptions)
+          |
+     Dashboards
 ```
+
+<Aside type="note">
+FraiseQL is **read-only for analytics** — it exposes GraphQL queries and subscriptions over views. Event ingestion (NATS → PostgreSQL) and batch aggregation (pg_cron or an external scheduler) happen outside FraiseQL. The Python SDK is compile-time only: no runtime resolvers, no NATS client, no job scheduler.
+</Aside>
 
 ## Database Schema
 
 ```sql
 -- Raw events (immutable log)
 CREATE TABLE tb_pageview_event (
-    pk_event   SERIAL PRIMARY KEY,
-    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    user_id    UUID NOT NULL,
-    session_id UUID NOT NULL,
-    page_url   TEXT NOT NULL,
-    referrer   TEXT,
-    timestamp  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    properties JSONB NOT NULL DEFAULT '{}'
+    pk_event    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier  TEXT UNIQUE NOT NULL,
+    fk_user BIGINT REFERENCES tb_user(pk_user),
+    session_id  UUID NOT NULL,
+    page_url    TEXT NOT NULL,
+    referrer    TEXT,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    properties  JSONB NOT NULL DEFAULT '{}'
 );
 
--- Pre-computed aggregates
+CREATE UNIQUE INDEX idx_tb_pageview_event_id ON tb_pageview_event(id);
+CREATE INDEX idx_tb_pageview_event_fk_user ON tb_pageview_event(fk_user);
+CREATE INDEX idx_tb_pageview_event_page_url ON tb_pageview_event(page_url);
+CREATE INDEX idx_tb_pageview_event_recorded_at ON tb_pageview_event(recorded_at DESC);
+
+-- Pre-computed aggregates (updated by pg_cron or external worker)
 CREATE TABLE tb_pageview_aggregate (
-    pk_aggregate    SERIAL PRIMARY KEY,
+    pk_aggregate    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id              UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier      TEXT UNIQUE NOT NULL,  -- e.g. '/products|2024-01-15'
     page_url        TEXT NOT NULL,
     date            DATE NOT NULL,
-    view_count      INT NOT NULL DEFAULT 0,
-    unique_visitors INT NOT NULL DEFAULT 0,
+    view_count      INTEGER NOT NULL DEFAULT 0,
+    unique_visitors INTEGER NOT NULL DEFAULT 0,
     bounce_rate     FLOAT NOT NULL DEFAULT 0.0,
     avg_session_duration FLOAT NOT NULL DEFAULT 0.0,
     computed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(page_url, date)
 );
 
--- Views with JSONB data column
+CREATE UNIQUE INDEX idx_tb_pageview_aggregate_id ON tb_pageview_aggregate(id);
+CREATE INDEX idx_tb_pageview_aggregate_page_url_date
+    ON tb_pageview_aggregate(page_url, date DESC);
+
+-- Read view: raw events
 CREATE VIEW v_pageview_event AS
 SELECT
     e.id,
     jsonb_build_object(
         'id',          e.id::text,
-        'user_id',     e.user_id::text,
+        'identifier',  e.identifier,
         'session_id',  e.session_id::text,
         'page_url',    e.page_url,
         'referrer',    e.referrer,
-        'timestamp',   e.timestamp,
+        'recorded_at', e.recorded_at,
         'properties',  e.properties
     ) AS data
 FROM tb_pageview_event e;
 
+-- Read view: pre-computed aggregates
 CREATE VIEW v_pageview_aggregate AS
 SELECT
     a.id,
     jsonb_build_object(
         'id',                   a.id::text,
+        'identifier',           a.identifier,
         'page_url',             a.page_url,
         'date',                 a.date,
         'view_count',           a.view_count,
@@ -85,289 +102,324 @@ SELECT
         'computed_at',          a.computed_at
     ) AS data
 FROM tb_pageview_aggregate a;
+
+-- Arrow Flight view for high-throughput columnar analytics
+CREATE VIEW va_pageview_aggregate AS
+SELECT
+    page_url,
+    date,
+    view_count,
+    unique_visitors,
+    bounce_rate,
+    avg_session_duration
+FROM tb_pageview_aggregate;
 ```
 
-## Event Schema
+## Python Schema
 
-```python
+```python title="schema.py"
 import fraiseql
-from datetime import datetime
-from typing import Optional
+from fraiseql.scalars import ID, DateTime, Date
 
-@fraiseql.type(database="raw_events")
+
+@fraiseql.type
 class PageViewEvent:
     """Raw immutable page view event."""
-    id: fraiseql.ID
-    user_id: fraiseql.ID
-    session_id: fraiseql.ID
+    id: ID
+    identifier: str
+    session_id: str
     page_url: str
-    referrer: Optional[str]
-    timestamp: datetime
-    properties: dict
+    referrer: str | None
+    recorded_at: DateTime
+    properties: fraiseql.Json
 
-@fraiseql.type(database="aggregates")
+
+@fraiseql.type
 class PageViewAggregate:
-    """Pre-computed page view metrics."""
-    id: fraiseql.ID
+    """Pre-computed page view metrics for a page on a given date."""
+    id: ID
+    identifier: str
     page_url: str
-    date: str  # YYYY-MM-DD
+    date: Date
     view_count: int
     unique_visitors: int
     bounce_rate: float
     avg_session_duration: float
-    computed_at: datetime
-```
+    computed_at: DateTime
 
-## Real-Time Event Ingestion
 
-```python
-@fraiseql.nats.subscribe(
-    subject="events.pageview",
-    consumer_group="analytics_ingestion",
-    max_concurrent=100  # High concurrency for real-time
+@fraiseql.query(sql_source="v_pageview_event")
+def pageview_events(
+    page_url: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[PageViewEvent]:
+    """List raw page view events. Supports filtering by page_url."""
+    pass
+
+
+@fraiseql.query(sql_source="v_pageview_aggregate", cache_ttl_seconds=60)
+def page_analytics(page_url: str, date: str) -> PageViewAggregate | None:
+    """Get pre-computed analytics for a specific page on a given date."""
+    pass
+
+
+@fraiseql.query(sql_source="v_pageview_aggregate", cache_ttl_seconds=300)
+def top_pages(limit: int = 50) -> list[PageViewAggregate]:
+    """Get top pages by view count (all dates, ordered by view_count DESC)."""
+    pass
+
+
+@fraiseql.subscription(
+    entity_type="PageViewAggregate",
+    topic="analytics.aggregate.updated",
 )
-async def ingest_pageview(message):
-    """
-    Ingest page view events.
-    Store raw for long-term analysis.
-    Update aggregates for dashboards.
-    """
-    event = message.data
+def live_page_metrics(page_url: str | None = None) -> PageViewAggregate:
+    """Subscribe to real-time aggregate updates as new events are processed."""
+    pass
 
-    try:
-        # Store raw event (immutable)
-        await ctx.db.execute(
-            """
-            INSERT INTO tb_pageview_event
-                (user_id, session_id, page_url, referrer, timestamp, properties)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-            """,
-            [
-                event["user_id"],
-                event["session_id"],
-                event["page_url"],
-                event.get("referrer"),
-                event["timestamp"],
-                json.dumps(event.get("properties", {}))
-            ]
-        )
 
-        # Upsert real-time aggregate
-        today = datetime.now().strftime("%Y-%m-%d")
-        await ctx.db.execute(
-            """
-            INSERT INTO tb_pageview_aggregate (page_url, date, view_count, unique_visitors, computed_at)
-            VALUES ($1, $2, 1, 1, NOW())
-            ON CONFLICT (page_url, date)
-            DO UPDATE SET
-                view_count = tb_pageview_aggregate.view_count + 1,
-                computed_at = NOW()
-            """,
-            [event["page_url"], today]
-        )
-
-        # Publish enriched event for other consumers
-        await fraiseql.nats.publish(
-            subject="analytics.pageview.processed",
-            data=event
-        )
-
-        await message.ack()
-
-    except Exception as e:
-        await log_error({"event": event, "error": str(e)})
-        await message.nak(timeout=5000)
+fraiseql.export_schema("schema.json")
 ```
 
-## Analytics Queries with Custom Resolvers
+## fraiseql.toml
 
-<Aside type="tip">
-Custom field resolvers let you compute metrics on the fly from raw events while serving pre-computed aggregates for performance. Federation ties both databases together in one GraphQL response.
+```toml title="fraiseql.toml"
+[project]
+name = "analytics-platform"
+version = "1.0.0"
+
+[database]
+type = "postgresql"
+url  = "${DATABASE_URL}"
+
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[auth]
+issuer_url = "${OIDC_ISSUER_URL}"
+client_id  = "${OIDC_CLIENT_ID}"
+
+# When tb_pageview_aggregate is updated, push live subscription events via NATS.
+# The Rust runtime receives pg_notify from PostgreSQL and forwards to subscribers.
+[[observers]]
+table   = "tb_pageview_aggregate"
+event   = "UPDATE"
+subject = "analytics.aggregate.updated"
+
+[[observers]]
+table   = "tb_pageview_aggregate"
+event   = "INSERT"
+subject = "analytics.aggregate.updated"
+
+[observers]
+backend  = "nats"
+nats_url = "${NATS_URL}"
+
+[caching]
+enabled = true
+backend = "redis"
+
+[fraiseql.security.audit_logging]
+enabled   = true
+log_level = "info"
+```
+
+## Real-Time Event Ingestion — External Worker
+
+<Aside type="note">
+The ingestion worker is a **standalone Python process** using `nats.py` and `asyncpg`. It is not a FraiseQL schema file. FraiseQL has no Python NATS subscription API — event ingestion is handled entirely outside FraiseQL.
 </Aside>
 
-```python
-@fraiseql.type(database="aggregates")
-class PageAnalytics:
-    """Analytics for a specific page."""
-    page_url: str
-    date: str
+```python title="ingestion-worker/main.py"
+"""
+Analytics ingestion worker.
+Subscribes to NATS using nats.py and writes raw events to PostgreSQL.
+This is a standalone service — not a FraiseQL schema file.
+"""
+import asyncio
+import json
+import uuid
+import asyncpg
+import nats
 
-    # Federated data from raw events
-    raw_events: list[PageViewEvent] = fraiseql.federated(
-        database="raw_events",
-        lookup="page_url"
+
+async def ingest_pageview(msg):
+    """
+    Store a page view event.
+    Raw events are immutable — always INSERT, never UPDATE.
+    Upserts the real-time aggregate for today's date.
+    """
+    event = json.loads(msg.data)
+
+    conn = await asyncpg.connect(POSTGRES_URL)
+    try:
+        # Store raw event
+        identifier = str(uuid.uuid4())
+        await conn.execute(
+            """
+            INSERT INTO tb_pageview_event
+                (identifier, fk_user, session_id, page_url, referrer, recorded_at, properties)
+            VALUES ($1, $2, $3::uuid, $4, $5, $6::timestamptz, $7::jsonb)
+            """,
+            identifier,
+            event.get("user_pk"),       # INTEGER FK resolved by the sender
+            event["session_id"],
+            event["page_url"],
+            event.get("referrer"),
+            event["timestamp"],
+            json.dumps(event.get("properties", {})),
+        )
+
+        # Upsert real-time aggregate for today
+        agg_identifier = f"{event['page_url']}|{event['date']}"
+        await conn.execute(
+            """
+            INSERT INTO tb_pageview_aggregate
+                (identifier, page_url, date, view_count, unique_visitors, computed_at)
+            VALUES ($1, $2, $3::date, 1, 1, NOW())
+            ON CONFLICT (page_url, date)
+            DO UPDATE SET
+                view_count  = tb_pageview_aggregate.view_count + 1,
+                computed_at = NOW()
+            """,
+            agg_identifier,
+            event["page_url"],
+            event["date"],
+        )
+        # pg_notify fires here; FraiseQL observer forwards to analytics.aggregate.updated NATS subject
+        # which drives live_page_metrics subscription clients.
+
+        await msg.ack()
+
+    except Exception as exc:
+        print(f"[ingestion-worker] ERROR: {exc}")
+        await msg.nak(delay=5)
+    finally:
+        await conn.close()
+
+
+async def main():
+    nc = await nats.connect(NATS_URL)
+    js = nc.jetstream()
+
+    await js.subscribe(
+        "events.pageview",
+        durable="analytics_ingestion",
+        cb=ingest_pageview,
     )
+    print("Ingestion worker listening on events.pageview")
+    await asyncio.sleep(float("inf"))
 
-    # Custom computed metrics
-    @fraiseql.field_resolver
-    async def bounce_rate(self, ctx) -> float:
-        """
-        Bounce rate: % of sessions with single pageview.
-        Computed from raw events.
-        """
-        sessions = await ctx.db.query(
-            """SELECT DISTINCT session_id FROM tb_pageview_event
-               WHERE page_url = $1 AND DATE(timestamp) = $2""",
-            [self.page_url, self.date]
-        )
 
-        if not sessions:
-            return 0.0
+if __name__ == "__main__":
+    import os
+    NATS_URL = os.environ["NATS_URL"]
+    POSTGRES_URL = os.environ["DATABASE_URL"]
+    asyncio.run(main())
+```
 
-        single_view_sessions = await ctx.db.query_one(
-            """SELECT COUNT(DISTINCT session_id) as count
-               FROM (
-                   SELECT session_id
-                   FROM tb_pageview_event
-                   WHERE page_url = $1 AND DATE(timestamp) = $2
-                   GROUP BY session_id
-                   HAVING COUNT(*) = 1
-               ) sub""",
-            [self.page_url, self.date]
-        )
+## Batch Aggregation — pg_cron
 
-        return (single_view_sessions["count"] / len(sessions)) * 100
+<Aside type="note">
+FraiseQL has no scheduled job API. Historical re-aggregation is handled by **pg_cron** (a PostgreSQL extension) or an external scheduler (cron, Celery, Temporal). The SQL function below is called by pg_cron, not by FraiseQL.
+</Aside>
 
-    @fraiseql.field_resolver
-    async def avg_session_duration(self, ctx) -> float:
-        """Average session duration in seconds."""
-        result = await ctx.db.query_one(
-            """SELECT AVG(EXTRACT(EPOCH FROM
-                 (MAX(timestamp) - MIN(timestamp)))) as avg_duration
-               FROM tb_pageview_event
-               WHERE page_url = $1 AND DATE(timestamp) = $2
-               GROUP BY session_id""",
-            [self.page_url, self.date]
-        )
-        return result["avg_duration"] or 0.0
-
-    @fraiseql.field_resolver
-    async def conversion_funnel(self, ctx) -> dict:
-        """Analyze conversion funnel for this page."""
-        funnel_steps = await ctx.db.query(
-            """SELECT step_number, COUNT(DISTINCT user_id) as users
-               FROM tb_conversion_funnel
-               WHERE landing_page = $1 AND DATE(timestamp) = $2
-               GROUP BY step_number
-               ORDER BY step_number""",
-            [self.page_url, self.date]
-        )
-
-        result = {}
-        prev_count = None
-        for step in funnel_steps:
-            result[f"step_{step['step_number']}"] = {
-                "users": step["users"],
-                "conversion_rate": (
-                    (step["users"] / prev_count * 100)
-                    if prev_count else 100
+```sql title="migrations/batch_aggregation.sql"
+-- Batch re-aggregate yesterday's data from raw events.
+-- Called by pg_cron every hour. More accurate than real-time upserts.
+CREATE OR REPLACE FUNCTION fn_batch_aggregate_pageviews(p_date DATE)
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO tb_pageview_aggregate
+        (identifier, page_url, date, view_count, unique_visitors, bounce_rate, computed_at)
+    SELECT
+        page_url || '|' || p_date::text AS identifier,
+        page_url,
+        p_date,
+        COUNT(*) AS view_count,
+        COUNT(DISTINCT session_id) AS unique_visitors,
+        -- Bounce rate: sessions with exactly one pageview
+        ROUND(
+            COUNT(DISTINCT session_id) FILTER (
+                WHERE session_id IN (
+                    SELECT session_id
+                    FROM tb_pageview_event
+                    WHERE DATE(recorded_at) = p_date
+                    GROUP BY session_id
+                    HAVING COUNT(*) = 1
                 )
-            }
-            prev_count = step["users"]
+            )::numeric
+            / NULLIF(COUNT(DISTINCT session_id), 0) * 100,
+            2
+        ) AS bounce_rate,
+        NOW() AS computed_at
+    FROM tb_pageview_event
+    WHERE DATE(recorded_at) = p_date
+    GROUP BY page_url
+    ON CONFLICT (page_url, date)
+    DO UPDATE SET
+        view_count      = EXCLUDED.view_count,
+        unique_visitors = EXCLUDED.unique_visitors,
+        bounce_rate     = EXCLUDED.bounce_rate,
+        computed_at     = EXCLUDED.computed_at;
+END;
+$$;
 
-        return result
-
-
-# Root queries for dashboards
-@fraiseql.query(sql_source="v_pageview_aggregate", cache_ttl=60)
-async def page_analytics(
-    page_url: str,
-    date: str
-) -> PageAnalytics:
-    """Get live analytics for a specific page."""
-    pass
-
-@fraiseql.query(sql_source="v_pageview_aggregate", cache_ttl=300)
-async def top_pages(limit: int = 50) -> list[PageAnalytics]:
-    """Get top pages by view count (today's stats)."""
-    pass
+-- Schedule with pg_cron (runs every hour, re-aggregates yesterday)
+-- Requires pg_cron extension: CREATE EXTENSION pg_cron;
+SELECT cron.schedule(
+    'batch-aggregate-pageviews',
+    '0 * * * *',
+    $$SELECT fn_batch_aggregate_pageviews(CURRENT_DATE - 1)$$
+);
 ```
 
 ## Real-Time Subscriptions
 
 ```python
-@fraiseql.subscription
-async def live_metrics(ctx) -> dict:
-    """
-    Real-time metrics subscription.
-    Updates every second with latest stats.
-    """
-    @fraiseql.nats.subscribe(
-        subject="analytics.pageview.processed",
-        deliver_policy="deliver_new"  # Only new events
-    )
-    async def stream_metrics(message):
-        today = datetime.now().strftime("%Y-%m-%d")
-        latest = await ctx.db.query_one(
-            """SELECT COUNT(DISTINCT user_id) as active_users,
-                      COUNT(DISTINCT session_id) as active_sessions,
-                      COUNT(*) as events_per_second
-               FROM tb_pageview_event
-               WHERE DATE(timestamp) = $1
-               AND timestamp > NOW() - INTERVAL '1 second'""",
-            [today]
-        )
+# In schema.py — already declared above, shown here for clarity:
 
-        yield {
-            "timestamp": datetime.now().isoformat(),
-            "active_users": latest["active_users"],
-            "active_sessions": latest["active_sessions"],
-            "events_per_second": latest["events_per_second"]
-        }
+@fraiseql.subscription(
+    entity_type="PageViewAggregate",
+    topic="analytics.aggregate.updated",
+)
+def live_page_metrics(page_url: str | None = None) -> PageViewAggregate:
+    """
+    Subscribe to real-time aggregate updates.
 
-        await message.ack()
+    Flow:
+      1. Ingestion worker upserts tb_pageview_aggregate
+      2. PostgreSQL pg_notify fires on UPDATE/INSERT
+      3. FraiseQL Rust observer forwards to NATS analytics.aggregate.updated
+      4. Subscription clients receive updated PageViewAggregate
+
+    Pass page_url to filter events to a specific page.
+    """
+    pass
 ```
 
-## Performance Optimization
+GraphQL subscription query for dashboards:
 
-```python
-# Batch aggregation for older data
-@fraiseql.job(interval=3600000)  # Run every hour
-async def batch_aggregate_historical():
-    """
-    Batch re-compute aggregates for yesterday.
-    More efficient than real-time updates.
-    """
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-
-    # Drop old aggregate
-    await ctx.db.execute(
-        "DELETE FROM tb_pageview_aggregate WHERE date = $1",
-        [yesterday]
-    )
-
-    # Batch recompute from raw events
-    aggregates = await ctx.db.query(
-        """SELECT
-               page_url,
-               $1::date AS date,
-               COUNT(*) AS view_count,
-               COUNT(DISTINCT user_id) AS unique_visitors
-           FROM tb_pageview_event
-           WHERE DATE(timestamp) = $1
-           GROUP BY page_url""",
-        [yesterday]
-    )
-
-    for agg in aggregates:
-        await ctx.db.execute(
-            """
-            INSERT INTO tb_pageview_aggregate
-                (page_url, date, view_count, unique_visitors, computed_at)
-            VALUES ($1, $2, $3, $4, NOW())
-            ON CONFLICT (page_url, date) DO UPDATE
-            SET view_count = EXCLUDED.view_count,
-                unique_visitors = EXCLUDED.unique_visitors,
-                computed_at = NOW()
-            """,
-            [agg['page_url'], agg['date'], agg['view_count'], agg['unique_visitors']]
-        )
+```graphql
+subscription LiveDashboard {
+  livePageMetrics(pageUrl: "/products") {
+    pageUrl
+    date
+    viewCount
+    uniqueVisitors
+    bounceRate
+    avgSessionDuration
+    computedAt
+  }
+}
 ```
 
 ## Dashboard Queries
 
 ```graphql
-# Real-time dashboard
+# Real-time dashboard — cached for 60 seconds
 query DashboardMetrics {
   topPages(limit: 10) {
     pageUrl
@@ -381,79 +433,119 @@ query DashboardMetrics {
     pageUrl
     viewCount
     uniqueVisitors
-    conversionFunnel {
-      step_1 { users, conversionRate }
-      step_2 { users, conversionRate }
-      step_3 { users, conversionRate }
-    }
-  }
-}
-
-# Historical report
-query HistoricalReport($startDate: String!, $endDate: String!) {
-  cohortAnalysis(startDate: $startDate, endDate: $endDate) {
-    cohorts {
-      date
-      newUsers
-      sessions
-    }
-    totalUsers
-    totalSessions
+    bounceRate
+    avgSessionDuration
+    computedAt
   }
 }
 ```
 
-## Testing Analytics Pipeline
+## Arrow Flight for Columnar Analytics
 
-```python
+For high-throughput columnar data export (BI tools, data warehouses), the `va_pageview_aggregate` view is exposed via Arrow Flight:
+
+```python title="analytics-client/arrow_query.py"
+"""
+Query FraiseQL Arrow Flight endpoint for columnar analytics.
+Uses the va_ view convention for Arrow-native access.
+"""
+import pyarrow.flight as flight
+import pandas as pd
+
+
+def query_top_pages(limit: int = 100) -> pd.DataFrame:
+    client = flight.connect("grpc://localhost:8815")
+
+    descriptor = flight.FlightDescriptor.for_command(
+        b'SELECT page_url, date, view_count, unique_visitors, bounce_rate '
+        b'FROM va_pageview_aggregate '
+        b'ORDER BY view_count DESC '
+        b'LIMIT 100'
+    )
+
+    info = client.get_flight_info(descriptor)
+    reader = client.do_get(info.endpoints[0].ticket)
+    table = reader.read_all()
+    return table.to_pandas()
+
+
+if __name__ == "__main__":
+    df = query_top_pages()
+    print(df.head(20))
+```
+
+## Testing the Analytics Pipeline
+
+```python title="tests/test_analytics.py"
+import asyncio
+import json
+import pytest
+import nats
+import httpx
+
+
 @pytest.mark.asyncio
 async def test_event_to_aggregate_flow():
-    """Test complete event ingestion to aggregation."""
-    # Generate test events
-    for i in range(100):
-        event = {
-            "user_id": f"user-{i % 10}",
-            "session_id": f"session-{i % 5}",
-            "page_url": "/products",
-            "timestamp": datetime.now().isoformat()
-        }
-        await nats.publish("events.pageview", event)
+    """Publish events via NATS; verify aggregate is updated via GraphQL."""
+    nc = await nats.connect(NATS_URL)
+    js = nc.jetstream()
 
-    # Wait for processing
-    await asyncio.sleep(0.5)
+    # Publish 10 test events
+    for i in range(10):
+        await js.publish(
+            "events.pageview",
+            json.dumps({
+                "user_pk": i % 3 + 1,
+                "session_id": f"session-{i % 5}",
+                "page_url": "/test-page",
+                "date": "2024-01-15",
+                "timestamp": "2024-01-15T10:00:00Z",
+            }).encode(),
+        )
+    await nc.drain()
 
-    # Verify aggregates updated
-    agg = await get_aggregate("/products")
-    assert agg.view_count == 100
-    assert agg.unique_visitors == 10
+    # Wait for ingestion worker to process
+    await asyncio.sleep(1.0)
 
-@pytest.mark.asyncio
-async def test_bounce_rate_calculation():
-    """Test bounce rate resolver."""
-    analytics = await get_page_analytics("/products")
-    bounce_rate = await analytics.bounce_rate()
-    assert 0 <= bounce_rate <= 100
+    async with httpx.AsyncClient(base_url="http://localhost:8080") as client:
+        response = await client.post(
+            "/graphql",
+            json={
+                "query": """
+                    query {
+                        pageAnalytics(pageUrl: "/test-page", date: "2024-01-15") {
+                            viewCount
+                            uniqueVisitors
+                        }
+                    }
+                """
+            },
+            headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+        )
+        data = response.json()
+        assert data["data"]["pageAnalytics"]["viewCount"] >= 10
+        assert data["data"]["pageAnalytics"]["uniqueVisitors"] >= 3
 ```
 
 ## Production Checklist
 
-- [ ] NATS cluster with JetStream persistence
-- [ ] Raw events archived to long-term storage
-- [ ] Aggregates automatically computed per time period
-- [ ] Cache eviction policy tuned for working set
-- [ ] Monitoring on event lag and query latency
-- [ ] Backfill strategy for missing data
-- [ ] Data retention policies defined
-- [ ] High-speed dashboard requires sub-second latency
+- [ ] NATS cluster with JetStream persistence configured
+- [ ] Raw events archived to long-term storage (S3, GCS) via a separate consumer
+- [ ] pg_cron scheduled for hourly re-aggregation
+- [ ] `cache_ttl_seconds` tuned per query based on acceptable staleness
+- [ ] Monitoring on NATS consumer lag and PostgreSQL query latency
+- [ ] Backfill strategy defined for missing aggregation windows
+- [ ] Data retention policies set for `tb_pageview_event` (e.g. 90-day TTL)
+- [ ] Arrow Flight endpoint secured with mTLS for BI tool access
 
 <CardGrid>
-  <Card title="Advanced Federation" icon="seti:db">
-    Multi-DB patterns for analytics pipelines.
+  <Card title="Subscriptions Reference" icon="seti:db">
+    Full subscription configuration options.
   </Card>
-  <Card title="Advanced NATS" icon="random">
-    JetStream streaming and replay patterns.
+  <Card title="Arrow Flight" icon="random">
+    Columnar analytics via va_ views.
   </Card>
-  <Card title="Custom Resolvers" icon="puzzle">
-    Complex calculations in field resolvers.
+  <Card title="Observers Reference" icon="puzzle">
+    TOML observer configuration for NATS events.
   </Card>
 </CardGrid>

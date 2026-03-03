@@ -1,68 +1,180 @@
 ---
 title: Field-Level Encryption
-description: Encrypt sensitive data at rest with automatic key rotation
+description: Encrypt sensitive data at rest with AES-256-GCM via the fraiseql-secrets Rust runtime
 ---
 
 import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/components';
 
-FraiseQL provides transparent field-level encryption for sensitive data, with automatic key rotation and compliance features.
+FraiseQL provides transparent field-level encryption for sensitive data. Encryption happens entirely in the Rust runtime — no PostgreSQL extensions are required, and GraphQL clients always receive decrypted plaintext.
 
-<Aside type="caution">
-Field-level encryption uses **PostgreSQL's pgcrypto extension** and is only supported with a PostgreSQL database. Other database backends do not support this feature.
+## How It Works
 
-Ensure pgcrypto is enabled before enabling encryption:
-```sql
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-```
+Field-level encryption in FraiseQL is implemented by the `fraiseql-secrets` Rust crate using AES-256-GCM authenticated encryption. The encryption layer sits between the GraphQL executor and the database:
+
+1. **On write (mutations)**: the runtime intercepts field values marked for encryption, encrypts them using AES-256-GCM before they reach the database, and stores the ciphertext as binary data.
+2. **On read (queries)**: the runtime decrypts ciphertext from the database back to plaintext before returning the GraphQL response.
+
+GraphQL clients have no awareness of encryption — they send and receive plaintext values. The ciphertext never appears in a GraphQL response.
+
+<Aside type="note">
+Field-level encryption is implemented in Rust (AES-256-GCM via the `aes-gcm` crate with constant-time operations and key zeroing on drop). PostgreSQL's `pgcrypto` extension is **not** used and is **not** required.
 </Aside>
 
-## Overview
+### Wire Format
 
-Field-level encryption protects sensitive data at rest. The application layer sees plaintext, FraiseQL's encryption layer handles automatic AES-256-GCM encrypt/decrypt transparently, and only ciphertext is stored in the database.
+Each encrypted value is stored as `[12-byte nonce][ciphertext][16-byte GCM tag]`. A fresh random nonce is generated for every encryption operation, so encrypting the same plaintext twice always produces different ciphertexts. The GCM authentication tag verifies both integrity and authenticity — any tampering causes decryption to fail.
 
-## Configuration
+### Optional Context Binding
 
-### Enable Encryption
+For additional security, fields can be encrypted with an Additional Authenticated Data (AAD) context string (for example, `"user:{id}:field:email:op:insert"`). The context is bound into the GCM authentication tag but is not stored in the ciphertext. Decryption requires supplying the identical context, which means a ciphertext cannot be moved from one record to another and decrypted successfully.
 
-```toml
-[encryption]
-enabled = true
-algorithm = "AES-256-GCM"
+## Key Management
 
-[encryption.keys]
-# Current encryption key (base64-encoded)
-current = "${ENCRYPTION_KEY}"
+Encryption keys are never stored in `fraiseql.toml`. They are fetched at runtime from the configured secrets backend.
 
-# Previous keys for decryption during rotation
-previous = ["${ENCRYPTION_KEY_OLD}"]
+### Secrets Backends
+
+FraiseQL supports three secrets backends, selected at server startup:
+
+| Backend | Use Case |
+|---------|----------|
+| **Environment variables** | Development and simple deployments |
+| **Local files** | Testing, Docker secrets, Kubernetes secret volumes |
+| **HashiCorp Vault** | Production — dynamic secrets, automatic lease renewal |
+
+<Aside type="caution">
+Never store encryption keys in `fraiseql.toml`, in source code, or in plain-text environment files committed to version control. Use Vault, Kubernetes secrets with encryption at rest, or a secrets manager appropriate to your platform.
+</Aside>
+
+### Generating a Key
+
+AES-256-GCM requires exactly 32 bytes (256 bits). Generate a key with:
+
+```bash
+# Generate a 32-byte random key and base64-encode it for storage
+openssl rand -hex 32
+# Example output: a3f2b1c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5e6f7a8b9c0d1e2
 ```
 
-### Define Encrypted Fields
+Store the raw 32-byte value (not base64) as an environment variable or Vault secret. The key must be exactly 32 bytes when interpreted as UTF-8 or binary — the runtime validates this at startup and will refuse to start if the key length is wrong.
 
-In your schema, mark fields for encryption:
+### Environment Variable Backend
 
-```python
-from typing import Annotated
-import fraiseql
+The simplest approach for development:
 
-@fraiseql.type
-class User:
-    id: fraiseql.ID
-    name: str
+```bash
+# The value must be exactly 32 bytes
+export FIELD_ENCRYPTION_KEY_EMAIL="01234567890123456789012345678901"
+export FIELD_ENCRYPTION_KEY_PHONE="abcdefghijklmnopqrstuvwxyz012345"
+```
 
-    # Encrypted at rest
-    email: Annotated[str, fraiseql.field(encrypted=True)]
-    ssn: Annotated[str, fraiseql.field(encrypted=True)]
-    phone: Annotated[str, fraiseql.field(encrypted=True)]
+Each field uses its own named key. The key name in the environment corresponds to the `key_reference` configured in the compiled schema — see [Configuring Encrypted Fields](#configuring-encrypted-fields) below.
+
+### File Backend
+
+For Docker secrets or Kubernetes secret volumes, keys can be stored in files. Each file contains the raw 32-byte key value. The backend reads the file contents at startup and whenever the cache is invalidated.
+
+### HashiCorp Vault Backend
+
+For production, use Vault to centralize key storage and enable lease-based rotation:
+
+```bash
+# Write an encryption key to Vault KV2
+vault kv put secret/fraiseql/keys/email \
+    value="01234567890123456789012345678901"
+
+vault kv put secret/fraiseql/keys/phone \
+    value="abcdefghijklmnopqrstuvwxyz012345"
+```
+
+The Vault backend supports:
+- **Token authentication** (simple deployments)
+- **AppRole authentication** (recommended for production — no long-lived tokens)
+- Automatic caching of secrets for 80% of the Vault lease duration
+- Retry with exponential backoff (up to 3 attempts) on transient errors
+
+## Configuring Encrypted Fields
+
+Encrypted field configuration lives in the **compiled schema**, not in `fraiseql.toml` and not in the Python schema decorators. The Python `fraiseql.field()` decorator does not support an `encrypted` parameter — field encryption is configured separately as part of the schema compilation pipeline.
+
+Each encrypted field requires a `key_reference` — the name used to fetch the encryption key from the secrets backend. At server startup, the `FieldEncryptionService` reads the compiled schema, identifies all fields with encryption config, and maps each field to its key.
+
+### SQL Schema
+
+Store encrypted fields as `TEXT` or `BYTEA` in the base table. The runtime stores base64-encoded ciphertext as a text value. Use the trinity pattern for all base tables:
+
+```sql
+CREATE TABLE tb_user (
+    pk_user    BIGINT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID    DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT    UNIQUE NOT NULL,  -- e.g., email hash or username
+
+    -- Encrypted fields: stored as base64-encoded AES-256-GCM ciphertext
+    email      TEXT    NOT NULL,  -- plaintext never stored here
+    phone      TEXT,              -- nullable encrypted field
+    ssn        TEXT,
+
+    name       TEXT    NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX idx_tb_user_id ON tb_user(id);
+```
+
+The read view exposes these fields normally — decryption happens in the Rust runtime before the response is sent, so the view returns the ciphertext and the runtime decrypts it:
+
+```sql
+CREATE VIEW v_user AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id',         u.id::text,
+        'identifier', u.identifier,
+        'name',       u.name,
+        'email',      u.email,   -- ciphertext; runtime decrypts before response
+        'phone',      u.phone,
+        'ssn',        u.ssn,
+        'created_at', u.created_at
+    ) AS data
+FROM tb_user u;
+```
+
+### Mutation Function
+
+The mutation function receives plaintext from the GraphQL client. The runtime encrypts the values before passing them to the function, so the function always receives ciphertext:
+
+```sql
+CREATE FUNCTION fn_create_user(
+    p_identifier TEXT,
+    p_name       TEXT,
+    p_email      TEXT,   -- receives ciphertext from runtime
+    p_phone      TEXT,
+    p_ssn        TEXT
+) RETURNS mutation_response AS $$
+DECLARE
+    v_user_id UUID := gen_random_uuid();
+    v_pk      BIGINT;
+BEGIN
+    INSERT INTO tb_user (id, identifier, name, email, phone, ssn)
+    VALUES (v_user_id, p_identifier, p_name, p_email, p_phone, p_ssn)
+    RETURNING pk_user INTO v_pk;
+
+    RETURN ROW(
+        'success', NULL, v_user_id, 'User',
+        (SELECT data FROM v_user WHERE id = v_user_id),
+        NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 ```
 
 ## What Clients See
 
-Even though encrypted fields are stored as ciphertext in PostgreSQL, the GraphQL response always contains the decrypted plaintext value. Clients have no awareness of encryption:
+Encryption is completely transparent to GraphQL clients. Clients send plaintext and receive plaintext:
 
 ```graphql
-query {
-    user(id: "user-123") {
+mutation {
+    createUser(identifier: "alice", name: "Alice Smith", email: "alice@example.com", ssn: "123-45-6789") {
         id
         name
         email
@@ -76,8 +188,8 @@ Response:
 ```json
 {
     "data": {
-        "user": {
-            "id": "user-123",
+        "createUser": {
+            "id": "a1b2c3d4-...",
             "name": "Alice Smith",
             "email": "alice@example.com",
             "ssn": "123-45-6789"
@@ -86,293 +198,63 @@ Response:
 }
 ```
 
-Meanwhile, the raw database row stores:
+Meanwhile, the raw database row stores only ciphertext:
 
 ```
-id    | name        | email                                          | ssn
-------+-------------+------------------------------------------------+------------------------------------------------
-123   | Alice Smith | \x0102...EncryptedBase64Blob...==              | \x0102...AnotherEncryptedBlob...==
+pk_user | id       | identifier | email                                      | ssn
+--------+----------+------------+--------------------------------------------+--------------------------------------------
+1       | a1b2c3.. | alice      | dGhpcyBpcyBiYXNlNjQgZW5jb2RlZCBjaXBoZXJ0  | bm9uY2UrcGF5bG9hZCthdXRodGFn
 ```
 
-## Key Management
+If you query the base table directly in PostgreSQL, you see only ciphertext. The runtime is the only component that holds the key and can decrypt.
 
-### Comparison
+## Searching Encrypted Fields
 
-Choose a key management approach based on your compliance requirements:
+Encrypted fields cannot be used in `WHERE` clauses because the stored ciphertext is different for each encryption (random nonces). You have two options for enabling lookup:
 
-| Approach | Setup Complexity | Security | Key Rotation | Best For |
-|----------|-----------------|----------|--------------|----------|
-| **Local key** (env var) | Low | Medium | Manual | Development, small teams |
-| **HashiCorp Vault** | Medium | High | Automatic | Self-hosted production |
-| **AWS KMS / Azure Key Vault / GCP KMS** | Medium | Very High | Automatic | Cloud-native production |
+### Blind Index
 
-<Aside type="caution">
-Never store encryption keys in source code, configuration files committed to git, or plain text environment files. Use HashiCorp Vault, AWS KMS / Azure Key Vault / GCP KMS, or Kubernetes secrets with encryption at rest.
-</Aside>
-
-### Local Key (Development Only)
-
-```toml
-[encryption]
-enabled = true
-algorithm = "AES-256-GCM"
-
-[encryption.keys]
-current = "${ENCRYPTION_KEY}"
-```
-
-Generate a key:
-
-```bash
-openssl rand -base64 32
-# Example output: 7K9mN2pQrStUvWxYz0AbCdEfGhIjKlMn4oPqRsTuVwXy=
-```
-
-### HashiCorp Vault Integration
-
-For production, use HashiCorp Vault for key management:
-
-```toml
-[encryption]
-enabled = true
-provider = "vault"
-
-[encryption.vault]
-address = "${VAULT_ADDR}"
-token = "${VAULT_TOKEN}"
-secret_path = "secret/data/fraiseql/encryption"
-key_name = "field-encryption-key"
-```
-
-### AWS KMS
-
-```toml
-[encryption]
-enabled = true
-provider = "aws_kms"
-
-[encryption.aws_kms]
-key_id = "${AWS_KMS_KEY_ID}"
-region = "${AWS_REGION}"
-```
-
-## Verifying Encryption is Working
-
-After enabling encryption, confirm that sensitive fields are stored as ciphertext and not plaintext:
-
-```bash
-# Connect directly to PostgreSQL and inspect the raw column
-psql "$DATABASE_URL" -c \
-    "SELECT id, email FROM tb_user LIMIT 3;"
-```
-
-Expected output (encrypted):
-
-```
-  id  | email
-------+--------------------------------------------------
-  1   | \x01020000001234...EncryptedBlob...5678==
-  2   | \x01020000009abc...AnotherBlob...def0==
-  3   | \x010200000056ef...ThirdBlob...ab12==
-```
-
-If you see plaintext email addresses, encryption is not active. Check that:
-1. `[encryption] enabled = true` is set in `fraiseql.toml`
-2. `ENCRYPTION_KEY` environment variable is set
-3. The `pgcrypto` extension is installed in PostgreSQL
-4. The server was restarted after configuration changes
-
-You can also use the built-in verification command:
-
-```bash
-fraiseql-cli encryption verify
-# Output:
-# Checking 3 encrypted field(s) across 1 table(s)...
-# ✓ tb_user.email: encrypted (AES-256-GCM)
-# ✓ tb_user.ssn: encrypted (AES-256-GCM)
-# ✓ tb_user.phone: encrypted (AES-256-GCM)
-# All fields verified.
-```
-
-## Key Rotation
-
-Regular key rotation limits the exposure window if a key is compromised.
-
-### Automatic Key Rotation
-
-Configure automatic key rotation:
-
-```toml
-[encryption.rotation]
-enabled = true
-interval_days = 90
-notify_before_days = 14
-
-[encryption.rotation.vault]
-# Vault handles key versioning
-auto_rotate = true
-```
-
-### Manual Key Rotation Process
-
-<Steps>
-1. **Generate a new key** and store it in your secrets manager.
-
-2. **Update `fraiseql.toml`**: move the current key to `previous` and set the new key as `current`:
-   ```toml
-   [encryption.keys]
-   current = "${ENCRYPTION_KEY_NEW}"
-   previous = ["${ENCRYPTION_KEY_OLD}"]
-   ```
-
-3. **Dry run** to validate the rotation without committing changes:
-   ```bash
-   fraiseql-cli encryption rotate --dry-run
-   # Output:
-   # Would re-encrypt 12,450 rows across 3 fields
-   # Estimated time: ~45 seconds
-   # No changes made (dry run)
-   ```
-
-4. **Apply the rotation**:
-   ```bash
-   fraiseql-cli encryption rotate --confirm
-   # Output:
-   # Re-encrypting tb_user.email... done (12,450 rows)
-   # Re-encrypting tb_user.ssn... done (12,450 rows)
-   # Re-encrypting tb_user.phone... done (12,450 rows)
-   # Rotation complete. Old key can be removed in 24h.
-   ```
-
-5. **Verify** all data decrypts correctly with the new key:
-   ```bash
-   fraiseql-cli encryption verify
-   ```
-
-6. **Remove the old key** from `previous` after confirming no errors for 24 hours.
-</Steps>
-
-### How Lazy Re-encryption Works
-
-FraiseQL does not require a bulk re-encryption job. When a record encrypted with an old key is read, FraiseQL:
-
-1. Detects the key version in the ciphertext header
-2. Decrypts using the matching previous key
-3. Re-encrypts with the current key
-4. Writes the updated ciphertext back to the database
-
-This means key rotation completes organically as records are accessed. Use `fraiseql-cli encryption rotate --confirm` to force-rotate all records at once before removing old keys.
-
-## Supported Field Types
-
-| Field Type | Encryption Support |
-|------------|-------------------|
-| `String` | Full |
-| `Email` | Full |
-| `Phone` | Full |
-| `JSONB` | Full (entire object) |
-| `Int` | Partial (stored as string) |
-| `Float` | Partial (stored as string) |
-| `Boolean` | Not recommended |
-| `Date` | Partial (stored as string) |
-
-## Query Considerations
-
-### Encrypted Fields in WHERE Clauses
-
-Encrypted fields cannot be directly searched:
-
-```graphql
-# Will not work - field is encrypted
-query {
-    users(where: { email: { _eq: "user@example.com" } }) {
-        id
-        name
-    }
-}
-```
-
-### Solutions for Searchable Encrypted Data
-
-#### 1. Blind Index
-
-Store a hash alongside encrypted data:
+Add a deterministic hash of the plaintext as a separate column. Use a keyed hash (HMAC-SHA256 with a separate secret) rather than a plain SHA-256 to prevent preimage attacks:
 
 ```sql
--- In your migration
-ALTER TABLE tb_user ADD COLUMN email_hash TEXT;
-CREATE INDEX ON tb_user(email_hash);
+ALTER TABLE tb_user ADD COLUMN email_hmac TEXT;
+CREATE INDEX idx_tb_user_email_hmac ON tb_user(email_hmac);
 ```
 
-```python
-@fraiseql.type
-class User:
-    email: Annotated[str, fraiseql.field(encrypted=True, blind_index=True)]
-```
+The application computes `HMAC-SHA256(email, hmac_key)` before inserting. Lookups search on the HMAC column, not the encrypted column.
 
-#### 2. Separate Lookup Table
+### Lookup Table
 
-For exact match queries on encrypted fields:
+For exact-match lookups on an encrypted field, maintain a separate lookup table using the trinity pattern:
 
 ```sql
 CREATE TABLE tb_user_email_lookup (
-    email_hash TEXT PRIMARY KEY,
-    fk_user BIGINT REFERENCES tb_user(pk_user)
+    pk_user_email_lookup BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id                   UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier           TEXT   UNIQUE NOT NULL,  -- the HMAC of the email
+
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user)
 );
+
+CREATE INDEX idx_tb_user_email_lookup_fk ON tb_user_email_lookup(fk_user);
 ```
 
-## Performance
+`identifier` holds the HMAC of the email address. To look up a user by email, compute the HMAC client-side and query on `identifier`.
 
-### Encryption Overhead
+## Key Rotation
 
-| Operation | Overhead |
-|-----------|----------|
-| Encrypt (per field) | ~0.1ms |
-| Decrypt (per field) | ~0.1ms |
-| Batch (100 rows) | ~5ms |
+Key rotation is handled at the secrets backend level:
 
-### Optimization Tips
+- **Vault**: rotate the KV2 secret. The runtime cache is invalidated automatically (cache TTL is 80% of the Vault lease). New encryptions use the new key. Existing ciphertext encrypted with the old key remains readable until the cache clears and a fresh key is fetched — there is no built-in re-encryption of historical rows.
+- **Environment variables**: update the environment variable and restart the server. Existing rows encrypted with the old key will fail to decrypt after the restart.
 
-1. **Batch operations**: Encrypt/decrypt in batches
-2. **Cache decrypted values**: For frequently-accessed data
-3. **Minimize encrypted fields**: Only encrypt truly sensitive data
-
-## Compliance
-
-### Audit Logging
-
-All encryption operations are logged:
-
-```toml
-[encryption.audit]
-enabled = true
-log_access = true
-log_rotation = true
-```
-
-Audit entries include:
-- Field accessed
-- User/service that accessed
-- Timestamp
-- Operation type (encrypt/decrypt)
-
-### Compliance Profiles
-
-```toml
-[compliance]
-profile = "HIPAA"  # or "PCI", "SOC2", "GDPR"
-
-[compliance.hipaa]
-# HIPAA-specific requirements
-encryption_required_fields = ["ssn", "medical_record", "diagnosis"]
-audit_retention_days = 2555  # 7 years
-```
+<Aside type="caution">
+Changing an encryption key without re-encrypting historical data will cause decryption failures for existing rows. Plan key rotation carefully. Vault is the recommended approach because it supports key versioning and graceful rotation workflows.
+</Aside>
 
 ## Error Handling
 
-### Decryption Failures
-
-When decryption fails (e.g., wrong key):
+When decryption fails (wrong key, corrupted data, or context mismatch), the runtime returns a GraphQL error:
 
 ```json
 {
@@ -386,100 +268,58 @@ When decryption fails (e.g., wrong key):
 }
 ```
 
-### Key Rotation During Queries
+The authentication tag verification in AES-256-GCM means that any modification to the ciphertext — including truncation, bit flipping, or key mismatch — causes an explicit failure rather than silently returning garbage data.
 
-FraiseQL automatically tries previous keys:
+## Performance
 
-<Steps>
-1. Attempt decrypt with current key
-2. If fails, try previous keys in order
-3. If successful, re-encrypt with current key (lazy migration)
-4. If all fail, return error
-</Steps>
+AES-256-GCM is implemented in Rust with hardware acceleration (AES-NI) where available. Typical overhead:
 
-## Metrics
+| Operation | Overhead |
+|-----------|----------|
+| Encrypt (per field) | ~0.1 ms |
+| Decrypt (per field) | ~0.1 ms |
 
-| Metric | Description |
-|--------|-------------|
-| `fraiseql_encryption_ops_total` | Encryption operations |
-| `fraiseql_decryption_ops_total` | Decryption operations |
-| `fraiseql_encryption_latency_ms` | Operation latency |
-| `fraiseql_key_rotation_total` | Key rotations performed |
+Cipher instances are cached per field in the `DatabaseFieldAdapter` — the expensive key-schedule setup runs once per field at startup (or after cache invalidation), not on every request.
 
-## Best Practices
+**Recommendations:**
 
-### Encrypt Minimal Data
+- Only encrypt fields that genuinely contain sensitive data (PII, credentials, financial identifiers). Adding encryption to non-sensitive fields adds latency without a security benefit.
+- Use the `Arc<FieldEncryption>` sharing model — the runtime already does this, so no additional action is needed from schema authors.
+- If a field is frequently accessed, the cipher cache means decryption adds no key-fetch overhead after the first call.
 
-Only encrypt truly sensitive fields:
+## Combining Encryption with Access Control
+
+Field-level encryption and field-level access control (`fraiseql.field(requires_scope=...)`) are orthogonal features and can be combined. Access control is enforced before decryption: if a caller lacks the required scope, the field is rejected or masked and decryption is never attempted.
+
+Example: a `ssn` field that is both encrypted at rest and requires a specific scope to read:
 
 ```python
+from typing import Annotated
+import fraiseql
+
 @fraiseql.type
 class User:
-    id: fraiseql.ID           # Don't encrypt - needed for queries
-    name: str                 # Don't encrypt - low sensitivity
-    email: Annotated[str, fraiseql.field(encrypted=True)]  # PII
-    ssn: Annotated[str, fraiseql.field(encrypted=True)]    # Highly sensitive
-    created_at: DateTime      # Don't encrypt - needed for queries
+    id: fraiseql.ID
+    name: str
+    email: str  # encrypted at rest (configured in compiled schema)
+
+    # Encrypted at rest AND requires scope to read
+    ssn: Annotated[str | None, fraiseql.field(
+        requires_scope="pii:read_ssn",
+        on_deny="mask"
+    )]
 ```
 
-### Rotate Keys Regularly
-
-```toml
-[encryption.rotation]
-interval_days = 90  # Every 90 days
-```
-
-## Troubleshooting
-
-### "Decryption failed" Errors
-
-1. Verify encryption key is correct
-2. Check previous keys are configured
-3. Run verification: `fraiseql-cli encryption verify`
-
-### Performance Degradation
-
-1. Profile encryption operations
-2. Check batch sizes
-3. Consider caching frequently-accessed decrypted values
-
-### Key Rotation Stuck
-
-1. Check Vault connectivity
-2. Verify permissions for key operations
-3. Review audit logs for errors
-
-## Verify Transparent Decryption
-
-Encryption is transparent to GraphQL clients — they always receive decrypted values:
-
-```bash
-curl -s http://localhost:8080/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"query": "{ me { email ssn } }"}'
-```
-
-```json
-{
-  "data": {
-    "me": {
-      "email": "alice@example.com",
-      "ssn": null
-    }
-  }
-}
-```
-
-<Aside type="note">
-`email` is returned decrypted — the AES-256-GCM ciphertext stored in the database is never exposed to clients. `ssn` is `null` because the caller's role lacks `read:ssn` permission — field-level access control is enforced before decryption.
-</Aside>
+The `encrypted=True` parameter does not exist in `fraiseql.field()`. The encrypted-at-rest configuration is separate from the access-control annotation and is set in the compiled schema, not in the Python decorator.
 
 ## Next Steps
 
 <CardGrid>
   <Card title="Security" icon="shield">
-    [Security](/features/security) — Authentication and RBAC
+    [Security](/features/security) — Authentication and field-level access control
+  </Card>
+  <Card title="Secrets Management" icon="seti:lock">
+    [Secrets](/features/secrets) — Vault integration and secrets backends
   </Card>
   <Card title="Deployment" icon="rocket">
     [Deployment](/guides/deployment) — Production key management

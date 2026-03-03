@@ -5,7 +5,7 @@ description: Production-ready FraiseQL project templates — from minimal to mul
 
 import { CardGrid, Card, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Three starter templates cover the most common starting points. Each is a working project you can clone and run with one command.
+Four starter templates cover the most common starting points. Each is a working project you can clone and run with one command.
 
 <CardGrid>
   <Card title="Minimal" icon="rocket">
@@ -134,7 +134,7 @@ Before each query, FraiseQL sets `app.tenant_id` from the injected JWT claim. Th
 ### Pattern 3 — Structured mutation errors
 
 ```python title="schema.py"
-@fraiseql.type
+@fraiseql.error
 class CreatePostError:
     code: str     # "unauthorized" | "conflict" | "invalid_input"
     message: str

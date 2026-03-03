@@ -268,8 +268,8 @@ CREATE TABLE tf_sales (
     occurred_at DATE NOT NULL,
 
     -- DENORMALIZED KEYS: Indexed filtering dimensions
-    customer_id UUID NOT NULL,           -- FK for JOINs
-    product_id UUID NOT NULL,            -- FK for JOINs
+    fk_customer BIGINT NOT NULL,        -- FK for JOINs
+    fk_product  BIGINT NOT NULL,        -- FK for JOINs
     product_category TEXT,               -- Denormalized for faster filtering
     customer_region TEXT,                -- Denormalized for faster filtering
     sales_channel TEXT,
@@ -280,8 +280,8 @@ CREATE TABLE tf_sales (
 );
 
 CREATE INDEX idx_tf_sales_occurred ON tf_sales(occurred_at);
-CREATE INDEX idx_tf_sales_customer ON tf_sales(customer_id);
-CREATE INDEX idx_tf_sales_product ON tf_sales(product_id);
+CREATE INDEX idx_tf_sales_customer ON tf_sales(fk_customer);
+CREATE INDEX idx_tf_sales_product ON tf_sales(fk_product);
 CREATE INDEX idx_tf_sales_category ON tf_sales(product_category);
 CREATE INDEX idx_tf_sales_region ON tf_sales(customer_region);
 CREATE INDEX idx_tf_sales_data ON tf_sales USING GIN(data);
@@ -325,11 +325,10 @@ Analytics views explicitly compose **dimensions + measures + temporal context** 
 
 ```sql
 -- PostgreSQL example
-CREATE VIEW v_sales AS
+CREATE VIEW va_sales AS
 SELECT
-    s.pk_sales,
-    s.customer_id,
-    s.product_id,
+    s.fk_customer,
+    s.fk_product,
     jsonb_build_object(
         'dimensions', s.data || jsonb_build_object(
             'date_info', cal.date_info,
@@ -438,66 +437,59 @@ CREATE TABLE ta_sales_daily (
     sync_count BIGINT DEFAULT 1,
     is_stale BOOLEAN DEFAULT FALSE,
 
-    PRIMARY KEY (day, customer_region, product_category, sales_channel),
-    INDEX idx_ta_sales_daily_year_month ON ta_sales_daily(year, month),
-    INDEX idx_ta_sales_daily_region ON ta_sales_daily(customer_region)
+    PRIMARY KEY (day, customer_region, product_category, sales_channel)
 );
 
+CREATE INDEX idx_ta_sales_daily_year_month ON ta_sales_daily(year, month);
+CREATE INDEX idx_ta_sales_daily_region ON ta_sales_daily(customer_region);
+
 -- Population procedure (runs hourly/daily)
-CREATE OR REPLACE PROCEDURE sp_sync_ta_sales_daily()
+CREATE OR REPLACE PROCEDURE sync_ta_sales_daily()
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    MERGE INTO ta_sales_daily t
-    USING (
-        SELECT
-            s.occurred_at AS day,
-            s.customer_region,
-            s.product_category,
-            s.sales_channel,
-            COUNT(*) AS order_count,
-            SUM(s.quantity) AS total_quantity,
-            SUM(s.revenue) AS total_revenue,
-            SUM(s.cost) AS total_cost,
-            SUM(s.discount) AS total_discount,
-            SUM(s.revenue - s.cost) AS total_profit,
-            AVG(s.revenue) AS avg_order_value,
-            cal.year,
-            cal.month,
-            cal.week,
-            cal.quarter
-        FROM tf_sales s
-        LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at
-        WHERE s.occurred_at >= CURRENT_DATE - INTERVAL '7 days'
-        GROUP BY s.occurred_at, s.customer_region, s.product_category, s.sales_channel,
-                 cal.year, cal.month, cal.week, cal.quarter
-    ) s
-    ON t.day = s.day
-        AND t.customer_region = s.customer_region
-        AND t.product_category = s.product_category
-        AND t.sales_channel = s.sales_channel
-    WHEN MATCHED THEN
-        UPDATE SET
-            order_count = s.order_count,
-            total_quantity = s.total_quantity,
-            total_revenue = s.total_revenue,
-            total_cost = s.total_cost,
-            total_discount = s.total_discount,
-            total_profit = s.total_profit,
-            avg_order_value = s.avg_order_value,
-            computed_at = CURRENT_TIMESTAMP,
-            sync_count = sync_count + 1,
-            is_stale = FALSE
-    WHEN NOT MATCHED THEN
-        INSERT (day, customer_region, product_category, sales_channel,
-                order_count, total_quantity, total_revenue, total_cost, total_discount,
-                total_profit, avg_order_value, year, month, week, quarter,
-                computed_at, sync_count, is_stale)
-        VALUES (s.day, s.customer_region, s.product_category, s.sales_channel,
-                s.order_count, s.total_quantity, s.total_revenue, s.total_cost,
-                s.total_discount, s.total_profit, s.avg_order_value,
-                s.year, s.month, s.week, s.quarter,
-                CURRENT_TIMESTAMP, 1, FALSE);
+    INSERT INTO ta_sales_daily (
+        day, customer_region, product_category, sales_channel,
+        order_count, total_quantity, total_revenue, total_cost, total_discount,
+        total_profit, avg_order_value, year, month, week, quarter,
+        computed_at, sync_count, is_stale
+    )
+    SELECT
+        s.occurred_at AS day,
+        s.customer_region,
+        s.product_category,
+        s.sales_channel,
+        COUNT(*) AS order_count,
+        SUM(s.quantity) AS total_quantity,
+        SUM(s.revenue) AS total_revenue,
+        SUM(s.cost) AS total_cost,
+        SUM(s.discount) AS total_discount,
+        SUM(s.revenue - s.cost) AS total_profit,
+        AVG(s.revenue) AS avg_order_value,
+        cal.year,
+        cal.month,
+        cal.week,
+        cal.quarter,
+        CURRENT_TIMESTAMP,
+        1,
+        FALSE
+    FROM tf_sales s
+    LEFT JOIN tb_calendar cal ON cal.reference_date = s.occurred_at
+    WHERE s.occurred_at >= CURRENT_DATE - INTERVAL '7 days'
+    GROUP BY s.occurred_at, s.customer_region, s.product_category, s.sales_channel,
+             cal.year, cal.month, cal.week, cal.quarter
+    ON CONFLICT (day, customer_region, product_category, sales_channel)
+    DO UPDATE SET
+        order_count = EXCLUDED.order_count,
+        total_quantity = EXCLUDED.total_quantity,
+        total_revenue = EXCLUDED.total_revenue,
+        total_cost = EXCLUDED.total_cost,
+        total_discount = EXCLUDED.total_discount,
+        total_profit = EXCLUDED.total_profit,
+        avg_order_value = EXCLUDED.avg_order_value,
+        computed_at = CURRENT_TIMESTAMP,
+        sync_count = ta_sales_daily.sync_count + 1,
+        is_stale = FALSE;
 
     -- Clean old data (older than 2 years)
     DELETE FROM ta_sales_daily

@@ -1,633 +1,471 @@
 ---
-title: Multi-Database Federation Configuration
-description: Configure FraiseQL to query across multiple databases
+title: Federation Configuration
+description: Configure each FraiseQL service as an Apollo Federation v2 subgraph and compose them with Apollo Router
 ---
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
-Multi-database federation enables FraiseQL to query, join, and aggregate data across PostgreSQL, MySQL, SQLite, and SQL Server instances simultaneously. This guide covers configuration, schema mapping, performance tuning, and production best practices.
+FraiseQL federation means running **multiple independent FraiseQL services**, each with its own database and compiled schema, composed into a supergraph by Apollo Router. This guide covers the `fraiseql.toml` configuration for each service and the Apollo Router setup that connects them.
 
-## Overview
-
-Federation architecture:
+## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│    FraiseQL GraphQL API Layer           │
-│    (Query Planning & Execution)         │
-└────────┬────────────────┬────────────────┘
-         │                │
-    ┌────▼─────┐     ┌─────▼────┐
-    │ Users DB │     │ Orders DB │
-    │PostgreSQL│     │   MySQL   │
-    └──────────┘     └───────────┘
-         ▲                ▲
-         │ Direct SQL     │ Direct SQL
-         │ Execution      │ Execution
+Client
+  │
+  ▼
+Apollo Router :4000     ← single entry point, routes queries to subgraphs
+  │         │
+  ▼         ▼
+User        Order
+Service     Service
+:4001       :4002
+  │           │
+  ▼           ▼
+PostgreSQL  PostgreSQL  ← each service has its own database
+(users)     (orders)
 ```
 
-Why federate?
-- **Microservices**: Independently deployed databases
-- **Legacy systems**: Integrate without refactoring
-- **Vendor lock-in**: Use best database for each use case
-- **Multi-region**: Query across geographic regions
-- **Performance**: Parallelize queries across databases
+Each FraiseQL service is entirely standalone:
+- Its own `fraiseql.toml` with a single `[database]` section
+- Its own Python schema file that compiles to `schema.compiled.json`
+- Its own Rust runtime process
 
-## Basic Multi-Database Setup
+---
 
-### Configuration File Structure
+## Per-Service `fraiseql.toml`
 
-Create `fraiseql.toml` with multiple database definitions:
+Every FraiseQL service has exactly one database. Use the `[database]` section (singular, not `[databases.service_name]`).
 
-```toml
-# fraiseql.toml
+### User Service
 
-# Primary database (default for all queries)
-[databases.default]
-driver = "postgresql"
-host = "localhost"
-port = 5432
-database = "fraiseql"
-username = "${DB_USERNAME}"
-password = "${DB_PASSWORD}"
-pool_size = 10
+```toml title="user-service/fraiseql.toml"
+[project]
+name = "user-service"
+version = "1.0.0"
+description = "User accounts and authentication subgraph"
 
-# Users database (separate PostgreSQL instance)
-[databases.users_db]
-driver = "postgresql"
-host = "users.internal.example.com"
-port = 5432
-database = "users"
-username = "${USERS_DB_USERNAME}"
-password = "${USERS_DB_PASSWORD}"
-pool_size = 10
-ssl_mode = "require"
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
 
-# Orders database (MySQL)
-[databases.orders_db]
-driver = "mysql"
-host = "orders.internal.example.com"
-port = 3306
-database = "orders"
-username = "${ORDERS_DB_USERNAME}"
-password = "${ORDERS_DB_PASSWORD}"
-pool_size = 20
-charset = "utf8mb4"
+[database]
+type = "postgresql"
+url = "${DATABASE_URL}"
 
-# Analytics database (SQL Server)
-[databases.analytics_db]
-driver = "sqlserver"
-host = "analytics.internal.example.com"
-port = 1433
-database = "analytics"
-username = "${ANALYTICS_DB_USERNAME}"
-password = "${ANALYTICS_DB_PASSWORD}"
-pool_size = 5
-
-# Legacy SQLite database (file-based)
-[databases.legacy_db]
-driver = "sqlite"
-path = "/data/legacy.db"
-pool_size = 2
-```
-
-### Environment Variables
-
-Store secrets securely:
-
-```bash
-# .env
-DB_USERNAME=fraiseql_user
-DB_PASSWORD=secure_password_here
-
-USERS_DB_USERNAME=users_service
-USERS_DB_PASSWORD=users_password_here
-
-ORDERS_DB_USERNAME=orders_service
-ORDERS_DB_PASSWORD=orders_password_here
-
-ANALYTICS_DB_USERNAME=analytics_service
-ANALYTICS_DB_PASSWORD=analytics_password_here
-```
-
-## Federation Configuration
-
-### Global Settings
-
-```toml
 [federation]
-# Enable multi-database queries
 enabled = true
+entity_key = "id"
 
-# Timeout for entire federation query (not per-database)
-timeout = "30s"
-
-# Maximum parallel queries to different databases
-max_concurrent_queries = 100
-
-# Join strategy (see below)
-join_strategy = "parallel"
-
-# Query planning cache
-planning_cache_enabled = true
-planning_cache_size = 1000
-```
-
-### Circuit Breaker
-
-Prevent cascading failures:
-
-```toml
-[federation.circuit_breaker]
+[fraiseql.security.audit_logging]
 enabled = true
+log_level = "info"
+async_logging = true
+buffer_size = 1000
+flush_interval_secs = 5
 
-# Open the circuit after this many consecutive failures
-failure_threshold = 5
+[fraiseql.security.error_sanitization]
+enabled = true
+generic_messages = true
+internal_logging = true
+leak_sensitive_details = false
 
-# Seconds to stay open before probing recovery
-recovery_timeout_secs = 60
+[fraiseql.security.rate_limiting]
+enabled = true
+auth_start_max_requests = 100
+auth_start_window_secs = 60
+failed_login_max_requests = 5
+failed_login_window_secs = 3600
 
-# Successful probes required to close the circuit
-success_threshold = 2
-
-# Per-database override (array of tables)
-[[federation.circuit_breaker.per_database]]
-database = "orders_db"
-failure_threshold = 10
-recovery_timeout_secs = 120
+[auth]
+client_id = "${OIDC_CLIENT_ID}"
+issuer_url = "${OIDC_ISSUER_URL}"
+redirect_uri = "${OIDC_REDIRECT_URI}"
 ```
 
-### Retry Policy
+### Order Service
 
-Handle transient failures:
+```toml title="order-service/fraiseql.toml"
+[project]
+name = "order-service"
+version = "1.0.0"
+description = "Orders and fulfillment subgraph"
 
-```toml
-[federation.retry]
-# Maximum attempts per query
-max_attempts = 3
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
 
-# Backoff strategy: linear, exponential, or fibonacci
-backoff = "exponential"
+[database]
+type = "postgresql"
+url = "${DATABASE_URL}"
 
-# Initial delay before first retry
-initial_delay = "100ms"
-
-# Maximum delay between retries
-max_delay = "5s"
-
-# Don't retry on these HTTP status codes
-dont_retry_on = [400, 401, 403, 404]
-
-# Per-database override
-[federation.retry.per_database.analytics_db]
-max_attempts = 5
-backoff = "linear"
-initial_delay = "50ms"
-```
-
-## Schema Mapping
-
-### Assigning Tables to Databases
-
-```python
-from fraiseql import type, federation
-
-@type
-@federation.database("users_db")
-class User:
-    id: ID
-    email: str
-    name: str
-    created_at: datetime
-
-@type
-@federation.database("orders_db")
-class Order:
-    id: ID
-    user_id: ID  # Foreign key to users_db
-    total: float
-    created_at: datetime
-
-@type
-@federation.database("analytics_db")
-class UserAnalytics:
-    user_id: ID
-    total_orders: int
-    lifetime_value: float
-```
-
-### Cross-Database Relationships
-
-Link entities across databases:
-
-```python
-from fraiseql import type, relationship
-
-@type
-@federation.database("users_db")
-class User:
-    id: ID
-    email: str
-    # Join with orders_db.orders
-    orders: list["Order"] = relationship(
-        foreign_key="orders.user_id",
-        database="orders_db"
-    )
-    analytics: "UserAnalytics" = relationship(
-        foreign_key="user_analytics.user_id",
-        database="analytics_db"
-    )
-
-@type
-@federation.database("orders_db")
-class Order:
-    id: ID
-    user_id: ID
-    total: float
-    # Back-reference to users_db
-    user: "User" = relationship(
-        foreign_key="user_id",
-        database="users_db"
-    )
-```
-
-### Type Compatibility Matrix
-
-When joining across databases, types must be compatible:
-
-```
-PostgreSQL UUID  <-> MySQL VARCHAR(36)  <-> SQL Server UNIQUEIDENTIFIER
-PostgreSQL BIGINT <-> MySQL BIGINT      <-> SQL Server BIGINT
-PostgreSQL JSONB  <-> MySQL JSON        <-> SQL Server NVARCHAR(MAX)
-PostgreSQL TIMESTAMP <-> MySQL DATETIME <-> SQL Server DATETIME2
-```
-
-FraiseQL handles type conversion automatically.
-
-## Connection Pooling per Database
-
-### Pool Configuration
-
-```toml
-# High-traffic database: larger pool
-[databases.orders_db]
-driver = "mysql"
-pool_size = 50          # Maximum connections
-min_idle = 10           # Keep connections warm
-max_lifetime = "30m"    # Recycle connections
-connection_timeout = "5s"
-
-# Occasional analytics queries: small pool
-[databases.analytics_db]
-driver = "sqlserver"
-pool_size = 5
-min_idle = 0            # Don't keep idle connections
-max_lifetime = "1h"
-connection_timeout = "10s"
-
-# Legacy system: minimal pool
-[databases.legacy_db]
-driver = "sqlite"
-pool_size = 2
-```
-
-### Pool Monitoring
-
-Monitor connection pool health:
-
-```python
-from fraiseql.federation import get_federation_stats
-
-stats = get_federation_stats()
-print(f"Orders DB pool: {stats['orders_db'].active_connections}/50")
-print(f"Analytics pool: {stats['analytics_db'].active_connections}/5")
-```
-
-## Federation Strategies
-
-### Parallel Execution
-
-Query all databases simultaneously:
-
-```toml
 [federation]
-join_strategy = "parallel"
-```
-
-```graphql
-query {
-    user(id: "123") {
-        id
-        email
-        orders {           # Queries orders_db in parallel
-            id
-            total
-        }
-        analytics {        # Queries analytics_db in parallel
-            total_orders
-            lifetime_value
-        }
-    }
-}
-```
-
-**Execution timeline:**
-```
-Time: 0ms  Start
-        ├─ PostgreSQL query: SELECT user
-        ├─ MySQL query: SELECT orders WHERE user_id=123
-        └─ SQL Server query: SELECT analytics WHERE user_id=123
-     300ms ✓ All results returned
-```
-
-### Sequential Execution
-
-Query databases in order:
-
-```toml
-[federation]
-join_strategy = "sequential"
-```
-
-**Execution timeline:**
-```
-Time: 0ms   Start PostgreSQL query
-     100ms  Get user, use ID for next query
-     100ms  Start MySQL query (WHERE user_id=123)
-     200ms  Get orders, use order_id for next query
-     200ms  Start SQL Server query
-     400ms  All results returned
-```
-
-### Conditional Execution
-
-Query based on previous results:
-
-```python
-from fraiseql import type, field
-
-@type
-@federation.database("users_db")
-class User:
-    id: ID
-    email: str
-
-    @field
-    async def orders(self) -> list["Order"]:
-        # Only fetch orders if user is premium
-        if not await self.is_premium():
-            return []
-
-        # Query orders_db
-        return await Order.query(user_id=self.id)
-
-    async def is_premium(self) -> bool:
-        # Check analytics_db
-        analytics = await UserAnalytics.query(user_id=self.id)
-        return analytics.lifetime_value > 10000
-```
-
-## Performance Tuning
-
-### Query Planning
-
-FraiseQL optimizes cross-database queries:
-
-```graphql
-# Good: Parallel queries
-query {
-    users {           # PostgreSQL
-        id
-        name
-        orders {      # MySQL - parallel fetch
-            total
-        }
-    }
-}
-
-# Avoid: Sequential nested queries
-query {
-    users {           # PostgreSQL
-        orders {      # MySQL - wait for each user ID
-            items {   # SQLite - wait for each order ID
-                details
-            }
-        }
-    }
-}
-```
-
-Enable query caching:
-
-```toml
-[federation]
-planning_cache_enabled = true
-planning_cache_size = 1000
-
-[federation.query_caching]
 enabled = true
-ttl = "1h"
-max_size = "100MB"
-```
+entity_key = "id"
 
-### Result Batching
-
-Reduce round-trips with batch operations:
-
-```python
-# Instead of N queries
-for user_id in user_ids:
-    orders = await Order.query(user_id=user_id)
-
-# Use batch API
-orders_by_user = await Order.batch_query(
-    user_ids=user_ids,
-    index_by="user_id"
-)
-```
-
-### Denormalization Strategy
-
-```python
-# Always join across databases (slow)
-@type
-class User:
-    order_count: int  # Requires query to orders_db
-
-# Cache in local database (fast)
-@type
-@federation.database("users_db")
-class User:
-    order_count: int  # Cached, updated by observer
-
-    @observer(entity="Order", event="INSERT")
-    def on_order_created():
-        # Update order count in users_db
-        pass
-```
-
-## Security Considerations
-
-### Per-Database Credentials
-
-```toml
-[databases.users_db]
-username = "${VAULT:database/creds/users/username}"
-password = "${VAULT:database/creds/users/password}"
-
-[databases.orders_db]
-username = "${VAULT:database/creds/orders/username}"
-password = "${VAULT:database/creds/orders/password}"
-```
-
-<Aside type="note">
-Supported secret stores:
-- Environment variables: `${ENV_VAR}`
-- HashiCorp Vault: `${VAULT:path/to/secret}`
-- AWS Secrets Manager: `${AWS:secret-name}`
-- Google Secret Manager: `${GCP:secret-name}`
-</Aside>
-
-### Connection Encryption
-
-```toml
-# PostgreSQL with SSL/TLS
-[databases.users_db]
-driver = "postgresql"
-ssl_mode = "require"
-ssl_root_cert = "/etc/ssl/certs/ca.crt"
-
-# MySQL with SSL
-[databases.orders_db]
-driver = "mysql"
-ssl_mode = "REQUIRED"
-ssl_ca = "/etc/ssl/certs/ca.crt"
-ssl_cert = "/etc/ssl/certs/client.crt"
-ssl_key = "/etc/ssl/private/client.key"
-
-# SQL Server with encryption
-[databases.analytics_db]
-driver = "sqlserver"
-encrypt = "true"
-trust_server_certificate = false
-```
-
-## Monitoring Federation
-
-### Prometheus Metrics
-
-```toml
-[observability.prometheus]
+[fraiseql.security.audit_logging]
 enabled = true
-port = 9090
+log_level = "info"
+async_logging = true
 
-# Per-database metrics
-[observability.prometheus.federation]
-track_per_database = true
-track_query_plans = true
-```
-
-Exposed metrics:
-```
-fraiseql_federation_query_duration_seconds{database="orders_db"}
-fraiseql_federation_query_errors_total{database="orders_db"}
-fraiseql_federation_connection_pool_size{database="orders_db"}
-fraiseql_federation_connection_pool_active{database="orders_db"}
-fraiseql_federation_circuit_breaker_state{database="orders_db"}
-```
-
-### Distributed Tracing
-
-```toml
-[observability.tracing]
+[fraiseql.security.error_sanitization]
 enabled = true
-exporter = "jaeger"  # or "datadog", "honeycomb"
-service_name = "fraiseql-api"
+generic_messages = true
+leak_sensitive_details = false
 
-[observability.tracing.federation]
-trace_per_database = true
-trace_joins = true
+[observers]
+backend = "nats"
+nats_url = "${NATS_URL}"
+
+[auth]
+client_id = "${OIDC_CLIENT_ID}"
+issuer_url = "${OIDC_ISSUER_URL}"
+redirect_uri = "${OIDC_REDIRECT_URI}"
 ```
-
-## Database-Specific Features
-
-### PostgreSQL Advantages
-
-```python
-# Leverage LISTEN/NOTIFY for real-time updates
-@type
-@federation.database("users_db")
-class User:
-    @subscription
-    async def on_user_created(self) -> "User":
-        async for user in User.listen_to("users:created"):
-            yield user
-```
-
-### MySQL Optimizations
-
-```python
-# Bulk operations
-orders = await Order.batch_insert([
-    {"user_id": 1, "total": 100},
-    {"user_id": 2, "total": 200},
-    # ... 1000s of orders
-], batch_size=1000)
-```
-
-### SQLite Limitations and Workarounds
 
 <Aside type="caution">
-SQLite limitations in federation:
-- No concurrent writes
-- Limited data types
-- No distributed transactions
-
-Use SQLite for read-heavy, small datasets. Avoid federating writes from SQLite — write to primary DB and sync periodically.
+The `[database]` section is always singular. FraiseQL services do not support `[databases.service_name]` multi-database configuration. Each service has one database. Cross-service data access is Apollo Router's responsibility, not FraiseQL's.
 </Aside>
 
-## Troubleshooting
+---
 
-### Connection Issues
+## TOML Key Reference
 
+These are the real `fraiseql.toml` keys. Do not use keys not listed here.
+
+### `[database]`
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `type` | string | Database engine: `"postgresql"`, `"mysql"`, `"sqlite"`, `"sqlserver"` |
+| `url` | string | Connection URL (use environment variable reference `${VAR}`) |
+
+```toml
+[database]
+type = "postgresql"
+url = "${DATABASE_URL}"
 ```
-Error: "users_db connection timeout"
 
-Solution 1: Increase timeout
+### `[fraiseql]`
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `schema_file` | string | Input: JSON generated by Python decorators |
+| `output_file` | string | Output: compiled schema for the Rust runtime |
+
+### `[fraiseql.security.audit_logging]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable security audit logging |
+| `log_level` | string | `"info"` | `"debug"`, `"info"`, or `"warn"` |
+| `include_sensitive_data` | bool | `false` | Never `true` in production |
+| `async_logging` | bool | `true` | Non-blocking log writes |
+| `buffer_size` | int | `1000` | Events buffered before flush |
+| `flush_interval_secs` | int | `5` | Seconds between flushes |
+
+### `[fraiseql.security.error_sanitization]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Sanitize error messages sent to clients |
+| `generic_messages` | bool | `true` | Always `true` in production |
+| `internal_logging` | bool | `true` | Log full details internally |
+| `leak_sensitive_details` | bool | `false` | Never `true` in production |
+| `user_facing_format` | string | `"generic"` | `"generic"`, `"simple"`, or `"detailed"` |
+
+### `[fraiseql.security.rate_limiting]`
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `enabled` | bool | Enable rate limiting |
+| `auth_start_max_requests` | int | Max `/auth/start` requests per IP per window |
+| `auth_start_window_secs` | int | Time window in seconds |
+| `auth_callback_max_requests` | int | Max `/auth/callback` requests per IP per window |
+| `auth_callback_window_secs` | int | Time window in seconds |
+| `auth_refresh_max_requests` | int | Max `/auth/refresh` requests per user per window |
+| `auth_refresh_window_secs` | int | Time window in seconds |
+| `failed_login_max_requests` | int | Max failed login attempts before lockout |
+| `failed_login_window_secs` | int | Lockout window in seconds |
+
+### `[caching]`
+
+Result caching:
+
+```toml
+[caching]
+enabled = true
+backend = "redis"
+```
+
+:::note[APQ configuration]
+Automatic Persisted Queries (APQ) are enabled via environment variables, not TOML. Set `FRAISEQL_APQ_ENABLED=true` and `FRAISEQL_APQ_BACKEND=redis` with `FRAISEQL_APQ_REDIS_URL` to configure APQ.
+:::
+
+### `[auth]`
+
+OIDC configuration. The client secret is **never** stored in `fraiseql.toml` — provide it via environment variable at runtime.
+
+```toml
+[auth]
+client_id = "${OIDC_CLIENT_ID}"
+issuer_url = "https://your-idp.example.com"
+redirect_uri = "https://your-service.example.com/auth/callback"
+```
+
+### `[observers]`
+
+Configure the observer backend for receiving mutation events:
+
+```toml
+[observers]
+backend = "nats"          # "nats", "redis", or "postgres"
+nats_url = "${NATS_URL}"
+```
+
+```toml
+[observers]
+backend = "redis"
+redis_url = "${REDIS_URL}"
+```
+
+### `[federation]`
+
+```toml
 [federation]
-timeout = "60s"
-
-Solution 2: Check credentials
-[databases.users_db]
-username = "${USERS_DB_USERNAME}"
-password = "${USERS_DB_PASSWORD}"
-
-Solution 3: Verify network connectivity
+enabled = true
+entity_key = "id"
 ```
 
-### Query Performance
+---
+
+## Environment Variables
+
+Secrets are **never** stored in `fraiseql.toml`. Reference them with `${VAR_NAME}` syntax:
+
+```bash
+# user-service/.env
+DATABASE_URL=postgresql://user_svc:password@user-db:5432/users
+OIDC_CLIENT_ID=user-service-client
+OIDC_ISSUER_URL=https://auth.example.com
+OIDC_REDIRECT_URI=https://users.example.com/auth/callback
+STATE_ENCRYPTION_KEY=<base64-32-bytes>
+```
+
+```bash
+# order-service/.env
+DATABASE_URL=postgresql://order_svc:password@order-db:5432/orders
+NATS_URL=nats://nats:4222
+OIDC_CLIENT_ID=order-service-client
+OIDC_ISSUER_URL=https://auth.example.com
+OIDC_REDIRECT_URI=https://orders.example.com/auth/callback
+STATE_ENCRYPTION_KEY=<base64-32-bytes>
+```
+
+Generate encryption keys:
+
+```bash
+export STATE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+```
+
+---
+
+## Apollo Router Configuration
+
+The Apollo Router connects to each FraiseQL subgraph by URL. It does not read `fraiseql.toml` files — it communicates with the running Rust runtime processes.
+
+```yaml title="router.yaml"
+supergraph:
+  listen: 0.0.0.0:4000
+
+# Forward the client's Authorization header to every subgraph
+headers:
+  all:
+    request:
+      - propagate:
+          named: Authorization
+
+subgraphs:
+  users:
+    routing_url: http://user-service:4001/graphql
+  orders:
+    routing_url: http://order-service:4002/graphql
+```
+
+<Aside type="tip">
+The `headers.all.request` block forwards the client's JWT to all subgraphs. This is required for per-subgraph authorization to work — each FraiseQL service validates the JWT independently.
+</Aside>
+
+### Composing the Supergraph
+
+Use the Rover CLI to compose subgraph schemas into a supergraph:
+
+```yaml title="supergraph.yaml"
+federation_version: =2.4.0
+subgraphs:
+  users:
+    routing_url: http://user-service:4001/graphql
+    schema:
+      subgraph_url: http://user-service:4001/graphql
+  orders:
+    routing_url: http://order-service:4002/graphql
+    schema:
+      subgraph_url: http://order-service:4002/graphql
+```
+
+```bash
+rover supergraph compose --config supergraph.yaml > supergraph.graphql
+router --config router.yaml --supergraph supergraph.graphql
+```
+
+---
+
+## Development vs. Production TOML
+
+### Development
+
+```toml title="fraiseql.toml (development overrides)"
+[fraiseql.security.audit_logging]
+log_level = "debug"
+include_sensitive_data = true   # OK for local dev only
+async_logging = false           # Synchronous for easier debugging
+
+[fraiseql.security.error_sanitization]
+user_facing_format = "detailed" # Show full errors locally
+
+[fraiseql.security.rate_limiting]
+auth_start_max_requests = 10000
+failed_login_max_requests = 10000
+```
+
+### Production
+
+```toml title="fraiseql.toml (production)"
+[fraiseql.security.audit_logging]
+enabled = true
+log_level = "info"
+include_sensitive_data = false
+async_logging = true
+
+[fraiseql.security.error_sanitization]
+enabled = true
+generic_messages = true
+leak_sensitive_details = false
+
+[fraiseql.security.rate_limiting]
+enabled = true
+auth_start_max_requests = 100
+failed_login_max_requests = 5
+failed_login_window_secs = 3600
+```
+
+---
+
+## Complete Example: Two-Service Deployment
+
+### File Layout
 
 ```
-Problem: Slow cross-database joins
-
-Solution 1: Use parallel strategy
-[federation]
-join_strategy = "parallel"
-
-Solution 2: Add database indexes on join columns
-CREATE INDEX idx_orders_user_id ON orders(user_id);
-
-Solution 3: Batch operations instead of N+1
+federation-example/
+├── user-service/
+│   ├── fraiseql.toml
+│   ├── schema.py
+│   └── Dockerfile
+├── order-service/
+│   ├── fraiseql.toml
+│   ├── schema.py
+│   └── Dockerfile
+├── router.yaml
+├── supergraph.yaml
+└── docker-compose.yml
 ```
+
+### Docker Compose
+
+```yaml title="docker-compose.yml"
+services:
+  user-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: users
+      POSTGRES_USER: user_svc
+      POSTGRES_PASSWORD: ${USER_DB_PASSWORD}
+
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: order_svc
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD}
+
+  nats:
+    image: nats:latest
+    command: ["-js"]  # Enable JetStream
+
+  user-service:
+    build: ./user-service
+    environment:
+      DATABASE_URL: postgresql://user_svc:${USER_DB_PASSWORD}@user-db:5432/users
+      OIDC_CLIENT_ID: ${USER_OIDC_CLIENT_ID}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
+      OIDC_REDIRECT_URI: ${USER_REDIRECT_URI}
+      STATE_ENCRYPTION_KEY: ${STATE_ENCRYPTION_KEY}
+    ports:
+      - "4001:4001"
+    depends_on:
+      - user-db
+
+  order-service:
+    build: ./order-service
+    environment:
+      DATABASE_URL: postgresql://order_svc:${ORDER_DB_PASSWORD}@order-db:5432/orders
+      NATS_URL: nats://nats:4222
+      OIDC_CLIENT_ID: ${ORDER_OIDC_CLIENT_ID}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
+      OIDC_REDIRECT_URI: ${ORDER_REDIRECT_URI}
+      STATE_ENCRYPTION_KEY: ${STATE_ENCRYPTION_KEY}
+    ports:
+      - "4002:4002"
+    depends_on:
+      - order-db
+      - nats
+
+  apollo-router:
+    image: ghcr.io/apollographql/router:latest
+    volumes:
+      - ./router.yaml:/dist/config/router.yaml
+      - ./supergraph.graphql:/dist/config/supergraph.graphql
+    ports:
+      - "4000:4000"
+    depends_on:
+      - user-service
+      - order-service
+```
+
+### Build and Start
+
+```bash
+# Step 1: Compile each service
+cd user-service && python schema.py && fraiseql compile && cd ..
+cd order-service && python schema.py && fraiseql compile && cd ..
+
+# Step 2: Compose supergraph (requires running services)
+docker-compose up user-service order-service -d
+rover supergraph compose --config supergraph.yaml > supergraph.graphql
+
+# Step 3: Start everything
+docker-compose up
+```
+
+---
 
 ## Next Steps
 
 <CardGrid>
   <Card title="Advanced Federation Patterns" icon="puzzle">
-    [Enterprise Patterns](/guides/advanced-federation) — Sagas, consistency models
+    [Federation Architecture](/guides/advanced-federation) — Apollo Federation v2 with FraiseQL
   </Card>
   <Card title="Federation + NATS" icon="external">
-    [Hybrid Architecture](/guides/federation-nats-integration) — Async coordination
+    [Event Routing](/guides/federation-nats-integration) — Cross-service events with NATS
   </Card>
   <Card title="Performance Benchmarks" icon="rocket">
     [Benchmark Data](/guides/performance-benchmarks) — Real-world metrics

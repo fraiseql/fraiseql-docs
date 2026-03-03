@@ -61,9 +61,9 @@ Add a nullable `parent_id` column that references `tb_comment` itself. Top-level
         pk_comment INTEGER PRIMARY KEY,
         id TEXT NOT NULL,
         identifier TEXT NOT NULL,
-        fk_user INTEGER NOT NULL,
-        fk_post INTEGER NOT NULL,
-        fk_parent_comment INTEGER NULL,
+        fk_user BIGINT NOT NULL,
+        fk_post BIGINT NOT NULL,
+        fk_parent_comment BIGINT NULL,
         parent_id TEXT NULL,
 
         /*business fields*/
@@ -440,7 +440,7 @@ The new mutation accepts an optional `parent_id`. The database function validate
         p_post_id   UUID,
         p_author_id UUID,
         p_parent_id UUID DEFAULT NULL
-    ) RETURNS UUID LANGUAGE plpgsql AS $$
+    ) RETURNS mutation_response LANGUAGE plpgsql AS $$
     DECLARE
         v_fk_user    BIGINT;
         v_fk_post    BIGINT;
@@ -450,13 +450,15 @@ The new mutation accepts an optional `parent_id`. The database function validate
         /*validate: author exists*/
         SELECT pk_user INTO v_fk_user FROM tb_user WHERE id = p_author_id;
         IF v_fk_user IS NULL THEN
-            RAISE EXCEPTION 'author not found: %', p_author_id;
+            RETURN ROW('failed:not_found', 'author not found: ' || p_author_id,
+                NULL, 'Comment', NULL, NULL, NULL, NULL)::mutation_response;
         END IF;
 
         /*validate: post exists*/
         SELECT pk_post INTO v_fk_post FROM tb_post WHERE id = p_post_id;
         IF v_fk_post IS NULL THEN
-            RAISE EXCEPTION 'post not found: %', p_post_id;
+            RETURN ROW('failed:not_found', 'post not found: ' || p_post_id,
+                NULL, 'Comment', NULL, NULL, NULL, NULL)::mutation_response;
         END IF;
 
         /*validate: parent belongs to the same post*/
@@ -466,8 +468,9 @@ The new mutation accepts an optional `parent_id`. The database function validate
             WHERE id = p_parent_id AND fk_post = v_fk_post;
 
             IF v_fk_parent IS NULL THEN
-                RAISE EXCEPTION
-                    'parent comment % not found on post %', p_parent_id, p_post_id;
+                RETURN ROW('failed:not_found',
+                    'parent comment ' || p_parent_id || ' not found on post ' || p_post_id,
+                    NULL, 'Comment', NULL, NULL, NULL, NULL)::mutation_response;
             END IF;
         END IF;
 
@@ -480,12 +483,17 @@ The new mutation accepts an optional `parent_id`. The database function validate
         )
         RETURNING id INTO v_id;
 
-        RETURN v_id;
+        PERFORM sync_tv_comment();
+        RETURN ROW('success', 'Comment created', v_id, 'Comment',
+            (SELECT data FROM v_comment WHERE id = v_id),
+            NULL, NULL, NULL)::mutation_response;
     END; $$;
     ```
   </TabItem>
 
   <TabItem label="MySQL">
+    MySQL stored functions cannot return composite types. Use a stored procedure that returns a result set shaped as `mutation_response` fields, or return the new entity's UUID and handle errors via SIGNAL.
+
     ```sql title="db/schema/03_mutations/fn_create_comment.sql"
     DELIMITER $$
     CREATE FUNCTION fn_create_comment(
@@ -621,7 +629,7 @@ The new mutation accepts an optional `parent_id`. The database function validate
         author_id: ID
         parent_id: ID | None = None
 
-    @fraiseql.mutation(sql_source="fn_create_comment", operation="custom")
+    @fraiseql.mutation(sql_source="fn_create_comment", operation="CUSTOM")
     def create_comment(input: CreateCommentInput) -> Comment:
         """Create a top-level comment or a reply to an existing comment."""
         pass
@@ -639,7 +647,7 @@ The new mutation accepts an optional `parent_id`. The database function validate
       { name: 'parentId', type: 'ID',     nullable: true  },
     ], 'Create a comment or a reply', {
       sql_source: 'fn_create_comment',
-      operation:  'custom',
+      operation:  'CUSTOM',
     });
     ```
   </TabItem>
@@ -651,7 +659,7 @@ The new mutation accepts an optional `parent_id`. The database function validate
             ReturnType("Comment").
             Config(map[string]interface{}{
                 "sql_source": "fn_create_comment",
-                "operation":  "custom",
+                "operation":  "CUSTOM",
             }).
             Arg("content",  "String", nil).
             Arg("postId",   "ID",     nil).

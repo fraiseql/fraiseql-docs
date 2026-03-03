@@ -105,7 +105,27 @@ aws logs create-log-group \
   --region us-east-1
 ```
 
-### 5. Create ECS Task Definition
+### 5. Run Database Migrations
+
+Before deploying FraiseQL, apply pending schema migrations using Confiture:
+
+```bash
+# Run as a one-off ECS task (or locally with production DATABASE_URL)
+docker run --rm \
+  -e DATABASE_URL="$DATABASE_URL" \
+  ghcr.io/fraiseql/confiture:latest \
+  confiture migrate up --env production
+
+# Check migration status
+docker run --rm \
+  -e DATABASE_URL="$DATABASE_URL" \
+  ghcr.io/fraiseql/confiture:latest \
+  confiture migrate status --env production
+```
+
+For automated pipelines, add a migration step to your CI/CD workflow that runs before updating the ECS service. See the [Confiture documentation](/confiture/migrate) for more details.
+
+### 6. Create ECS Task Definition
 
 ```bash
 # Save as fraiseql-task-definition.json
@@ -122,7 +142,7 @@ cat > fraiseql-task-definition.json << 'EOF'
       "image": "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/fraiseql:latest",
       "portMappings": [
         {
-          "containerPort": 8000,
+          "containerPort": 8080,
           "protocol": "tcp"
         }
       ],
@@ -160,7 +180,7 @@ cat > fraiseql-task-definition.json << 'EOF'
         }
       },
       "healthCheck": {
-        "command": ["CMD-SHELL", "curl -f http://localhost:8000/health/live || exit 1"],
+        "command": ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"],
         "interval": 30,
         "timeout": 5,
         "retries": 3,
@@ -216,11 +236,11 @@ aws elbv2 create-load-balancer \
 aws elbv2 create-target-group \
   --name fraiseql-tg \
   --protocol HTTP \
-  --port 8000 \
+  --port 8080 \
   --vpc-id vpc-xxxxx \
   --health-check-enabled \
   --health-check-protocol HTTP \
-  --health-check-path /health/ready \
+  --health-check-path /health \
   --health-check-interval-seconds 30 \
   --health-check-timeout-seconds 5 \
   --healthy-threshold-count 2 \
@@ -244,7 +264,7 @@ aws ecs create-service \
   --task-definition fraiseql:1 \
   --desired-count 3 \
   --launch-type FARGATE \
-  --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:...,containerName=fraiseql,containerPort=8000" \
+  --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:...,containerName=fraiseql,containerPort=8080" \
   --network-configuration "awsvpcConfiguration={subnets=[subnet-xxxxx,subnet-yyyyy],securityGroups=[sg-xxxxx],assignPublicIp=DISABLED}" \
   --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100" \
   --region us-east-1
@@ -392,7 +412,7 @@ Resources:
         - Name: fraiseql
           Image: !Ref ECRImage
           PortMappings:
-            - ContainerPort: 8000
+            - ContainerPort: 8080
           Environment:
             - Name: ENVIRONMENT
               Value: !Ref Environment
@@ -412,7 +432,7 @@ Resources:
           HealthCheck:
             Command:
               - CMD-SHELL
-              - 'curl -f http://localhost:8000/health/live || exit 1'
+              - 'curl -f http://localhost:8080/health || exit 1'
             Interval: 30
             Timeout: 5
             Retries: 3
@@ -434,13 +454,13 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: fraiseql-tg
-      Port: 8000
+      Port: 8080
       Protocol: HTTP
       VpcId: !Ref VPC
       TargetType: ip
       HealthCheckEnabled: true
       HealthCheckProtocol: HTTP
-      HealthCheckPath: /health/ready
+      HealthCheckPath: /health
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
@@ -469,7 +489,7 @@ Resources:
       LaunchType: FARGATE
       LoadBalancers:
         - ContainerName: fraiseql
-          ContainerPort: 8000
+          ContainerPort: 8080
           TargetGroupArn: !GetAtt FraiseQLTargetGroup.TargetGroupArn
       NetworkConfiguration:
         AwsvpcConfiguration:

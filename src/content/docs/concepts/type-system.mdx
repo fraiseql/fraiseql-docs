@@ -154,21 +154,30 @@ The `Vector` scalar is **PostgreSQL-specific** and requires the [`pgvector`](htt
 
 ### Custom Scalars
 
+Custom scalars must subclass `CustomScalar` and implement `serialize`, `parse_value`, and `parse_literal` as instance methods:
+
 ```python
+from fraiseql.scalars import CustomScalar
+import fraiseql
+import re
+
 @fraiseql.scalar
-class Email:
+class Email(CustomScalar):
     """Email address with validation."""
+    name = "Email"
 
-    @staticmethod
-    def serialize(value: str) -> str:
-        return value.lower()
+    def serialize(self, value: str) -> str:
+        return str(value).lower()
 
-    @staticmethod
-    def parse(value: str) -> str:
-        import re
-        if not re.match(r'^[^@]+@[^@]+\.[^@]+$', value):
+    def parse_value(self, value: str) -> str:
+        if not re.match(r'^[^@]+@[^@]+\.[^@]+$', str(value)):
             raise ValueError("Invalid email")
-        return value.lower()
+        return str(value).lower()
+
+    def parse_literal(self, ast) -> str:
+        if hasattr(ast, 'value'):
+            return self.parse_value(ast.value)
+        raise ValueError("Invalid email literal")
 ```
 
 Usage:
@@ -359,12 +368,12 @@ FROM tb_user u;
 CREATE FUNCTION fn_create_user(
     user_email TEXT,
     user_name TEXT
-) RETURNS UUID AS $$
+) RETURNS mutation_response AS $$
 ```
 
 FraiseQL infers:
 - Parameters: `email: str`, `name: str`
-- Return: `ID` (UUID)
+- Return: entity resolved from the `entity` JSONB field in `mutation_response`
 
 ## Nullability Rules
 
@@ -384,55 +393,37 @@ FraiseQL infers:
 
 ## Validation
 
-### Type Validation
+Input validation is handled in your PostgreSQL `fn_*` functions using `RAISE EXCEPTION` or by using custom scalar types. There is no `fraiseql.validate()` function in the Python package.
+
+For field-level validation via custom scalars, define a `CustomScalar` subclass (see the Custom Scalars section above) and use it as the field's type annotation:
 
 ```python
 @fraiseql.input
 class CreateUserInput:
-    email: Annotated[str, fraiseql.validate(
-        pattern=r'^[^@]+@[^@]+\.[^@]+$'
-    )]
-    age: Annotated[int, fraiseql.validate(
-        minimum=0,
-        maximum=150
-    )]
+    email: Email  # Custom scalar validates at parse time
+    name: str
 ```
 
-### Runtime Coercion
-
-FraiseQL coerces types at boundaries:
-
-```python
-# Query variable: "123"
-# Python receives: 123 (int)
-
-# Query variable: "2024-01-15"
-# Python receives: datetime object
-```
+Type coercion at GraphQL boundaries (string `"123"` → integer `123`) is handled by the Rust runtime, not Python code. The Python package is compile-time only — it produces `schema.json` and has no runtime behavior.
 
 ## Computed Fields
 
-Fields not stored in database:
+Computed fields are calculated in the SQL view. Declare them as regular annotated fields in the Python type — the computation happens entirely in PostgreSQL:
 
 ```python
 @fraiseql.type
 class User:
     first_name: str
     last_name: str
-
-    # Computed from other fields
-    full_name: Annotated[str, fraiseql.field(computed=True)]
+    full_name: str  # Computed in the SQL view
 ```
 
-<Aside type="note">
-Prefer `@fraiseql.computed` for computed fields added at the schema level — it expresses intent more clearly and works with IDE autocompletion. Use `fraiseql.field(computed=True)` only when defining computed fields inline inside a `@fraiseql.type` class definition using `Annotated`.
-</Aside>
-
-SQL implementation:
+SQL implementation — compute in the view, include `u.id` as required:
 
 ```sql
 CREATE VIEW v_user AS
 SELECT
+    u.id,
     jsonb_build_object(
         'first_name', u.first_name,
         'last_name', u.last_name,
@@ -441,22 +432,29 @@ SELECT
 FROM tb_user u;
 ```
 
+There are no `@fraiseql.computed` decorator or `fraiseql.field(computed=True)` parameter. Computed fields are a SQL view concern, not a Python annotation concern.
+
 ## Type Visibility
 
 Control field exposure:
 
 ```python
+from typing import Annotated
+from fraiseql.scalars import ID, Decimal
+import fraiseql
+
 @fraiseql.type
 class User:
     id: ID
     email: str
-    password_hash: Annotated[str, fraiseql.field(
-        exclude=True  # Never expose in GraphQL
-    )]
+    # To exclude password_hash: simply don't declare it here.
+    # Ensure v_user's jsonb_build_object() does not include password_hash.
     salary: Annotated[Decimal, fraiseql.field(
         requires_scope="hr:read"  # Require scope
     )]
 ```
+
+There is no `fraiseql.field(exclude=True)` parameter. To exclude a field from GraphQL, omit it from the Python type class and ensure the SQL view's `jsonb_build_object()` does not include it.
 
 ## Best Practices
 

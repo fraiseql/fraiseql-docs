@@ -11,15 +11,27 @@ FraiseQL supports response caching for GraphQL queries. Caching can reduce datab
 Caching is disabled by default. Every GraphQL request goes directly to the database until caching is explicitly enabled.
 </Aside>
 
+## When to Use Cache
+
+The right choice depends on whether you are using standard views (`v_`) or projection tables (`tv_`):
+
+| Deployment | Cache recommended? | Reasoning |
+|---|---|---|
+| `fraiseql-v` (views) | **Yes**, for read-heavy workloads | Every request runs SQL joins and on-the-fly JSONB construction. A cache hit saves 10–20ms of real database work — a meaningful gain at scale. |
+| `fraiseql-tv` (projection tables) | **No** (or short write-off periods only) | TV tables pre-compute the JSONB at write time. The remaining cost per read (one indexed row fetch) is already very cheap, so cache hits add less than 3% throughput. Cache enabled on a TV-table deployment adds a full-flush overhead on every mutation, which can cost **3× the write throughput** under concurrent load. |
+
+<Aside type="caution">
+**Cache + TV tables is an antipattern.** Both solve the same problem — eliminating query-time JSONB construction — but the cache's current full-flush invalidation model makes it actively harmful under mutation load when TV tables are in use. See [Projection Tables](/concepts/projection-tables) for the recommended high-throughput pattern.
+</Aside>
+
 ## Cache Backends
 
-FraiseQL supports three caching backends:
+FraiseQL supports two caching backends:
 
 | Backend | Use Case | Persistence |
 |---------|----------|-------------|
 | `redis` | Production, multi-instance | Survives restarts, shared across instances |
 | `memory` | Development, single-instance | Per-process, lost on restart |
-| `postgresql` | Fallback when Redis unavailable | Stored in database table |
 
 <Aside type="caution">
 The `memory` backend is not shared between instances. If you run multiple FraiseQL replicas behind a load balancer, each instance maintains its own cache, and mutations on one instance will not invalidate cache entries on the others. Use `redis` for multi-instance deployments.
@@ -35,14 +47,13 @@ The `memory` backend is not shared between instances. If you run multiple Fraise
    docker run -d --name redis -p 6379:6379 redis:7-alpine
    ```
 
-2. **Configure the `[fraiseql.caching]` block**
+2. **Configure the `[caching]` block**
 
    ```toml
-   [fraiseql.caching]
+   [caching]
    enabled = true
    backend = "redis"
    redis_url = "redis://localhost:6379"
-   max_memory_entries = 1000
    ```
 
 3. **Start FraiseQL**
@@ -60,10 +71,9 @@ The `memory` backend is not shared between instances. If you run multiple Fraise
 For local development or single-instance deployments:
 
 ```toml
-[fraiseql.caching]
+[caching]
 enabled = true
 backend = "memory"
-max_memory_entries = 1000
 ```
 
 The in-memory backend requires no external services but:
@@ -118,12 +128,13 @@ FraiseQL invalidates cache entries automatically when mutations change data. Whe
 
 ### Automatic Invalidation
 
-Declare which views a mutation invalidates using the `invalidates` decorator parameter:
+Declare which views a mutation invalidates using the `invalidates_views` decorator parameter:
 
 ```python
 @fraiseql.mutation(
-    fn_name="create_post",
-    invalidates=["v_post"]   # Purge cache entries for queries backed by v_post
+    sql_source="fn_create_post",
+    operation="CREATE",
+    invalidates_views=["v_post"]   # Purge cache entries for queries backed by v_post
 )
 def create_post(input: PostInput) -> PostResult:
     pass
@@ -134,38 +145,19 @@ When `createPost` executes:
 2. Purges all cache entries for queries backed by the listed views
 3. Subsequent queries fetch fresh data from the database
 
-### Manual Invalidation
+### Invalidating Multiple Views
 
-In some cases, you may need to invalidate cache manually (e.g., administrative changes):
-
-<Tabs syncKey="language">
-<TabItem label="Python">
+A mutation can invalidate several views at once when it affects multiple read paths:
 
 ```python
-from fraiseql import cache
-
-# Invalidate all entries matching a pattern
-await cache.invalidate_pattern("posts:*")
-
-# Invalidate specific entity cache
-await cache.invalidate_entity("Post", post_id="123")
+@fraiseql.mutation(
+    sql_source="fn_create_comment",
+    operation="CREATE",
+    invalidates_views=["v_comment", "v_post"]  # Both comment list and post comment count
+)
+def create_comment(post_id: fraiseql.ID, body: str) -> Comment:
+    pass
 ```
-
-</TabItem>
-<TabItem label="TypeScript">
-
-```typescript
-import { cache } from 'fraiseql';
-
-// Invalidate all entries matching a pattern
-await cache.invalidatePattern('posts:*');
-
-// Invalidate specific entity cache
-await cache.invalidateEntity('Post', { postId: '123' });
-```
-
-</TabItem>
-</Tabs>
 
 ## Environment Variable Overrides
 
@@ -191,20 +183,26 @@ FraiseQL exposes Prometheus metrics for cache performance at the `/metrics` endp
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `fraiseql_cache_hits_total` | Counter | Total cache hits across all queries |
-| `fraiseql_cache_misses_total` | Counter | Total cache misses |
-| `fraiseql_cache_invalidations_total` | Counter | Total cache entries invalidated |
+| `fraiseql_cache_hits` | Counter | Total cache hits across all queries |
+| `fraiseql_cache_misses` | Counter | Total cache misses |
+| `fraiseql_cache_hit_ratio` | Gauge | Cache hit ratio (0–1) |
 
 ### Useful PromQL Expressions
 
-Cache hit rate over a 5-minute window:
+Cache hit ratio (direct gauge):
 
 ```txt
-sum(rate(fraiseql_cache_hits_total[5m]))
+fraiseql_cache_hit_ratio
+```
+
+Or computed from counters over a 5-minute window:
+
+```txt
+rate(fraiseql_cache_hits[5m])
   /
 (
-  sum(rate(fraiseql_cache_hits_total[5m]))
-  + sum(rate(fraiseql_cache_misses_total[5m]))
+  rate(fraiseql_cache_hits[5m])
+  + rate(fraiseql_cache_misses[5m])
 )
 ```
 
@@ -216,9 +214,9 @@ A healthy read-heavy API typically achieves a hit rate above 80%. Values below 5
 Invalidation rate relative to hits:
 
 ```txt
-rate(fraiseql_cache_invalidations_total[5m])
+rate(fraiseql_cache_misses[5m])
   /
-rate(fraiseql_cache_hits_total[5m])
+rate(fraiseql_cache_hits[5m])
 ```
 
 If this ratio exceeds 0.1 (10%), review your invalidation triggers — they may be too broad.
@@ -231,7 +229,7 @@ Verify caching is active and rules match your queries:
 
 ```bash
 # Check caching is enabled
-grep -A5 '\[fraiseql.caching\]' fraiseql.toml
+grep -A5 '\[caching\]' fraiseql.toml
 
 # Verify your queries have cache_ttl_seconds set in the Python schema
 grep cache_ttl_seconds schema/*.py
@@ -240,7 +238,7 @@ grep cache_ttl_seconds schema/*.py
 **"Cache invalidation not working"**
 
 1. Check that the mutation returns the correct entity type name
-2. Verify the `invalidates` list on the mutation includes that exact view name (case-sensitive)
+2. Verify the `invalidates_views` list on the mutation includes that exact view name (case-sensitive)
 3. Ensure the entity name in the rule matches the name in your schema
 
 **"Out of memory with in-memory cache"**
@@ -248,7 +246,7 @@ grep cache_ttl_seconds schema/*.py
 The in-memory backend has no automatic eviction. For production use cases, switch to Redis:
 
 ```toml
-[fraiseql.caching]
+[caching]
 backend = "redis"
 redis_url = "redis://localhost:6379"
 ```
@@ -281,10 +279,10 @@ redis_url = "redis://localhost:6379/0"
 
 ```python
 # Good: Only invalidate the view this mutation affects
-@fraiseql.mutation(fn_name="create_post", invalidates=["v_post"])
+@fraiseql.mutation(sql_source="fn_create_post", operation="CREATE", invalidates_views=["v_post"])
 
 # Avoid: Invalidating unrelated views
-@fraiseql.mutation(fn_name="create_post", invalidates=["v_post", "v_user", "v_config"])
+@fraiseql.mutation(sql_source="fn_create_post", operation="CREATE", invalidates_views=["v_post", "v_user", "v_config"])
 ```
 
 **Choose TTLs based on data change frequency.** Static data can cache longer; frequently changing data needs shorter TTLs or no caching.
@@ -302,10 +300,10 @@ redis_url = "redis://localhost:6379/0"
 
 Current caching implementation has these limitations:
 
-1. **No cache key customization**: Cache keys are automatically derived from query name and arguments. You cannot customize the key pattern.
-2. **No per-query cache headers**: Unlike some GraphQL servers, FraiseQL does not add `X-Cache-Status` headers to responses.
-3. **No cache warming**: There is no built-in mechanism to pre-populate the cache.
-4. **PostgreSQL backend limitations**: The PostgreSQL cache backend is slower than Redis and not recommended for high-throughput scenarios.
+1. **CREATE mutations flush the full view**: When a CREATE mutation runs, all cache entries for the listed views are flushed. UPDATE and DELETE mutations that return an `entity_id` in the `mutation_response` use entity-aware eviction — only entries for the mutated entity are purged. Write-heavy workloads dominated by CREATE mutations still see a view-wide flush on every write.
+2. **No cache key customization**: Cache keys are automatically derived from query name and arguments. You cannot customize the key pattern.
+3. **No per-query cache headers**: Unlike some GraphQL servers, FraiseQL does not add `X-Cache-Status` headers to responses.
+4. **No cache warming**: There is no built-in mechanism to pre-populate the cache on startup.
 
 ## Next Steps
 

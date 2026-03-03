@@ -66,9 +66,8 @@ The schema SDK lets you define GraphQL types in your preferred language.
 | TypeScript | ✅ Stable | minimal | Full |
 | Go | 🧪 Community preview | — | Minimal |
 | Java | 🧪 Community preview | — | Minimal |
-| PHP | 🧪 Community preview | — | Minimal |
 
-Python and TypeScript are the recommended starting points. Go, Java, and PHP SDKs exist and can declare schema types, but have fewer examples and less documentation coverage.
+Python and TypeScript are the recommended starting points. Go and Java SDKs exist and can declare schema types, but have fewer examples and less documentation coverage.
 
 <Tabs syncKey="language">
   <TabItem label="Python">
@@ -180,27 +179,24 @@ export DATABASE_URL="sqlserver://localhost:1433;database=myapp;user=sa;password=
 
    ```
    my-api/
-   ├── fraiseql.toml      # Project configuration
-   ├── schema/
-   │   └── schema.py      # Schema definition (or .ts / .go)
-   └── sql/
-       ├── tables/        # Table DDL
-       └── views/         # View definitions
+   ├── fraiseql.toml          # Project configuration
+   ├── schema.json            # Schema manifest
+   ├── db/
+   │   └── schema/
+   │       ├── 01_write/      # Table DDL
+   │       ├── 02_read/       # View definitions
+   │       └── 03_functions/  # Mutation functions
+   └── schema.py              # Schema definition (or .ts / .go)
    ```
 
-3. Set your database URL and verify the connection:
+3. Set your database URL and compile the schema:
 
    ```bash
    export DATABASE_URL="postgresql://localhost:5432/myapp"
-   fraiseql db check
+   fraiseql compile
    ```
 
-   Expected output:
-
-   ```
-   ✓ Connected to PostgreSQL 16.1
-   ✓ Database "myapp" accessible
-   ```
+   Connection errors are reported at compile time if the database is unreachable.
 
 </Steps>
 
@@ -238,7 +234,7 @@ COPY . /app
 WORKDIR /app
 
 RUN fraiseql compile
-CMD ["fraiseql", "run", "--host", "0.0.0.0"]
+CMD ["fraiseql", "run", "--bind", "0.0.0.0"]
 ```
 
   </TabItem>
@@ -254,7 +250,7 @@ COPY . /app
 WORKDIR /app
 
 RUN fraiseql compile
-CMD ["fraiseql", "run", "--host", "0.0.0.0"]
+CMD ["fraiseql", "run", "--bind", "0.0.0.0"]
 ```
 
   </TabItem>
@@ -271,7 +267,7 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 **"database connection refused"** — Verify your database is running and check `DATABASE_URL`:
 
 ```bash
-fraiseql db check
+psql $DATABASE_URL
 ```
 
 **Permission errors on Linux** — Make the binary executable:

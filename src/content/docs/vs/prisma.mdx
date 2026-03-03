@@ -119,11 +119,20 @@ With FraiseQL:
     ```sql
     -- The backing SQL view (you write this)
     CREATE VIEW v_user AS
-    SELECT u.id, u.name, u.email,
-      COALESCE(json_agg(p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS posts
+    SELECT u.id,
+        jsonb_build_object(
+            'id',    u.id::text,
+            'name',  u.name,
+            'email', u.email,
+            'posts', COALESCE(
+                jsonb_agg(jsonb_build_object('id', p.id::text, 'title', p.title))
+                FILTER (WHERE p.pk_post IS NOT NULL),
+                '[]'::jsonb
+            )
+        ) AS data
     FROM tb_user u
-    LEFT JOIN tb_post p ON p.author_id = u.id
-    GROUP BY u.id;
+    LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+    GROUP BY u.pk_user, u.id;
     ```
   </TabItem>
 </Tabs>
@@ -256,30 +265,38 @@ app.post('/users', async (req, res) => {
 - **Your responsibility** — Must validate before database calls
 - **Database risk** — Invalid data if validation is missed
 
-### FraiseQL: Built-In Validators
+### FraiseQL: Built-In Access Control
 
-FraiseQL includes 13 validators enforced at compile-time:
+FraiseQL enforces field-level access control at compile time via `fraiseql.field()`:
 
-```toml
-[fraiseql.validation]
-email = { pattern = "^[^@]+@[^@]+\\.[^@]+$" }
-age = { range = { min = 0, max = 150 } }
-name = { length = { min = 1 } }
+```python
+from typing import Annotated
+import fraiseql
+
+@fraiseql.input
+class CreateUserInput:
+    email: str
+    name: str
+    age: int
+
+    # Protected field — requires admin scope
+    role: Annotated[str, fraiseql.field(
+        requires_scope="admin:write",
+        on_deny="reject",
+        description="User role — admin only",
+    )]
 ```
 
-- **13 built-in validators** — No external libraries needed
-  - Standard: required, pattern, length, range, enum, checksum
-  - Cross-field: comparison operators, conditionals
-  - Mutual exclusivity: OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent
+- **Scope-based field access control** — No external libraries needed
 - **Compile-time enforcement** — Invalid schemas are impossible at runtime
-- **Zero dependencies** — Everything built-in
-- **Database protection** — Invalid data never reaches the database
+- **Zero dependencies** — Everything built-in to the FraiseQL schema compiler
+- **Database protection** — Unauthorized writes never reach the database
 
 ### Validation Comparison
 
 | Aspect | FraiseQL | Prisma |
 |--------|----------|--------|
-| Built-in validators | 13 rules | 0 (requires external libs) |
+| Field access control | Scope-based (compile-time) | None (requires external libs) |
 | External dependencies | None | Zod, Joi, Yup, etc. |
 | Compile-time enforcement | Yes | No |
 | Runtime validation overhead | None | Per-request |
@@ -401,11 +418,20 @@ FraiseQL is a better choice when:
    ```sql
    -- Create the SQL view (write once)
    CREATE VIEW v_user AS
-   SELECT u.id, u.email, u.name,
-     COALESCE(json_agg(p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS posts
+   SELECT u.id,
+       jsonb_build_object(
+           'id',    u.id::text,
+           'email', u.email,
+           'name',  u.name,
+           'posts', COALESCE(
+               jsonb_agg(jsonb_build_object('id', p.id::text, 'title', p.title))
+               FILTER (WHERE p.pk_post IS NOT NULL),
+               '[]'::jsonb
+           )
+       ) AS data
    FROM tb_user u
-   LEFT JOIN tb_post p ON p.user_id = u.id
-   GROUP BY u.id;
+   LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+   GROUP BY u.pk_user, u.id;
    ```
    
    ```bash
@@ -497,30 +523,42 @@ Or use FraiseQL for your customer-facing GraphQL API and Prisma for admin/intern
 
    ```sql
    CREATE VIEW v_user AS
-   SELECT u.id, u.name,
-     COALESCE(json_agg(p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS posts
+   SELECT u.id,
+       jsonb_build_object(
+           'id',    u.id::text,
+           'name',  u.name,
+           'posts', COALESCE(
+               jsonb_agg(jsonb_build_object('id', p.id::text, 'title', p.title))
+               FILTER (WHERE p.pk_post IS NOT NULL),
+               '[]'::jsonb
+           )
+       ) AS data
    FROM tb_user u
-   LEFT JOIN tb_post p ON p.user_id = u.id
-   GROUP BY u.id;
+   LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+   GROUP BY u.pk_user, u.id;
    ```
 
 3. **Move Business Logic to PostgreSQL Functions**
 
    Complex route handlers become PostgreSQL functions (`fn_*`), or use FraiseQL's observer pattern to react to data changes:
 
-   ```python
-   @observer(
-       entity="Order",
-       event="UPDATE",
-       condition="status = 'pending'",
-       actions=[
-           webhook("https://payments.internal/process",
-                   body={"order_id": "{id}", "amount": "{total}"}),
-       ],
-   )
-   def on_order_pending():
-       """Process payment when order becomes pending."""
-       pass
+   ```toml title="fraiseql.toml"
+   [observers]
+   backend = "nats"
+   nats_url = "nats://localhost:4222"
+
+   [[observers.rules]]
+   entity = "Order"
+   event = "UPDATE"
+   condition = "status = 'pending'"
+
+   [[observers.rules.actions]]
+   type = "webhook"
+   url = "https://payments.internal/process"
+
+   [observers.rules.actions.body]
+   order_id = "{id}"
+   amount = "{total}"
    ```
 
 </Steps>

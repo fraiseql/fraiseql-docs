@@ -17,7 +17,7 @@ pip install fraiseql
 
 ```python
 import asyncio
-from fraiseql import FraiseQLClient
+from fraiseql.client import FraiseQLClient
 
 async def main() -> None:
     async with FraiseQLClient("http://localhost:8080/graphql") as client:
@@ -64,7 +64,7 @@ user = result["data"]["user"]
 The client raises typed exceptions:
 
 ```python
-from fraiseql import (
+from fraiseql.client import (
     FraiseQLError,
     FraiseQLAuthError,
     FraiseQLRateLimitError,

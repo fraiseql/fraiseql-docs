@@ -12,10 +12,10 @@ FraiseQL provides a comprehensive validation system for input constraints. This 
 FraiseQL's validation system is uniquely positioned in the GraphQL ecosystem:
 
 **Compile-Time Enforcement**
-Unlike Apollo, Strawberry, and TypeGraphQL which validate at runtime, FraiseQL enforces all validation rules during schema compilation. This means invalid input structures are impossible at runtime — errors happen during development, not in production.
+FraiseQL validates schema rule definitions at compile time — verifying that field references exist, types match, and cross-field expressions are consistent. Validation rules are then evaluated against actual user input at request time, before SQL execution.
 
-**13 Built-In Validators**
-Most GraphQL frameworks offer 5-8 validators. FraiseQL includes 13:
+**14 Built-In Validators**
+Most GraphQL frameworks offer 5-8 validators. FraiseQL includes 14:
 - 6 basic validators (required, pattern, length, range, enum, checksum)
 - 2 cross-field validators (comparison, conditional)
 - 4 mutual exclusivity validators (OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent)

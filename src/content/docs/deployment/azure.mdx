@@ -94,6 +94,28 @@ connect_timeout_ms = 5000
 ssl_mode = "require"
 ```
 
+### Step 3b: Run Database Migrations
+
+Apply pending schema migrations with Confiture before deploying:
+
+```bash
+# Run Confiture as a Container App Job (one-off)
+az containerapp job create \
+  --name fraiseql-migrate \
+  --resource-group fraiseql-rg \
+  --environment fraiseql-env \
+  --image ghcr.io/fraiseql/confiture:latest \
+  --replica-timeout 300 \
+  --trigger-type Manual \
+  --args "confiture" "migrate" "up" "--env" "production" \
+  --env-vars "DATABASE_URL=secretref:database-url"
+
+# Execute the migration job
+az containerapp job start --name fraiseql-migrate --resource-group fraiseql-rg
+```
+
+See [Confiture Migrate](/confiture/migrate) for rollback and status commands.
+
 ### Step 4: Deploy FraiseQL to Container Apps
 
 ```bash
@@ -283,7 +305,7 @@ az keyvault secret set \
 az webapp config set \
   --resource-group $RESOURCE_GROUP \
   --name fraiseql-prod \
-  --generic-configurations '{"HealthCheckPath": "/health/ready"}'
+  --generic-configurations '{"HealthCheckPath": "/health"}'
 ```
 
 ### 7. Configure Auto-Scaling
@@ -378,23 +400,9 @@ az keyvault set-policy \
 
 ### 3. Reference Secrets in App Service
 
-In your FraiseQL code, use managed identity:
-
-```python
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
-
-credential = DefaultAzureCredential()
-client = SecretClient(
-    vault_url="https://fraiseql-kv.vault.azure.net/",
-    credential=credential
-)
-
-database_url = client.get_secret("database-url").value
-jwt_secret = client.get_secret("jwt-secret").value
-```
-
-Or set App Service app settings to reference Key Vault:
+Set App Service app settings to reference Key Vault secrets directly. App Service resolves
+the `@Microsoft.KeyVault(...)` references at startup and injects them as environment variables
+into the container — no code changes required in FraiseQL:
 
 ```bash
 az webapp config appsettings set \
@@ -480,7 +488,7 @@ spec:
   type: LoadBalancer
   ports:
     - port: 80
-      targetPort: 8000
+      targetPort: 8080
   selector:
     app: fraiseql
 ```
@@ -515,7 +523,7 @@ az network application-gateway create \
   --sku Standard_v2 \
   --http-settings-cookie-based-affinity Disabled \
   --frontend-port 443 \
-  --http-settings-port 8000 \
+  --http-settings-port 8080 \
   --http-settings-protocol Http
 ```
 

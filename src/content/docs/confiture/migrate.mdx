@@ -113,11 +113,11 @@ ALTER TABLE tb_user DROP COLUMN avatar_url;
 
 ```sql title="up.sql"
 CREATE TABLE tb_comment (
-    pk_comment INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pk_comment BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
     identifier TEXT UNIQUE NOT NULL,
-    fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
-    fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post),
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
+    fk_post BIGINT NOT NULL REFERENCES tb_post(pk_post),
     content TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

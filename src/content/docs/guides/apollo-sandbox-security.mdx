@@ -12,7 +12,9 @@ FraiseQL uses **Apollo Sandbox** as the default GraphQL IDE in documentation and
 <Aside type="tip">
 **Is Apollo Sandbox secure?** Yes. Apollo Sandbox is equally secure to GraphiQL. Both are embeddable IDEs that communicate only with the GraphQL endpoint you configure.
 
-**Does it track my data?** No. Telemetry is disabled by default. Your queries and results never leave your browser (except to your configured GraphQL endpoint).
+**Does it track my data?** No. Your queries and results never leave your browser (except to your configured GraphQL endpoint). Apollo Sandbox has optional telemetry that is opt-in only.
+
+**Is the playground enabled in production?** No. The GraphQL playground is disabled by default in production mode. It is only active in development.
 
 **Can I use GraphiQL instead?** Yes. FraiseQL supports both. You can configure GraphiQL if your team prefers it.
 </Aside>
@@ -50,7 +52,7 @@ Both tools are embeddable GraphQL IDEs with identical security characteristics:
 
 **Same privacy defaults:**
 - Query history stored locally in your browser
-- No telemetry by default
+- Apollo Sandbox telemetry is opt-in only
 - No cookies sent to external services
 
 ### Why Choose Apollo Sandbox?
@@ -100,23 +102,23 @@ All of this is stored in your browser's local storage.
 
 ## Privacy: Telemetry and Cookies
 
-### Default Behavior (No Telemetry)
+### Default Behavior
 
-FraiseQL embeds Apollo Sandbox with **telemetry disabled**:
+FraiseQL's server embeds Apollo Sandbox with cookies disabled. The server generates a JavaScript snippet equivalent to:
 
-```astro
-<EmbeddedSandbox
-  endpoint="https://demo.fraiseql.dev/graphql"
-  includeCookies={false}
-  telemetry={false}
-/>
+```javascript
+new EmbeddedSandbox({
+    target: '#sandbox',
+    initialEndpoint: window.location.origin + '/graphql',
+    includeCookies: false,
+});
 ```
 
 By default:
-- No telemetry sent to Apollo
 - No cookies set
-- No usage tracking
+- No usage tracking from FraiseQL itself
 - No external analytics
+- Apollo Sandbox does not send telemetry by default
 
 ### If You Enable Telemetry
 
@@ -151,12 +153,7 @@ A: No. Sandbox only communicates with the GraphQL endpoint you configure. Query 
 A: Yes. [Apollo Sandbox on GitHub](https://github.com/apollographql/apollo-sandbox) - Apache 2.0 license. You can audit the code.
 
 **Q: Can we use GraphiQL instead for compliance?**
-A: Yes. FraiseQL supports both:
-```toml
-# In fraiseql.toml
-[server]
-playground_tool = "graphiql"
-```
+A: Yes. FraiseQL supports both. Configure the playground in your server startup options or environment — consult the CLI reference for your version's flags.
 
 **Q: Does FraiseQL collect telemetry?**
 A: FraiseQL itself doesn't collect telemetry. Apollo Sandbox has optional telemetry (disabled by default in our docs).
@@ -210,12 +207,7 @@ We chose better developer experience because:
 
 ### If You Need GraphiQL
 
-Switch to GraphiQL in your server config:
-
-```toml
-[server]
-playground_tool = "graphiql"
-```
+FraiseQL supports both Apollo Sandbox and GraphiQL. Consult the [CLI reference](/reference/cli) for the startup flags to select your preferred playground tool.
 
 ---
 
@@ -243,7 +235,7 @@ playground_tool = "graphiql"
 | Question | Answer |
 |----------|--------|
 | **Is Apollo Sandbox secure?** | Yes, equally secure to GraphiQL |
-| **Is it private?** | Yes, telemetry is off by default |
+| **Is it private?** | Yes, Apollo Sandbox telemetry is opt-in only |
 | **Does it track me?** | No, unless explicitly enabled |
 | **Can I use GraphiQL?** | Yes, easy to configure |
 | **Is it open source?** | Yes, Apache 2.0 licensed |

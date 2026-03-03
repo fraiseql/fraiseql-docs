@@ -28,6 +28,10 @@ Orders DB    NATS JetStream
  Inv DB   Pay DB   Ship DB
 ```
 
+**Separation of concerns:**
+- **FraiseQL service** — declares GraphQL schema (`@fraiseql.type`, `@fraiseql.query`, `@fraiseql.mutation`). The SQL function calls `pg_notify`, which FraiseQL observers forward to NATS automatically based on `fraiseql.toml` configuration.
+- **External microservices** — written in plain Python using the `nats.py` library. These subscribe to NATS subjects and handle downstream processing. They are not FraiseQL services.
+
 ## NATS Configuration
 
 In `fraiseql.toml`, enable NATS as the observer backend:
@@ -35,16 +39,21 @@ In `fraiseql.toml`, enable NATS as the observer backend:
 ```toml
 # fraiseql.toml
 
-[observers]
-enabled = true
-backend = "nats"
-nats_url = "${NATS_URL}"   # e.g. nats://nats-1:4222,nats://nats-2:4222
+# Per-table observer entries (array of tables/events to watch)
+[[observers]]
+table   = "tb_order"
+event   = "INSERT"
+subject = "order_created"
 
-[[observers.handlers]]
-name = "order-pipeline"
-event = "order.created"
-action = "webhook"
-webhook_url = "${ORDER_PROCESSOR_URL}"
+[[observers]]
+table   = "tb_order"
+event   = "UPDATE"
+subject = "order_status_changed"
+
+# Global observer backend settings
+[observers]
+backend  = "nats"
+nats_url = "${NATS_URL}"   # e.g. nats://nats-1:4222,nats://nats-2:4222
 ```
 
 Advanced JetStream settings (stream retention, consumers, DLQ) are configured in the observer runtime config file (`fraiseql-observer.toml`):
@@ -74,7 +83,7 @@ dedup_window_minutes = 5
 
 ```sql
 CREATE TABLE tb_order (
-    pk_order    SERIAL PRIMARY KEY,
+    pk_order    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier  TEXT NOT NULL UNIQUE,
     customer_id UUID NOT NULL,
@@ -85,9 +94,10 @@ CREATE TABLE tb_order (
 );
 
 CREATE TABLE tb_order_item (
-    pk_order_item SERIAL PRIMARY KEY,
+    pk_order_item BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id            UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    fk_order      INTEGER NOT NULL REFERENCES tb_order(pk_order),
+    identifier    TEXT NOT NULL UNIQUE,
+    fk_order BIGINT NOT NULL REFERENCES tb_order(pk_order),
     product_id    UUID NOT NULL,
     quantity      INT NOT NULL,
     unit_price    DECIMAL(10, 2) NOT NULL
@@ -97,7 +107,6 @@ CREATE TABLE tb_order_item (
 CREATE VIEW v_order AS
 SELECT
     o.id,
-    o.identifier,
     jsonb_build_object(
         'id',          o.id::text,
         'identifier',  o.identifier,
@@ -110,13 +119,13 @@ SELECT
 FROM tb_order o;
 ```
 
-## FraiseQL Schema with CDC and Subscriptions
+## FraiseQL Schema
+
+The FraiseQL service declares types, queries, mutations, and subscriptions. NATS publishing happens automatically: the SQL mutation function calls `pg_notify`, and FraiseQL observers forward those notifications to NATS subjects as configured in `fraiseql.toml`.
 
 ```python
 import fraiseql
 from fraiseql.scalars import ID
-from fraiseql.nats import publish
-from typing import Optional, Any
 from decimal import Decimal
 from datetime import datetime
 
@@ -148,7 +157,7 @@ class Reservation:
     quantity: int
     status: str
     created_at: datetime
-    expires_at: Optional[datetime]
+    expires_at: datetime | None
 
 @fraiseql.type
 class Shipping:
@@ -156,67 +165,33 @@ class Shipping:
     order_id: ID
     address: str
     status: str
-    tracking_number: Optional[str]
-    estimated_delivery: Optional[datetime]
-
-@fraiseql.type
-class OrderEvent:
-    """Base event structure for all order events."""
-    type: str
-    timestamp: datetime
-    order_id: ID
-    data: Any
+    tracking_number: str | None
+    estimated_delivery: datetime | None
 
 
 # ==================== MUTATIONS ====================
 
+@fraiseql.input
+class OrderItemInput:
+    product_id: ID
+    quantity: int
+    unit_price: Decimal
+
+
 @fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
-async def create_order(
+def create_order(
     customer_id: ID,
-    items: list[dict],
-    shipping_address: dict
+    items: list[OrderItemInput],
+    shipping_address: str,
 ) -> Order:
-    """Create order and publish event to NATS."""
+    """Create order. fn_create_order calls pg_notify; FraiseQL observers forward to NATS."""
     pass
 
-
-# Publish custom event after order creation
-@fraiseql.after_mutation("create_order")
-async def after_create_order(order: Order, context):
-    """Publish order created event for other services."""
-    await publish(
-        subject="fraiseql.order.created",
-        data={
-            "type": "order.created",
-            "timestamp": datetime.utcnow().isoformat(),
-            "order_id": order.id,
-            "customer_id": order.customer_id,
-            "total": str(order.total),
-            "data": {
-                "customer_id": order.customer_id,
-                "items": context.variables.get("items"),
-                "shipping_address": context.variables.get("shipping_address")
-            }
-        }
-    )
 
 @fraiseql.mutation(sql_source="fn_update_order_status", operation="UPDATE")
-async def update_order_status(id: ID, status: str) -> Order:
-    """Update order status and publish event."""
+def update_order_status(id: ID, status: str) -> Order:
+    """Update order status. fn_update_order_status calls pg_notify for downstream services."""
     pass
-
-@fraiseql.after_mutation("update_order_status")
-async def after_update_order_status(order: Order):
-    """Publish status changed event."""
-    await publish(
-        subject="fraiseql.order.status_changed",
-        data={
-            "type": "order.status_changed",
-            "timestamp": datetime.utcnow().isoformat(),
-            "order_id": order.id,
-            "new_status": order.status
-        }
-    )
 
 
 # ==================== SUBSCRIPTIONS ====================
@@ -224,8 +199,6 @@ async def after_update_order_status(order: Order):
 @fraiseql.subscription(
     entity_type="Order",
     topic="order_created",
-    jetstream=True,
-    replay=False  # Only new orders
 )
 def order_created() -> Order:
     """Subscribe to newly created orders."""
@@ -234,29 +207,16 @@ def order_created() -> Order:
 @fraiseql.subscription(
     entity_type="Order",
     topic="order_status_changed",
-    jetstream=True,
-    filter="new_status == 'shipped'"
 )
 def order_shipped() -> Order:
-    """Subscribe only to shipped orders."""
-    pass
-
-@fraiseql.subscription(
-    entity_type="Order",
-    topic="order_status_changed",
-    jetstream=True,
-    replay=True,
-    replay_from="2024-01-01T00:00:00Z"
-)
-def order_status_history() -> Order:
-    """Replay all status changes from a point in time."""
+    """Subscribe to order status changes."""
     pass
 
 
 # ==================== QUERIES ====================
 
 @fraiseql.query(sql_source="v_order")
-def order(id: ID) -> Order:
+def order(id: ID) -> Order | None:
     """Get order by ID."""
     pass
 
@@ -266,174 +226,320 @@ def orders_by_status(status: str, limit: int = 100) -> list[Order]:
     pass
 ```
 
+<Aside type="note">
+NATS publishing is handled by the FraiseQL runtime automatically. When `fn_create_order` calls `pg_notify('order_created', ...)`, FraiseQL observers pick up the notification and publish it to the configured NATS subject. There are no `fraiseql.nats` imports in the FraiseQL service — NATS is purely infrastructure.
+</Aside>
+
+## SQL Mutation with pg_notify
+
+The mutation function uses `pg_notify` to trigger downstream processing. FraiseQL observers forward these notifications to NATS subjects configured in `fraiseql.toml`.
+
+```sql title="db/schema/03_functions/fn_create_order.sql"
+CREATE OR REPLACE FUNCTION fn_create_order(
+    p_customer_id       UUID,
+    p_items             JSONB,
+    p_shipping_address  TEXT
+)
+RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id     UUID;
+    v_result mutation_response;
+BEGIN
+    INSERT INTO tb_order (customer_id, total, status, identifier)
+    VALUES (
+        p_customer_id,
+        0,
+        'pending',
+        'ORD-' || gen_random_uuid()::text
+    )
+    RETURNING id INTO v_id;
+
+    -- Notify downstream services via pg_notify.
+    -- FraiseQL observers forward this to the NATS subject configured in fraiseql.toml.
+    PERFORM pg_notify(
+        'order_created',
+        jsonb_build_object(
+            'order_id',    v_id,
+            'customer_id', p_customer_id,
+            'items',       p_items,
+            'shipping',    p_shipping_address
+        )::text
+    );
+
+    v_result.status      := 'success';
+    v_result.entity_id   := v_id;
+    v_result.entity_type := 'Order';
+    RETURN v_result;
+END;
+$$;
+```
+
 ## Event Processing Services
+
+External microservices subscribe to NATS subjects using the standard `nats.py` library. These are **not** FraiseQL services — they are standalone Python processes that react to events.
 
 <Tabs>
   <TabItem label="Order Orchestration">
 
 ```python
-from fraiseql.nats import subscribe, publish, request
+# order_orchestration_service.py
+# External service — uses nats.py, not fraiseql SDK
 import asyncio
+import json
+from datetime import datetime, timezone
 
-@subscribe("fraiseql.order.created")
-async def handle_order_created(event: dict):
+import nats
+
+
+async def handle_order_created(msg):
     """
     Orchestrate order processing:
     1. Request inventory reservation
     2. Request shipping quote
     3. Publish order.confirmed when ready
     """
-    order_id = event["data"]["order_id"]
-    items = event["data"]["items"]
+    event = json.loads(msg.data.decode())
+    order_id = event["order_id"]
+    items = event["items"]
 
     try:
         # Step 1: Request inventory service to reserve items
-        reservation = await request(
-            subject="inventory.reserve",
-            data={"order_id": order_id, "items": items},
-            timeout=5000
+        response = await nc.request(
+            "inventory.reserve",
+            json.dumps({"order_id": order_id, "items": items}).encode(),
+            timeout=5,
         )
+        reservation = json.loads(response.data.decode())
 
         if not reservation.get("success"):
-            await publish(
-                subject="fraiseql.order.failed",
-                data={
+            await js.publish(
+                "fraiseql.order.failed",
+                json.dumps({
                     "type": "order.reservation_failed",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "order_id": order_id,
-                    "reason": reservation.get("reason")
-                }
+                    "reason": reservation.get("reason"),
+                }).encode(),
             )
+            await msg.ack()
             return
 
         # Step 2: Request shipping service
-        shipping = await request(
-            subject="shipping.quote",
-            data={
+        response = await nc.request(
+            "shipping.quote",
+            json.dumps({
                 "order_id": order_id,
-                "address": event["data"]["shipping_address"],
-                "items": items
-            },
-            timeout=5000
+                "address": event["shipping"],
+                "items": items,
+            }).encode(),
+            timeout=5,
         )
+        shipping = json.loads(response.data.decode())
 
         # Step 3: Publish confirmation
-        await publish(
-            subject="fraiseql.order.confirmed",
-            data={
+        await js.publish(
+            "fraiseql.order.confirmed",
+            json.dumps({
                 "type": "order.confirmed",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "order_id": order_id,
                 "reservation_id": reservation.get("reservation_id"),
                 "shipping_id": shipping.get("shipping_id"),
-                "estimated_delivery": shipping.get("estimated_delivery")
-            }
+                "estimated_delivery": shipping.get("estimated_delivery"),
+            }).encode(),
         )
 
     except Exception as e:
-        await publish(
-            subject="fraiseql.order.error",
-            data={
+        await js.publish(
+            "fraiseql.order.error",
+            json.dumps({
                 "type": "order.error",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "order_id": order_id,
-                "error": str(e)
-            }
+                "error": str(e),
+            }).encode(),
         )
+
+    await msg.ack()
+
+
+async def main():
+    global nc, js
+    nc = await nats.connect("nats://localhost:4222")
+    js = nc.jetstream()
+
+    await js.subscribe("fraiseql.order.created", cb=handle_order_created, durable="orchestrator")
+    print("Order orchestration service running…")
+
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await nc.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
   </TabItem>
   <TabItem label="Inventory Service">
 
 ```python
-from fraiseql.nats import service, subscribe, publish
+# inventory_service.py
+# External service — uses nats.py, not fraiseql SDK
+import asyncio
+import json
+from datetime import datetime, timezone
 
-@service("inventory.reserve")
-async def handle_inventory_reserve(data: dict) -> dict:
-    """Handle inventory reservation request."""
+import asyncpg
+import nats
 
+
+async def handle_inventory_reserve(msg):
+    """Handle inventory reservation request via NATS request/reply."""
+    data = json.loads(msg.data.decode())
     order_id = data["order_id"]
     items = data["items"]
 
-    try:
-        reservations = []
+    async with db_pool.acquire() as conn:
+        try:
+            reservations = []
 
-        for item in items:
-            product_id = item["product_id"]
-            quantity = item["quantity"]
+            async with conn.transaction():
+                for item in items:
+                    product_id = item["product_id"]
+                    quantity = item["quantity"]
 
-            available = await ctx.db.query_one(
+                    row = await conn.fetchrow(
+                        """
+                        SELECT pk_inventory, available
+                        FROM tb_inventory
+                        WHERE fk_product = (
+                            SELECT pk_product FROM tb_product WHERE id = $1::uuid
+                        )
+                          AND available >= $2
+                        FOR UPDATE
+                        """,
+                        product_id,
+                        quantity,
+                    )
+
+                    if not row:
+                        await msg.respond(
+                            json.dumps({
+                                "success": False,
+                                "reason": f"Insufficient inventory for {product_id}",
+                            }).encode()
+                        )
+                        return
+
+                    await conn.execute(
+                        "UPDATE tb_inventory SET reserved = reserved + $1 WHERE pk_inventory = $2",
+                        quantity,
+                        row["pk_inventory"],
+                    )
+                    reservations.append({"product_id": product_id, "quantity": quantity})
+
+            reservation_id = str(await conn.fetchval(
                 """
-                SELECT pk_inventory, available
-                FROM tb_inventory
-                WHERE fk_product = (SELECT pk_product FROM tb_product WHERE id = $1)
-                  AND available >= $2
-                FOR UPDATE
+                INSERT INTO tb_reservation (order_id, status, identifier)
+                VALUES ($1::uuid, 'reserved', 'RES-' || gen_random_uuid())
+                RETURNING id
                 """,
-                [product_id, quantity]
+                order_id,
+            ))
+
+            await msg.respond(
+                json.dumps({
+                    "success": True,
+                    "reservation_id": reservation_id,
+                    "items": reservations,
+                }).encode()
             )
 
-            if not available:
-                return {
-                    "success": False,
-                    "reason": f"Insufficient inventory for {product_id}"
-                }
+        except Exception as e:
+            await msg.respond(
+                json.dumps({"success": False, "reason": str(e)}).encode()
+            )
 
-            reservations.append({
-                "product_id": product_id,
-                "quantity": quantity
-            })
 
-        reservation_id = await create_reservation_record(order_id, reservations)
+async def main():
+    global db_pool, nc
+    db_pool = await asyncpg.create_pool("postgresql://localhost/inventory_db")
+    nc = await nats.connect("nats://localhost:4222")
 
-        await publish(
-            subject="fraiseql.inventory.reserved",
-            data={
-                "type": "inventory.reserved",
-                "timestamp": datetime.utcnow().isoformat(),
-                "order_id": order_id,
-                "reservation_id": reservation_id
-            }
-        )
+    await nc.subscribe("inventory.reserve", cb=handle_inventory_reserve)
+    print("Inventory service running…")
 
-        return {
-            "success": True,
-            "reservation_id": reservation_id,
-            "items": reservations
-        }
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await nc.close()
+        await db_pool.close()
 
-    except Exception as e:
-        return {"success": False, "reason": str(e)}
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
   </TabItem>
   <TabItem label="Analytics Service">
 
 ```python
-from fraiseql.nats import subscribe
+# analytics_service.py
+# External service — uses nats.py, not fraiseql SDK
+import asyncio
+import json
 
-@subscribe("fraiseql.order.>", queue_group="analytics")
-async def process_order_event(event: dict):
+import nats
+
+
+async def process_order_event(msg):
     """
     Process all order events for analytics.
-    Queue group ensures exactly-once processing.
+    Queue group ensures exactly-once processing across service replicas.
     """
-
+    event = json.loads(msg.data.decode())
     event_type = event.get("type")
-    order_id = event["data"].get("order_id")
+    order_id = event.get("order_id")
 
     if event_type == "order.created":
         await increment_metric("orders.created", 1)
-        await increment_metric("orders.total_revenue",
-                               float(event["data"].get("total", 0)))
+        await increment_metric("orders.total_revenue", float(event.get("total", 0)))
 
     elif event_type == "order.confirmed":
         await increment_metric("orders.confirmed", 1)
 
     elif event_type == "order.error":
-        error = event["data"].get("error", "unknown")
+        error = event.get("error", "unknown")
         await increment_metric(f"orders.errors.{error}", 1)
         await increment_metric("orders.failed", 1)
+
+    await msg.ack()
+
+
+async def main():
+    nc = await nats.connect("nats://localhost:4222")
+    js = nc.jetstream()
+
+    # Queue group ensures exactly-once delivery across replicas
+    await js.subscribe(
+        "fraiseql.order.>",
+        cb=process_order_event,
+        durable="analytics",
+        queue="analytics",
+    )
+    print("Analytics service running…")
+
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await nc.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
   </TabItem>
@@ -498,12 +604,18 @@ Idempotency is critical for exactly-once semantics with JetStream. Use a determi
 </Aside>
 
 ```python
-from fraiseql.nats import subscribe
+# idempotent_handler.py — external service using nats.py
+import asyncio
 import hashlib
+import json
 
-@subscribe("fraiseql.order.created")
-async def handle_order_created_idempotent(event: dict):
-    """Process event idempotently using event ID."""
+import nats
+import redis.asyncio as redis_client
+
+
+async def handle_order_created_idempotent(msg):
+    """Process event idempotently using a deterministic event ID."""
+    event = json.loads(msg.data.decode())
 
     # Create deterministic event ID
     event_id = hashlib.sha256(
@@ -512,38 +624,90 @@ async def handle_order_created_idempotent(event: dict):
 
     # Check if already processed
     if await redis.exists(f"event_processed:{event_id}"):
+        await msg.ack()
         return
 
     try:
         await process_order(event)
         # Store with TTL of 30 days
         await redis.setex(f"event_processed:{event_id}", 30 * 24 * 3600, "true")
+        await msg.ack()
 
     except Exception:
         raise  # Let NATS retry (max_deliver = 3)
+
+
+async def main():
+    global redis
+    redis = redis_client.from_url("redis://localhost:6379")
+    nc = await nats.connect("nats://localhost:4222")
+    js = nc.jetstream()
+
+    await js.subscribe(
+        "fraiseql.order.created",
+        cb=handle_order_created_idempotent,
+        durable="idempotent-processor",
+    )
+
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await nc.close()
+        await redis.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## Dead Letter Queue Handling
 
 ```python
-from fraiseql.nats import subscribe
+# dlq_handler.py — external service using nats.py
+import asyncio
+import json
+from datetime import datetime, timezone
 
-@subscribe("fraiseql.dlq")
-async def handle_dead_letter(event: dict):
-    """Handle messages that failed 3 times."""
+import nats
+
+
+async def handle_dead_letter(msg):
+    """Handle messages that failed max_deliver times."""
+    event = json.loads(msg.data.decode())
+
     await log_dead_letter({
-        "timestamp": datetime.utcnow(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "event": event,
-        "reason": "Max retries exceeded"
+        "reason": "Max retries exceeded",
     })
 
     await notify_ops(f"Dead letter: {event.get('order_id')}")
 
     if should_manual_retry(event):
-        await publish(
-            subject="fraiseql.order.manual_review",
-            data=event
+        js = nc.jetstream()
+        await js.publish(
+            "fraiseql.order.manual_review",
+            json.dumps(event).encode(),
         )
+
+    await msg.ack()
+
+
+async def main():
+    global nc
+    nc = await nats.connect("nats://localhost:4222")
+    js = nc.jetstream()
+
+    await js.subscribe("fraiseql.dlq", cb=handle_dead_letter, durable="dlq-handler")
+
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await nc.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## Monitoring and Metrics

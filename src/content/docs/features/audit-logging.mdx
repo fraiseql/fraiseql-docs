@@ -25,10 +25,10 @@ Store audit logs in the database for querying and retention. Enable via `[securi
 ```toml
 [security.enterprise]
 audit_logging_enabled = true
-audit_log_level       = "info"   # "debug" | "info" | "warn"
+audit_log_backend     = "postgresql"   # "postgresql" | "syslog" | "file"
 ```
 
-FraiseQL writes to the `ta_audit_log` table you create in your database (see schema below). Retention and batching are managed by your PostgreSQL maintenance jobs.
+FraiseQL writes to the `tb_audit_log` table you create in your database (see schema below). Retention and batching are managed by your PostgreSQL maintenance jobs.
 
 **Schema (auto-created):**
 
@@ -38,6 +38,7 @@ FraiseQL writes to the `ta_audit_log` table you create in your database (see sch
     CREATE TABLE tb_audit_log (
         pk_audit_log BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        identifier TEXT UNIQUE NOT NULL,
         timestamp TIMESTAMPTZ DEFAULT NOW() NOT NULL,
         level TEXT NOT NULL,
         event_type TEXT NOT NULL,
@@ -134,13 +135,9 @@ FraiseQL writes to the `ta_audit_log` table you create in your database (see sch
   </TabItem>
 </Tabs>
 
-### Syslog / File / Multiple Backends
+### Syslog and File Backends
 
-<Aside type="caution">
-The `[audit.syslog]`, `[audit.file]`, and multi-backend configuration below are **unverified TOML namespaces** and will cause a parse error. The current confirmed configuration is `[security.enterprise]` only (see top of page).
-
-To forward audit events to syslog or files, write a PostgreSQL trigger or use your log aggregator (Fluent Bit, Logstash) to tail the `ta_audit_log` table and forward entries.
-</Aside>
+Set `audit_log_backend` to `"syslog"` or `"file"` to forward audit events to those destinations instead of PostgreSQL. All backends are configured via the same `[security.enterprise]` TOML section — no separate namespace is needed.
 
 ## Event Types
 
@@ -190,18 +187,19 @@ The confirmed TOML configuration for audit logging is:
 ```toml
 [security.enterprise]
 audit_logging_enabled = true
-audit_log_level       = "info"   # "debug" | "info" | "warn"
+audit_log_backend     = "postgresql"   # "postgresql" | "syslog" | "file"
+audit_retention_days  = 365
 ```
 
-Log level filtering, event-type filtering, and field redaction are handled in your PostgreSQL `ta_audit_log` table and views — for example, exclude sensitive fields from the audit view, or use PostgreSQL column-level permissions to protect PII fields.
+Log level filtering, event-type filtering, and field redaction are handled in your PostgreSQL `tb_audit_log` table and views — for example, exclude sensitive fields from the audit view, or use PostgreSQL column-level permissions to protect PII fields.
 
 ### Field Redaction
 
-Protect sensitive data by not inserting it into the audit table in the first place. The `ta_audit_log` schema below has a `details JSONB` column — write your PostgreSQL audit trigger to omit or hash sensitive fields before inserting:
+Protect sensitive data by not inserting it into the audit table in the first place. The `tb_audit_log` schema below has a `details JSONB` column — write your PostgreSQL audit trigger to omit or hash sensitive fields before inserting:
 
 ```sql
 -- Hash email for correlation without storing PII
-INSERT INTO ta_audit_log (event_type, user_id, details)
+INSERT INTO tb_audit_log (event_type, user_id, details)
 VALUES (
     'auth.login.success',
     p_user_id,
@@ -274,7 +272,7 @@ Use a PostgreSQL cron job (via `pg_cron`) or an external scheduler:
 
 ```sql
 -- Delete audit logs older than 365 days (run as a scheduled job)
-DELETE FROM ta_audit_log
+DELETE FROM tb_audit_log
 WHERE timestamp < NOW() - INTERVAL '365 days';
 ```
 
@@ -282,7 +280,7 @@ WHERE timestamp < NOW() - INTERVAL '365 days';
 
 ```sql
 -- Manual cleanup
-DELETE FROM ta_audit_log
+DELETE FROM tb_audit_log
 WHERE timestamp < NOW() - INTERVAL '365 days';
 ```
 
@@ -293,14 +291,14 @@ Archive to S3 or cold storage using `pg_dump` or your data pipeline before delet
 ```bash
 # Export audit logs older than 365 days to JSONB
 psql $DATABASE_URL -c "COPY (
-    SELECT row_to_json(ta_audit_log)
-    FROM ta_audit_log
+    SELECT row_to_json(tb_audit_log)
+    FROM tb_audit_log
     WHERE timestamp < NOW() - INTERVAL '365 days'
 ) TO '/tmp/audit-archive.json'"
 
 # Upload to S3, then delete from DB
 aws s3 cp /tmp/audit-archive.json s3://your-bucket/audit/$(date +%Y%m%d).json
-psql $DATABASE_URL -c "DELETE FROM ta_audit_log WHERE timestamp < NOW() - INTERVAL '365 days'"
+psql $DATABASE_URL -c "DELETE FROM tb_audit_log WHERE timestamp < NOW() - INTERVAL '365 days'"
 ```
 
 ## Compliance
@@ -314,7 +312,7 @@ Log all PHI access events. FraiseQL writes every query and mutation to the audit
 ```sql
 -- Retain PHI access logs for 6 years (HIPAA minimum)
 SELECT cron.schedule('hipaa-retention', '0 2 * * *', $$
-    DELETE FROM ta_audit_log
+    DELETE FROM tb_audit_log
     WHERE timestamp < NOW() - INTERVAL '6 years'
       AND event_type LIKE 'graphql.%'
 $$);
@@ -334,7 +332,7 @@ For right-to-erasure support, implement a PostgreSQL function that anonymises th
 -- Anonymise audit log entries for deleted users
 CREATE FUNCTION fn_anonymise_user_audit(p_user_id UUID) RETURNS VOID AS $$
 BEGIN
-    UPDATE ta_audit_log
+    UPDATE tb_audit_log
     SET user_id = NULL,
         details = details - 'email' - 'ip_address'
     WHERE user_id = p_user_id;
@@ -360,17 +358,7 @@ Enable `audit_logging_enabled = true`. FraiseQL logs all mutations, auth events,
 
 ### Use Structured Details
 
-```python
-# Good - structured, queryable
-audit.log("graphql.mutation", details={
-    "operation": "createUser",
-    "input": {"email": "user@example.com"},
-    "result": {"id": "user-123"}
-})
-
-# Bad - unstructured
-audit.log("graphql.mutation", details="Created user user@example.com")
-```
+The `details JSONB` column in `tb_audit_log` stores event-specific context. FraiseQL populates it automatically for GraphQL operations (operation name, variables, result status). For compliance-specific events you add via PostgreSQL triggers, use structured JSON objects that are easy to query with `->` and `->>` operators — not freeform strings.
 
 ### Monitor Audit System Health
 

@@ -27,7 +27,7 @@ FraiseQL API
 ```sql
 -- Customers
 CREATE TABLE tb_customer (
-    pk_customer SERIAL PRIMARY KEY,
+    pk_customer BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier  TEXT NOT NULL UNIQUE,
     name        TEXT NOT NULL,
@@ -39,10 +39,10 @@ CREATE TABLE tb_customer (
 
 -- Orders
 CREATE TABLE tb_order (
-    pk_order    SERIAL PRIMARY KEY,
+    pk_order    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier  TEXT NOT NULL UNIQUE,
-    fk_customer INTEGER NOT NULL REFERENCES tb_customer(pk_customer),
+    fk_customer BIGINT NOT NULL REFERENCES tb_customer(pk_customer),
     total       DECIMAL(10, 2) NOT NULL,
     status      TEXT NOT NULL DEFAULT 'pending',
     created_at  TIMESTAMPTZ DEFAULT NOW(),
@@ -51,9 +51,10 @@ CREATE TABLE tb_order (
 
 -- Order Items
 CREATE TABLE tb_order_item (
-    pk_order_item SERIAL PRIMARY KEY,
+    pk_order_item BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id            UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    fk_order      INTEGER NOT NULL REFERENCES tb_order(pk_order),
+    identifier    TEXT NOT NULL UNIQUE,
+    fk_order      BIGINT NOT NULL REFERENCES tb_order(pk_order),
     product_id    UUID NOT NULL,  -- FK to inventory DB
     quantity      INT NOT NULL,
     unit_price    DECIMAL(10, 2) NOT NULL,
@@ -62,25 +63,25 @@ CREATE TABLE tb_order_item (
 
 -- Shipping Info
 CREATE TABLE tb_shipping (
-    pk_shipping   SERIAL PRIMARY KEY,
-    id            UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    fk_order      INTEGER NOT NULL UNIQUE REFERENCES tb_order(pk_order),
-    address       TEXT NOT NULL,
-    city          TEXT NOT NULL,
-    postal_code   TEXT NOT NULL,
-    country       TEXT NOT NULL,
+    pk_shipping     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id              UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier      TEXT NOT NULL UNIQUE,
+    fk_order        BIGINT NOT NULL UNIQUE REFERENCES tb_order(pk_order),
+    address         TEXT NOT NULL,
+    city            TEXT NOT NULL,
+    postal_code     TEXT NOT NULL,
+    country         TEXT NOT NULL,
     tracking_number TEXT,
-    status        TEXT NOT NULL DEFAULT 'pending',
+    status          TEXT NOT NULL DEFAULT 'pending',
     estimated_delivery DATE,
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ DEFAULT NOW()
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Views for FraiseQL (always with JSONB data column)
 CREATE VIEW v_order AS
 SELECT
     o.id,
-    o.identifier,
     jsonb_build_object(
         'id',          o.id::text,
         'identifier',  o.identifier,
@@ -89,13 +90,11 @@ SELECT
         'created_at',  o.created_at,
         'updated_at',  o.updated_at
     ) AS data
-FROM tb_order o
-WHERE o.deleted_at IS NULL;
+FROM tb_order o;
 
 CREATE VIEW v_customer AS
 SELECT
     c.id,
-    c.identifier,
     jsonb_build_object(
         'id',         c.id::text,
         'identifier', c.identifier,
@@ -104,8 +103,7 @@ SELECT
         'phone',      c.phone,
         'created_at', c.created_at
     ) AS data
-FROM tb_customer c
-WHERE c.deleted_at IS NULL;
+FROM tb_customer c;
 ```
 
   </TabItem>
@@ -115,7 +113,7 @@ WHERE c.deleted_at IS NULL;
 -- PostgreSQL (separate instance)
 
 CREATE TABLE tb_product (
-    pk_product  SERIAL PRIMARY KEY,
+    pk_product  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier  TEXT NOT NULL UNIQUE,  -- SKU slug
     sku         TEXT UNIQUE NOT NULL,
@@ -128,9 +126,10 @@ CREATE TABLE tb_product (
 );
 
 CREATE TABLE tb_inventory (
-    pk_inventory SERIAL PRIMARY KEY,
+    pk_inventory BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id           UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    fk_product   INTEGER NOT NULL REFERENCES tb_product(pk_product),
+    identifier   TEXT NOT NULL UNIQUE,
+    fk_product   BIGINT NOT NULL REFERENCES tb_product(pk_product),
     warehouse    TEXT NOT NULL,
     quantity     INT NOT NULL DEFAULT 0,
     reserved     INT NOT NULL DEFAULT 0,
@@ -140,10 +139,11 @@ CREATE TABLE tb_inventory (
 );
 
 CREATE TABLE tb_reservation (
-    pk_reservation SERIAL PRIMARY KEY,
+    pk_reservation BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id             UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier     TEXT NOT NULL UNIQUE,
     order_id       UUID NOT NULL,  -- FK to primary DB
-    fk_product     INTEGER NOT NULL REFERENCES tb_product(pk_product),
+    fk_product     BIGINT NOT NULL REFERENCES tb_product(pk_product),
     quantity       INT NOT NULL,
     status         TEXT NOT NULL DEFAULT 'reserved',
     created_at     TIMESTAMPTZ DEFAULT NOW(),
@@ -154,7 +154,6 @@ CREATE TABLE tb_reservation (
 CREATE VIEW v_product AS
 SELECT
     p.id,
-    p.identifier,
     jsonb_build_object(
         'id',    p.id::text,
         'sku',   p.sku,
@@ -166,7 +165,6 @@ FROM tb_product p;
 CREATE VIEW v_inventory_status AS
 SELECT
     p.id,
-    p.identifier,
     jsonb_build_object(
         'id',         p.id::text,
         'sku',        p.sku,
@@ -187,8 +185,9 @@ LEFT JOIN tb_inventory i ON p.pk_product = i.fk_product;
 -- PostgreSQL (separate instance)
 
 CREATE TABLE tb_payment_method (
-    pk_payment_method SERIAL PRIMARY KEY,
+    pk_payment_method BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id                UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier        TEXT NOT NULL UNIQUE,
     customer_id       UUID NOT NULL,  -- FK to primary DB
     type              TEXT NOT NULL,  -- 'card', 'bank_transfer', 'wallet'
     token             TEXT NOT NULL,  -- Tokenized payment info
@@ -197,30 +196,32 @@ CREATE TABLE tb_payment_method (
 );
 
 CREATE TABLE tb_transaction (
-    pk_transaction      SERIAL PRIMARY KEY,
-    id                  UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    order_id            UUID NOT NULL UNIQUE,  -- FK to primary DB
-    customer_id         UUID NOT NULL,
-    amount              DECIMAL(10, 2) NOT NULL,
-    status              TEXT NOT NULL DEFAULT 'pending',
-    fk_payment_method   INTEGER REFERENCES tb_payment_method(pk_payment_method),
-    gateway             TEXT,  -- 'stripe', 'paypal', 'square'
+    pk_transaction         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id                     UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier             TEXT NOT NULL UNIQUE,
+    order_id               UUID NOT NULL UNIQUE,  -- FK to primary DB
+    customer_id            UUID NOT NULL,
+    amount                 DECIMAL(10, 2) NOT NULL,
+    status                 TEXT NOT NULL DEFAULT 'pending',
+    fk_payment_method      BIGINT REFERENCES tb_payment_method(pk_payment_method),
+    gateway                TEXT,  -- 'stripe', 'paypal', 'square'
     gateway_transaction_id TEXT,
-    created_at          TIMESTAMPTZ DEFAULT NOW(),
-    processed_at        TIMESTAMPTZ,
-    failed_at           TIMESTAMPTZ
+    created_at             TIMESTAMPTZ DEFAULT NOW(),
+    processed_at           TIMESTAMPTZ,
+    failed_at              TIMESTAMPTZ
 );
 
 CREATE TABLE tb_refund (
-    pk_refund       SERIAL PRIMARY KEY,
-    id              UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    fk_transaction  INTEGER NOT NULL REFERENCES tb_transaction(pk_transaction),
-    order_id        UUID NOT NULL,
-    amount          DECIMAL(10, 2) NOT NULL,
-    reason          TEXT,
-    status          TEXT NOT NULL DEFAULT 'pending',
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    processed_at    TIMESTAMPTZ
+    pk_refund      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id             UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier     TEXT NOT NULL UNIQUE,
+    fk_transaction BIGINT NOT NULL REFERENCES tb_transaction(pk_transaction),
+    order_id       UUID NOT NULL,
+    amount         DECIMAL(10, 2) NOT NULL,
+    reason         TEXT,
+    status         TEXT NOT NULL DEFAULT 'pending',
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    processed_at   TIMESTAMPTZ
 );
 
 CREATE VIEW v_transaction AS
@@ -426,35 +427,51 @@ CREATE OR REPLACE FUNCTION fn_create_order(
     p_shipping_country   TEXT,
     p_payment_method_id  UUID
 )
-RETURNS SETOF v_order
+RETURNS mutation_response
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_order   tb_order;
+    v_pk_order   BIGINT;
+    v_id         UUID;
+    v_pk_cust    BIGINT;
+    v_result     mutation_response;
 BEGIN
+    -- Resolve customer PK
+    SELECT pk_customer INTO v_pk_cust
+      FROM tb_customer WHERE id = p_customer_id;
+
+    IF v_pk_cust IS NULL THEN
+        v_result.status  := 'failed:not_found';
+        v_result.message := 'Customer not found';
+        RETURN v_result;
+    END IF;
+
     -- Create order record
-    INSERT INTO tb_order (fk_customer, total, status)
-    SELECT pk_customer, 0, 'pending'
-    FROM tb_customer WHERE id = p_customer_id
-    RETURNING * INTO v_order;
+    INSERT INTO tb_order (fk_customer, total, status, identifier)
+    VALUES (v_pk_cust, 0, 'pending', 'ORD-' || gen_random_uuid()::text)
+    RETURNING pk_order, id INTO v_pk_order, v_id;
 
     -- Create shipping record
-    INSERT INTO tb_shipping (fk_order, address, city, postal_code, country, status)
-    VALUES (v_order.pk_order,
+    INSERT INTO tb_shipping (fk_order, address, city, postal_code, country, status, identifier)
+    VALUES (v_pk_order,
             p_shipping_address, p_shipping_city,
-            p_shipping_postal, p_shipping_country, 'pending');
+            p_shipping_postal, p_shipping_country, 'pending',
+            'SHIP-' || gen_random_uuid()::text);
 
     -- Notify inventory and payment services via pg_notify.
     -- FraiseQL observers forward these to NATS topics.
     PERFORM pg_notify(
         'order_created',
         jsonb_build_object(
-            'order_id',          v_order.id,
+            'order_id',          v_id,
             'customer_id',       p_customer_id,
             'payment_method_id', p_payment_method_id
         )::text
     );
 
-    RETURN QUERY SELECT * FROM v_order WHERE pk_order = v_order.pk_order;
+    v_result.status      := 'success';
+    v_result.entity_id   := v_id;
+    v_result.entity_type := 'Order';
+    RETURN v_result;
 END;
 $$;
 ```
@@ -465,13 +482,21 @@ Configure FraiseQL to forward `pg_notify` channels to NATS:
 [federation]
 enabled = true
 
+# Per-table observer entries
 [[observers]]
-channel = "order_created"
-nats_subject = "fraiseql.order.created"
+table   = "tb_order"
+event   = "INSERT"
+subject = "order_created"
 
 [[observers]]
-channel = "order_cancelled"
-nats_subject = "fraiseql.order.cancelled"
+table   = "tb_order"
+event   = "UPDATE"
+subject = "order_cancelled"
+
+# Global observer backend settings
+[observers]
+backend  = "nats"
+nats_url = "${NATS_URL}"
 ```
 
 Inventory reservation and payment processing are handled by separate services that subscribe to these NATS subjects. Each service updates its own database and emits completion/failure events, allowing independent rollback without a centralised saga framework.

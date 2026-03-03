@@ -13,7 +13,7 @@ FraiseQL provides comprehensive observability through metrics, distributed traci
 - **Logging level**: `RUST_LOG=info fraiseql run` (standard Rust env var; values: `error`, `warn`, `info`, `debug`, `trace`)
 - **OTLP tracing**: `OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317` and `OTEL_SERVICE_NAME=fraiseql-api` (standard OpenTelemetry env vars)
 
-The metric names, Grafana queries, and health endpoint behaviour described below are correct — the TOML configuration blocks are aspirational.
+The TOML configuration blocks are aspirational. **The metric names in the tables below reflect the actual implementation** — use these names in Grafana dashboards and Prometheus alerting rules.
 </Aside>
 
 ## Prometheus Metrics
@@ -34,47 +34,50 @@ curl http://localhost:8080/metrics
 | Metric | Type | Description |
 |--------|------|-------------|
 | `fraiseql_http_requests_total` | Counter | Total HTTP requests |
-| `fraiseql_http_request_duration_seconds` | Histogram | Request latency |
-| `fraiseql_http_requests_in_flight` | Gauge | Active requests |
-| `fraiseql_http_response_size_bytes` | Histogram | Response sizes |
+| `fraiseql_http_responses_2xx` | Counter | Total 2xx HTTP responses |
+| `fraiseql_http_responses_4xx` | Counter | Total 4xx HTTP responses |
+| `fraiseql_http_responses_5xx` | Counter | Total 5xx HTTP responses |
 
 #### GraphQL Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `fraiseql_graphql_queries_total` | Counter | Total queries |
-| `fraiseql_graphql_mutations_total` | Counter | Total mutations |
-| `fraiseql_graphql_subscriptions_active` | Gauge | Active subscriptions |
-| `fraiseql_graphql_errors_total` | Counter | GraphQL errors |
-| `fraiseql_graphql_query_duration_seconds` | Histogram | Query execution time |
-| `fraiseql_graphql_query_complexity` | Histogram | Query complexity scores |
+| `fraiseql_graphql_queries_total` | Counter | Total GraphQL queries executed |
+| `fraiseql_graphql_queries_success` | Counter | Total successful GraphQL queries |
+| `fraiseql_graphql_queries_error` | Counter | Total failed GraphQL queries |
+| `fraiseql_graphql_query_duration_ms` | Gauge | Average query execution time in milliseconds |
+| `fraiseql_validation_errors_total` | Counter | Total validation errors |
+| `fraiseql_parse_errors_total` | Counter | Total parse errors |
+| `fraiseql_execution_errors_total` | Counter | Total execution errors |
 
 #### Database Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `fraiseql_db_connections_active` | Gauge | Active connections |
-| `fraiseql_db_connections_idle` | Gauge | Idle connections |
-| `fraiseql_db_query_duration_seconds` | Histogram | SQL query latency |
-| `fraiseql_db_errors_total` | Counter | Database errors |
+| `fraiseql_database_queries_total` | Counter | Total database queries executed |
+| `fraiseql_database_query_duration_ms` | Gauge | Average database query time in milliseconds |
 
 #### Cache Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `fraiseql_cache_hits_total` | Counter | Cache hits |
-| `fraiseql_cache_misses_total` | Counter | Cache misses |
-| `fraiseql_cache_size_bytes` | Gauge | Cache memory usage |
-| `fraiseql_cache_evictions_total` | Counter | Cache evictions |
+| `fraiseql_cache_hits` | Counter | Total cache hits |
+| `fraiseql_cache_misses` | Counter | Total cache misses |
+| `fraiseql_cache_hit_ratio` | Gauge | Cache hit ratio (0–1) |
 
-#### Authentication Metrics
+#### Feature Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `fraiseql_auth_attempts_total` | Counter | Auth attempts |
-| `fraiseql_auth_success_total` | Counter | Successful auth |
-| `fraiseql_auth_failure_total` | Counter | Failed auth |
-| `fraiseql_auth_sessions_active` | Gauge | Active sessions |
+| `fraiseql_apq_hits_total` | Counter | Automatic Persisted Query cache hits |
+| `fraiseql_apq_misses_total` | Counter | Automatic Persisted Query cache misses |
+| `fraiseql_apq_stored_total` | Counter | Automatic Persisted Queries stored |
+| `fraiseql_apq_redis_errors_total` | Counter | Redis errors in APQ store (fail-open; only present with `redis-apq` feature) |
+| `fraiseql_ws_connections_total` | Counter | WebSocket connection attempts (labeled by `result`) |
+| `fraiseql_ws_subscriptions_total` | Counter | WebSocket subscription attempts (labeled by `result`) |
+| `fraiseql_trusted_documents_hits_total` | Counter | Trusted document cache hits |
+| `fraiseql_trusted_documents_misses_total` | Counter | Trusted document cache misses |
+| `fraiseql_trusted_documents_rejected_total` | Counter | Rejected untrusted documents |
 | `fraiseql_pkce_redis_errors_total` | Counter | Redis errors in PKCE state store (fail-open; only present with `redis-pkce` feature) |
 | `fraiseql_rate_limit_redis_errors_total` | Counter | Redis errors in rate limiter (fail-open; only present with `redis-rate-limiting` feature) |
 
@@ -97,18 +100,17 @@ Example queries for dashboards:
 # Request rate
 rate(fraiseql_http_requests_total[5m])
 
-# P99 latency
-histogram_quantile(0.99, rate(fraiseql_http_request_duration_seconds_bucket[5m]))
+# Average query duration (milliseconds gauge)
+fraiseql_graphql_query_duration_ms
 
 # Error rate
-rate(fraiseql_graphql_errors_total[5m]) / rate(fraiseql_graphql_queries_total[5m])
+rate(fraiseql_graphql_queries_error[5m]) / rate(fraiseql_graphql_queries_total[5m])
 
-# Cache hit ratio
-rate(fraiseql_cache_hits_total[5m]) /
-(rate(fraiseql_cache_hits_total[5m]) + rate(fraiseql_cache_misses_total[5m]))
+# Cache hit ratio (use the pre-computed gauge)
+fraiseql_cache_hit_ratio
 
-# Active connections
-fraiseql_db_connections_active / fraiseql_db_connections_max
+# 5xx server error rate
+rate(fraiseql_http_responses_5xx[5m])
 ```
 
 ## OpenTelemetry Tracing
@@ -287,7 +289,7 @@ groups:
     rules:
       - alert: HighErrorRate
         expr: |
-          rate(fraiseql_graphql_errors_total[5m]) /
+          rate(fraiseql_graphql_queries_error[5m]) /
           rate(fraiseql_graphql_queries_total[5m]) > 0.05
         for: 5m
         labels:
@@ -295,35 +297,32 @@ groups:
         annotations:
           summary: "High GraphQL error rate"
 
-      - alert: HighLatency
+      - alert: HighQueryDuration
         expr: |
-          histogram_quantile(0.99,
-            rate(fraiseql_http_request_duration_seconds_bucket[5m])
-          ) > 1
+          fraiseql_graphql_query_duration_ms > 1000
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "P99 latency above 1 second"
+          summary: "Average query duration above 1 second"
 
       - alert: LowCacheHitRate
         expr: |
-          rate(fraiseql_cache_hits_total[5m]) /
-          (rate(fraiseql_cache_hits_total[5m]) + rate(fraiseql_cache_misses_total[5m])) < 0.5
+          fraiseql_cache_hit_ratio < 0.5
         for: 15m
         labels:
           severity: info
         annotations:
           summary: "Cache hit rate below 50%"
 
-      - alert: DatabaseConnectionPoolExhausted
+      - alert: High5xxRate
         expr: |
-          fraiseql_db_connections_active / fraiseql_db_connections_max > 0.9
+          rate(fraiseql_http_responses_5xx[5m]) > 1
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Database connection pool nearly exhausted"
+          summary: "Elevated 5xx server error rate"
 ```
 
 ## Best Practices
@@ -386,20 +385,18 @@ FraiseQL does not include `user_id` or `request_id` as metric labels by default 
    ```
    # HELP fraiseql_http_requests_total Total HTTP requests
    # TYPE fraiseql_http_requests_total counter
-   fraiseql_http_requests_total{method="POST",status="200"} 42
-   fraiseql_http_requests_total{method="POST",status="400"} 3
-   
-   # HELP fraiseql_graphql_queries_total Total GraphQL queries
+   fraiseql_http_requests_total 42
+
+   # HELP fraiseql_graphql_queries_total Total GraphQL queries executed
    # TYPE fraiseql_graphql_queries_total counter
-   fraiseql_graphql_queries_total{type="query"} 38
-   fraiseql_graphql_queries_total{type="mutation"} 4
-   
-   # HELP fraiseql_db_connections_active Active database connections
-   # TYPE fraiseql_db_connections_active gauge
-   fraiseql_db_connections_active 5
+   fraiseql_graphql_queries_total 38
+
+   # HELP fraiseql_cache_hit_ratio Cache hit ratio (0-1)
+   # TYPE fraiseql_cache_hit_ratio gauge
+   fraiseql_cache_hit_ratio 0.92
    ```
 
-4. **Execute some queries to generate metrics**:
+3. **Execute some queries to generate metrics**:
    ```bash
    # Run a few queries
    for i in {1..10}; do
@@ -409,17 +406,17 @@ FraiseQL does not include `user_id` or `request_id` as metric labels by default 
    done
    ```
 
-5. **Verify metrics updated**:
+4. **Verify metrics updated**:
    ```bash
    curl http://localhost:8080/metrics | grep fraiseql_graphql_queries_total
    ```
    
    Expected output:
    ```
-   fraiseql_graphql_queries_total{type="query"} 48
+   fraiseql_graphql_queries_total 48
    ```
 
-6. **Test health endpoints**:
+5. **Test health endpoints**:
    ```bash
    # Basic health
    curl http://localhost:8080/health
@@ -454,7 +451,7 @@ FraiseQL does not include `user_id` or `request_id` as metric labels by default 
    }
    ```
 
-7. **Verify structured logging**:
+6. **Verify structured logging**:
    ```bash
    # Make a request and check logs
    curl -s -X POST http://localhost:8080/graphql \
@@ -481,7 +478,7 @@ FraiseQL does not include `user_id` or `request_id` as metric labels by default 
    }
    ```
 
-8. **Test OpenTelemetry tracing** (if enabled):
+7. **Test OpenTelemetry tracing** (if enabled):
    ```bash
    OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
    OTEL_SERVICE_NAME=fraiseql-api \

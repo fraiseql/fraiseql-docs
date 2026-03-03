@@ -3,7 +3,7 @@ title: How It Works
 description: Understanding FraiseQL's database-first architecture
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 import EmbeddedSandbox from '../../../components/EmbeddedSandbox.astro';
 
 FraiseQL is a **database-first GraphQL framework**. You write SQL views that compose nested JSONB responses. FraiseQL maps your GraphQL types to those views. At runtime, every query resolves to a single SQL statement — no resolvers, no N+1, no DataLoader.
@@ -194,9 +194,9 @@ Define your GraphQL schema in your preferred programming language:
   </TabItem>
   <TabItem label="TypeScript">
     ```typescript title="schema.ts"
-    import { type, field } from 'fraiseql';
+    import { Type, field } from 'fraiseql';
 
-    @type()
+    @Type()
     class User {
       @field() id!: string;
       @field() name!: string;
@@ -204,7 +204,7 @@ Define your GraphQL schema in your preferred programming language:
       @field() posts!: Post[];
     }
 
-    @type()
+    @Type()
     class Post {
       @field() id!: string;
       @field() title!: string;
@@ -339,17 +339,20 @@ graph LR
     C --> D[Compiled Query Map]
 ```
 
-### Phase 3: Code Generation & Output
+### Phase 3: Output
 
-The final phase produces a compiled Rust binary, migration files, and all deployment artifacts:
+The final phase produces the compiled schema artifact and SDK type information:
 
 ```mermaid
 graph LR
-    A[Compiled Query Map] --> B[Rust Code Generation]
-    B --> C[Query Executor Binary]
-    B --> D[SDK Types<br/>6 languages]
-    B --> E[Migration Files]
+    A[Compiled Query Map] --> B[schema.compiled.json]
+    A --> C[SDK Client Types]
+    A --> D[Migration Artifacts]
 ```
+
+<Aside type="note">
+FraiseQL does **not** generate a per-project Rust binary. The `fraiseql run` server is a pre-built binary. `fraiseql compile` produces `schema.compiled.json` (view mapping and query paths), which the pre-built server reads at startup.
+</Aside>
 
 ### Input: Schema in Any Language
 
@@ -357,15 +360,19 @@ FraiseQL supports schema definition in Python, TypeScript, Go, Java, Rust, and m
 
 ### Output: Compiled Artifacts
 
-1. **View Mapping** — Maps each GraphQL type to its SQL view
-2. **Query Executor** — High-performance compiled query paths
-3. **SDK Types** — Schema authoring libraries in 6 languages
+1. **`schema.compiled.json`** — Maps each GraphQL type to its SQL view with pre-compiled query paths
+2. **SDK Client Types** — Generated client types for your preferred language
+3. **Migration Artifacts** — Schema migration helpers
 
 ## Configuration
 
 All configuration lives in a single TOML file:
 
 ```toml title="fraiseql.toml"
+[fraiseql]
+schema_file  = "schema.json"
+output_file  = "schema.compiled.json"
+
 [project]
 name = "my-api"
 version = "1.0.0"

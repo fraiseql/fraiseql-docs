@@ -1,11 +1,11 @@
 ---
 title: Java SDK
-description: Define GraphQL schemas in Java using FraiseQL's annotation-based schema authoring SDK
+description: Define GraphQL schemas in Java using FraiseQL's annotation and fluent builder schema authoring SDK
 ---
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
-The FraiseQL Java SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations in Java using annotations, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+The FraiseQL Java SDK is a **schema authoring SDK**: you define GraphQL types using annotations and register queries and mutations using a fluent builder API, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
 
 <Aside type="note">
 This is not a GraphQL client library. FraiseQL Java lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client. Kotlin, Scala, Groovy, and Clojure projects can use this SDK via JVM interop.
@@ -17,8 +17,8 @@ This is not a GraphQL client library. FraiseQL Java lets you **define** APIs, no
 
 ```xml
 <dependency>
-    <groupId>dev.fraiseql</groupId>
-    <artifactId>fraiseql-sdk</artifactId>
+    <groupId>com.fraiseql</groupId>
+    <artifactId>fraiseql-java</artifactId>
     <version>2.0.0</version>
 </dependency>
 ```
@@ -27,7 +27,7 @@ This is not a GraphQL client library. FraiseQL Java lets you **define** APIs, no
 
 ```groovy
 dependencies {
-    implementation 'dev.fraiseql:fraiseql-sdk:2.0.0'
+    implementation 'com.fraiseql:fraiseql-java:2.0.0'
 }
 ```
 
@@ -35,126 +35,183 @@ dependencies {
 
 ## Core Concepts
 
-FraiseQL Java provides four annotations that map your Java types to GraphQL schema constructs:
+FraiseQL Java uses annotations for type definitions and a fluent builder API for queries and mutations:
 
-| Annotation | GraphQL Equivalent | Purpose |
+| Construct | GraphQL Equivalent | Purpose |
 |-----------|-------------------|---------|
-| `@FraiseType` | `type` | Define a GraphQL output type |
-| `@FraiseInput` | `input` | Define a GraphQL input type |
-| `@FraiseQuery` | `Query` field | Wire a query to a SQL view |
-| `@FraiseMutation` | `Mutation` field | Define a mutation |
+| `@GraphQLType` | `type` | Mark a class as a GraphQL output type |
+| `@GraphQLInput` | `input` | Mark a class as a GraphQL input type |
+| `@GraphQLField` | field metadata | Configure field names, nullability, scopes |
+| `FraiseQL.query(name)...` | `Query` field | Wire a query to a SQL view |
+| `FraiseQL.mutation(name)...` | `Mutation` field | Define a mutation |
 
 ---
 
 ## Defining Types
 
-Use `@FraiseType` to define GraphQL output types. Fields map 1:1 to columns in your backing SQL view's `.data` JSONB object.
+Annotate classes with `@GraphQLType` and fields with `@GraphQLField`. The `type` attribute on `@GraphQLField` maps to FraiseQL scalar types:
 
 ```java title="schema/User.java"
-package com.example.schema;
+package schema;
 
-import dev.fraiseql.annotations.*;
-import dev.fraiseql.scalars.*;
+import com.fraiseql.core.*;
 
-@FraiseType
+@GraphQLType
 public class User {
-    public ID id;
+    @GraphQLField(type = "ID", nullable = false)
+    public String id;
+
+    @GraphQLField(nullable = false)
     public String username;
-    public Email email;
-    public String bio;        // nullable
-    public DateTime createdAt;
+
+    @GraphQLField(type = "Email", nullable = false)
+    public String email;
+
+    @GraphQLField(nullable = true)
+    public String bio;
+
+    @GraphQLField(type = "DateTime", nullable = false)
+    public String createdAt;
 }
 ```
 
 ```java title="schema/Post.java"
-package com.example.schema;
+package schema;
 
-import dev.fraiseql.annotations.*;
-import dev.fraiseql.scalars.*;
-import java.util.List;
+import com.fraiseql.core.*;
 
-@FraiseType
+@GraphQLType
 public class Post {
-    public ID id;
+    @GraphQLField(type = "ID", nullable = false)
+    public String id;
+
+    @GraphQLField(nullable = false)
     public String title;
-    public Slug slug;
+
+    @GraphQLField(type = "Slug", nullable = false)
+    public String slug;
+
+    @GraphQLField(nullable = false)
     public String content;
+
+    @GraphQLField(nullable = false)
     public boolean isPublished;
-    public DateTime createdAt;
-    public DateTime updatedAt;
-    // Nested types are composed from views at compile time
-    public User author;
-    public List<Comment> comments;
-}
-```
 
-```java title="schema/Comment.java"
-package com.example.schema;
+    @GraphQLField(type = "DateTime", nullable = false)
+    public String createdAt;
 
-import dev.fraiseql.annotations.*;
-import dev.fraiseql.scalars.*;
-
-@FraiseType
-public class Comment {
-    public ID id;
-    public String content;
-    public DateTime createdAt;
-    public User author;
+    @GraphQLField(type = "DateTime", nullable = false)
+    public String updatedAt;
 }
 ```
 
 ### Built-in Scalars
 
-FraiseQL provides semantic scalars that add validation and documentation:
+Scalar type strings are provided as constants in `com.fraiseql.core.Scalars`:
 
 ```java
-import dev.fraiseql.scalars.*;
+import com.fraiseql.core.Scalars;
 
-ID         // UUID, auto-serialized
-Email      // Validated email address
-Slug       // URL-safe slug
-DateTime   // ISO 8601 datetime
-URL        // Validated URL
+// Use as string literals in @GraphQLField(type = ...)
+Scalars.ID           // "ID"
+Scalars.EMAIL        // "Email"
+Scalars.SLUG         // "Slug"
+Scalars.DATE_TIME    // "DateTime"
+Scalars.URL          // "URL"
+Scalars.DATE         // "Date"
+Scalars.UUID         // "UUID"
+Scalars.DECIMAL      // "Decimal"
+Scalars.JSON         // "Json"
+```
+
+### Field-Level Scopes
+
+Use `requiresScope` or `requiresScopes` on `@GraphQLField` for field-level access control:
+
+```java
+@GraphQLType
+public class User {
+    @GraphQLField(type = "ID", nullable = false)
+    public String id;
+
+    @GraphQLField(
+        type = "Email",
+        nullable = false,
+        requiresScope = "read:user.email",
+        description = "Email address — requires read:user.email scope"
+    )
+    public String email;
+
+    @GraphQLField(
+        type = Scalars.DECIMAL,
+        nullable = true,
+        requiresScopes = {"read:user.salary", "admin"},
+        description = "Salary — requires both read:user.salary and admin scopes"
+    )
+    public String salary;
+}
+```
+
+### Role Restriction
+
+Use `@RequiresRole` on a type or field to restrict access by role:
+
+```java
+import com.fraiseql.core.RequiresRole;
+
+@GraphQLType
+@RequiresRole("admin")
+public class AdminDashboard {
+    @GraphQLField(nullable = false)
+    public int totalUsers;
+
+    @GraphQLField(nullable = false)
+    public String systemStatus;
+}
 ```
 
 ---
 
 ## Defining Inputs
 
-Use `@FraiseInput` to define GraphQL input types for mutations:
+Annotate input classes with `@GraphQLInput` and fields with `@GraphQLField`:
 
-```java title="schema/CreateUserInput.java"
-package com.example.schema;
+```java title="schema/CreatePostInput.java"
+package schema;
 
-import dev.fraiseql.annotations.*;
-import dev.fraiseql.scalars.*;
+import com.fraiseql.core.*;
 
-@FraiseInput
-public class CreateUserInput {
-    @Validate(minLength = 3, maxLength = 50, pattern = "^[a-z0-9_]+$")
-    public String username;
+@GraphQLInput
+public class CreatePostInput {
+    @GraphQLField(nullable = false)
+    public String title;
 
-    @Validate(required = true)
-    public Email email;
+    @GraphQLField(nullable = false)
+    public String content;
 
-    public String bio;  // nullable, optional
+    @GraphQLField(nullable = false)
+    public boolean isPublished;
 }
 ```
 
-```java title="schema/CreatePostInput.java"
-package com.example.schema;
+```java title="schema/UpdatePostInput.java"
+package schema;
 
-import dev.fraiseql.annotations.*;
-import dev.fraiseql.scalars.*;
+import com.fraiseql.core.*;
 
-@FraiseInput
-public class CreatePostInput {
-    @Validate(minLength = 1, maxLength = 200)
+@GraphQLInput
+public class UpdatePostInput {
+    @GraphQLField(type = "ID", nullable = false)
+    public String id;
+
+    @GraphQLField(nullable = true)
     public String title;
 
+    @GraphQLField(nullable = true)
     public String content;
-    public ID authorId;
-    public boolean isPublished = false;
+
+    @GraphQLField(nullable = true)
+    public Boolean isPublished;
 }
 ```
 
@@ -162,44 +219,48 @@ public class CreatePostInput {
 
 ## Defining Queries
 
-Use `@FraiseQuery` to wire queries to SQL views. The `sqlSource` attribute names the view that backs this query:
+Use `FraiseQL.query(name)` to create a `QueryBuilder`, chain configuration methods, and call `.register()` to add the query to the schema:
 
-```java title="schema/Queries.java"
-package com.example.schema;
+```java title="schema/SchemaSetup.java"
+package schema;
 
-import dev.fraiseql.annotations.*;
-import dev.fraiseql.scalars.*;
-import java.util.List;
-import java.util.Optional;
+import com.fraiseql.core.FraiseQL;
 
-public class Queries {
+public class SchemaSetup {
+    public static void register() {
+        // Register types
+        FraiseQL.registerTypes(User.class, Post.class);
+        FraiseQL.registerTypes(CreatePostInput.class, UpdatePostInput.class);
 
-    // List query — maps to SELECT * FROM v_post WHERE <args>
-    @FraiseQuery(sqlSource = "v_post")
-    public List<Post> posts(
-        Boolean isPublished,
-        ID authorId,
-        int limit,
-        int offset
-    ) { return null; }
+        // List query — maps to v_post view
+        FraiseQL.query("posts")
+            .returnType(Post.class)
+            .returnsArray(true)
+            .sqlSource("v_post")
+            .arg("isPublished", "Boolean")
+            .arg("limit", "Int", 20)
+            .arg("offset", "Int", 0)
+            .description("Fetch posts, optionally filtered by published status.")
+            .register();
 
-    // Single-item query — maps to SELECT * FROM v_post WHERE id = $1
-    @FraiseQuery(sqlSource = "v_post", idArg = "id")
-    public Optional<Post> post(ID id) { return null; }
-
-    // Query with row filter for current user's posts
-    @FraiseQuery(sqlSource = "v_post", rowFilter = "author_id = {current_user_id}")
-    public List<Post> myPosts(int limit) { return null; }
+        // Single-item query — maps to v_post with id filter
+        FraiseQL.query("post")
+            .returnType(Post.class)
+            .sqlSource("v_post")
+            .arg("id", "ID")
+            .description("Fetch a single post by ID.")
+            .register();
+    }
 }
 ```
 
 ### How Arguments Become WHERE Clauses
 
-FraiseQL's **automatic-where** feature maps query arguments to SQL filters automatically. Declare an argument whose name matches a column in the backing view, and FraiseQL appends it as a `WHERE` clause:
+FraiseQL's **automatic-where** feature maps query arguments to SQL filters automatically:
 
 ```graphql
 query {
-  posts(isPublished: true, authorId: "usr_01HZ3K") { ... }
+  posts(isPublished: true, limit: 10) { id title }
 }
 ```
 
@@ -208,8 +269,7 @@ Becomes:
 ```sql
 SELECT data FROM v_post
 WHERE is_published = true
-  AND author_id = 'usr_01HZ3K'
-LIMIT 20 OFFSET 0;
+LIMIT 10 OFFSET 0;
 ```
 
 No resolver code required.
@@ -218,189 +278,153 @@ No resolver code required.
 
 ## Defining Mutations
 
-Use `@FraiseMutation` to define mutations that execute PostgreSQL functions:
+Use `FraiseQL.mutation(name)` to create a `MutationBuilder`. Each mutation maps to a PostgreSQL function using the `fn_` naming convention:
 
-```java title="schema/Mutations.java"
-package com.example.schema;
+```java title="schema/SchemaSetup.java"
+package schema;
 
-import dev.fraiseql.annotations.*;
-import dev.fraiseql.auth.*;
-import dev.fraiseql.scalars.*;
+import com.fraiseql.core.FraiseQL;
+import java.util.List;
 
-public class Mutations {
+public class SchemaSetup {
+    public static void register() {
+        // ... type and query registration above ...
 
-    // FraiseQL calls: SELECT * FROM fn_create_user($1::jsonb)
-    @FraiseMutation
-    public User createUser(MutationContext info, CreateUserInput input) { return null; }
+        // Maps to fn_create_post PostgreSQL function
+        FraiseQL.mutation("createPost")
+            .returnType(Post.class)
+            .sqlSource("fn_create_post")
+            .arg("input", "CreatePostInput")
+            .operation("insert")
+            .invalidatesViews(List.of("v_post"))
+            .description("Create a new blog post.")
+            .register();
 
-    @FraiseMutation
-    @Authenticated
-    @RequiresScope("write:posts")
-    public Post createPost(MutationContext info, CreatePostInput input) { return null; }
+        // Maps to fn_publish_post PostgreSQL function
+        FraiseQL.mutation("publishPost")
+            .returnType(Post.class)
+            .sqlSource("fn_publish_post")
+            .arg("id", "ID")
+            .operation("update")
+            .invalidatesViews(List.of("v_post"))
+            .description("Publish a draft post.")
+            .register();
 
-    @FraiseMutation
-    @Authenticated
-    @RequiresScope("write:posts")
-    public Post publishPost(MutationContext info, ID id) { return null; }
-
-    @FraiseMutation
-    @Authenticated
-    @RequiresScope("admin:posts")
-    public boolean deletePost(MutationContext info, ID id) { return false; }
-}
-```
-
-Each mutation maps to a PostgreSQL function in `db/schema/03_functions/`. The Java definition is the schema; the SQL function is the implementation.
-
----
-
-## Authorization
-
-Use `@Authenticated` and `@RequiresScope` to protect queries and mutations:
-
-```java title="schema/Mutations.java"
-import dev.fraiseql.auth.*;
-
-@FraiseMutation
-@Authenticated
-@RequiresScope("write:posts")
-public Post createPost(MutationContext info, CreatePostInput input) { return null; }
-
-@FraiseMutation
-@Authenticated
-@RequiresScope("admin:posts")
-public boolean deletePost(MutationContext info, ID id) { return false; }
-```
-
----
-
-## Middleware
-
-Use `@FraiseMiddleware` to intercept requests and set context:
-
-```java title="schema/AppMiddleware.java"
-package com.example.schema;
-
-import dev.fraiseql.annotations.*;
-import dev.fraiseql.middleware.*;
-
-public class AppMiddleware {
-
-    @FraiseMiddleware
-    public Response extractUserContext(Request request, Handler next) {
-        if (request.getAuth() != null) {
-            request.getContext().put("current_user_id", request.getAuth().getClaim("sub"));
-            request.getContext().put("current_org_id", request.getAuth().getClaim("org_id"));
-        }
-        return next.handle(request);
+        // Maps to fn_delete_post PostgreSQL function
+        FraiseQL.mutation("deletePost")
+            .returnType(Post.class)
+            .sqlSource("fn_delete_post")
+            .arg("id", "ID")
+            .operation("delete")
+            .invalidatesViews(List.of("v_post"))
+            .description("Soft-delete a post.")
+            .register();
     }
 }
 ```
 
----
+### The SQL Side
 
-## Spring Boot Integration
+```sql
+-- db/schema/tb_post.sql
+CREATE TABLE tb_post (
+    pk_post      BIGINT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id           UUID    DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier   TEXT    UNIQUE NOT NULL,
+    title        TEXT    NOT NULL,
+    content      TEXT    NOT NULL DEFAULT '',
+    is_published BOOLEAN NOT NULL DEFAULT false,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    fk_author BIGINT NOT NULL REFERENCES tb_user(pk_user)
+);
 
-<Aside type="tip">
-FraiseQL Java integrates directly with Spring Boot via auto-configuration. Add the starter and annotate your schema classes.
-</Aside>
+-- db/schema/v_post.sql
+CREATE VIEW v_post AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id',           p.id::text,
+        'identifier',   p.identifier,
+        'title',        p.title,
+        'content',      p.content,
+        'is_published', p.is_published,
+        'created_at',   p.created_at,
+        'updated_at',   p.updated_at
+    ) AS data
+FROM tb_post p;
 
-```java title="src/main/java/com/example/FraiseQLConfig.java"
-package com.example;
-
-import dev.fraiseql.spring.*;
-import org.springframework.context.annotation.*;
-
-@Configuration
-@EnableFraiseQL
-public class FraiseQLConfig {
-    // FraiseQL auto-discovers @FraiseType, @FraiseQuery, @FraiseMutation classes
-    // in your Spring component scan path
-}
+-- db/schema/fn_create_post.sql
+CREATE FUNCTION fn_create_post(p_input jsonb)
+RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id UUID := gen_random_uuid();
+BEGIN
+    INSERT INTO tb_post (id, identifier, title, content, is_published)
+    VALUES (
+        v_id,
+        p_input->>'title',
+        p_input->>'title',
+        p_input->>'content',
+        (p_input->>'is_published')::boolean
+    );
+    RETURN ROW('success', NULL, v_id, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+END;
+$$;
 ```
 
-```java title="src/main/resources/application.yml"
-fraiseql:
-  database-url: ${DATABASE_URL}
-  jwt-secret: ${JWT_SECRET}
-  schema-packages: com.example.schema
+---
+
+## JWT Claim Injection
+
+Use `.inject(map)` on a query or mutation builder to inject server-side values from the JWT without exposing them as client-controlled arguments:
+
+```java
+import java.util.Map;
+
+// Automatically inject the authenticated user's ID from the JWT sub claim
+FraiseQL.query("myPosts")
+    .returnType(Post.class)
+    .returnsArray(true)
+    .sqlSource("v_post")
+    .arg("limit", "Int", 20)
+    .inject(Map.of("author_id", "jwt:sub"))
+    .description("Fetch the current user's posts.")
+    .register();
 ```
 
 ---
 
-## Build and Serve
+## Build and Export
 
 <Steps>
 
-1. Build the schema — compiles Java annotations to the FraiseQL IR:
+1. Register all types and operations in your application startup:
+
+   ```java title="src/main/java/Main.java"
+   public class Main {
+       public static void main(String[] args) throws Exception {
+           SchemaSetup.register();
+           FraiseQL.exportSchema("schema.json");
+           System.out.println("Schema exported to schema.json");
+       }
+   }
+   ```
+
+2. Compile with the CLI:
 
    ```bash
-   fraiseql compile
+   fraiseql compile --schema schema.json
    ```
 
-   Expected output:
-
-   ```
-   ✓ Schema compiled: 3 types, 2 queries, 2 mutations
-   ✓ Views validated against database
-   ✓ Build complete: schema.json
-   ```
-
-2. Serve the API:
+3. Serve the API:
 
    ```bash
    fraiseql run
    ```
 
-   Expected output:
-
-   ```
-   ✓ FraiseQL 2.0.0 running on http://localhost:8080/graphql
-   ✓ GraphQL Playground at http://localhost:8080/graphql
-   ```
-
 </Steps>
-
----
-
-## Testing
-
-FraiseQL provides a test client that compiles your schema and runs queries against a real database:
-
-```java title="src/test/java/SchemaTest.java"
-import dev.fraiseql.testing.*;
-import org.junit.jupiter.api.*;
-import static org.junit.jupiter.api.Assertions.*;
-
-class SchemaTest {
-    private FraiseQLTestClient client;
-
-    @BeforeEach
-    void setUp() {
-        client = FraiseQLTestClient.builder()
-            .schemaPackage("com.example.schema")
-            .databaseUrl(System.getenv("FRAISEQL_TEST_DATABASE_URL"))
-            .build();
-    }
-
-    @Test
-    void testCreateAndFetchPost() throws Exception {
-        var result = client.mutate("""
-            mutation {
-                createPost(input: { title: "Hello", content: "World" }) {
-                    id
-                    title
-                    isPublished
-                }
-            }
-        """);
-
-        var post = result.get("createPost");
-        assertEquals("Hello", post.get("title"));
-        assertFalse((Boolean) post.get("isPublished"));
-    }
-}
-```
 
 ---
 
@@ -414,9 +438,9 @@ class SchemaTest {
     [Filtering, pagination, and full-text search](/guides/custom-queries)
   </Card>
   <Card title="Security" icon="approve-check-circle">
-    [Authentication, RBAC, and input validation](/features/security)
+    [Authentication, RBAC, and field-level scopes](/features/security)
   </Card>
   <Card title="Other SDKs" icon="puzzle">
-    [Python, TypeScript, Go, Rust, PHP](/sdk/)
+    [Python, TypeScript, Go, PHP, Rust](/sdk/)
   </Card>
 </CardGrid>

@@ -44,7 +44,6 @@ Before configuring NATS integration, you need:
 
    ```toml
    [observers]
-   enabled = true
    backend = "nats"
    nats_url = "${NATS_URL}"   # e.g. nats://localhost:4222
    ```
@@ -53,7 +52,9 @@ Before configuring NATS integration, you need:
 
    ```toml
    [transport]
-   backend = "nats"
+   transport = "nats"
+   run_bridge = false
+   run_executors = true
 
    [transport.nats]
    url = "${NATS_URL}"
@@ -98,10 +99,12 @@ The observers system supports three transport backends:
 | `nats` | Multi-instance, distributed | NATS JetStream |
 | `in_memory` | Testing only | In-memory event bus |
 
-### NATS Transport Settings
+### NATS Transport Settings (`fraiseql-observer.toml`)
+
+The detailed NATS transport settings belong in `fraiseql-observer.toml`, the observer runtime config. This is a separate file from `fraiseql.toml`.
 
 ```toml
-[observers.nats]
+[transport.nats]
 url = "nats://localhost:4222"  # Supports multiple: "nats://n1:4222,nats://n2:4222"
 subject_prefix = "fraiseql.mutation"
 consumer_name = "fraiseql_observer_worker"
@@ -115,10 +118,10 @@ stream_name = "fraiseql_events"
 | `consumer_name` | string | `fraiseql_observer_worker` | Durable consumer name |
 | `stream_name` | string | `fraiseql_events` | JetStream stream name |
 
-### JetStream Settings
+### JetStream Settings (`fraiseql-observer.toml`)
 
 ```toml
-[observers.nats.jetstream]
+[transport.nats.jetstream]
 dedup_window_minutes = 5    # Message deduplication window
 max_age_days = 7            # Maximum message retention
 max_msgs = 10000000         # Maximum messages in stream
@@ -126,23 +129,6 @@ max_bytes = 10737418240     # Maximum stream size (10 GB)
 ack_wait_secs = 30          # Acknowledgment timeout
 max_deliver = 3             # Maximum delivery attempts
 ```
-
-### Environment Variable Overrides
-
-All NATS settings can be overridden via environment variables:
-
-| Variable | Overrides |
-|----------|-----------|
-| `FRAISEQL_NATS_URL` | `observers.nats.url` |
-| `FRAISEQL_NATS_SUBJECT_PREFIX` | `observers.nats.subject_prefix` |
-| `FRAISEQL_NATS_CONSUMER_NAME` | `observers.nats.consumer_name` |
-| `FRAISEQL_NATS_STREAM_NAME` | `observers.nats.stream_name` |
-| `FRAISEQL_NATS_DEDUP_WINDOW_MINUTES` | `observers.nats.jetstream.dedup_window_minutes` |
-| `FRAISEQL_NATS_MAX_AGE_DAYS` | `observers.nats.jetstream.max_age_days` |
-| `FRAISEQL_NATS_MAX_MSGS` | `observers.nats.jetstream.max_msgs` |
-| `FRAISEQL_NATS_MAX_BYTES` | `observers.nats.jetstream.max_bytes` |
-| `FRAISEQL_NATS_ACK_WAIT_SECS` | `observers.nats.jetstream.ack_wait_secs` |
-| `FRAISEQL_NATS_MAX_DELIVER` | `observers.nats.jetstream.max_deliver` |
 
 ## Publishing Events
 
@@ -153,9 +139,11 @@ When NATS is configured as the observer transport, FraiseQL automatically publis
 The NATS subject follows the pattern:
 
 ```
-{subject_prefix}.{entity_lowercase}.{event_lowercase}
-# e.g., fraiseql.mutation.order.insert
+{subject_prefix}.{entity_type}.{operation}
+# e.g., fraiseql.mutation.Order.INSERT
 ```
+
+Entity type and operation are not lowercased. The operation is one of `INSERT`, `UPDATE`, `DELETE`, or `CUSTOM` in uppercase.
 
 ### Message Payload
 
@@ -165,7 +153,7 @@ Every NATS message follows this JSON structure:
 {
   "event": "INSERT",
   "entity": "Order",
-  "subject": "fraiseql.mutation.order.insert",
+  "subject": "fraiseql.mutation.Order.INSERT",
   "timestamp": "2024-01-15T10:30:00Z",
   "data": {
     "id": "ord_abc123",
@@ -208,7 +196,7 @@ async def main():
 
     # Durable consumer — survives service restarts
     await js.subscribe(
-        "fraiseql.mutation.order.insert",
+        "fraiseql.mutation.Order.INSERT",
         durable="order-processor",
         cb=order_handler,
     )
@@ -280,7 +268,7 @@ func main() {
         log.Fatal(err)
     }
 
-    sub, err := js.Subscribe("fraiseql.mutation.order.insert", func(msg *nats.Msg) {
+    sub, err := js.Subscribe("fraiseql.mutation.Order.INSERT", func(msg *nats.Msg) {
         var event Event
         if err := json.Unmarshal(msg.Data, &event); err != nil {
             log.Printf("Error parsing message: %v", err)
@@ -364,12 +352,23 @@ accounts {
 
 For capturing existing PostgreSQL changes, you can run a bridge that forwards PostgreSQL LISTEN/NOTIFY events to NATS:
 
+In `fraiseql.toml`:
+
 ```toml
 [observers]
 backend = "nats"
-run_bridge = true
+nats_url = "${NATS_URL}"
+```
 
-[observers.bridge]
+In `fraiseql-observer.toml`:
+
+```toml
+[transport]
+transport = "nats"
+run_bridge = true
+run_executors = false  # Bridge process only
+
+[transport.bridge]
 transport_name = "pg_to_nats"
 batch_size = 100
 poll_interval_secs = 1
@@ -380,17 +379,18 @@ The bridge polls the PostgreSQL change log and publishes to NATS, enabling gradu
 
 ## Monitoring
 
-### NATS Metrics
+### Observer Metrics
 
-FraiseQL exposes the following Prometheus metrics for the NATS integration:
+FraiseQL exposes the following Prometheus metrics for the observer system, including the NATS transport:
 
-| Metric | Description |
-|--------|-------------|
-| `fraiseql_nats_messages_published_total` | Total messages published to NATS |
-| `fraiseql_nats_messages_received_total` | Total messages received from NATS |
-| `fraiseql_nats_subscriptions_active` | Currently active subscriptions |
-| `fraiseql_nats_jetstream_pending` | Messages pending acknowledgement |
-| `fraiseql_nats_publish_latency_seconds` | Histogram of publish latency |
+| Metric | Type | Description |
+|--------|------|-------------|
+| `fraiseql_observer_events_processed_total` | Counter | Total events processed by the observer |
+| `fraiseql_observer_events_failed_total{error_type}` | Counter | Total events that failed processing |
+| `fraiseql_observer_action_executed_total{action_type}` | Counter | Total actions executed (use `action_type="webhook"` to filter) |
+| `fraiseql_observer_action_duration_seconds{action_type}` | Histogram | Action execution duration in seconds |
+| `fraiseql_observer_backlog_size` | Gauge | Current number of events in the processing queue |
+| `fraiseql_observer_dlq_items` | Gauge | Current number of items in the dead letter queue |
 
 ### Connection Health
 
@@ -429,7 +429,7 @@ Expected response:
 **Design handlers to be idempotent.** JetStream guarantees at-least-once delivery. A message may be redelivered after a crash or network partition. Guard against duplicate processing:
 
 ```python
-@subscribe("fraiseql.mutation.order.insert")
+@subscribe("fraiseql.mutation.Order.INSERT")
 async def process_order(event):
     order_id = event.data["id"]
     if await is_already_processed(order_id):
@@ -450,20 +450,26 @@ nats consumer info fraiseql_events order-processor
 
 **"NATS transport requires nats.url to be set"**
 
-Add the `[observers.nats]` section with a valid URL:
+Add the `[transport.nats]` section with a valid URL in `fraiseql-observer.toml`:
 
 ```toml
-[observers.nats]
+[transport.nats]
 url = "nats://localhost:4222"
 ```
 
 **"run_bridge=true requires transport=nats"**
 
-The PostgreSQL to NATS bridge only works with NATS transport. Ensure:
+The PostgreSQL to NATS bridge only works with NATS transport. Ensure `fraiseql.toml` sets NATS as the backend, and `fraiseql-observer.toml` sets `run_bridge = true`:
 
 ```toml
+# fraiseql.toml
 [observers]
 backend = "nats"
+nats_url = "${NATS_URL}"
+
+# fraiseql-observer.toml
+[transport]
+transport = "nats"
 run_bridge = true
 ```
 

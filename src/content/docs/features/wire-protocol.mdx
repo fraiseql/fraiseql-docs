@@ -35,6 +35,10 @@ cargo add fraiseql-wire
 
 Requires Rust 1.75+ and PostgreSQL 10+. No C dependencies — pure Rust via rustls (no OpenSSL required).
 
+<Aside type="caution">
+**Unix only.** `fraiseql-wire` supports Linux and macOS. Windows is not supported — the crate will fail to compile on non-Unix targets.
+</Aside>
+
 ## Core API
 
 ### Connect
@@ -252,7 +256,7 @@ For more control than connection strings allow:
 use fraiseql_wire::ConnectionConfig;
 use std::time::Duration;
 
-let config = ConnectionConfig::builder("mydb", "user")
+let config = ConnectionConfig::builder("localhost", "mydb")
     .password("secret")
     .connect_timeout(Duration::from_secs(10))
     .statement_timeout(Duration::from_secs(30))
@@ -324,15 +328,15 @@ match client.query::<T>("orders").execute().await {
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `fraiseql_wire_rows_yielded` | Counter | Rows delivered to caller per entity |
-| `fraiseql_wire_rows_filtered` | Counter | Rows dropped by Rust predicate |
-| `fraiseql_wire_query_duration_ms` | Histogram | Full query duration |
-| `fraiseql_wire_query_startup_duration_ms` | Histogram | Time to first row |
-| `fraiseql_wire_chunk_processing_duration_ms` | Histogram | Per-chunk latency |
-| `fraiseql_wire_estimated_memory_usage` | Gauge | Current memory estimate |
-| `fraiseql_wire_current_chunk_size` | Gauge | Active chunk size (adaptive) |
-| `fraiseql_wire_stream_buffered_items` | Gauge | Items waiting in buffer |
-| `fraiseql_wire_query_errors_total` | Counter | Errors by entity and category |
+| `fraiseql_rows_processed_total` | Counter | Rows delivered to caller per entity |
+| `fraiseql_rows_filtered_total` | Counter | Rows dropped by Rust predicate |
+| `fraiseql_query_total_duration_ms` | Histogram | Full query duration |
+| `fraiseql_query_startup_duration_ms` | Histogram | Time to first row |
+| `fraiseql_chunk_processing_duration_ms` | Histogram | Per-chunk latency |
+| `fraiseql_memory_limit_exceeded_total` | Counter | Memory limit exceeded events per entity |
+| `fraiseql_chunk_size_bytes` | Gauge | Active chunk size in bytes (adaptive) |
+| `fraiseql_stream_buffered_items` | Gauge | Items waiting in buffer |
+| `fraiseql_query_error_total` | Counter | Errors by entity and category |
 
 ## Comparison with Arrow
 

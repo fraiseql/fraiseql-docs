@@ -180,9 +180,7 @@ jsonb_array_length(data->'items')  -- Not indexable
 
 ## Caching
 
-<Aside type="caution">
-The `[caching]` and `[[caching.rules]]` TOML namespaces shown below are not verified as valid `fraiseql.toml` sections. See the [Caching feature page](/features/caching) for current configuration details and status.
-</Aside>
+The `[caching]` section is available in `fraiseql.toml`. See [Caching](/features/caching) for full configuration reference.
 
 ### Response Caching
 
@@ -197,27 +195,21 @@ redis_url = "${REDIS_URL}"
 
 ### Cache Invalidation
 
-FraiseQL automatically invalidates cache on mutations. When a mutation modifies an entity, all cached responses containing that entity type are invalidated.
+FraiseQL automatically invalidates cache entries when mutations run. Declare which views a mutation invalidates with `invalidates_views=` on the `@fraiseql.mutation` decorator:
 
-Configure per-query rules:
-
-```toml
-[[caching.rules]]
-query = "users_*"
-ttl_seconds = 300
-invalidation_triggers = ["User"]
-
-[[caching.rules]]
-query = "posts_*"
-ttl_seconds = 60
-invalidation_triggers = ["Post"]
+```python
+@fraiseql.mutation(
+    sql_source="fn_create_post",
+    operation="CREATE",
+    invalidates_views=["v_post"],   # flush these view caches after the mutation
+)
+def create_post(input: PostInput) -> PostResult:
+    pass
 ```
 
-### APQ (Automatic Persisted Queries)
+For UPDATE and DELETE mutations that return an `entity_id`, FraiseQL performs entity-aware eviction — only the cache entries for that specific entity are purged rather than flushing the entire view. TTL is set per-query via `cache_ttl_seconds=` on `@fraiseql.query`. See [Caching](/features/caching) for the full reference.
 
-<Aside type="caution">
-The `[graphql.apq]` TOML namespace is not verified as a valid `fraiseql.toml` section. See the [APQ feature page](/features/apq) for current configuration details.
-</Aside>
+### APQ (Automatic Persisted Queries)
 
 Reduce query parsing overhead:
 
@@ -296,11 +288,7 @@ def posts(limit: int = 20, offset: int = 0) -> list[Post]:
     pass
 ```
 
-```toml
-[graphql.pagination]
-default_limit = 20
-max_limit = 100
-```
+Pagination limits are enforced at the query level via the `limit` argument default and any server-side cap configured through your query validators. There is no `[graphql.pagination]` TOML section.
 
 ## Projection Table Syncing
 

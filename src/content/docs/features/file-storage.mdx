@@ -1,545 +1,483 @@
 ---
 title: File Storage
-description: File upload, download, and S3 integration
+description: File upload, storage, and retrieval with local filesystem and S3 backends
 ---
 
 import { Aside, Tabs, TabItem, CardGrid, Card } from '@astrojs/starlight/components';
 
-FraiseQL provides file management capabilities with local filesystem and S3 storage backends.
+FraiseQL handles file uploads through a dedicated multipart HTTP endpoint managed by the Rust runtime. Uploaded files are stored to a configured backend and referenced in your GraphQL schema as ordinary `str` URL fields — no special scalar type is needed in your Python schema definition.
 
-## Overview
+## Architecture
 
-File storage features:
-- Multipart file uploads via GraphQL
-- File type validation and size limits
-- Image processing (resize, format conversion)
-- S3-compatible storage backends
-- Signed URLs for secure access
+File uploads in FraiseQL work as follows:
 
-## Configuration
+1. The client sends a standard `multipart/form-data` POST to a dedicated upload endpoint (not to `/graphql`)
+2. The Rust runtime validates the file, optionally processes images, and stores it to the configured backend
+3. The runtime returns a JSON response containing the file `url` and metadata
+4. Your GraphQL mutation stores that URL in the database via a normal `fn_` function
 
-### Local Storage
+The Python SDK has no `Upload` type. File URL fields in your schema are plain `str`.
+
+## Implemented Storage Backends
+
+Two backends are implemented and available:
+
+| Backend | Status | Feature flag |
+|---------|--------|-------------|
+| `local` | Available | Always enabled |
+| `s3` | Available | `aws-s3` feature |
+
+<Aside type="caution">
+Only `local` and `s3` backends are implemented. Other providers (Cloudflare R2, Google Cloud Storage, Azure Blob) are not available.
+</Aside>
+
+## TOML Configuration
+
+File storage is configured under `[storage.*]` (named storage backends) and `[files.*]` (named upload endpoints). Each upload endpoint references a storage backend by name.
+
+### Local Storage (Development)
 
 ```toml
-[files]
-enabled = true
+# Define a named storage backend
+[storage.default]
 backend = "local"
+base_path = "./uploads"
+serve_path = "/files"
 
-[files.local]
-path = "/var/fraiseql/uploads"
-url_prefix = "/files"
+# Define a named upload endpoint that uses it
+[files.avatars]
+storage = "default"
+max_size = "5MB"
+allowed_types = ["image/jpeg", "image/png", "image/webp"]
+validate_magic_bytes = true
+public = true
 ```
 
-### S3 Storage
+### S3 Storage (Production)
+
+Credentials are referenced by environment variable name — not interpolated directly into the TOML file.
 
 ```toml
-[files]
-enabled = true
+# Define an S3 storage backend
+[storage.primary]
 backend = "s3"
-
-[files.s3]
-bucket = "my-app-files"
 region = "us-east-1"
-access_key_id = "${AWS_ACCESS_KEY_ID}"
-secret_access_key = "${AWS_SECRET_ACCESS_KEY}"
+bucket_env = "S3_BUCKET"
+access_key_env = "AWS_ACCESS_KEY_ID"
+secret_key_env = "AWS_SECRET_ACCESS_KEY"
+public_url = "https://my-bucket.s3.amazonaws.com"
 
-# Optional: custom endpoint for S3-compatible storage
-endpoint = "https://s3.example.com"
+# Define upload endpoints
+[files.avatars]
+storage = "primary"
+max_size = "5MB"
+allowed_types = ["image/jpeg", "image/png", "image/webp"]
+validate_magic_bytes = true
+public = true
 
-# URL generation
-url_style = "path"  # or "virtual_hosted"
+[files.documents]
+storage = "primary"
+max_size = "50MB"
+allowed_types = ["application/pdf", "text/csv"]
+validate_magic_bytes = true
+public = false
+url_expiry = "1h"
 ```
 
-### S3-Compatible Storage
+### S3-Compatible Services (MinIO)
 
-<Tabs syncKey="provider">
-<TabItem label="MinIO">
+For S3-compatible services, provide a custom endpoint via an environment variable name:
+
 ```toml
-[files.s3]
-bucket = "uploads"
-endpoint = "http://minio:9000"
-access_key_id = "${MINIO_ACCESS_KEY}"
-secret_access_key = "${MINIO_SECRET_KEY}"
-force_path_style = true
+[storage.minio]
+backend = "s3"
+bucket_env = "MINIO_BUCKET"
+access_key_env = "MINIO_ACCESS_KEY"
+secret_key_env = "MINIO_SECRET_KEY"
+endpoint_env = "MINIO_ENDPOINT"
 ```
-</TabItem>
-<TabItem label="DigitalOcean Spaces">
-```toml
-[files.s3]
-bucket = "my-space"
-region = "nyc3"
-endpoint = "https://nyc3.digitaloceanspaces.com"
-access_key_id = "${DO_SPACES_KEY}"
-secret_access_key = "${DO_SPACES_SECRET}"
-```
-</TabItem>
-<TabItem label="Cloudflare R2">
-```toml
-[files.s3]
-bucket = "my-bucket"
-endpoint = "https://account-id.r2.cloudflarestorage.com"
-access_key_id = "${R2_ACCESS_KEY}"
-secret_access_key = "${R2_SECRET_KEY}"
-```
-</TabItem>
-</Tabs>
 
-## File Upload
+Set the corresponding environment variables at runtime:
 
-### GraphQL Mutation
+```bash
+export MINIO_BUCKET=uploads
+export MINIO_ACCESS_KEY=minioadmin
+export MINIO_SECRET_KEY=minioadmin
+export MINIO_ENDPOINT=http://minio:9000
+```
+
+## FileConfig Reference
+
+The following fields are valid on a `[files.*]` section:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `storage` | string | `"default"` | Name of the `[storage.*]` backend to use |
+| `path` | string | `/files/{name}` | Upload endpoint path override |
+| `max_size` | string | `"10MB"` | Maximum file size (`"5MB"`, `"100KB"`, `"1GB"`) |
+| `allowed_types` | array | see below | Allowed MIME types |
+| `validate_magic_bytes` | bool | `true` | Verify file content matches declared MIME type |
+| `public` | bool | `true` | Whether files are publicly accessible |
+| `cache` | string | — | Cache duration for public files (e.g., `"7d"`) |
+| `url_expiry` | string | — | Expiry for private file signed URLs (e.g., `"1h"`) |
+| `scan_malware` | bool | `false` | Enable malware scanning (requires external scanner) |
+| `processing` | section | — | Image processing configuration |
+| `on_upload` | section | — | Database callback after upload |
+
+Default allowed MIME types (when `allowed_types` is not set): `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `application/pdf`.
+
+## Image Processing
+
+When uploading images, the Rust runtime can strip EXIF metadata, convert format, and generate named size variants.
+
+```toml
+[files.avatars]
+storage = "primary"
+max_size = "10MB"
+allowed_types = ["image/jpeg", "image/png", "image/webp"]
+validate_magic_bytes = true
+
+[files.avatars.processing]
+strip_exif = true
+output_format = "webp"
+quality = 85
+
+[[files.avatars.processing.variants]]
+name = "small"
+width = 150
+height = 150
+mode = "fit"
+
+[[files.avatars.processing.variants]]
+name = "medium"
+width = 400
+height = 400
+mode = "fit"
+```
+
+Valid `mode` values: `fit`, `fill`, `crop`.
+
+The upload response includes a `variants` map with URLs for each generated size.
+
+## Database Schema
+
+Store file metadata in your database using the trinity pattern. The `url` column holds the string URL returned by the upload endpoint.
+
+```sql
+CREATE TABLE tb_file (
+    pk_file     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id          UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier  TEXT   UNIQUE NOT NULL,  -- e.g. storage key: "avatars/uuid.webp"
+
+    original_filename TEXT        NOT NULL,
+    mime_type         TEXT        NOT NULL,
+    size_bytes        BIGINT      NOT NULL,
+    url               TEXT        NOT NULL,
+    storage_backend   TEXT        NOT NULL DEFAULT 'local',
+
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
+
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_tb_file_id ON tb_file(id);
+CREATE INDEX idx_tb_file_fk_user ON tb_file(fk_user);
+CREATE INDEX idx_tb_file_mime_type ON tb_file(mime_type);
+```
+
+### Read View
+
+```sql
+CREATE VIEW v_file AS
+SELECT
+    f.id,
+    jsonb_build_object(
+        'id',                f.id::text,
+        'identifier',        f.identifier,
+        'original_filename', f.original_filename,
+        'mime_type',         f.mime_type,
+        'size_bytes',        f.size_bytes,
+        'url',               f.url,
+        'storage_backend',   f.storage_backend,
+        'created_at',        f.created_at
+    ) AS data
+FROM tb_file f;
+```
+
+### Mutation Function
+
+```sql
+CREATE OR REPLACE FUNCTION fn_create_file(
+    p_identifier        TEXT,
+    p_original_filename TEXT,
+    p_mime_type         TEXT,
+    p_size_bytes        BIGINT,
+    p_url               TEXT,
+    p_storage_backend   TEXT,
+    p_user_id           UUID
+)
+RETURNS mutation_response
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_pk_user  INTEGER;
+    v_file_id  UUID := gen_random_uuid();
+    v_result   mutation_response;
+BEGIN
+    SELECT pk_user INTO v_pk_user FROM tb_user WHERE id = p_user_id;
+    IF v_pk_user IS NULL THEN
+        v_result.status  := 'failed:not_found';
+        v_result.message := 'User not found';
+        RETURN v_result;
+    END IF;
+
+    INSERT INTO tb_file (
+        id, identifier, original_filename, mime_type,
+        size_bytes, url, storage_backend, fk_user
+    ) VALUES (
+        v_file_id, p_identifier, p_original_filename, p_mime_type,
+        p_size_bytes, p_url, p_storage_backend, v_pk_user
+    );
+
+    v_result.status      := 'success';
+    v_result.entity_id   := v_file_id;
+    v_result.entity_type := 'File';
+    v_result.entity      := (SELECT data FROM v_file WHERE id = v_file_id);
+    RETURN v_result;
+END;
+$$;
+```
+
+## Python Schema
+
+File URL fields are plain `str` in Python. There is no `Upload` type in the FraiseQL SDK.
 
 ```python
 import fraiseql
-from fraiseql import Upload
+from fraiseql.scalars import ID, DateTime
 
 @fraiseql.type
-class FileInfo:
-    id: fraiseql.ID
-    filename: str
+class File:
+    """A stored file record."""
+    id: ID
+    identifier: str
+    original_filename: str
     mime_type: str
-    size: int
-    url: str
+    size_bytes: int
+    url: str          # The URL returned by the upload endpoint
+    storage_backend: str
+    created_at: DateTime
 
-@fraiseql.mutation(sql_source="fn_upload_file", operation="CREATE")
-def upload_file(
-    file: Upload,
-    folder: str = "uploads"
-) -> FileInfo:
-    """Upload a file and return its info."""
-    pass
+@fraiseql.error
+class FileError:
+    message: str
+    code: str
+
+@fraiseql.input
+class CreateFileInput:
+    identifier: str
+    original_filename: str
+    mime_type: str
+    size_bytes: int
+    url: str
+    storage_backend: str
+
+@fraiseql.query(sql_source="v_file")
+def files(limit: int = 20, offset: int = 0) -> list[File]: ...
+
+@fraiseql.query(sql_source="v_file")
+def file(id: ID) -> File | None: ...
+
+@fraiseql.mutation(
+    sql_source="fn_create_file",
+    operation="CREATE",
+    inject={"user_id": "jwt:sub"},
+)
+def create_file(input: CreateFileInput) -> File: ...
 ```
 
-### Client Upload
+## Upload Flow
+
+The client uploads the file first, then calls the GraphQL mutation to record it.
+
+### Step 1: Upload the File
+
+Send a `multipart/form-data` POST to the upload endpoint:
 
 <Tabs syncKey="language">
 <TabItem label="JavaScript">
 ```javascript
-const uploadFile = async (file) => {
+async function uploadFile(file) {
     const formData = new FormData();
+    formData.append('file', file);
 
-    // GraphQL multipart request format
-    formData.append('operations', JSON.stringify({
-        query: `
-            mutation UploadFile($file: Upload!) {
-                uploadFile(file: $file) {
-                    id
-                    filename
-                    url
-                }
-            }
-        `,
-        variables: { file: null }
-    }));
-
-    formData.append('map', JSON.stringify({ '0': ['variables.file'] }));
-    formData.append('0', file);
-
-    const response = await fetch('/graphql', {
+    const response = await fetch('/files/avatars', {
         method: 'POST',
-        body: formData
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
     });
 
+    // Returns: { id, name, url, content_type, size, variants, created_at }
     return response.json();
-};
+}
 ```
 </TabItem>
 <TabItem label="Python">
 ```python
 import httpx
 
-def upload_file(file_path: str):
+def upload_file(file_path: str, token: str) -> dict:
     with open(file_path, 'rb') as f:
-        files = {
-            'operations': (None, json.dumps({
-                'query': '''
-                    mutation UploadFile($file: Upload!) {
-                        uploadFile(file: $file) { id url }
-                    }
-                ''',
-                'variables': {'file': None}
-            })),
-            'map': (None, json.dumps({'0': ['variables.file']})),
-            '0': (file_path, f, 'application/octet-stream')
-        }
-
-        response = httpx.post('http://localhost:8080/graphql', files=files)
-        return response.json()
+        response = httpx.post(
+            'http://localhost:8080/files/avatars',
+            files={'file': (file_path, f, 'image/jpeg')},
+            headers={'Authorization': f'Bearer {token}'},
+        )
+    return response.json()
+    # Returns: { "id": "...", "url": "https://...", "content_type": "image/jpeg", ... }
 ```
 </TabItem>
-<TabItem label="TypeScript">
-```typescript
-async function uploadFile(file: File): Promise<UploadResult> {
-    const formData = new FormData();
+<TabItem label="curl">
+```bash
+curl -X POST http://localhost:8080/files/avatars \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@photo.jpg"
 
-    formData.append('operations', JSON.stringify({
-        query: `
-            mutation UploadFile($file: Upload!) {
-                uploadFile(file: $file) { id url }
-            }
-        `,
-        variables: { file: null }
-    }));
-
-    formData.append('map', JSON.stringify({ '0': ['variables.file'] }));
-    formData.append('0', file);
-
-    const response = await fetch('/graphql', {
-        method: 'POST',
-        body: formData
-    });
-
-    return response.json();
-}
-
-interface UploadResult {
-    data?: {
-        uploadFile: {
-            id: string;
-            url: string;
-        };
-    };
-}
-```
-</TabItem>
-<TabItem label="Go">
-```go
-package main
-
-import (
-    "bytes"
-    "encoding/json"
-    "fmt"
-    "io"
-    "mime/multipart"
-    "net/http"
-    "os"
-)
-
-func uploadFile(filePath string) (map[string]interface{}, error) {
-    file, err := os.Open(filePath)
-    if err != nil {
-        return nil, err
-    }
-    defer file.Close()
-
-    body := &bytes.Buffer{}
-    writer := multipart.NewWriter(body)
-
-    operations := map[string]interface{}{
-        "query": `mutation UploadFile($file: Upload!) { uploadFile(file: $file) { id url } }`,
-        "variables": map[string]interface{}{"file": nil},
-    }
-    opsJSON, _ := json.Marshal(operations)
-    writer.WriteField("operations", string(opsJSON))
-
-    mapping := map[string][]string{"0": {"variables.file"}}
-    mapJSON, _ := json.Marshal(mapping)
-    writer.WriteField("map", string(mapJSON))
-
-    part, _ := writer.CreateFormFile("0", filePath)
-    io.Copy(part, file)
-    writer.Close()
-
-    req, _ := http.NewRequest("POST", "http://localhost:8080/graphql", body)
-    req.Header.Set("Content-Type", writer.FormDataContentType())
-
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        return nil, err
-    }
-    defer resp.Body.Close()
-
-    var result map[string]interface{}
-    json.NewDecoder(resp.Body).Decode(&result)
-    return result, nil
-}
+# Response:
+# {
+#   "id": "018e1234-...",
+#   "url": "https://my-bucket.s3.amazonaws.com/avatars/018e1234-....webp",
+#   "content_type": "image/jpeg",
+#   "size": 102400,
+#   "variants": { "small": "https://.../avatars/018e1234-..._small.webp" },
+#   "created_at": "2026-03-02T10:00:00Z"
+# }
 ```
 </TabItem>
 </Tabs>
 
-## File Validation
+### Step 2: Record the File via GraphQL
 
-### Size Limits
-
-```toml
-[files.limits]
-max_file_size_mb = 50
-max_request_size_mb = 100
-max_files_per_request = 10
-```
-
-### Type Validation
-
-```toml
-[files.validation]
-# Allowed MIME types
-allowed_types = [
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "application/pdf",
-    "text/csv"
-]
-
-# Or allow by extension
-allowed_extensions = [".jpg", ".png", ".pdf", ".csv"]
-
-# Validate actual content, not just extension
-validate_content = true
-```
-
-### Per-Field Limits
-
-```python
-from typing import Annotated
-
-@fraiseql.type
-class Profile:
-    avatar: Annotated[
-        str,
-        fraiseql.field(
-            file_upload=True,
-            max_size_mb=5,
-            allowed_types=["image/jpeg", "image/png"]
-        )
-    ]
-```
-
-## Image Processing
-
-### Configuration
-
-```toml
-[files.images]
-enabled = true
-
-# Generate thumbnails
-[files.images.thumbnails]
-enabled = true
-sizes = [
-    { name = "small", width = 150, height = 150 },
-    { name = "medium", width = 300, height = 300 },
-    { name = "large", width = 600, height = 600 }
-]
-fit = "cover"  # cover, contain, fill
-
-# Format conversion
-[files.images.conversion]
-enabled = true
-format = "webp"
-quality = 85
-```
-
-### Accessing Thumbnails
+After upload succeeds, call the mutation with the returned URL:
 
 ```graphql
-query {
-    user(id: "123") {
-        avatar  # Original
-        avatarSmall: avatar(size: "small")
-        avatarMedium: avatar(size: "medium")
-    }
-}
-```
-
-## Signed URLs
-
-Secure, time-limited access to files.
-
-### Configuration
-
-```toml
-[files.signed_urls]
-enabled = true
-expiry_seconds = 3600  # 1 hour
-signing_key = "${FILE_SIGNING_KEY}"
-```
-
-### Generate Signed URL
-
-```graphql
-query {
-    getFileUrl(fileId: "file-123", expiresIn: 300) {
+mutation RecordFile($input: CreateFileInput!) {
+    createFile(input: $input) {
+        id
         url
-        expiresAt
+        originalFilename
+        createdAt
     }
 }
 ```
 
-### S3 Presigned URLs
+```json
+{
+    "input": {
+        "identifier": "avatars/018e1234-....webp",
+        "originalFilename": "photo.jpg",
+        "mimeType": "image/jpeg",
+        "sizeBytes": 102400,
+        "url": "https://my-bucket.s3.amazonaws.com/avatars/018e1234-....webp",
+        "storageBackend": "s3"
+    }
+}
+```
+
+## Upload Callback
+
+Instead of a two-step flow, you can configure an automatic database callback that runs after each successful upload. The runtime calls the specified SQL function with the upload result.
 
 ```toml
-[files.s3]
-use_presigned_urls = true
-presigned_url_expiry_seconds = 3600
+[files.avatars.on_upload]
+function = "fn_create_file"
+mapping = { identifier = "key", original_filename = "original_filename", mime_type = "content_type", size_bytes = "size", url = "url" }
 ```
 
-## File Metadata
+## Signed URLs for Private Files
 
-### Database Schema
-
-```sql
-CREATE TABLE tb_file (
-    pk_file BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
-    filename TEXT NOT NULL,
-    original_filename TEXT NOT NULL,
-    mime_type TEXT NOT NULL,
-    size_bytes BIGINT NOT NULL,
-    storage_path TEXT NOT NULL,
-    storage_backend TEXT NOT NULL DEFAULT 'local',
-    checksum TEXT,  -- SHA-256
-    metadata JSONB DEFAULT '{}',
-    uploaded_by UUID REFERENCES tb_user(id),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_file_uploaded_by ON tb_file(uploaded_by);
-CREATE INDEX idx_file_mime_type ON tb_file(mime_type);
-```
-
-### GraphQL Type
-
-```python
-@fraiseql.type
-class File:
-    id: fraiseql.ID
-    filename: str
-    original_filename: str
-    mime_type: str
-    size_bytes: int
-    url: str
-    thumbnails: list[Thumbnail] | None
-    uploaded_by: User | None
-    created_at: fraiseql.DateTime
-```
-
-## File Download
-
-### Direct Download
+For private files (`public = false`), the runtime generates signed URLs with a configurable expiry:
 
 ```toml
-[files]
-download_path = "/files"
+[files.documents]
+storage = "primary"
+max_size = "50MB"
+allowed_types = ["application/pdf"]
+public = false
+url_expiry = "1h"
 ```
 
-Access files at:
+Request a signed URL via the upload endpoint:
+
 ```
-GET /files/{file-id}/{filename}
-GET /files/{file-id}/download  # Force download header
+GET /files/documents/{key}/signed-url
+Authorization: Bearer <token>
 ```
 
-### Streaming Large Files
+Response:
+```json
+{
+    "url": "https://bucket.s3.amazonaws.com/documents/...?X-Amz-Signature=...",
+    "expires_at": "2026-03-02T11:00:00Z"
+}
+```
+
+<Aside>
+Local storage does not generate real signed URLs. For development, the public URL is returned regardless of the `url_expiry` setting. Use S3 in production for private file access control.
+</Aside>
+
+## Security
+
+### Magic Byte Validation
+
+By default (`validate_magic_bytes = true`), FraiseQL reads the actual file content and verifies that the magic bytes match the declared MIME type. A file uploaded with `Content-Type: image/jpeg` that contains a ZIP header will be rejected.
+
+### Malware Scanning
+
+The `scan_malware = true` flag enables integration with an external malware scanner via the `MalwareScanner` trait. No built-in scanner implementation is bundled — you must provide a custom implementation. The TOML flag activates the scanning hook; the scanner itself is registered programmatically.
 
 ```toml
-[files.streaming]
-enabled = true
-chunk_size_kb = 64
+[files.documents]
+scan_malware = true
 ```
-
-## Virus Scanning
-
-### ClamAV Integration
-
-```toml
-[files.scanning]
-enabled = true
-scanner = "clamav"
-
-[files.scanning.clamav]
-host = "clamav"
-port = 3310
-timeout_seconds = 30
-
-# Action on infected file
-on_infected = "reject"  # or "quarantine"
-```
-
-## Metrics
-
-| Metric | Description |
-|--------|-------------|
-| `fraiseql_file_uploads_total` | Total uploads |
-| `fraiseql_file_upload_bytes_total` | Bytes uploaded |
-| `fraiseql_file_downloads_total` | Total downloads |
-| `fraiseql_file_download_bytes_total` | Bytes downloaded |
-| `fraiseql_file_upload_duration_ms` | Upload latency |
-| `fraiseql_file_validation_failures_total` | Validation failures |
 
 ## Best Practices
 
-### Use S3 for Production
+**Use S3 in production.** The local backend stores files on disk alongside your application. It does not support real signed URLs and is not suitable for multi-instance deployments.
 
-```toml
-# Development
-[files]
-backend = "local"
+**Keep `validate_magic_bytes = true`.** This is the default and should not be disabled. Accepting files based only on the declared MIME type allows malicious uploads.
 
-# Production
-[files]
-backend = "s3"
-```
+**Set `url_expiry` for sensitive documents.** If files should not be publicly accessible forever, set `public = false` and `url_expiry` to a duration appropriate for your use case.
 
-### Validate All Uploads
-
-```toml
-[files.validation]
-validate_content = true
-allowed_types = ["image/jpeg", "image/png", "application/pdf"]
-max_file_size_mb = 10
-```
-
-<Aside type="caution">
-Always set `validate_content = true` to validate actual file content rather than trusting the file extension. This prevents malicious uploads disguised as allowed file types.
-</Aside>
-
-### Use Signed URLs with Short Expiry
-
-```toml
-[files.signed_urls]
-enabled = true
-expiry_seconds = 300  # Short expiry for security
-```
-
-### Enable Virus Scanning
-
-```toml
-[files.scanning]
-enabled = true
-scanner = "clamav"
-```
+**Store the storage key as `identifier`.** Use the storage key (e.g., `"avatars/018e1234-....webp"`) as the `identifier` column in `tb_file`. This makes the file uniquely addressable without relying solely on the UUID.
 
 ## Troubleshooting
 
-### Upload Fails
+### Upload Rejected (415 Unsupported Media Type)
 
-1. Check file size limits
-2. Verify MIME type is allowed
-3. Check storage permissions
-4. Review virus scan results
+The MIME type is not in `allowed_types`. Either add the type to the list or check that the client is sending the correct `Content-Type` header.
+
+### Upload Rejected (413 Payload Too Large)
+
+The file exceeds `max_size`. Increase the limit or compress the file before uploading.
+
+### Magic Bytes Mismatch
+
+The file extension or declared content type does not match the actual file content. Ensure the file is not corrupted and that the correct MIME type is declared.
 
 ### S3 Access Denied
 
-1. Verify credentials
-2. Check bucket policy
-3. Verify IAM permissions
-4. Check CORS configuration
-
-### Slow Uploads
-
-1. Enable streaming
-2. Check network bandwidth
-3. Use regional S3 endpoint
-4. Consider multipart uploads
+1. Verify the environment variables referenced by `access_key_env` and `secret_key_env` are set
+2. Check the IAM policy grants `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` on the bucket
+3. Verify the bucket name is correct via the `bucket_env` variable
 
 ## Next Steps
 
 <CardGrid>
   <Card title="Security" icon="shield">
-    [Security](/features/security) — File access control
+    [Security](/features/security) — File access control and JWT scopes
   </Card>
   <Card title="Deployment" icon="rocket">
-    [Deployment](/guides/deployment) — Production file storage
+    [Deployment](/guides/deployment) — Production S3 configuration
   </Card>
 </CardGrid>

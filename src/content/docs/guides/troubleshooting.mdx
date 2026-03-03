@@ -32,25 +32,16 @@ If FraiseQL isn't working, run through this checklist first:
    fraiseql --version
    ```
 
-2. **Validate configuration**
+2. **Validate schema JSON structure**
    ```bash
-   fraiseql validate
+   fraiseql validate schema.json
    ```
-   Expected output when everything is correct:
-   ```
-   ✓ fraiseql.toml is valid
-   ✓ Database connection successful
-   ✓ Schema compiles without errors
-   ✓ All views exist in database
+   `fraiseql validate` checks the compiled schema JSON for valid type references and circular dependencies. It does not connect to the database. To check your database connection, run:
+   ```bash
+   psql $DATABASE_URL -c "SELECT 1"
    ```
 
-3. **Test database connection**
-   ```bash
-   fraiseql ping
-   ```
-   Expected: `Database: connected (PostgreSQL 16.1)`
-
-4. **Compile schema with verbose output**
+3. **Compile schema with verbose output**
    ```bash
    fraiseql compile --verbose
    ```
@@ -264,7 +255,7 @@ Error: column "pk_user" does not exist
 \d tb_user
 
 -- Ensure column exists
-ALTER TABLE tb_user ADD COLUMN pk_user INTEGER;
+ALTER TABLE tb_user ADD COLUMN pk_user BIGINT;
 ```
 
 ### Function Error
@@ -289,7 +280,7 @@ Error: function fn_create_user(unknown, unknown) does not exist
    CREATE OR REPLACE FUNCTION fn_create_user(
        user_email TEXT,
        user_name TEXT
-   ) RETURNS UUID AS $$
+   ) RETURNS mutation_response AS $$
    ...
    ```
 </Steps>
@@ -565,7 +556,7 @@ echo $TOKEN | cut -d. -f2 | base64 -d | jq
 
 **Fix:**
 ```bash
-curl -X POST http://localhost:8080/graphql \
+curl -X POST http://localhost:8815/graphql \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"query": "{ users { id } }"}'
@@ -629,13 +620,13 @@ SELECT pg_reload_conf();
 
 ```bash
 # Test endpoint
-curl -v http://localhost:8080/graphql
+curl -v http://localhost:8815/graphql
 
 # Check headers
-curl -I http://localhost:8080/health
+curl -I http://localhost:8815/health
 
 # Test with specific request
-curl -X POST http://localhost:8080/graphql \
+curl -X POST http://localhost:8815/graphql \
     -H "Content-Type: application/json" \
     -d '{"query": "{ __schema { types { name } } }"}'
 ```

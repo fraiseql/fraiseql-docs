@@ -19,12 +19,30 @@ Choose your deployment target based on your infrastructure preferences and scala
 | **Google Cloud Run** | Serverless, event-driven | 30 min | Automatic | Pay-per-use |
 | **Azure App Service** | Microsoft ecosystem | 1-2 hours | Auto-scaling | Medium |
 
+## Database Schema Management
+
+FraiseQL is database-first — your SQL tables, views, and functions are the source of truth. **[Confiture](/confiture)** is the companion tool that manages the database lifecycle across every environment.
+
+| Scenario | Confiture command |
+|----------|------------------|
+| Fresh dev or CI database | `confiture build --env local` |
+| Apply pending schema changes to production | `confiture migrate up --env production` |
+| Roll back last migration | `confiture migrate down --env production` |
+| Check what's pending | `confiture migrate status --env production` |
+| Seed local DB with anonymised production data | `confiture sync --from prod --to local --anonymize` |
+
+Every deployment platform below runs `confiture migrate up` as a pre-start step (initContainer in Kubernetes, a one-off task in ECS, a release command in Docker Compose) before FraiseQL starts serving traffic.
+
+<Aside type="tip">
+Confiture ships as a standalone binary — it does not need to run inside the FraiseQL container. Use `ghcr.io/fraiseql/confiture:latest` as the image for init containers and migration jobs.
+</Aside>
+
 ## Deployment Checklist (All Platforms)
 
 Before deploying to production:
 
 - [ ] Environment variables configured (DATABASE_URL, JWT_SECRET, etc.)
-- [ ] Database migrations completed
+- [ ] Database schema migrations applied (`confiture migrate up --env production`)
 - [ ] Database connection pooling configured
 - [ ] Health check endpoints enabled
 - [ ] Logging configured (structured JSON logs)
@@ -55,15 +73,15 @@ CORS_ORIGINS=https://example.com,https://api.example.com
 # Deployment
 ENVIRONMENT=production
 FRAISEQL_HOST=0.0.0.0
-FRAISEQL_PORT=8000
+FRAISEQL_PORT=8080
 
-# Optional: Logging
-LOG_LEVEL=info
-LOG_FORMAT=json
+# Optional: Audit logging
+AUDIT_LOG_LEVEL=info
 
-# Optional: Rate limiting
-RATE_LIMIT_REQUESTS=1000
-RATE_LIMIT_WINDOW_MINUTES=1
+# Optional: Rate limiting (auth endpoints)
+RATE_LIMIT_AUTH_START=100
+RATE_LIMIT_AUTH_CALLBACK=50
+RATE_LIMIT_FAILED_LOGIN=5
 
 # Optional: NATS (if using events/subscriptions)
 NATS_URL=nats://nats-server:4222
@@ -82,46 +100,38 @@ NATS_SUBJECT_PREFIX=fraiseql.events
 - **GCP**: Google Secret Manager
 - **Azure**: Azure Key Vault
 
-Example with AWS Secrets Manager:
+Example with AWS Secrets Manager, inject secrets as environment variables in your ECS task definition:
 
-```python
-import boto3
-import json
-
-def get_secrets(secret_name: str) -> dict:
-    client = boto3.client('secretsmanager')
-    response = client.get_secret_value(SecretId=secret_name)
-    return json.loads(response['SecretString'])
-
-# In your main.py:
-secrets = get_secrets('fraiseql/prod')
-app.config.jwt_secret = secrets['JWT_SECRET']
-app.config.database_url = secrets['DATABASE_URL']
+```json
+{
+  "secrets": [
+    { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:us-east-1:123:secret:fraiseql/prod:DATABASE_URL::" },
+    { "name": "STATE_ENCRYPTION_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:123:secret:fraiseql/prod:STATE_ENCRYPTION_KEY::" }
+  ]
+}
 ```
+
+FraiseQL reads secrets from environment variables at startup. There is no Python runtime to configure.
 
 ## Network Configuration
 
 ### Port Binding
 
 FraiseQL listens on:
-- **Port 8000** (default): GraphQL endpoint
-- **Port 9000** (optional): Health check/metrics endpoint
+- **Port 8080** (default): GraphQL endpoint
 
 ### Health Checks
 
-FraiseQL provides health check endpoints:
+FraiseQL provides a single health check endpoint:
 
 ```bash
-# Liveness check (is the service running?)
-GET /health/live
-# Response: 200 OK
-
-# Readiness check (is it ready to serve traffic?)
-GET /health/ready
-# Response: 200 OK if database connected, else 503 Service Unavailable
+# Health check (service running and database connected)
+GET /health
+# Response: 200 OK with {"status":"healthy"}
+# Response: 503 Service Unavailable with {"status":"unhealthy"} if database unreachable
 ```
 
-Configure your orchestrator to use these endpoints for health checks.
+Configure your orchestrator to use `/health` for both liveness and readiness checks.
 
 ### Graceful Shutdown
 
@@ -137,14 +147,16 @@ Configure container/orchestrator shutdown timeout to at least 35 seconds to allo
 
 ## Database Connection Pooling
 
-For production, FraiseQL automatically configures connection pooling:
+For production, configure connection pooling in `fraiseql.toml`:
 
-```python
-# Configuration via environment variables
-PGBOUNCER_MIN_POOL_SIZE=5      # Minimum connections per database
-PGBOUNCER_MAX_POOL_SIZE=20     # Maximum connections per database
-PGBOUNCER_CONNECTION_TIMEOUT=30 # Seconds
+```toml
+[database]
+url = "postgresql://user:pass@host:5432/dbname"
+pool_min = 5    # Minimum connections per instance
+pool_max = 20   # Maximum connections per instance
 ```
+
+For high-traffic deployments (10k+ RPS), use an external connection pooler in front of your database.
 
 ### Recommended Pool Sizes
 
@@ -183,12 +195,13 @@ FraiseQL outputs JSON logs (enabled by default in production):
 ### Log Levels
 
 ```bash
-# Environment: FRAISEQL_LOG_LEVEL
-DEBUG   # Verbose: all database queries, middleware decisions
-INFO    # Default: requests, errors, important events
-WARN    # Warnings: slow queries, connection issues
-ERROR   # Errors only: failures, exceptions
-FATAL   # Critical issues only
+# Override via: AUDIT_LOG_LEVEL=debug (from fraiseql.toml.example)
+# Or configure in fraiseql.toml:
+# [fraiseql.security.audit_logging]
+# log_level = "info"  # Options: "debug", "info", "warn"
+debug   # Verbose: all database queries, middleware decisions
+info    # Default: requests, errors, important events
+warn    # Warnings: slow queries, connection issues
 ```
 
 ### Log Aggregation Setup
@@ -246,7 +259,7 @@ FATAL   # Critical issues only
 
 FraiseQL exports Prometheus metrics on `/metrics`:
 
-```python
+```yaml
 # Example scrape configuration
 global:
   scrape_interval: 15s
@@ -254,7 +267,7 @@ global:
 scrape_configs:
   - job_name: 'fraiseql'
     static_configs:
-      - targets: ['localhost:9000']
+      - targets: ['localhost:8080']
 ```
 
 ### Alerting Rules
@@ -289,13 +302,9 @@ scrape_configs:
 All external traffic must use HTTPS:
 
 ```bash
-# Option 1: Reverse proxy (recommended)
-# Use nginx, Caddy, or cloud load balancer with SSL termination
-
-# Option 2: Application-level TLS
-FRAISEQL_TLS_CERT=/etc/tls/cert.pem
-FRAISEQL_TLS_KEY=/etc/tls/key.pem
-FRAISEQL_TLS_PORT=8443
+# Recommended: Reverse proxy with SSL termination
+# Use nginx, Caddy, or a cloud load balancer (AWS ALB, GCP GLB, Azure Application Gateway)
+# FraiseQL runs on plain HTTP on port 8080 inside the network
 ```
 
 ### CORS Configuration
@@ -310,20 +319,29 @@ CORS_ORIGINS=https://example.com,https://app.example.com
 
 ### Rate Limiting
 
-Protect against abuse:
+Protect against abuse via `fraiseql.toml` or environment variable overrides:
+
+```toml
+[fraiseql.security.rate_limiting]
+enabled = true
+
+# Per-IP limits on auth endpoints
+auth_start_max_requests = 100
+auth_start_window_secs = 60
+auth_callback_max_requests = 50
+auth_callback_window_secs = 60
+
+# Failed login attempt limiting
+failed_login_max_requests = 5
+failed_login_window_secs = 3600
+```
+
+Environment variable overrides (from `fraiseql.toml.example`):
 
 ```bash
-# Global rate limit
-RATE_LIMIT_REQUESTS=10000
-RATE_LIMIT_WINDOW_SECONDS=60
-
-# Per-user rate limit (requires auth)
-PER_USER_RATE_LIMIT=100
-PER_USER_RATE_LIMIT_WINDOW_SECONDS=60
-
-# Per-IP rate limit (unauthenticated)
-PER_IP_RATE_LIMIT=50
-PER_IP_RATE_LIMIT_WINDOW_SECONDS=60
+RATE_LIMIT_AUTH_START=100       # Override per-IP auth start limit
+RATE_LIMIT_AUTH_CALLBACK=50     # Override per-IP auth callback limit
+RATE_LIMIT_FAILED_LOGIN=5       # Override failed login limit
 ```
 
 ### API Key Rotation
@@ -421,7 +439,7 @@ Test restore procedures regularly. A backup that has never been tested is not a 
 
 ### Connection Pool Exhaustion
 **Symptom**: "Too many connections" errors
-**Solution**: Increase `PGBOUNCER_MAX_POOL_SIZE`, verify clients closing connections properly
+**Solution**: Increase `pool_max` in `[database]` TOML config, verify clients closing connections properly
 
 ### Slow Queries
 **Symptom**: p99 latency > 5 seconds

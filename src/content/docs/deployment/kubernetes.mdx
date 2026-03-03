@@ -14,30 +14,7 @@ Deploy FraiseQL to Kubernetes for enterprise-grade scalability and reliability.
 - Docker image pushed to registry
 - PostgreSQL database (managed or deployed in cluster)
 
-## Quick Start (Helm)
-
-For fastest setup, use Helm:
-
-```bash
-# Add FraiseQL Helm repository
-helm repo add fraiseql https://charts.fraiseql.io
-helm repo update
-
-# Install FraiseQL
-helm install fraiseql fraiseql/fraiseql \
-  --namespace fraiseql \
-  --create-namespace \
-  --set database.url=postgresql://user:pass@postgres:5432/db \
-  --set jwt.secret=$(openssl rand -base64 32) \
-  --set image.tag=1.0.0 \
-  --set replicas=3
-
-# Verify
-kubectl get pods -n fraiseql
-kubectl get svc -n fraiseql
-```
-
-## Manual Kubernetes Setup
+## Kubernetes Setup
 
 <Steps>
 
@@ -87,13 +64,7 @@ kubectl get svc -n fraiseql
      name: fraiseql-config
      namespace: fraiseql
    data:
-     ENVIRONMENT: "production"
-     LOG_LEVEL: "info"
-     LOG_FORMAT: "json"
-     PGBOUNCER_MIN_POOL_SIZE: "5"
-     PGBOUNCER_MAX_POOL_SIZE: "20"
-     RATE_LIMIT_REQUESTS: "10000"
-     RATE_LIMIT_WINDOW_SECONDS: "60"
+     AUDIT_LOG_LEVEL: "info"
    ```
 
    ```bash
@@ -129,14 +100,14 @@ kubectl get svc -n fraiseql
            version: v1
          annotations:
            prometheus.io/scrape: "true"
-           prometheus.io/port: "9000"
+           prometheus.io/port: "8080"
            prometheus.io/path: "/metrics"
        spec:
          serviceAccountName: fraiseql
 
          initContainers:
            - name: migrate
-             image: your-registry/fraiseql:1.0.0
+             image: ghcr.io/fraiseql/confiture:latest
              imagePullPolicy: IfNotPresent
              env:
                - name: DATABASE_URL
@@ -145,10 +116,11 @@ kubectl get svc -n fraiseql
                      name: fraiseql-secrets
                      key: database-url
              command:
-               - python
-               - -m
-               - fraiseql
+               - confiture
                - migrate
+               - up
+               - --env
+               - production
 
          containers:
            - name: fraiseql
@@ -156,10 +128,7 @@ kubectl get svc -n fraiseql
              imagePullPolicy: IfNotPresent
              ports:
                - name: http
-                 containerPort: 8000
-                 protocol: TCP
-               - name: metrics
-                 containerPort: 9000
+                 containerPort: 8080
                  protocol: TCP
              env:
                - name: DATABASE_URL
@@ -177,21 +146,11 @@ kubectl get svc -n fraiseql
                    secretKeyRef:
                      name: fraiseql-secrets
                      key: cors-origins
-               - name: ENVIRONMENT
+               - name: AUDIT_LOG_LEVEL
                  valueFrom:
                    configMapKeyRef:
                      name: fraiseql-config
-                     key: ENVIRONMENT
-               - name: LOG_LEVEL
-                 valueFrom:
-                   configMapKeyRef:
-                     name: fraiseql-config
-                     key: LOG_LEVEL
-               - name: LOG_FORMAT
-                 valueFrom:
-                   configMapKeyRef:
-                     name: fraiseql-config
-                     key: LOG_FORMAT
+                     key: AUDIT_LOG_LEVEL
              resources:
                requests:
                  cpu: 500m
@@ -203,13 +162,13 @@ kubectl get svc -n fraiseql
                  ephemeral-storage: 500Mi
              startupProbe:
                httpGet:
-                 path: /health/live
+                 path: /health
                  port: http
                failureThreshold: 30
                periodSeconds: 2
              livenessProbe:
                httpGet:
-                 path: /health/live
+                 path: /health
                  port: http
                initialDelaySeconds: 10
                periodSeconds: 30
@@ -217,7 +176,7 @@ kubectl get svc -n fraiseql
                failureThreshold: 3
              readinessProbe:
                httpGet:
-                 path: /health/ready
+                 path: /health
                  port: http
                initialDelaySeconds: 5
                periodSeconds: 10
@@ -292,12 +251,8 @@ kubectl get svc -n fraiseql
        app: fraiseql
      ports:
        - name: http
-         port: 8000
-         targetPort: 8000
-         protocol: TCP
-       - name: metrics
-         port: 9000
-         targetPort: 9000
+         port: 8080
+         targetPort: 8080
          protocol: TCP
      sessionAffinity: None
    ```
@@ -337,7 +292,7 @@ kubectl get svc -n fraiseql
                  service:
                    name: fraiseql
                    port:
-                     number: 8000
+                     number: 8080
    ```
 
    ```bash
@@ -510,7 +465,7 @@ spec:
     matchLabels:
       app: fraiseql
   endpoints:
-    - port: metrics
+    - port: http
       interval: 30s
       path: /metrics
 ```
@@ -603,7 +558,7 @@ spec:
               name: ingress-nginx
       ports:
         - protocol: TCP
-          port: 8000
+          port: 8080
   egress:
     - to:
         - namespaceSelector: {}

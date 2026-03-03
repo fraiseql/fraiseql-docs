@@ -60,8 +60,8 @@ origins     = ["https://app.example.com"]
 credentials = true
 
 [server.tls]
-cert = "/path/to/cert.pem"
-key  = "/path/to/key.pem"
+cert_file = "/path/to/cert.pem"
+key_file  = "/path/to/key.pem"
 
 # ============================================
 # Security
@@ -105,7 +105,7 @@ state_ttl_secs        = 600
 
 [security.enterprise]
 audit_logging_enabled = true
-audit_log_level       = "info"
+audit_log_backend     = "postgresql"
 
 # ============================================
 # Query Defaults
@@ -120,9 +120,9 @@ audit_log_level       = "info"
 enabled = true
 
 [federation.circuit_breaker]
-enabled              = true
-failure_threshold    = 5
-timeout_secs         = 30
+enabled                  = true
+failure_threshold        = 5
+recovery_timeout_secs    = 30
 ```
 
 <Aside type="note">

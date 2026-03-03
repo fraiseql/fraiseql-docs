@@ -97,8 +97,7 @@ Adding FraiseQL introduces a new connection pool to a database that may already 
 
     ```toml title="fraiseql.toml"
     [database]
-    pool_min = 1
-    pool_max = 5   # increase only after confirming headroom
+    pool_size = 5   # increase only after confirming headroom
     ```
   </TabItem>
   <TabItem label="SQL Server">
@@ -165,11 +164,13 @@ Don't try to migrate everything. Pick one domain, build FraiseQL coverage for it
 -- Add one view — does not touch any existing table or stored procedure
 CREATE VIEW v_order AS
 SELECT
-  o.id,
-  o.status,
-  o.total_cents::float / 100 AS total,
-  o.customer_id,
-  o.created_at
+    o.id,
+    jsonb_build_object(
+        'id',          o.id::text,
+        'status',      o.status,
+        'total',       o.total_cents::float / 100,
+        'customer_id', o.customer_id::text
+    ) AS data
 FROM tb_order o;
 ```
 
@@ -269,7 +270,7 @@ Gate the switch per client or per user segment. Maximum control, requires a flag
 For teams that want to move writes to FraiseQL:
 
 - Start with low-risk mutations (upserts on non-critical entities, audit log writes)
-- Existing stored procedures plug in directly via `fn_source`
+- Existing stored procedures plug in directly via `sql_source`
 - Keep the old write path live in parallel until the new one has 100% test coverage
 - Define success criteria before switching: error rate < X%, latency < Y ms
 - Add mutations one at a time, not all at once
@@ -291,7 +292,7 @@ def create_order(input: CreateOrderInput) -> Order:
 CREATE FUNCTION fn_create_order(
   p_customer_id UUID,
   p_items       JSONB
-) RETURNS TABLE(id UUID, status TEXT, total NUMERIC) AS $$
+) RETURNS mutation_response AS $$
 BEGIN
   -- ... existing business logic
 END;

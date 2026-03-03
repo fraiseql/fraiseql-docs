@@ -51,8 +51,7 @@ The `"type": "next"` field is part of the [graphql-ws protocol](https://github.c
 1. **Enable subscriptions** in `fraiseql.toml`:
    ```toml
    [subscriptions]
-   max_active_per_connection = 10
-   max_fields_per_subscription = 50
+   max_subscriptions_per_connection = 10
 
    [subscriptions.hooks]
    on_connect    = "http://localhost:8001/hooks/ws-connect"
@@ -66,8 +65,8 @@ The `"type": "next"` field is part of the [graphql-ws protocol](https://github.c
    import fraiseql
 
    @fraiseql.subscription(
-       sql_source="tb_order",
-       event="UPDATE"
+       entity_type="Order",
+       operation="UPDATE"
    )
    def order_updated(customer_id: fraiseql.ID | None = None) -> Order:
        """Subscribe to order updates, optionally filtered by customer."""
@@ -98,7 +97,7 @@ The default transport for browser clients. Uses the modern graphql-ws protocol.
 
 ```toml
 [subscriptions]
-max_active_per_connection = 10
+max_subscriptions_per_connection = 10
 ```
 
 **Client examples:**
@@ -293,8 +292,8 @@ class Order:
     updated_at: fraiseql.DateTime
 
 @fraiseql.subscription(
-    sql_source="tb_order",
-    event="UPDATE"
+    entity_type="Order",
+    operation="UPDATE"
 )
 def order_updated(customer_id: fraiseql.ID | None = None) -> Order:
     """Subscribe to order updates, optionally filtered by customer."""
@@ -305,9 +304,9 @@ def order_updated(customer_id: fraiseql.ID | None = None) -> Order:
 
 ```python
 @fraiseql.subscription(
-    sql_source="tb_order",
-    event="UPDATE",
-    filter="status.changed()"  # Only when status changes
+    entity_type="Order",
+    operation="UPDATE",
+    topic="order_status_changed"  # Narrow to a specific NOTIFY channel
 )
 def order_status_changed() -> Order:
     pass
@@ -317,8 +316,7 @@ def order_status_changed() -> Order:
 
 ```python
 @fraiseql.subscription(
-    sql_source="tb_order",
-    event=["INSERT", "UPDATE", "DELETE"]
+    entity_type="Order"  # No operation filter → receives CREATE, UPDATE, and DELETE events
 )
 def order_changed() -> Order:
     """Subscribe to any order change."""
@@ -444,9 +442,9 @@ FraiseQL filters events before sending to clients:
 
 ```python
 @fraiseql.subscription(
-    sql_source="tb_order",
-    event="UPDATE",
-    auth_filter="customer_id == context.user_id"  # Only user's orders
+    entity_type="Order",
+    operation="UPDATE",
+    topic="my_order_updated"
 )
 def my_order_updated() -> Order:
     pass
@@ -513,14 +511,13 @@ const client = createClient({
 
 The server validates the token before accepting the connection. Rate limiting uses the same `[security.rate_limiting]` configuration as the GraphQL HTTP endpoint.
 
-### Subscription Depth
+### Subscription Limits
 
-Prevent expensive subscriptions:
+Limit the number of concurrent subscriptions per connection:
 
 ```toml
 [subscriptions]
-max_selection_depth = 5
-max_selected_fields = 50
+max_subscriptions_per_connection = 10  # optional, default: unlimited
 ```
 
 ## Best Practices

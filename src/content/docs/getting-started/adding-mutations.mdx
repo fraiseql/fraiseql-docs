@@ -27,43 +27,51 @@ Create mutation functions in `db/schema/03_mutations/`. Each function validates 
     ```sql title="db/schema/03_mutations/fn_create_user.sql"
     CREATE OR REPLACE FUNCTION fn_create_user(
         p_username TEXT, p_email TEXT, p_bio TEXT DEFAULT NULL
-    ) RETURNS UUID LANGUAGE plpgsql AS $$
+    ) RETURNS mutation_response LANGUAGE plpgsql AS $$
     DECLARE v_id UUID;
     BEGIN
         /*validate: no duplicate email*/
         IF EXISTS (SELECT 1 FROM tb_user WHERE email = p_email) THEN
-            RAISE EXCEPTION 'email already registered: %', p_email;
+            RETURN ROW('failed:conflict', 'email already registered: ' || p_email,
+                NULL, 'User', NULL, NULL, NULL, NULL)::mutation_response;
         END IF;
         INSERT INTO tb_user (identifier, username, email, bio)
         VALUES ('usr_' || lower(regexp_replace(p_username, '[^a-z0-9]', '_', 'gi')),
                 p_username, p_email, p_bio)
         RETURNING id INTO v_id;
-        RETURN v_id;
+        PERFORM sync_tv_user();
+        RETURN ROW('success', 'User created', v_id, 'User',
+            (SELECT data FROM v_user WHERE id = v_id),
+            NULL, NULL, NULL)::mutation_response;
     END; $$;
     ```
 
     ```sql title="db/schema/03_mutations/fn_create_post.sql"
     CREATE OR REPLACE FUNCTION fn_create_post(
         p_title TEXT, p_content TEXT, p_author_id UUID
-    ) RETURNS UUID LANGUAGE plpgsql AS $$
+    ) RETURNS mutation_response LANGUAGE plpgsql AS $$
     DECLARE v_fk_user BIGINT; v_slug TEXT; v_id UUID;
     BEGIN
         /*validate: author exists*/
         SELECT pk_user INTO v_fk_user FROM tb_user WHERE id = p_author_id;
         IF v_fk_user IS NULL THEN
-            RAISE EXCEPTION 'author not found: %', p_author_id;
+            RETURN ROW('failed:not_found', 'author not found: ' || p_author_id,
+                NULL, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
         END IF;
         v_slug := lower(trim(both '-' FROM regexp_replace(p_title, '[^a-zA-Z0-9]+', '-', 'g')));
         INSERT INTO tb_post (identifier, fk_user, title, slug, content)
         VALUES ('pst_' || v_slug, v_fk_user, p_title, v_slug, p_content)
         RETURNING id INTO v_id;
-        RETURN v_id;
+        PERFORM sync_tv_post();
+        RETURN ROW('success', 'Post created', v_id, 'Post',
+            (SELECT data FROM v_post WHERE id = v_id),
+            NULL, NULL, NULL)::mutation_response;
     END; $$;
     ```
 
     ```sql title="db/schema/03_mutations/fn_publish_post.sql"
     CREATE OR REPLACE FUNCTION fn_publish_post(p_post_id UUID)
-    RETURNS UUID LANGUAGE plpgsql AS $$
+    RETURNS mutation_response LANGUAGE plpgsql AS $$
     DECLARE v_id UUID;
     BEGIN
         UPDATE tb_post
@@ -71,9 +79,13 @@ Create mutation functions in `db/schema/03_mutations/`. Each function validates 
         WHERE id = p_post_id
         RETURNING id INTO v_id;
         IF v_id IS NULL THEN
-            RAISE EXCEPTION 'post not found: %', p_post_id;
+            RETURN ROW('failed:not_found', 'post not found: ' || p_post_id,
+                NULL, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
         END IF;
-        RETURN v_id;
+        PERFORM sync_tv_post();
+        RETURN ROW('success', 'Post published', v_id, 'Post',
+            (SELECT data FROM v_post WHERE id = v_id),
+            NULL, NULL, NULL)::mutation_response;
     END; $$;
     ```
   </TabItem>
@@ -139,7 +151,7 @@ Create mutation functions in `db/schema/03_mutations/`. Each function validates 
   </TabItem>
 
   <TabItem label="SQLite">
-    SQLite has no stored procedures, so no function files are needed. Use `operation="create"` or `operation="update"` in Step 2 and FraiseQL generates the `INSERT` or `UPDATE` SQL automatically from the input type fields. The target table is the return type lowercased — `User` → `user`. Pass `sql_source="your_table"` to override this if your table name differs.
+    SQLite has no stored procedures, so no function files are needed. Use `operation="CREATE"` or `operation="UPDATE"` in Step 2 and FraiseQL generates the `INSERT` or `UPDATE` SQL automatically from the input type fields. The target table is the return type lowercased — `User` → `user`. Pass `sql_source="your_table"` to override this if your table name differs.
   </TabItem>
 
   <TabItem label="SQL Server">
@@ -195,7 +207,7 @@ Create mutation functions in `db/schema/03_mutations/`. Each function validates 
 
 ## Step 2: Map to GraphQL
 
-Add input types and mutation definitions to your schema file. For `"custom"` mutations, `sql_source` names the stored procedure. For auto-generated SQL (`"create"` / `"update"` / `"delete"`), `sql_source` sets the target table name — defaults to the return type lowercased if omitted. The return type always resolves through the existing view.
+Add input types and mutation definitions to your schema file. For `"CUSTOM"` mutations, `sql_source` names the stored procedure. For auto-generated SQL (`"CREATE"` / `"UPDATE"` / `"DELETE"`), `sql_source` sets the target table name — defaults to the return type lowercased if omitted. The return type always resolves through the existing view.
 
 <Tabs syncKey="lang">
   <TabItem label="Python">
@@ -218,17 +230,17 @@ Add input types and mutation definitions to your schema file. For `"custom"` mut
     class PublishPostInput:
         post_id: ID
 
-    @fraiseql.mutation(sql_source="fn_create_user", operation="custom")
+    @fraiseql.mutation(sql_source="fn_create_user", operation="CUSTOM")
     def create_user(input: CreateUserInput) -> User:
         """Create a new user."""
         pass
 
-    @fraiseql.mutation(sql_source="fn_create_post", operation="custom")
+    @fraiseql.mutation(sql_source="fn_create_post", operation="CUSTOM")
     def create_post(input: CreatePostInput) -> Post:
         """Create a new post."""
         pass
 
-    @fraiseql.mutation(sql_source="fn_publish_post", operation="custom")
+    @fraiseql.mutation(sql_source="fn_publish_post", operation="CUSTOM")
     def publish_post(input: PublishPostInput) -> Post:
         """Publish a post."""
         pass
@@ -244,17 +256,17 @@ Add input types and mutation definitions to your schema file. For `"custom"` mut
       { name: 'username', type: 'String', nullable: false },
       { name: 'email',    type: 'String', nullable: false },
       { name: 'bio',      type: 'String', nullable: true  },
-    ], 'Create a new user', { sql_source: 'fn_create_user', operation: 'custom' });
+    ], 'Create a new user', { sql_source: 'fn_create_user', operation: 'CUSTOM' });
 
     registerMutation('createPost', 'Post', false, false, [
       { name: 'title',    type: 'String', nullable: false },
       { name: 'content',  type: 'String', nullable: false },
       { name: 'authorId', type: 'ID',     nullable: false },
-    ], 'Create a new post', { sql_source: 'fn_create_post', operation: 'custom' });
+    ], 'Create a new post', { sql_source: 'fn_create_post', operation: 'CUSTOM' });
 
     registerMutation('publishPost', 'Post', false, false, [
       { name: 'postId', type: 'ID', nullable: false },
-    ], 'Publish a post', { sql_source: 'fn_publish_post', operation: 'custom' });
+    ], 'Publish a post', { sql_source: 'fn_publish_post', operation: 'CUSTOM' });
     ```
   </TabItem>
 
@@ -267,7 +279,7 @@ Add input types and mutation definitions to your schema file. For `"custom"` mut
             ReturnType("User").
             Config(map[string]interface{}{
                 "sql_source": "fn_create_user",
-                "operation":  "custom",
+                "operation":  "CUSTOM",
             }).
             Arg("username", "String", nil).
             Arg("email",    "String", nil).
@@ -278,7 +290,7 @@ Add input types and mutation definitions to your schema file. For `"custom"` mut
             ReturnType("Post").
             Config(map[string]interface{}{
                 "sql_source": "fn_create_post",
-                "operation":  "custom",
+                "operation":  "CUSTOM",
             }).
             Arg("title",    "String", nil).
             Arg("content",  "String", nil).
@@ -289,7 +301,7 @@ Add input types and mutation definitions to your schema file. For `"custom"` mut
             ReturnType("Post").
             Config(map[string]interface{}{
                 "sql_source": "fn_publish_post",
-                "operation":  "custom",
+                "operation":  "CUSTOM",
             }).
             Arg("postId", "ID", nil).
             Register()
@@ -299,7 +311,7 @@ Add input types and mutation definitions to your schema file. For `"custom"` mut
 </Tabs>
 
 :::note[SQLite]
-SQLite uses auto-generated SQL instead of stored procedures. Replace `operation="custom"` with `operation="create"` (for inserts) or `operation="update"` (for updates) — no Step 1 function files are needed. FraiseQL generates the SQL from the input type fields. The target table defaults to the return type lowercased (`User` → `user`); pass `sql_source="your_table"` to use a different name.
+SQLite uses auto-generated SQL instead of stored procedures. Replace `operation="CUSTOM"` with `operation="CREATE"` (for inserts) or `operation="UPDATE"` (for updates) — no Step 1 function files are needed. FraiseQL generates the SQL from the input type fields. The target table defaults to the return type lowercased (`User` → `user`); pass `sql_source="your_table"` to use a different name.
 :::
 
 ## Step 3: Handle `updated_at`
@@ -401,3 +413,5 @@ The response data comes from the view — `v_post` is queried by the `id` the fu
 - [Threaded Comments](/guides/threaded-comments) — Recursive CTEs for nested data
 - [Projection Tables](/guides/projection-tables) — CQRS materialization with `tv_*` tables
 - [Observers](/guides/observers) — Trigger side effects after mutations
+- [Mutations](/concepts/mutations) — Deep dive into the mutation system
+- [Naming Conventions](/reference/naming-conventions) — Naming conventions reference

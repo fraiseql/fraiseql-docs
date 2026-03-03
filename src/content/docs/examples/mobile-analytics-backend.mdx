@@ -16,8 +16,8 @@ A production-grade analytics backend handling millions of events from mobile app
 - **Aggregations**: Roll-up analytics (daily, weekly, monthly)
 - **Multi-App Support**: Serve multiple mobile apps from one backend
 - **Real-Time Dashboards**: Live metrics via subscriptions
-- **Data Retention**: Automatic cleanup of old data
-- **Performance**: Handle 100K+ events/second
+- **Data Retention**: Automatic cleanup of old data via pg_cron
+- **Performance**: Efficient batch inserts via SQL functions
 - **Cost Optimization**: Efficient storage and querying
 
 ## Data Model
@@ -27,21 +27,22 @@ A production-grade analytics backend handling millions of events from mobile app
 
 ```sql
 CREATE TABLE tb_app (
-    pk_app     SERIAL PRIMARY KEY,
+    pk_app     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier TEXT NOT NULL UNIQUE,
     name       TEXT NOT NULL,
     api_key    TEXT NOT NULL UNIQUE,
-    owner_id   UUID NOT NULL,
+    fk_owner BIGINT NOT NULL REFERENCES tb_user(pk_user),
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE tb_event (
-    pk_event   SERIAL PRIMARY KEY,
+    pk_event   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    fk_app     INTEGER NOT NULL REFERENCES tb_app(pk_app),
+    identifier TEXT NOT NULL UNIQUE
+                   GENERATED ALWAYS AS (id::text) STORED,
+    fk_app BIGINT NOT NULL REFERENCES tb_app(pk_app),
     event_type TEXT NOT NULL,
-    user_id    UUID,
     session_id TEXT NOT NULL,
     device     JSONB NOT NULL DEFAULT '{}',
     metadata   JSONB NOT NULL DEFAULT '{}',
@@ -49,9 +50,13 @@ CREATE TABLE tb_event (
 );
 
 CREATE TABLE tb_metric (
-    pk_metric   SERIAL PRIMARY KEY,
+    pk_metric   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    fk_app      INTEGER NOT NULL REFERENCES tb_app(pk_app),
+    identifier  TEXT NOT NULL UNIQUE
+                    GENERATED ALWAYS AS (
+                        fk_app::text || ':' || metric_type || ':' || dimension || ':' || date::text
+                    ) STORED,
+    fk_app BIGINT NOT NULL REFERENCES tb_app(pk_app),
     metric_type TEXT NOT NULL,
     value       BIGINT NOT NULL DEFAULT 0,
     dimension   TEXT NOT NULL,
@@ -61,10 +66,10 @@ CREATE TABLE tb_metric (
 );
 
 CREATE TABLE tb_cohort (
-    pk_cohort  SERIAL PRIMARY KEY,
+    pk_cohort  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier TEXT NOT NULL UNIQUE,
-    fk_app     INTEGER NOT NULL REFERENCES tb_app(pk_app),
+    fk_app BIGINT NOT NULL REFERENCES tb_app(pk_app),
     name       TEXT NOT NULL,
     filter     JSONB NOT NULL DEFAULT '{}',
     user_count INT NOT NULL DEFAULT 0,
@@ -75,11 +80,10 @@ CREATE TABLE tb_cohort (
 CREATE VIEW v_app AS
 SELECT
     a.id,
-    a.identifier,
     jsonb_build_object(
         'id',         a.id::text,
+        'identifier', a.identifier,
         'name',       a.name,
-        'owner_id',   a.owner_id::text,
         'created_at', a.created_at
     ) AS data
 FROM tb_app a;
@@ -89,12 +93,12 @@ SELECT
     m.id,
     jsonb_build_object(
         'id',          m.id::text,
+        'identifier',  m.identifier,
         'metric_type', m.metric_type,
         'value',       m.value,
         'dimension',   m.dimension,
         'date',        m.date
-    ) AS data,
-    m.fk_app
+    ) AS data
 FROM tb_metric m;
 ```
 
@@ -110,14 +114,12 @@ from datetime import datetime
 class App:
     id: ID
     name: str
-    owner_id: ID
     created_at: datetime
 
 @fraiseql.type
 class Event:
     id: ID
     event_type: str
-    user_id: ID | None
     session_id: str
     device: dict
     metadata: dict
@@ -144,6 +146,11 @@ class Cohort:
 @fraiseql.query(sql_source="v_metric")
 def metrics(app_id: ID, date_from: str, date_to: str) -> list[Metric]:
     """Get metrics for date range."""
+    pass
+
+@fraiseql.query(sql_source="v_cohort_retention")
+def cohort_retention(app_id: ID, cohort_id: ID) -> list[Metric]:
+    """Get retention data for a cohort."""
     pass
 ```
 
@@ -182,60 +189,90 @@ mutation {
 
 ## Event Ingestion Implementation
 
+FraiseQL mutations are compile-time declarations backed by PostgreSQL functions. Batch ingestion, aggregation updates, and any event fan-out are all handled inside the SQL function — no runtime Python needed.
+
 ```python
-@fraiseql.mutation
-async def track_events(info, app_id: str, events: list[dict]) -> dict:
-    """Ingest batch of events from mobile app (optimized for throughput)."""
-    api_key = extract_api_key_from_header(info)
+@fraiseql.input
+class EventInput:
+    """A single event from a mobile client."""
+    event_type: str
+    session_id: str
+    device:     dict
+    metadata:   dict
 
-    # Verify API key and get app
-    app = await ctx.db.query_one(
-        "SELECT pk_app, id FROM tb_app WHERE id = $1 AND api_key = $2",
-        [app_id, api_key]
-    )
-    if not app:
-        raise Exception("Invalid app or API key")
+@fraiseql.type
+class TrackEventsResult:
+    success:     bool
+    event_count: int
 
-    user_id = extract_user_id_from_request(info)
-    session_id = extract_session_id_from_request(info)
-
-    # Normalize events with defaults
-    normalized_events = [
-        {
-            'fk_app': app['pk_app'],
-            'event_type': event.get('type'),
-            'user_id': user_id,
-            'session_id': session_id,
-            'device': extract_device_info(info),
-            'metadata': event.get('metadata', {}),
-            'timestamp': datetime.utcnow()
-        }
-        for event in events
-    ]
-
-    # Batch insert for performance
-    await ctx.db.execute_many(
-        """
-        INSERT INTO tb_event (fk_app, event_type, user_id, session_id, device, metadata, timestamp)
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
-        """,
-        [(e['fk_app'], e['event_type'], e['user_id'], e['session_id'],
-          json.dumps(e['device']), json.dumps(e['metadata']), e['timestamp'])
-         for e in normalized_events]
-    )
-
-    # Publish events to NATS for real-time processing
-    for event in normalized_events:
-        await fraiseql.nats.publish(f"app:{app_id}:event", event)
-
-    # Update rolling aggregations
-    asyncio.create_task(update_live_metrics(app['pk_app'], events))
-
-    return {
-        'success': True,
-        'event_count': len(events)
-    }
+@fraiseql.mutation(
+    sql_source="fn_track_events",
+    operation="CREATE",
+    inject={"caller_id": "jwt:sub"}
+)
+def track_events(app_id: ID, events: list[EventInput]) -> TrackEventsResult:
+    """Ingest a batch of events from a mobile app."""
+    pass
 ```
+
+The SQL function performs the batch insert and rolls up aggregations atomically:
+
+```sql
+CREATE FUNCTION fn_track_events(
+    p_caller_id UUID,
+    p_app_id    UUID,
+    p_events    JSONB   -- array of EventInput objects
+) RETURNS mutation_response AS $$
+DECLARE
+    v_fk_app BIGINT;
+    v_event  JSONB;
+    v_count  INT := 0;
+BEGIN
+    -- Verify app ownership via API key (app_id is the public UUID)
+    SELECT pk_app INTO v_fk_app FROM tb_app WHERE id = p_app_id;
+    IF v_fk_app IS NULL THEN
+        RETURN ROW('failed:not_found', 'App not found',
+                   NULL, 'TrackEventsResult', NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+
+    -- Batch insert events
+    FOR v_event IN SELECT * FROM jsonb_array_elements(p_events)
+    LOOP
+        INSERT INTO tb_event (fk_app, event_type, session_id, device, metadata)
+        VALUES (
+            v_fk_app,
+            v_event->>'event_type',
+            v_event->>'session_id',
+            COALESCE(v_event->'device', '{}'),
+            COALESCE(v_event->'metadata', '{}')
+        );
+        v_count := v_count + 1;
+
+        -- Upsert rolling daily metric
+        INSERT INTO tb_metric (fk_app, metric_type, dimension, value, date)
+        VALUES (
+            v_fk_app,
+            (v_event->>'event_type') || '_count',
+            COALESCE(v_event->'device'->>'os', 'unknown'),
+            1,
+            CURRENT_DATE
+        )
+        ON CONFLICT (fk_app, metric_type, dimension, date)
+        DO UPDATE SET value = tb_metric.value + 1;
+    END LOOP;
+
+    RETURN ROW(
+        'success', NULL, NULL, 'TrackEventsResult',
+        jsonb_build_object('success', true, 'event_count', v_count),
+        NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+<Aside type="note">
+For real-time fan-out (e.g. pushing events to NATS for a live dashboard), configure an observer in `fraiseql.toml`. Observers fire after successful mutations without any Python code in the mutation itself.
+</Aside>
 
 ## Real-Time Analytics Queries
 
@@ -291,97 +328,69 @@ subscription {
 }
 ```
 
-## Aggregation & Rollup
+The subscription is declared in Python as a compile-time projection:
 
 ```python
-async def update_live_metrics(fk_app: int, events: list[dict]):
-    """Roll up events into metrics (daily, weekly, monthly)."""
-    for event in events:
-        event_type = event.get('type', 'unknown')
-        device = event.get('device', {})
-        dimension = device.get('os', 'unknown')
-        today = datetime.utcnow().date()
-
-        # Upsert daily metric
-        await ctx.db.execute(
-            """
-            INSERT INTO tb_metric (fk_app, metric_type, dimension, value, date)
-            VALUES ($1, $2, $3, 1, $4)
-            ON CONFLICT (fk_app, metric_type, dimension, date)
-            DO UPDATE SET value = tb_metric.value + 1
-            """,
-            [fk_app, f"{event_type}_count", dimension, today]
-        )
+@fraiseql.subscription(
+    entity_type="Metric",
+    topic="metrics.live"
+)
+def live_metrics(app_id: ID | None = None) -> Metric:
+    """Subscribe to live metric updates for a dashboard."""
+    pass
 ```
 
 ## Cohort Analysis
 
+Cohort retention is computed in a PostgreSQL view. The query declaration maps directly to that view — no runtime Python needed.
+
 ```python
-@fraiseql.query
-async def cohort_retention(info, app_id: str,
-                          cohort_id: str,
-                          interval: str = "day") -> list[dict]:
-    """Calculate retention over time for a cohort."""
-    cohort = await ctx.db.query_one(
-        "SELECT filter FROM tb_cohort WHERE id = $1",
-        [cohort_id]
-    )
+@fraiseql.query(sql_source="v_cohort_retention", cache_ttl_seconds=300)
+def cohort_retention(app_id: ID, cohort_id: ID) -> list[Metric]:
+    """Get weekly retention data for a cohort (cached 5 minutes)."""
+    pass
+```
 
-    retention_data = []
-    for days_offset in range(0, 30, 7):  # Weekly retention for 30 days
-        cohort_date = datetime.utcnow().date() - timedelta(days=days_offset)
-
-        returning_users = await ctx.db.query(
-            """
-            SELECT DISTINCT user_id
-            FROM tb_event
-            WHERE fk_app = (SELECT pk_app FROM tb_app WHERE id = $1)
-              AND user_id IN (
-                  SELECT DISTINCT user_id FROM tb_event
-                  WHERE DATE(timestamp) = $2
-                  AND fk_app = (SELECT pk_app FROM tb_app WHERE id = $1)
-              )
-              AND DATE(timestamp) >= $2
-            LIMIT 10000
-            """,
-            [app_id, cohort_date]
-        )
-
-        retention_data.append({
-            'day_offset': days_offset,
-            'date': cohort_date,
-            'returning_users': len(returning_users)
-        })
-
-    return retention_data
+```sql
+CREATE VIEW v_cohort_retention AS
+SELECT
+    c.id,
+    jsonb_build_object(
+        'id',              c.id::text,
+        'cohort_name',     c.name,
+        'day_offset',      gs.day_offset,
+        'returning_users', COUNT(DISTINCT e.id)
+    ) AS data
+FROM tb_cohort c
+CROSS JOIN generate_series(0, 28, 7) AS gs(day_offset)
+LEFT JOIN tb_event e
+    ON e.fk_app = c.fk_app
+   AND DATE(e.timestamp) = CURRENT_DATE - gs.day_offset
+GROUP BY c.id, c.name, c.fk_app, gs.day_offset;
 ```
 
 ## Data Retention Policy
 
-```python
-# Delete old events (older than 90 days) automatically
-@fraiseql.scheduled_task(cron="0 2 * * *")  # Daily at 2 AM
-async def cleanup_old_events():
-    """Archive events older than 90 days."""
-    ninety_days_ago = datetime.utcnow() - timedelta(days=90)
+Data retention is managed by a scheduled PostgreSQL job. Use `pg_cron` (available in most managed PostgreSQL services) to run cleanup on a schedule — no application-layer scheduled tasks needed.
 
-    old_events = await ctx.db.query(
-        "SELECT * FROM tb_event WHERE timestamp < $1",
-        [ninety_days_ago]
-    )
+```sql
+-- Install pg_cron extension (once, requires superuser)
+CREATE EXTENSION IF NOT EXISTS pg_cron;
 
-    if old_events:
-        await s3_archive.put(
-            f"events/archive-{ninety_days_ago.date()}.json",
-            json.dumps(old_events, default=str)
-        )
-
-    # Delete from hot database
-    await ctx.db.execute(
-        "DELETE FROM tb_event WHERE timestamp < $1",
-        [ninety_days_ago]
-    )
+-- Schedule daily cleanup at 2 AM
+SELECT cron.schedule(
+    'cleanup-old-events',
+    '0 2 * * *',
+    $$
+        DELETE FROM tb_event
+        WHERE timestamp < NOW() - INTERVAL '90 days';
+    $$
+);
 ```
+
+<Aside type="tip">
+For archiving events before deletion, use a pg_cron job that copies rows to a cold-storage table or exports them via a separate ETL pipeline. This is outside FraiseQL's scope and should be handled by your data infrastructure.
+</Aside>
 
 ## Getting Started
 
@@ -400,7 +409,7 @@ async def cleanup_old_events():
    uv sync
    ```
 
-3. **Start services (includes TimescaleDB for time-series)**
+3. **Start services**
 
    ```bash
    docker-compose up -d postgres redis nats

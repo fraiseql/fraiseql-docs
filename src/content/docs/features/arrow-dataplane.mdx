@@ -32,7 +32,7 @@ Use this table to decide when to reach for Arrow Flight versus the standard Grap
 | **Filtering** | GraphQL `where` arguments | Pushed down to PostgreSQL |
 | **Streaming** | NDJSON via Wire protocol | Native chunked record batches |
 | **Authentication** | JWT / API key | Bearer token (same as GraphQL) |
-| **Port** | 3000 (default) | 50051 (default) |
+| **Port** | 8080 (default) | 50051 (default) |
 
 ## Enabling Arrow Flight
 
@@ -42,7 +42,7 @@ Arrow Flight is a compile-time feature — there is no `[arrow]` TOML configurat
 cargo build --release --features arrow
 ```
 
-When the `arrow` feature is compiled in, the Flight gRPC server starts automatically on port **50051** alongside the HTTP server (port 3000). Authentication uses the same JWT/API key tokens as the GraphQL endpoint — pass the token as a gRPC `authorization` header (`Bearer eyJ...`). TLS follows the server-level TLS configuration.
+When the `arrow` feature is compiled in, the Flight gRPC server starts automatically on port **50051** alongside the HTTP server (port 8080). Authentication uses the same JWT/API key tokens as the GraphQL endpoint — pass the token as a gRPC `authorization` header (`Bearer eyJ...`). TLS follows the server-level TLS configuration.
 
 ## Defining Arrow Views
 
@@ -95,7 +95,7 @@ SELECT create_hypertable('ta_events', 'created_at');
 import fraiseql
 from fraiseql.scalars import ID, DateTime, Decimal
 
-@fraiseql.type(dataplane="arrow")
+@fraiseql.type
 class OrdersDaily:
     """Daily order aggregates for analytics."""
     order_date: DateTime
@@ -105,7 +105,7 @@ class OrdersDaily:
     revenue: Decimal
     avg_order_value: Decimal
 
-@fraiseql.arrow_query(sql_source="va_orders_daily")
+@fraiseql.query(sql_source="va_orders_daily")
 def orders_daily(
     start_date: DateTime,
     end_date: DateTime,
@@ -336,7 +336,7 @@ GROUP BY 1, 2;
 CREATE VIEW va_user_cohorts AS
 WITH first_purchase AS (
     SELECT
-        user_id,
+        fk_user,
         date_trunc('month', MIN(created_at)) AS cohort_month
     FROM tb_order
     GROUP BY 1
@@ -344,10 +344,10 @@ WITH first_purchase AS (
 SELECT
     fp.cohort_month,
     date_trunc('month', o.created_at) AS order_month,
-    COUNT(DISTINCT o.user_id) AS users,
+    COUNT(DISTINCT o.fk_user) AS users,
     SUM(o.total) AS revenue
 FROM first_purchase fp
-JOIN tb_order o ON o.user_id = fp.user_id
+JOIN tb_order o ON o.fk_user = fp.fk_user
 GROUP BY 1, 2;
 ```
 
@@ -430,15 +430,16 @@ ticket = flight.Ticket(json.dumps({
 
 ### Connection Stats
 
-```bash
-fraiseql status --arrow
+Check that the Arrow Flight port is listening:
 
-# Arrow Flight Server
-# Status: Running
-# Port: 50051
-# Active connections: 12
-# Bytes sent (24h): 1.2 TB
-# Queries (24h): 45,230
+```bash
+netstat -tlnp | grep 50051
+```
+
+Arrow Flight metrics are exposed on the same Prometheus endpoint as the rest of FraiseQL:
+
+```bash
+curl http://localhost:8080/metrics | grep fraiseql_arrow
 ```
 
 ## Security
@@ -446,7 +447,7 @@ fraiseql status --arrow
 ### Query Authorization
 
 ```python
-@fraiseql.arrow_query(
+@fraiseql.query(
     sql_source="va_sensitive_metrics",
     requires_scope="analytics:read"
 )
@@ -534,7 +535,7 @@ CREATE INDEX idx_ta_events_user ON ta_events(user_id);
 
 4. **Check metrics endpoint**:
    ```bash
-   curl http://localhost:9090/metrics | grep fraiseql_arrow
+   curl http://localhost:8080/metrics | grep fraiseql_arrow
    ```
    
    Expected output:

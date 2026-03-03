@@ -11,6 +11,10 @@ FraiseQL can serve as a [Model Context Protocol (MCP)](https://modelcontextproto
 
 When MCP is enabled, FraiseQL introspects its compiled schema and generates an MCP tool for every query and mutation. The agent describes what data it needs; FraiseQL executes the corresponding GraphQL operation and returns the result.
 
+<Aside type="note">
+MCP support requires a FraiseQL build compiled with the `mcp` feature. Pre-built releases include MCP by default. If using a custom build, compile with `--features mcp`.
+</Aside>
+
 ## Configuration
 
 Enable MCP in `fraiseql.toml`:
@@ -30,7 +34,7 @@ exclude = ["adminUsers"]          # Blacklist
 For Claude Desktop or local CLI agents, use `transport = "stdio"`:
 
 ```bash
-fraiseql run --mcp-stdio
+FRAISEQL_MCP_STDIO=1 fraiseql run
 ```
 
 ## Claude Desktop Setup
@@ -42,9 +46,10 @@ Add FraiseQL to your Claude Desktop `claude_desktop_config.json`:
   "mcpServers": {
     "my-api": {
       "command": "fraiseql",
-      "args": ["run", "--mcp-stdio"],
+      "args": ["run"],
       "env": {
-        "DATABASE_URL": "postgresql://localhost:5432/mydb"
+        "DATABASE_URL": "postgresql://localhost:5432/mydb",
+        "FRAISEQL_MCP_STDIO": "1"
       }
     }
   }

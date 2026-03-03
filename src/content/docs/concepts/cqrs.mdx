@@ -382,12 +382,12 @@ Each write table uses three identifier columns:
     ```sql
     CREATE TABLE tb_post (
         -- Trinity Identifiers
-        pk_post INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        pk_post BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
         identifier TEXT UNIQUE NOT NULL,
 
         -- Foreign key uses internal pk
-        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
 
         -- Post data...
     );
@@ -419,7 +419,7 @@ Each write table uses three identifier columns:
         identifier TEXT UNIQUE NOT NULL,
 
         -- Foreign key uses internal pk
-        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
 
         -- Post data...
     );
@@ -457,7 +457,7 @@ Foreign keys always reference the internal `pk_` column:
   <TabItem label="PostgreSQL">
     ```sql
     -- Foreign key pattern
-    fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user)
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user)
     ```
   </TabItem>
 
@@ -471,7 +471,7 @@ Foreign keys always reference the internal `pk_` column:
   <TabItem label="SQLite">
     ```sql
     -- Foreign key pattern
-    fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user)
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user)
     ```
   </TabItem>
 
@@ -500,33 +500,31 @@ Writes go through SQL functions that:
 <Tabs syncKey="db">
   <TabItem label="PostgreSQL">
     ```sql
-    CREATE OR REPLACE FUNCTION create_user(
+    CREATE OR REPLACE FUNCTION fn_create_user(
         user_email TEXT,
         user_name TEXT,
         user_bio TEXT DEFAULT NULL
-    ) RETURNS UUID AS $$
+    ) RETURNS mutation_response AS $$
     DECLARE
-        new_user_id UUID;
+        v_id UUID;
     BEGIN
-        -- Validation
-        IF user_email IS NULL OR user_name IS NULL THEN
-            RAISE EXCEPTION 'Email and name are required';
-        END IF;
-
         -- Check duplicate
         IF EXISTS (SELECT 1 FROM tb_user WHERE email = user_email) THEN
-            RAISE EXCEPTION 'User with email % already exists', user_email;
+            RETURN ROW('failed:conflict', 'User with email ' || user_email || ' already exists',
+                NULL, 'User', NULL, NULL, NULL, NULL)::mutation_response;
         END IF;
 
         -- Create user
         INSERT INTO tb_user (email, name, bio, identifier)
         VALUES (user_email, user_name, user_bio, user_email)
-        RETURNING id INTO new_user_id;
+        RETURNING id INTO v_id;
 
         -- Sync projection
         PERFORM sync_tv_user();
 
-        RETURN new_user_id;
+        RETURN ROW('success', 'User created', v_id, 'User',
+            (SELECT data FROM v_user WHERE id = v_id),
+            NULL, NULL, NULL)::mutation_response;
     END;
     $$ LANGUAGE plpgsql;
     ```
@@ -535,7 +533,7 @@ Writes go through SQL functions that:
   <TabItem label="MySQL">
     ```sql
     DELIMITER //
-    CREATE PROCEDURE create_user(
+    CREATE PROCEDURE fn_create_user(
         IN user_email VARCHAR(255),
         IN user_name VARCHAR(255),
         IN user_bio TEXT
@@ -701,10 +699,10 @@ Here's the full CQRS structure for a blog post:
     ```sql
     -- WRITE: Base table
     CREATE TABLE tb_post (
-        pk_post INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        pk_post BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
         identifier TEXT UNIQUE NOT NULL,
-        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
         title TEXT NOT NULL,
         content TEXT NOT NULL,
         slug TEXT UNIQUE NOT NULL,
@@ -794,7 +792,7 @@ Here's the full CQRS structure for a blog post:
         pk_post INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
         identifier TEXT UNIQUE NOT NULL,
-        fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user),
+        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
         title TEXT NOT NULL,
         content TEXT NOT NULL,
         slug TEXT UNIQUE NOT NULL,
@@ -932,8 +930,9 @@ def create_user(name: str, email: str) -> User:
    ```sql
    -- PostgreSQL example
    CREATE TABLE tb_test_item (
-       pk_item INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+       pk_item BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
        id UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+       identifier TEXT UNIQUE NOT NULL,
        name TEXT NOT NULL,
        value INTEGER NOT NULL
    );
@@ -952,7 +951,7 @@ def create_user(name: str, email: str) -> User:
 2. **Create a write function**:
    ```sql
    CREATE OR REPLACE FUNCTION fn_create_test_item(p_input jsonb)
-   RETURNS SETOF v_test_item
+   RETURNS mutation_response
    LANGUAGE plpgsql AS $$
    DECLARE
        v_item_id UUID;
@@ -960,8 +959,10 @@ def create_user(name: str, email: str) -> User:
        INSERT INTO tb_test_item (name, value)
        VALUES (p_input->>'name', (p_input->>'value')::INTEGER)
        RETURNING id INTO v_item_id;
-       
-       RETURN QUERY SELECT * FROM v_test_item WHERE id = v_item_id;
+
+       RETURN ROW('success', 'Item created', v_item_id::text, 'TestItem',
+           (SELECT data FROM v_test_item WHERE id = v_item_id),
+           NULL, NULL, NULL)::mutation_response;
    END;
    $$;
    ```

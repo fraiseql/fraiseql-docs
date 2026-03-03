@@ -274,19 +274,17 @@ Add `is_published`, `author_id`, and `search` to the `posts` query. FraiseQL mat
         pass
     ```
 
-    `is_published` and `author_id` are matched verbatim to view columns — automatic-where handles them. `search` is declared as a full-text argument:
+    `is_published` and `author_id` are matched verbatim to view columns — automatic-where handles them. `search` is a plain argument that maps to the `search_vector` column. FraiseQL rewrites the WHERE clause as `search_vector @@ plainto_tsquery('english', $1)` when the argument name matches the `tsvector` column:
 
     ```python title="schema.py"
     @fraiseql.query(sql_source="v_post")
     def posts(
         is_published: bool | None = None,
         author_id: ID | None = None,
-        search: Annotated[str | None, fraiseql.FullText("search_vector")] = None,
+        search: str | None = None,
     ) -> list[Post]:
         pass
     ```
-
-    The `fraiseql.FullText("search_vector")` annotation tells FraiseQL to rewrite the WHERE clause as `search_vector @@ plainto_tsquery('english', $1)` on PostgreSQL instead of a plain equality check.
   </TabItem>
 
   <TabItem label="TypeScript">
@@ -511,8 +509,6 @@ The cursor encodes the `pk_post` value as a base64 string. The view must expose 
 <Tabs syncKey="lang">
   <TabItem label="Python">
     ```python title="schema.py"
-    from fraiseql import connection
-
     @fraiseql.type
     class PageInfo:
         has_next_page: bool
@@ -528,18 +524,18 @@ The cursor encodes the `pk_post` value as a base64 string. The view must expose 
         edges: list[PostEdge]
         page_info: PageInfo
 
-    @fraiseql.query(sql_source="v_post", cursor_column="pk_post")
+    @fraiseql.query(sql_source="v_post", relay=True)
     def posts(
         first: int = 20,
         after: str | None = None,
         is_published: bool | None = None,
         author_id: ID | None = None,
-        search: Annotated[str | None, fraiseql.FullText("search_vector")] = None,
+        search: str | None = None,
     ) -> PostConnection:
         pass
     ```
 
-    `cursor_column="pk_post"` tells FraiseQL which column to use for the `WHERE pk_post > :cursor` clause. The cursor value is base64-encoded by FraiseQL before being returned to the client and decoded on the way in.
+    `relay=True` activates cursor-based pagination. FraiseQL uses the view's internal `pk_` column to generate opaque base64-encoded cursors. The view's JSONB must include `pk_post` for cursor generation (FraiseQL strips it before returning to the client).
   </TabItem>
 
   <TabItem label="TypeScript">
@@ -690,13 +686,13 @@ Declare an `order_by` enum argument to control sort order. FraiseQL maps enum va
         CREATED_AT_DESC = "created_at DESC"
         TITLE_ASC       = "title ASC"
 
-    @fraiseql.query(sql_source="v_post", cursor_column="pk_post")
+    @fraiseql.query(sql_source="v_post", relay=True)
     def posts(
         first: int = 20,
         after: str | None = None,
         is_published: bool | None = None,
         author_id: ID | None = None,
-        search: Annotated[str | None, fraiseql.FullText("search_vector")] = None,
+        search: str | None = None,
         order_by: PostOrderBy = PostOrderBy.CREATED_AT_DESC,
     ) -> PostConnection:
         pass

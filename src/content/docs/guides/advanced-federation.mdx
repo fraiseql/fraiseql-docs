@@ -1,619 +1,519 @@
 ---
 title: Advanced Federation Patterns
-description: Enterprise-grade federation with saga patterns, consistency models, and real-world scenarios
+description: Apollo Federation v2 subgraph composition with FraiseQL — architecture, key directives, and real-world patterns
 ---
 
 import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
-Advanced federation patterns for building scalable, distributed systems with FraiseQL.
+FraiseQL federation means **Apollo Federation v2 subgraphs**. Each FraiseQL service defines its own GraphQL schema using Python decorators, compiles it to a Rust runtime, and exposes a standard Apollo Federation subgraph endpoint. An Apollo Router (or Apollo Gateway) composes these independent subgraphs into a unified supergraph for clients.
 
-## Federation Architecture Deep Dive
+This is fundamentally different from multi-database querying. Each FraiseQL service has **one database** and **one compiled schema**. Cross-service data access happens through Apollo Federation's type extension and `@key` mechanism — not through Python code.
 
-### Federated Query Execution Flow
+## How FraiseQL Federation Works
 
 ```mermaid
 graph TD
   client["Client"]
 
-  subgraph FRAISEQL["GraphQL Server"]
-    parser["Query Parser"]
-    planner["Query Planner"]
-    executor["Federated Executor"]
+  subgraph SUPERGRAPH["Apollo Router (Supergraph)"]
+    router["Apollo Router\n(query planning + routing)"]
   end
 
-  subgraph PRIMARY_DB["Primary DB"]
-    tb_user["tb_user"]
+  subgraph USER_SVC["User Service"]
+    user_py["schema.py\n@fraiseql.type User"]
+    user_compiled["schema.compiled.json"]
+    user_rust["Rust Runtime\n:4001/graphql"]
+    user_db["PostgreSQL\ntb_user, v_user"]
   end
 
-  subgraph SECONDARY_DB["Secondary DB"]
-    tb_analytics["tb_analytics"]
+  subgraph ORDER_SVC["Order Service"]
+    order_py["schema.py\n@fraiseql.type Order"]
+    order_compiled["schema.compiled.json"]
+    order_rust["Rust Runtime\n:4002/graphql"]
+    order_db["PostgreSQL\ntb_order, v_order"]
   end
 
-  subgraph CACHE["Cache Layer"]
-    fed_cache["Federation Results"]
-    q_cache["Query Cache"]
-  end
+  client -- "GraphQL query" --> router
+  router -- "subgraph query" --> user_rust
+  router -- "subgraph query" --> order_rust
 
-  response["Combined Response"]
+  user_py -- "fraiseql compile" --> user_compiled --> user_rust
+  order_py -- "fraiseql compile" --> order_compiled --> order_rust
 
-  client -- "GraphQL Query" --> parser
-  parser --> planner --> executor
-
-  executor -- "Check cache" --> fed_cache
-  executor -- "Fetch base entities" --> tb_user
-  executor -- "Fetch federated data (batched)" --> tb_analytics
-
-  tb_user -- "User data" --> executor
-  tb_analytics -- "Analytics data" --> executor
-
-  executor --> q_cache --> response
-  response --> client
+  user_rust --> user_db
+  order_rust --> order_db
 ```
 
-### Database Heterogeneity
+### The Compile-Time Pipeline
 
-FraiseQL supports federation across different database types:
+FraiseQL Python is **schema authoring only** — no runtime Python executes queries:
 
-#### Mixed Database Configuration
+```
+Python @decorators  →  schema.json  →  fraiseql compile  →  schema.compiled.json  →  Rust runtime
+```
 
-```toml
-[databases.primary]
+Each service completes this pipeline independently. The Rust runtime is a fully Apollo Federation v2 compliant subgraph server.
+
+---
+
+## Defining Federation Keys
+
+Apollo Federation v2 uses `@key` directives to declare which fields uniquely identify an entity. FraiseQL emits these directives when you annotate your types.
+
+### User Service Schema
+
+```python title="user-service/schema.py"
+import fraiseql
+from fraiseql.scalars import ID, DateTime
+
+@fraiseql.type
+class User:
+    """Apollo Federation entity — resolvable by id."""
+    id: ID
+    name: str
+    email: str
+    created_at: DateTime
+
+@fraiseql.query(sql_source="v_user")
+def user(id: ID) -> User | None:
+    """Look up a single user."""
+    pass
+
+@fraiseql.query(sql_source="v_user")
+def users(limit: int = 20, offset: int = 0) -> list[User]:
+    """List all users."""
+    pass
+
+fraiseql.export_schema("schema.json")
+```
+
+The corresponding `fraiseql.toml` declares this as a federation subgraph and names the entity key:
+
+```toml title="user-service/fraiseql.toml"
+[project]
+name = "user-service"
+version = "1.0.0"
+
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[database]
 type = "postgresql"
-url = "${PRIMARY_DB_URL}"
-pool_max = 50
+url = "${DATABASE_URL}"
 
-[databases.warehouse]
-type = "snowflake"
-url = "${SNOWFLAKE_URL}"
-pool_max = 20
-
-[databases.cache_store]
-type = "redis"
-url = "${REDIS_URL}"
-pool_max = 10
-
-[databases.legacy]
-type = "mysql"
-url = "${LEGACY_DB_URL}"
-pool_max = 15
+[federation]
+enabled = true
+entity_key = "id"
 ```
 
-#### Type Mapping Across Databases
+The compiled schema exposes a standard Apollo Federation subgraph with `_entities` and `_service` fields, and `User @key(fields: "id")` in the SDL.
 
-```python
+### Order Service Schema
+
+The Order service defines `Order` types that **reference** `User` by its federation key, without importing or calling the User service from Python:
+
+```python title="order-service/schema.py"
 import fraiseql
 from fraiseql.scalars import ID, DateTime, Decimal
+from enum import Enum
 
-@fraiseql.type(database="primary")
+@fraiseql.enum
+class OrderStatus(Enum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
+
+@fraiseql.type
 class Order:
-    """PostgreSQL primary database."""
+    """An order placed by a user."""
     id: ID
-    user_id: ID
+    user_id: ID          # The federation join key — matches User.id
+    status: OrderStatus
     total: Decimal
     created_at: DateTime
 
-@fraiseql.type(database="warehouse")
-class OrderMetrics:
-    """Snowflake data warehouse."""
-    order_id: ID
-    gross_revenue: Decimal
-    cost_of_goods: Decimal
-    profit_margin: float
+@fraiseql.input
+class CreateOrderInput:
+    user_id: ID
+    items: list[str]
 
-@fraiseql.type(database="legacy")
-class LegacyOrder:
-    """MySQL legacy system."""
-    order_id: str  # String ID in legacy
-    total_amount: Decimal
-    order_date: DateTime
+@fraiseql.query(sql_source="v_order")
+def order(id: ID) -> Order | None:
+    """Look up a single order."""
+    pass
 
-@fraiseql.type(database="primary")
-class OrderFederated:
-    """Composed view across databases."""
-    id: ID
-    total: Decimal
+@fraiseql.query(sql_source="v_order")
+def orders(limit: int = 20, offset: int = 0) -> list[Order]:
+    """List all orders."""
+    pass
 
-    # PostgreSQL self-reference
-    user: 'User' = fraiseql.federated(database="primary", lookup="user_id")
+@fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
+def create_order(input: CreateOrderInput) -> Order:
+    """Create a new order."""
+    pass
 
-    # Snowflake federation
-    metrics: 'OrderMetrics' = fraiseql.federated(
-        database="warehouse",
-        local_key="id",
-        remote_key="order_id"
-    )
+fraiseql.export_schema("schema.json")
+```
 
-    # MySQL legacy data
-    legacy: 'LegacyOrder' = fraiseql.federated(
-        database="legacy",
-        local_key="id",
-        remote_key="order_id",
-        type_conversion=lambda x: str(x)  # UUID to string
-    )
+```toml title="order-service/fraiseql.toml"
+[project]
+name = "order-service"
+version = "1.0.0"
+
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[database]
+type = "postgresql"
+url = "${DATABASE_URL}"
+
+[federation]
+enabled = true
+entity_key = "id"
+# Declare that Order.user_id references User.id in the user-service subgraph
+external_references = [
+  { type = "User", key = "id", field = "user_id" }
+]
 ```
 
 ---
 
-## Advanced Saga Patterns
+## Apollo Router Configuration
 
-### Saga Orchestration vs Choreography
+The Apollo Router composes all subgraph schemas into a unified supergraph. It handles query planning — splitting a client query across the appropriate subgraphs and merging results.
 
-#### Orchestration Pattern (Recommended)
+```yaml title="router.yaml"
+supergraph:
+  listen: 0.0.0.0:4000
 
-```python
-from fraiseql import saga, step, compensate, SagaContext
+subgraphs:
+  users:
+    routing_url: http://user-service:4001/graphql
+  orders:
+    routing_url: http://order-service:4002/graphql
 
-@fraiseql.mutation(operation="CREATE")
-@saga(
-    name="create_order_with_fulfillment",
-    steps=[
-        "validate_inventory",
-        "create_order",
-        "charge_payment",
-        "mark_shipped"
-    ],
-    timeout=30000  # 30 seconds
-)
-def create_order(
-    user_id: ID,
-    items: list[OrderItemInput],
-    shipping_address: AddressInput
-) -> Order:
-    """Orchestrated saga for order creation."""
-    pass
-
-@step("validate_inventory", database="inventory", timeout=5000)
-async def validate_inventory(ctx: SagaContext, items: list[OrderItemInput]) -> bool:
-    """Step 1: Check inventory availability."""
-    result = await ctx.execute_query(
-        database="inventory",
-        query="SELECT check_stock($1)",
-        params=[items]
-    )
-    return result.available
-
-@step("create_order", database="orders", timeout=3000)
-async def create_order_step(ctx: SagaContext, user_id: ID, items: list) -> Order:
-    """Step 2: Create order in primary database."""
-    order = await ctx.execute_mutation(
-        database="orders",
-        mutation="fn_create_order",
-        params={"user_id": user_id, "items": items}
-    )
-    ctx.order_id = order.id  # Store in saga context
-    return order
-
-@step("charge_payment", database="payments", timeout=10000)
-async def charge_payment(ctx: SagaContext, amount: Decimal) -> PaymentResult:
-    """Step 3: Process payment."""
-    payment = await ctx.execute_mutation(
-        database="payments",
-        mutation="fn_charge_card",
-        params={"order_id": ctx.order_id, "amount": amount}
-    )
-    ctx.payment_id = payment.id
-    return payment
-
-@step("mark_shipped", database="shipping", timeout=2000)
-async def mark_shipped(ctx: SagaContext) -> ShippingLabel:
-    """Step 4: Create shipping label."""
-    label = await ctx.execute_mutation(
-        database="shipping",
-        mutation="fn_create_label",
-        params={"order_id": ctx.order_id}
-    )
-    return label
-
-# Compensation for each step
-@compensate("validate_inventory")
-async def compensate_validation(ctx: SagaContext):
-    """No compensation needed for validation."""
-    pass
-
-@compensate("create_order")
-async def compensate_create_order(ctx: SagaContext):
-    """Cancel the order if later steps fail."""
-    await ctx.execute_mutation(
-        database="orders",
-        mutation="fn_cancel_order",
-        params={"order_id": ctx.order_id}
-    )
-
-@compensate("charge_payment")
-async def compensate_payment(ctx: SagaContext):
-    """Refund the customer."""
-    await ctx.execute_mutation(
-        database="payments",
-        mutation="fn_refund",
-        params={"payment_id": ctx.payment_id}
-    )
-
-@compensate("mark_shipped")
-async def compensate_shipping(ctx: SagaContext):
-    """Cancel the shipping label."""
-    await ctx.execute_mutation(
-        database="shipping",
-        mutation="fn_cancel_label",
-        params={"order_id": ctx.order_id}
-    )
+# Federation introspection: Apollo Router fetches SDL from each subgraph
+# at startup to build the supergraph composition
 ```
 
-### Choreography Pattern (Event-Driven)
+To compose the supergraph schema using the Rover CLI:
 
-```python
-from fraiseql import observer, event
+```bash
+rover supergraph compose --config supergraph.yaml > supergraph.graphql
+```
 
-# Order Service creates order
-@fraiseql.mutation(operation="CREATE")
-def create_order(user_id: ID, items: list) -> Order:
-    """Create order - triggers event."""
-    pass
-
-# Inventory Service listens for order created
-@observer(
-    entity="Order",
-    event="CREATE",
-    database="orders"
-)
-async def on_order_created(order: Order):
-    """Inventory checks stock and reserves items."""
-    reserved = await reserve_inventory(order.items)
-    await emit_event("inventory_reserved", {"order_id": order.id})
-
-# Payment Service listens for inventory reserved
-@observer(
-    entity="Order",
-    event="CUSTOM:inventory_reserved"
-)
-async def on_inventory_reserved(event):
-    """Charge payment when inventory is reserved."""
-    payment = await charge_payment(event.order_id)
-    await emit_event("payment_charged", {"order_id": event.order_id})
-
-# Shipping Service listens for payment charged
-@observer(
-    entity="Order",
-    event="CUSTOM:payment_charged"
-)
-async def on_payment_charged(event):
-    """Create shipping label when payment succeeds."""
-    label = await create_shipping_label(event.order_id)
-    await emit_event("order_shipped", {"order_id": event.order_id})
+```yaml title="supergraph.yaml"
+federation_version: =2.4.0
+subgraphs:
+  users:
+    routing_url: http://user-service:4001/graphql
+    schema:
+      subgraph_url: http://user-service:4001/graphql
+  orders:
+    routing_url: http://order-service:4002/graphql
+    schema:
+      subgraph_url: http://order-service:4002/graphql
 ```
 
 ---
 
-## Consistency Models & Conflict Resolution
+## Cross-Service Queries
 
-### Consistency Guarantees Matrix
+Once composed, clients query the supergraph as if it were a single GraphQL API. The Apollo Router resolves `Order.user` by:
 
-| Model | Latency | Consistency | Use Case |
-|-------|---------|-------------|----------|
-| **Eventual** | Low (1-5s) | Loose | Analytics, non-critical data |
-| **Read-Your-Writes** | Medium (100-500ms) | Strong for user | User preferences, profile |
-| **Causal** | Medium (500ms-2s) | Event order preserved | Social media feeds |
-| **Strong** | High (2-10s) | Immediate | Financial transactions |
+1. Fetching the order from the Order service (gets `user_id`)
+2. Using `user_id` as the `@key` to fetch `User` from the User service via the `_entities` query
 
-### Implementing Strong Consistency with Locks
-
-```python
-from fraiseql import federated, consistency
-
-@fraiseql.type(database="primary")
-class Account:
-    id: ID
-    balance: Decimal
-    version: int  # Optimistic lock
-
-    # Strong consistency with locking
-    transactions: list[Transaction] = fraiseql.federated(
-        database="ledger",
-        consistency="strong",
-        locking="distributed",
-        timeout=5000
-    )
-
-@fraiseql.mutation(operation="UPDATE")
-def transfer_funds(
-    from_id: ID,
-    to_id: ID,
-    amount: Decimal
-) -> TransferResult:
-    """
-    Transfer funds with strong consistency guarantees.
-    Uses distributed locks to prevent race conditions.
-    """
-    pass
+```graphql
+# Client queries the Apollo Router on :4000
+query GetOrderWithUser {
+  order(id: "550e8400-e29b-41d4-a716-446655440000") {
+    id
+    status
+    total
+    user {
+      id
+      name
+      email
+    }
+  }
+}
 ```
 
-### Conflict Resolution Strategies
-
-#### Last-Write-Wins
-
-```python
-@fraiseql.type(database="primary")
-class UserProfile:
-    id: ID
-    name: str
-    updated_at: DateTime
-
-    bio: str = fraiseql.federated(
-        database="profile_db",
-        conflict_resolution="last_write_wins",
-        timestamp_field="updated_at"
-    )
-```
-
-#### Custom Conflict Resolution
-
-```python
-def resolve_profile_conflict(primary_version, federated_version):
-    """
-    Custom merge strategy:
-    - Keep longer bio
-    - Use most recent update
-    - Notify user of conflict
-    """
-    if primary_version.updated_at > federated_version.updated_at:
-        if len(primary_version.bio) > len(federated_version.bio):
-            return primary_version.bio
-        else:
-            return federated_version.bio
-    else:
-        return federated_version.bio
-
-@fraiseql.type(database="primary")
-class UserProfile:
-    bio: str = fraiseql.federated(
-        database="profile_db",
-        conflict_resolution=resolve_profile_conflict
-    )
-```
+No Python code handles the join. The Apollo Router manages cross-service data fetching based on the compiled supergraph schema.
 
 ---
 
-## Performance Optimization
+## Field-Level Authorization Across Services
 
-### Batch Loading Optimization
+Each FraiseQL service independently enforces its own authorization using `fraiseql.field(requires_scope=...)`. Authorization is compile-time configuration baked into each service's `schema.compiled.json`.
 
-```python
-@fraiseql.type(database="primary")
+```python title="user-service/schema.py"
+from typing import Annotated
+import fraiseql
+from fraiseql.scalars import ID, DateTime
+
+@fraiseql.type
 class User:
     id: ID
     name: str
-
-    # Without batch loading: N+1 queries
-    orders: list[Order] = fraiseql.federated(
-        database="orders",
-        batch_size=100,  # Load 100 at a time
-        enable_caching=True
-    )
-
-# GraphQL query:
-# query {
-#   users(limit: 1000) {
-#     name
-#     orders { id }
-#   }
-# }
-#
-# Without batching: 1 + 1000 = 1001 queries
-# With batching: 1 + 10 = 11 queries (1000 / 100)
+    # Requires scope to access — enforced by the User service Rust runtime
+    email: Annotated[str, fraiseql.field(requires_scope="read:User.email")]
+    # Mask mode: returns null for callers without the scope
+    phone: Annotated[str | None, fraiseql.field(
+        requires_scope="read:User.phone",
+        on_deny="mask"
+    )]
+    created_at: DateTime
 ```
 
-### Denormalization Strategy
-
-```python
-@fraiseql.type(database="primary")
-class Order:
-    id: ID
-    # Denormalize frequently accessed data
-    customer_name: str  # From User table
-    customer_email: str
-    total_items: int  # Count denormalized
-
-    # Only federate when needed
-    detailed_items: list[OrderItem] = fraiseql.federated(
-        database="inventory",
-        lazy=True  # Load only if requested
-    )
-```
-
-### Caching at Federation Layer
-
-```toml
-[federation.cache]
-enabled = true
-ttl = 300  # 5 minutes
-
-[federation.cache.strategies]
-# Cache aggressive for analytics
-analytics = { ttl = 3600, batch_size = 500 }
-# Cache conservative for financial data
-transactions = { ttl = 60, batch_size = 10 }
-```
-
----
-
-## Real-World Multi-Tenant Scenario
-
-### Multi-Tenant Configuration
-
-```toml
-[multi_tenancy]
-enabled = true
-strategy = "database_per_tenant"
-auth_header = "X-Tenant-ID"
-
-# Dynamic database registration
-[databases.default]
-type = "postgresql"
-pool_max = 10
-
-# Shared services
-[databases.shared]
-type = "postgresql"
-url = "${SHARED_DB_URL}"
-pool_max = 20
-```
-
-### Multi-Tenant Schema
-
-```python
+```python title="order-service/schema.py"
+from typing import Annotated
 import fraiseql
-from fraiseql import TenantContext
+from fraiseql.scalars import ID, Decimal, DateTime
 
-@fraiseql.type(database="tenant")
+@fraiseql.type
 class Order:
-    """Tenant-specific order data."""
     id: ID
     user_id: ID
-    total: Decimal
-    tenant_id: ID  # Always included for isolation
-
-    # Reference to shared analytics
-    metrics: OrderMetrics = fraiseql.federated(
-        database="shared",
-        filter={"tenant_id": fraiseql.context("tenant_id")}
-    )
-
-@fraiseql.query(sql_source="v_order")
-def orders(ctx: TenantContext) -> list[Order]:
-    """
-    Automatically filters to current tenant.
-    Row-level security enforced in database.
-    """
-    pass
-
-@fraiseql.mutation(operation="CREATE")
-def create_order(ctx: TenantContext, items: list) -> Order:
-    """
-    Creates order for current tenant only.
-    Tenant ID automatically injected.
-    """
-    pass
+    status: str
+    # Only billing team can see the raw total
+    total: Annotated[Decimal, fraiseql.field(requires_scope="billing:read")]
+    created_at: DateTime
 ```
 
-### RLS (Row-Level Security) Enforcement
+<Aside type="note">
+Authorization is enforced at each subgraph independently. The Apollo Router does not aggregate or re-check scopes — each service enforces its own rules based on the JWT passed in the Authorization header.
+</Aside>
+
+---
+
+## Per-Service Database Schema
+
+Each FraiseQL service owns its own PostgreSQL database following the standard trinity pattern.
+
+### User Service Database
 
 ```sql
--- PostgreSQL Row-Level Security
-ALTER TABLE tb_order ENABLE ROW LEVEL SECURITY;
+-- tb_user: write target
+CREATE TABLE tb_user (
+    pk_user    BIGINT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID    DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT    UNIQUE NOT NULL,  -- email address as human key
+    name       TEXT    NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
 
-CREATE POLICY rls_tenant_isolation ON tb_order
-USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
+CREATE UNIQUE INDEX idx_tb_user_id ON tb_user(id);
+CREATE UNIQUE INDEX idx_tb_user_identifier ON tb_user(identifier);
 
--- On connection
-SET app.current_tenant_id = 'tenant-123';
+-- v_user: read side, returns JSONB for FraiseQL
+CREATE VIEW v_user AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id',         u.id::text,
+        'identifier', u.identifier,
+        'name',       u.name,
+        'email',      u.identifier,
+        'created_at', u.created_at
+    ) AS data
+FROM tb_user u;
+```
+
+### Order Service Database
+
+```sql
+-- tb_order: write target
+CREATE TABLE tb_order (
+    pk_order   BIGINT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID    DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT    UNIQUE NOT NULL,  -- order number as human key
+    fk_user BIGINT NOT NULL,         -- internal FK to tb_user in user-service (denormalized)
+    user_id    UUID    NOT NULL,         -- public UUID exposed in GraphQL
+    status     TEXT    NOT NULL DEFAULT 'pending',
+    total      NUMERIC(12,2) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+
+CREATE UNIQUE INDEX idx_tb_order_id ON tb_order(id);
+CREATE INDEX idx_tb_order_user_id ON tb_order(user_id);
+
+-- v_order: read side
+CREATE VIEW v_order AS
+SELECT
+    o.id,
+    jsonb_build_object(
+        'id',         o.id::text,
+        'identifier', o.identifier,
+        'user_id',    o.user_id::text,
+        'status',     o.status,
+        'total',      o.total,
+        'created_at', o.created_at
+    ) AS data
+FROM tb_order o;
+```
+
+<Aside type="note">
+The Order service stores `user_id` (UUID) as a denormalized column. The Order service never queries the User service database directly — cross-service data joins are handled by Apollo Router at query time.
+</Aside>
+
+---
+
+## Deploying Multiple FraiseQL Services
+
+Each service follows the same build and deployment pattern:
+
+```bash
+# User service
+cd user-service/
+python schema.py                     # generates schema.json
+fraiseql compile                     # generates schema.compiled.json
+fraiseql-server --schema schema.compiled.json --port 4001
+
+# Order service
+cd order-service/
+python schema.py                     # generates schema.json
+fraiseql compile                     # generates schema.compiled.json
+fraiseql-server --schema schema.compiled.json --port 4002
+
+# Apollo Router
+rover supergraph compose --config supergraph.yaml > supergraph.graphql
+router --config router.yaml --supergraph supergraph.graphql
+```
+
+Or with Docker Compose:
+
+```yaml title="docker-compose.yml"
+services:
+  user-service:
+    build: ./user-service
+    environment:
+      DATABASE_URL: postgresql://postgres:password@user-db:5432/users
+    ports:
+      - "4001:4001"
+
+  order-service:
+    build: ./order-service
+    environment:
+      DATABASE_URL: postgresql://postgres:password@order-db:5432/orders
+    ports:
+      - "4002:4002"
+
+  apollo-router:
+    image: ghcr.io/apollographql/router:latest
+    volumes:
+      - ./router.yaml:/dist/config/router.yaml
+      - ./supergraph.graphql:/dist/config/supergraph.graphql
+    ports:
+      - "4000:4000"
+    depends_on:
+      - user-service
+      - order-service
 ```
 
 ---
 
-## Error Handling & Resilience
+## Adding More Services
 
-### Circuit Breaker Pattern
+The pattern extends naturally. A Review service that references both `User` and `Order`:
 
-```toml
-[federation.circuit_breaker]
-enabled = true
-failure_threshold = 5        # Open after 5 consecutive failures
-recovery_timeout_secs = 30   # Seconds in open state before probing
-success_threshold = 2        # Successful probes required to close
-```
+```python title="review-service/schema.py"
+import fraiseql
+from fraiseql.scalars import ID, DateTime
 
-### Graceful Degradation
+@fraiseql.type
+class Review:
+    """A product review left by a user on an order."""
+    id: ID
+    user_id: ID    # References User.id in user-service
+    order_id: ID   # References Order.id in order-service
+    rating: int
+    body: str
+    created_at: DateTime
 
-```python
-@fraiseql.query(sql_source="v_user")
-def user_with_analytics(id: ID) -> UserWithAnalytics:
-    """
-    Returns user even if analytics DB is unavailable.
-    Degraded response includes null fields.
-    """
+@fraiseql.query(sql_source="v_review")
+def reviews(order_id: ID | None = None, limit: int = 20) -> list[Review]:
+    """List reviews, optionally filtered by order."""
     pass
 
-# Response when analytics DB fails:
-# {
-#   "id": "user-123",
-#   "name": "John",
-#   "analytics": null,  # Null instead of error
-#   "_degraded": true  # Flag for client
-# }
+@fraiseql.input
+class CreateReviewInput:
+    order_id: ID
+    rating: int
+    body: str
+
+@fraiseql.mutation(
+    sql_source="fn_create_review",
+    operation="CREATE",
+    inject={"user_id": "jwt:sub"},
+)
+def create_review(input: CreateReviewInput) -> Review:
+    """Create a review. User ID injected from JWT."""
+    pass
+
+fraiseql.export_schema("schema.json")
 ```
+
+Add to `supergraph.yaml` and recompose — no changes needed to the existing User or Order services.
 
 ---
 
-## Monitoring & Observability
+## Monitoring Federation
 
-### Federation Metrics
+Each FraiseQL Rust runtime exposes Prometheus metrics independently. The Apollo Router exposes additional federation-level metrics.
 
-```python
-# Prometheus metrics exported by FraiseQL
-
-# Latency distribution
-fraiseql_federation_latency_seconds{
-    database="primary",
-    federated_db="analytics",
-    quantile="0.95"
-}
-
-# Error rates
-fraiseql_federation_errors_total{
-    database="primary",
-    reason="timeout"
-}
-
-# Saga execution
-fraiseql_saga_executions_total{
-    saga="create_order",
-    status="success"
-}
+```toml title="any-service/fraiseql.toml"
+[fraiseql.security.audit_logging]
+enabled = true
+log_level = "info"
 ```
+
+Apollo Router metrics to track:
+- `apollo_router_http_request_duration_seconds` — end-to-end latency
+- `apollo_router_subgraph_request_duration_seconds{subgraph="users"}` — per-subgraph latency
+- `apollo_router_cache_hit_count` — query plan cache efficiency
 
 ---
 
-## Best Practices Checklist
+## Best Practices
 
-### Design
-- [ ] Minimize cross-database joins (max 2-3 hops)
-- [ ] Denormalize frequently accessed data
-- [ ] Use eventual consistency by default
-- [ ] Reserve strong consistency for critical paths
-- [ ] Design idempotent saga steps
+### Service Boundaries
+- Each FraiseQL service owns exactly one domain and one database
+- Services share entity keys (UUIDs) but never share database connections
+- Keep services small enough that their schema.py fits in one file
 
-### Implementation
-- [ ] Add circuit breakers for remote databases
-- [ ] Implement graceful degradation
-- [ ] Use batch loading for list queries
-- [ ] Cache federation results (5-60 min TTL)
-- [ ] Add comprehensive logging
+### Schema Design
+- Use `UUID` (`ID` scalar) as federation keys — never expose internal `pk_` integers
+- Denormalize foreign UUIDs in each service's database for federation joins
+- Follow the trinity pattern (`pk_` + `id UUID` + `identifier TEXT`) in every table
 
-### Operations
-- [ ] Monitor federation latency
-- [ ] Track saga success/failure rates
-- [ ] Alert on consistency anomalies
-- [ ] Regular failover testing
-- [ ] Document retry policies
+### Deployment
+- Compile schemas at build time, not at container startup
+- Pin Apollo Router version in your supergraph compose config
+- Test subgraph schemas individually before composing
 
-### Testing
-- [ ] Test single database failures
-- [ ] Test partial failures (one federated DB down)
-- [ ] Load test saga coordinator
-- [ ] Verify compensation logic
-- [ ] Test under network latency
+### Authorization
+- Each service enforces its own scopes independently
+- Pass the original JWT from the client through to all subgraphs via Apollo Router header forwarding
+- Never trust Apollo Router to enforce authorization — each subgraph must validate
 
 ---
 
 ## Next Steps
 
 <CardGrid>
-  <Card title="NATS for Federation Events" icon="external">
-    [Advanced NATS](/guides/advanced-nats) — Real-time coordination
-  </Card>
   <Card title="Federation Configuration" icon="setting">
-    [Multi-Database Federation](/guides/federation-configuration) — Setup and configuration
+    [Per-Service Configuration](/guides/federation-configuration) — TOML configuration for each FraiseQL subgraph
   </Card>
   <Card title="Federation + NATS Integration" icon="puzzle">
-    [Hybrid Patterns](/guides/federation-nats-integration) — Combine sync and async
+    [Event-Driven Patterns](/guides/federation-nats-integration) — Cross-service event routing with NATS
+  </Card>
+  <Card title="Observers" icon="external">
+    [Observers Guide](/guides/observers) — Trigger side effects after mutations
   </Card>
 </CardGrid>

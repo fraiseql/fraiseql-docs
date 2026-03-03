@@ -5,10 +5,10 @@ description: Define GraphQL schemas in TypeScript using FraiseQL's type-safe sch
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
-The FraiseQL TypeScript SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations in TypeScript using decorators, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+The FraiseQL TypeScript SDK is a **compile-time schema authoring SDK**: you define GraphQL types, queries, and mutations in TypeScript using decorators, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views. **There is no runtime FFI** — decorators output JSON only. Function bodies are never executed.
 
 <Aside type="note">
-This is not a GraphQL client library. FraiseQL TypeScript lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client (Apollo Client, urql, etc.).
+This is not a GraphQL client library. FraiseQL TypeScript lets you **define** APIs, not consume them. The Node.js process never handles GraphQL requests — that is the Rust runtime's job. For consuming GraphQL APIs, use any standard GraphQL client (Apollo Client, urql, etc.).
 </Aside>
 
 ## Installation
@@ -27,18 +27,17 @@ yarn add fraiseql
 bun add fraiseql
 ```
 
-**Requirements:** Node.js 18+, TypeScript 5.0+
+**Requirements:** Node.js 18+, TypeScript 5.0+, version 2.0.0
 
 ### TypeScript Configuration
 
-Enable decorators in your `tsconfig.json`:
+Enable decorators in your `tsconfig.json`. Note: `emitDecoratorMetadata` is **not** required — FraiseQL uses explicit field registration rather than reflection metadata (see [Registering Fields](#registering-fields)):
 
 ```json title="tsconfig.json"
 {
   "compilerOptions": {
     "target": "ES2022",
     "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "strict": true
   }
 }
@@ -48,153 +47,208 @@ Enable decorators in your `tsconfig.json`:
 
 ## Core Concepts
 
-FraiseQL TypeScript provides four decorators:
+FraiseQL TypeScript provides PascalCase decorator functions and imperative registration helpers. All decorators and helpers register metadata in a schema registry for JSON export — no runtime behavior is added.
 
-| Decorator | GraphQL Equivalent | Purpose |
-|-----------|-------------------|---------|
-| `@type()` | `type` | Define a GraphQL output type |
-| `@input()` | `input` | Define a GraphQL input type |
-| `@query()` | `Query` field | Wire a query to a SQL view |
-| `@mutation()` | `Mutation` field | Define a mutation |
+| API | GraphQL Equivalent | Purpose |
+|-----|-------------------|---------|
+| `@Type()` | `type` | Mark a class as a GraphQL output type |
+| `registerTypeFields()` | — | Register fields for a `@Type()` class |
+| `input()` | `input` | Define a GraphQL input type (imperative) |
+| `enum_()` | `enum` | Define a GraphQL enum (imperative) |
+| `interface_()` | `interface` | Define a GraphQL interface (imperative) |
+| `union()` | `union` | Define a GraphQL union (imperative) |
+| `@Query()` | `Query` field | Wire a query to a SQL view (method decorator) |
+| `registerQuery()` | — | Register a query imperatively |
+| `@Mutation()` | `Mutation` field | Wire a mutation to a SQL function (method decorator) |
+| `registerMutation()` | — | Register a mutation imperatively |
+| `@Subscription()` | `Subscription` field | Declare a real-time subscription (method decorator) |
+| `registerSubscription()` | — | Register a subscription imperatively |
+| `@Scalar()` | `scalar` | Register a custom scalar class |
+| `exportSchema()` | — | Write `schema.json` |
+
+<Aside type="caution">
+**Decorator casing matters.** The exports are PascalCase: `Type`, `Query`, `Mutation`, `Subscription`, `Scalar`. Using lowercase would import TypeScript's built-in `type` keyword modifier, not the FraiseQL decorator.
+</Aside>
 
 ---
 
 ## Defining Types
 
-Use `@type()` to define GraphQL output types. Fields map 1:1 to keys in your backing SQL view's `.data` JSON object.
+### Registering Fields
+
+TypeScript does not preserve property type information at runtime by default. Because of this limitation, `@Type()` registers an empty type shell, and you must call `registerTypeFields()` immediately after to provide field metadata:
 
 ```typescript title="schema.ts"
-import { type } from 'fraiseql';
-import { ID, Email, Slug, DateTime } from 'fraiseql/scalars';
+import { Type, registerTypeFields } from 'fraiseql';
+import type { ID, Email, Slug, DateTime } from 'fraiseql';
 
-@type()
-class User {
-  /** A registered user. */
-  id: ID;
-  username: string;
-  email: Email;
-  bio: string | null;
-  createdAt: DateTime;
-}
+@Type()
+class User {}
 
-@type()
-class Post {
-  /** A blog post. */
-  id: ID;
-  title: string;
-  slug: Slug;
-  content: string;
-  isPublished: boolean;
-  createdAt: DateTime;
-  updatedAt: DateTime;
-  // Nested types are composed from views at compile time
-  author: User;
-  comments: Comment[];
-}
+registerTypeFields('User', [
+  { name: 'id',         type: 'ID',       nullable: false },
+  { name: 'username',   type: 'String',   nullable: false },
+  { name: 'email',      type: 'Email',    nullable: false },
+  { name: 'bio',        type: 'String',   nullable: true  },
+  { name: 'createdAt',  type: 'DateTime', nullable: false },
+]);
 
-@type()
-class Comment {
-  /** A comment on a post. */
-  id: ID;
-  content: string;
-  createdAt: DateTime;
-  author: User;
-}
+@Type()
+class Post {}
+
+registerTypeFields('Post', [
+  { name: 'id',          type: 'ID',       nullable: false },
+  { name: 'title',       type: 'String',   nullable: false },
+  { name: 'slug',        type: 'Slug',     nullable: false },
+  { name: 'content',     type: 'String',   nullable: false },
+  { name: 'isPublished', type: 'Boolean',  nullable: false },
+  { name: 'createdAt',   type: 'DateTime', nullable: false },
+  { name: 'updatedAt',   type: 'DateTime', nullable: false },
+  { name: 'author',      type: 'User',     nullable: false },
+]);
+
+@Type()
+class Comment {}
+
+registerTypeFields('Comment', [
+  { name: 'id',        type: 'ID',       nullable: false },
+  { name: 'content',   type: 'String',   nullable: false },
+  { name: 'createdAt', type: 'DateTime', nullable: false },
+  { name: 'author',    type: 'User',     nullable: false },
+]);
+```
+
+### Field-Level Access Control
+
+Pass `requiresScope` and `onDeny` in the field definition to restrict access by JWT scope:
+
+```typescript
+registerTypeFields('User', [
+  { name: 'id',       type: 'ID',      nullable: false },
+  { name: 'username', type: 'String',  nullable: false },
+  {
+    name: 'salary',
+    type: 'Decimal',
+    nullable: false,
+    requiresScope: 'hr:view_pii',     // query fails with FORBIDDEN if scope is absent
+  },
+  {
+    name: 'internalNotes',
+    type: 'String',
+    nullable: true,
+    requiresScope: 'admin:read',
+    onDeny: 'mask',                   // returns null instead of failing
+  },
+]);
 ```
 
 ### Built-in Scalars
 
+Scalar types are exported as TypeScript type aliases from the main `fraiseql` package:
+
 ```typescript
-import {
-  ID,           // UUID, auto-serialized
-  Email,        // Validated email address
+import type {
+  ID,           // UUID v4 — use for all `id` fields and foreign key references
+  Email,        // RFC 5322 validated email address
   Slug,         // URL-safe slug
   DateTime,     // ISO 8601 datetime
-  URL,          // Validated URL
+  Date,         // ISO 8601 date
+  URL,          // RFC 3986 validated URL
   PhoneNumber,  // E.164 phone number
-} from 'fraiseql/scalars';
+  Json,         // Arbitrary JSON — maps to PostgreSQL JSONB
+  Decimal,      // Precise decimal for financial values
+} from 'fraiseql';
 ```
 
 ---
 
 ## Defining Inputs
 
-Use `@input()` to define GraphQL input types for mutations. Add validation with the `validate` option:
+`input()` is an imperative function — it is not a class decorator. Pass the input name, field array, and optional config:
 
 ```typescript title="schema.ts"
-import { input, validate } from 'fraiseql';
-import { ID, Email } from 'fraiseql/scalars';
+import { input } from 'fraiseql';
 
-@input()
-class CreateUserInput {
-  @validate({ minLength: 3, maxLength: 50, pattern: /^[a-z0-9_]+$/ })
-  username: string;
+const CreateUserInput = input('CreateUserInput', [
+  { name: 'username',    type: 'String',  nullable: false },
+  { name: 'email',       type: 'Email',   nullable: false },
+  { name: 'bio',         type: 'String',  nullable: true  },
+], { description: 'Input for creating a new user' });
 
-  @validate({ message: 'Must be a valid email address' })
-  email: Email;
+const CreatePostInput = input('CreatePostInput', [
+  { name: 'title',       type: 'String',  nullable: false },
+  { name: 'content',     type: 'String',  nullable: false },
+  { name: 'authorId',    type: 'ID',      nullable: false },
+  { name: 'isPublished', type: 'Boolean', nullable: false, default: false },
+], { description: 'Input for creating a new blog post' });
 
-  bio?: string;
-}
-
-@input()
-class CreatePostInput {
-  @validate({ minLength: 1, maxLength: 200 })
-  title: string;
-
-  content: string;
-
-  authorId: ID;
-
-  isPublished: boolean = false;
-}
-
-@input()
-class UpdatePostInput {
-  id: ID;
-  title?: string;
-  content?: string;
-  isPublished?: boolean;
-}
+const UpdatePostInput = input('UpdatePostInput', [
+  { name: 'id',          type: 'ID',      nullable: false },
+  { name: 'title',       type: 'String',  nullable: true  },
+  { name: 'content',     type: 'String',  nullable: true  },
+  { name: 'isPublished', type: 'Boolean', nullable: true  },
+]);
 ```
-
-Validation runs at compile time — invalid input structures cannot be deployed.
 
 ---
 
 ## Defining Queries
 
-Use `@query()` to wire queries to SQL views:
+`@Query()` and `@Mutation()` are **method decorators** — they must be applied to methods on a class, not to standalone function declarations. The imperative `registerQuery()` alternative works without a class:
 
-```typescript title="schema.ts"
-import { query, authenticated } from 'fraiseql';
-import { ID } from 'fraiseql/scalars';
+<Tabs>
+  <TabItem label="Method decorator (class-based)">
+    ```typescript title="schema.ts"
+    import { Query } from 'fraiseql';
 
-// List query — maps to SELECT * FROM v_post WHERE <args>
-@query({ sqlSource: 'v_post' })
-function posts(isPublished?: boolean, authorId?: ID, limit = 20): Post[] {
-  /**
-   * Fetch published posts, optionally filtered by author.
-   * Arguments matching view column names become WHERE clauses automatically.
-   */
-}
+    class Queries {
+      @Query({ sqlSource: 'v_post' })
+      posts(isPublished?: boolean, limit = 20): Post[] {
+        // Body never executed — compile-time schema definition only
+        return [];
+      }
 
-// Single-item query — maps to SELECT * FROM v_post WHERE id = $1
-@query({ sqlSource: 'v_post', idArg: 'id' })
-function post(id: ID): Post | null {
-  /** Fetch a single post by ID. */
-}
+      @Query({ sqlSource: 'v_post' })
+      post(id: string): Post | null {
+        return null;
+      }
+    }
+    ```
+  </TabItem>
+  <TabItem label="Imperative (registerQuery)">
+    ```typescript title="schema.ts"
+    import { registerQuery } from 'fraiseql';
 
-// Query with row filter (for user-scoped data)
-@query({ sqlSource: 'v_post', rowFilter: 'author_id = {currentUserId}' })
-@authenticated
-function myPosts(limit = 20): Post[] {
-  /** Fetch the current user's posts. */
-}
-```
+    registerQuery(
+      'posts',      // GraphQL field name
+      'Post',       // return type
+      true,         // returnsList
+      false,        // nullable
+      [
+        { name: 'isPublished', type: 'Boolean', nullable: true },
+        { name: 'limit',       type: 'Int',     nullable: false, default: 20 },
+        { name: 'offset',      type: 'Int',     nullable: false, default: 0 },
+      ],
+      'Fetch posts, optionally filtered by published status',
+      { sqlSource: 'v_post' }
+    );
 
-### Automatic-WHERE
+    registerQuery(
+      'post',
+      'Post',
+      false,   // single item
+      true,    // nullable — returns null when not found
+      [{ name: 'id', type: 'ID', nullable: false }],
+      'Fetch a single post by ID',
+      { sqlSource: 'v_post' }
+    );
+    ```
+  </TabItem>
+</Tabs>
 
-FraiseQL maps query arguments to SQL `WHERE` clauses automatically. A TypeScript argument named `isPublished` matching the `is_published` column in `v_post` generates:
+### How Arguments Become WHERE Clauses
+
+FraiseQL maps query arguments to SQL `WHERE` clauses automatically. An argument named `isPublished` matching the `is_published` column in `v_post` generates:
 
 ```sql
 SELECT data FROM v_post WHERE is_published = true LIMIT 20;
@@ -206,89 +260,181 @@ No resolver code required.
 
 ## Defining Mutations
 
-Use `@mutation()` to define mutations that execute PostgreSQL functions:
+Use `@Mutation()` on class methods or `registerMutation()` imperatively:
 
-```typescript title="schema.ts"
-import { mutation, authenticated, requiresScope } from 'fraiseql';
-import { ID } from 'fraiseql/scalars';
+<Tabs>
+  <TabItem label="Method decorator (class-based)">
+    ```typescript title="schema.ts"
+    import { Mutation } from 'fraiseql';
 
-@mutation()
-function createUser(input: CreateUserInput): User {
-  /**
-   * Create a new user account.
-   * FraiseQL calls fn_create_user($1::jsonb)
-   */
-}
+    class Mutations {
+      @Mutation({ sqlSource: 'fn_create_user', operation: 'CREATE' })
+      createUser(username: string, email: string): User {
+        // Body never executed — compile-time schema definition only
+        return {} as User;
+      }
 
-@mutation()
-@authenticated
-@requiresScope('write:posts')
-function createPost(input: CreatePostInput): Post {
-  /** Create a new blog post. */
-}
+      @Mutation({ sqlSource: 'fn_create_post', operation: 'CREATE' })
+      createPost(input: string): Post {
+        // input type registered via input()
+        return {} as Post;
+      }
 
-@mutation()
-@authenticated
-@requiresScope('write:posts')
-function publishPost(id: ID): Post {
-  /** Publish a draft post. */
-}
+      @Mutation({ sqlSource: 'fn_delete_post', operation: 'DELETE' })
+      deletePost(id: string): Post {
+        return {} as Post;
+      }
+    }
+    ```
+  </TabItem>
+  <TabItem label="Imperative (registerMutation)">
+    ```typescript title="schema.ts"
+    import { registerMutation } from 'fraiseql';
 
-@mutation()
-@authenticated
-@requiresScope('admin:posts')
-function deletePost(id: ID): boolean {
-  /** Soft-delete a post. */
-}
+    registerMutation(
+      'createUser',
+      'User',
+      false,  // returnsList
+      false,  // nullable
+      [
+        { name: 'username', type: 'String', nullable: false },
+        { name: 'email',    type: 'Email',  nullable: false },
+      ],
+      'Create a new user account',
+      { sqlSource: 'fn_create_user', operation: 'CREATE' }
+    );
+
+    registerMutation(
+      'createPost',
+      'Post',
+      false,
+      false,
+      [{ name: 'input', type: 'CreatePostInput', nullable: false }],
+      'Create a new blog post',
+      { sqlSource: 'fn_create_post', operation: 'CREATE' }
+    );
+    ```
+  </TabItem>
+</Tabs>
+
+### Backing SQL Function Shape
+
+```sql
+-- db/functions/fn_create_post.sql
+CREATE OR REPLACE FUNCTION fn_create_post(
+    p_title     TEXT,
+    p_content   TEXT,
+    p_published BOOLEAN DEFAULT FALSE
+)
+RETURNS mutation_response
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_id UUID;
+BEGIN
+    INSERT INTO tb_post (identifier, title, content, is_published)
+    VALUES (slugify(p_title), p_title, p_content, p_published)
+    RETURNING id INTO v_id;
+
+    RETURN ROW(
+        'success', 'Post created', v_id, 'Post',
+        (SELECT data FROM v_post WHERE id = v_id),
+        NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$;
 ```
 
 ---
 
-## Authorization
+## Subscriptions
+
+Use `@Subscription()` on class methods or `registerSubscription()` imperatively. Subscriptions are compiled projections of database events sourced from LISTEN/NOTIFY — not resolver-based:
 
 ```typescript title="schema.ts"
-import { query, mutation, authenticated, requiresScope } from 'fraiseql';
+import { registerSubscription } from 'fraiseql';
 
-@query({ sqlSource: 'v_post' })
-@authenticated
-function posts(limit = 20): Post[] {
-  /** Requires authentication. */
-}
-
-@mutation()
-@authenticated
-@requiresScope('write:posts')
-function createPost(input: CreatePostInput): Post {
-  /** Requires authentication and write:posts scope. */
-}
+registerSubscription(
+  'orderCreated',
+  'Order',           // entity type
+  false,             // nullable
+  [
+    { name: 'userId', type: 'ID', nullable: true },
+  ],
+  'Subscribe to new orders',
+  { topic: 'order_events', operation: 'CREATE' }
+);
 ```
 
 ---
 
-## Middleware
+## Custom Scalars
+
+Extend `CustomScalar` and use `@Scalar()` to register custom scalar types:
 
 ```typescript title="schema.ts"
-import { middleware } from 'fraiseql';
+import { Scalar, Type, registerTypeFields } from 'fraiseql';
+import { CustomScalar } from 'fraiseql';
 
-middleware((request, next) => {
-  /** Extract user ID and org from verified JWT. */
-  if (request.auth) {
-    request.context.currentUserId = request.auth.claims.sub;
-    request.context.orgId = request.auth.claims.org_id;
-  }
-  return next(request);
-});
+@Scalar()
+class SlackUserId extends CustomScalar {
+  name = 'SlackUserId';
 
-middleware(async (request, next) => {
-  /** Audit all mutations. */
-  const result = await next(request);
-  if (request.operationType === 'mutation') {
-    await auditLog.record({
-      userId: request.context.currentUserId,
-      operation: request.operationName,
-    });
+  serialize(value: unknown): string {
+    return String(value);
   }
-  return result;
+
+  parseValue(value: unknown): string {
+    const s = String(value);
+    if (!s.startsWith('U') || s.length !== 11) {
+      throw new Error(`Invalid Slack user ID: ${s}`);
+    }
+    return s;
+  }
+
+  parseLiteral(ast: unknown): string {
+    if (ast && typeof ast === 'object' && 'value' in ast) {
+      return this.parseValue((ast as { value: unknown }).value);
+    }
+    throw new Error('Invalid Slack user ID literal');
+  }
+}
+
+@Type()
+class SlackIntegration {}
+
+registerTypeFields('SlackIntegration', [
+  { name: 'id',          type: 'ID',          nullable: false },
+  { name: 'slackUserId', type: 'SlackUserId', nullable: false },
+  { name: 'workspace',   type: 'String',      nullable: false },
+]);
+```
+
+---
+
+## Enums and Unions
+
+### Enums
+
+Use `enum_()` (note the trailing underscore — `enum` is a reserved TypeScript keyword):
+
+```typescript
+import { enum_ } from 'fraiseql';
+
+const PostStatus = enum_('PostStatus', {
+  DRAFT:     'draft',
+  PUBLISHED: 'published',
+  ARCHIVED:  'archived',
+}, { description: 'Publication status of a post' });
+```
+
+### Unions
+
+```typescript
+import { union } from 'fraiseql';
+
+const SearchResult = union('SearchResult', ['User', 'Post', 'Comment'], {
+  description: 'Result of a search query',
 });
 ```
 
@@ -296,89 +442,90 @@ middleware(async (request, next) => {
 
 ## Complete Schema Example
 
+A blog API schema using only verified FraiseQL TypeScript APIs:
+
 ```typescript title="schema.ts"
-import { type, input, query, mutation, middleware, authenticated, requiresScope, validate } from 'fraiseql';
-import { ID, Email, Slug, DateTime } from 'fraiseql/scalars';
+import {
+  Type, registerTypeFields,
+  input,
+  registerQuery, registerMutation,
+  exportSchema,
+} from 'fraiseql';
 
 // --- Types ---
 
-@type()
-class User {
-  id: ID;
-  username: string;
-  email: Email;
-  bio: string | null;
-  createdAt: DateTime;
-}
+@Type({ description: 'A registered user' })
+class User {}
+registerTypeFields('User', [
+  { name: 'id',        type: 'ID',       nullable: false },
+  { name: 'username',  type: 'String',   nullable: false },
+  { name: 'email',     type: 'Email',    nullable: false },
+  { name: 'bio',       type: 'String',   nullable: true  },
+  { name: 'createdAt', type: 'DateTime', nullable: false },
+]);
 
-@type()
-class Post {
-  id: ID;
-  title: string;
-  slug: Slug;
-  content: string;
-  isPublished: boolean;
-  createdAt: DateTime;
-  updatedAt: DateTime;
-  author: User;
-  comments: Comment[];
-}
+@Type({ description: 'A blog post' })
+class Post {}
+registerTypeFields('Post', [
+  { name: 'id',          type: 'ID',       nullable: false },
+  { name: 'title',       type: 'String',   nullable: false },
+  { name: 'slug',        type: 'Slug',     nullable: false },
+  { name: 'content',     type: 'String',   nullable: false },
+  { name: 'isPublished', type: 'Boolean',  nullable: false },
+  { name: 'createdAt',   type: 'DateTime', nullable: false },
+  { name: 'author',      type: 'User',     nullable: false },
+]);
 
-@type()
-class Comment {
-  id: ID;
-  content: string;
-  createdAt: DateTime;
-  author: User;
-}
+@Type({ description: 'A comment on a post' })
+class Comment {}
+registerTypeFields('Comment', [
+  { name: 'id',        type: 'ID',       nullable: false },
+  { name: 'content',   type: 'String',   nullable: false },
+  { name: 'createdAt', type: 'DateTime', nullable: false },
+  { name: 'author',    type: 'User',     nullable: false },
+]);
 
 // --- Inputs ---
 
-@input()
-class CreatePostInput {
-  @validate({ minLength: 1, maxLength: 200 })
-  title: string;
+input('CreatePostInput', [
+  { name: 'title',       type: 'String',  nullable: false },
+  { name: 'content',     type: 'String',  nullable: false },
+  { name: 'isPublished', type: 'Boolean', nullable: false, default: false },
+], { description: 'Input for creating a new blog post' });
 
-  content: string;
-  isPublished: boolean = false;
-}
-
-@input()
-class CreateCommentInput {
-  postId: ID;
-
-  @validate({ minLength: 1, maxLength: 10_000 })
-  content: string;
-}
+input('CreateCommentInput', [
+  { name: 'postId',  type: 'ID',     nullable: false },
+  { name: 'content', type: 'String', nullable: false },
+], { description: 'Input for adding a comment to a post' });
 
 // --- Queries ---
 
-@query({ sqlSource: 'v_post' })
-function posts(isPublished?: boolean, limit = 20): Post[] {}
+registerQuery('posts', 'Post', true, false, [
+  { name: 'isPublished', type: 'Boolean', nullable: true },
+  { name: 'limit',       type: 'Int',     nullable: false, default: 20 },
+], 'Fetch posts filtered by published status', { sqlSource: 'v_post' });
 
-@query({ sqlSource: 'v_post', idArg: 'id' })
-function post(id: ID): Post | null {}
+registerQuery('post', 'Post', false, true, [
+  { name: 'id', type: 'ID', nullable: false },
+], 'Fetch a single post by ID', { sqlSource: 'v_post' });
 
 // --- Mutations ---
 
-@mutation()
-@authenticated
-@requiresScope('write:posts')
-function createPost(input: CreatePostInput): Post {}
+registerMutation('createPost', 'Post', false, false, [
+  { name: 'input', type: 'CreatePostInput', nullable: false },
+], 'Create a new blog post', { sqlSource: 'fn_create_post', operation: 'CREATE' });
 
-@mutation()
-@authenticated
-@requiresScope('write:comments')
-function createComment(input: CreateCommentInput): Comment {}
+registerMutation('createComment', 'Comment', false, false, [
+  { name: 'input', type: 'CreateCommentInput', nullable: false },
+], 'Add a comment to a post', { sqlSource: 'fn_create_comment', operation: 'CREATE' });
 
-// --- Middleware ---
+registerMutation('publishPost', 'Post', false, false, [
+  { name: 'id', type: 'ID', nullable: false },
+], 'Publish a draft post', { sqlSource: 'fn_publish_post', operation: 'UPDATE' });
 
-middleware((request, next) => {
-  if (request.auth) {
-    request.context.currentUserId = request.auth.claims.sub;
-  }
-  return next(request);
-});
+// --- Export ---
+
+exportSchema('schema.json');
 ```
 
 ---
@@ -387,7 +534,15 @@ middleware((request, next) => {
 
 <Steps>
 
-1. Build the schema:
+1. Export the schema from your TypeScript definitions:
+
+   ```bash
+   npx tsx schema.ts
+   ```
+
+   This writes `schema.json` containing the compiled type registry.
+
+2. Compile and validate against the database:
 
    ```bash
    fraiseql compile
@@ -396,12 +551,12 @@ middleware((request, next) => {
    Expected output:
 
    ```
-   ✓ Schema compiled: 3 types, 2 queries, 2 mutations
+   ✓ Schema compiled: 3 types, 2 queries, 3 mutations
    ✓ Views validated against database
    ✓ Build complete: schema.json
    ```
 
-2. Serve the API:
+3. Serve the API:
 
    ```bash
    fraiseql run
@@ -417,45 +572,6 @@ middleware((request, next) => {
 
 ---
 
-## Testing
-
-```typescript title="tests/posts.test.ts"
-import { TestClient } from 'fraiseql/testing';
-
-const client = new TestClient({ schemaPath: './schema.ts', databaseUrl: process.env.TEST_DB });
-
-test('creates and fetches a post', async () => {
-  const result = await client.mutate(`
-    mutation {
-      createPost(input: { title: "Hello", content: "World" }) {
-        id
-        title
-        isPublished
-      }
-    }
-  `);
-
-  expect(result.createPost.title).toBe('Hello');
-  expect(result.createPost.isPublished).toBe(false);
-});
-
-test('lists published posts', async () => {
-  const result = await client.query(`
-    query {
-      posts(isPublished: true, limit: 10) {
-        id
-        title
-        author { username }
-      }
-    }
-  `);
-
-  expect(Array.isArray(result.posts)).toBe(true);
-});
-```
-
----
-
 ## Next Steps
 
 <CardGrid>
@@ -466,7 +582,7 @@ test('lists published posts', async () => {
     [Filtering, pagination, and search](/guides/custom-queries)
   </Card>
   <Card title="Security" icon="approve-check-circle">
-    [Authentication, RBAC, and input validation](/features/security)
+    [Authentication and RBAC](/features/security)
   </Card>
   <Card title="Other SDKs" icon="puzzle">
     [Python, Go, Java, Rust, PHP](/sdk/)

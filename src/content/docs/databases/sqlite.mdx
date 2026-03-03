@@ -29,13 +29,11 @@ Like PostgreSQL and MySQL, FraiseQL views expose entities as **single JSON colum
 
 ```sql
 -- Every v_* view returns:
--- 1. Metadata columns (id, tenant_id, organization_id, etc.)
+-- 1. Metadata columns (id, is_current, etc.)
 -- 2. Single JSON column named 'data' containing complete entity
 
 SELECT
   id,
-  tenant_id,
-  organization_id,
   is_current,
   data
 FROM v_user
@@ -44,24 +42,25 @@ WHERE id = ?;
 
 ### Trinity Pattern: TEXT UUID + INTEGER PKs
 
-FraiseQL uses a dual-identifier system (adapted for SQLite):
+FraiseQL requires three identity columns per base table: `pk_{entity}` (internal PK), `id` (public UUID), and `identifier` (human-readable domain key). SQLite adapts the canonical pattern as follows:
 
 ```sql
 CREATE TABLE tb_user (
-  pk_user INTEGER PRIMARY KEY AUTOINCREMENT,  -- Internal, fast FKs
-  id TEXT NOT NULL UNIQUE,                    -- Public, exposed in GraphQL (UUID)
-  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  name TEXT NOT NULL,
+  pk_user    INTEGER PRIMARY KEY AUTOINCREMENT,  -- Internal, fast FKs
+  id         TEXT    NOT NULL UNIQUE,             -- Public, exposed in GraphQL (UUID stored as TEXT)
+  identifier TEXT    NOT NULL UNIQUE,             -- Human-readable key (e.g. email, username, slug)
+  name       TEXT    NOT NULL,
   deleted_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE tb_post (
-  pk_post INTEGER PRIMARY KEY AUTOINCREMENT,
-  id TEXT NOT NULL UNIQUE,
-  fk_user INTEGER NOT NULL REFERENCES tb_user(pk_user) ON DELETE CASCADE,
-  title TEXT NOT NULL,
+  pk_post    INTEGER PRIMARY KEY AUTOINCREMENT,
+  id         TEXT    NOT NULL UNIQUE,
+  identifier TEXT    NOT NULL UNIQUE,             -- Human-readable key (e.g. slug, order number)
+  fk_user    INTEGER NOT NULL REFERENCES tb_user(pk_user) ON DELETE CASCADE,
+  title      TEXT    NOT NULL,
   deleted_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -69,6 +68,12 @@ CREATE TABLE tb_post (
 -- Foreign key enforcement (CRITICAL - default is OFF in SQLite)
 PRAGMA foreign_keys = ON;
 ```
+
+<Aside type="note">
+SQLite uses `INTEGER PRIMARY KEY AUTOINCREMENT` in place of the canonical FraiseQL convention `BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY` (used on PostgreSQL and other databases). They serve the same purpose; the deviation is SQLite-specific.
+
+SQLite also has no built-in UUID generation. Set `id` at the application layer using `str(uuid.uuid4())` before each insert. The `identifier` column holds the domain-meaningful human key (such as email for users, or slug for posts) and must be supplied by the caller.
+</Aside>
 
 <Aside type="caution">
 Foreign keys are disabled by default in SQLite. You must run `PRAGMA foreign_keys = ON;` as the first statement after every connection to enforce referential integrity.
@@ -83,14 +88,11 @@ Views are the **source truth** for read operations:
 CREATE VIEW v_user AS
 SELECT
   u.id,
-  u.organization_id,
-  u.tenant_id,
   u.deleted_at IS NULL AS is_current,
   json_object(
-    'id', u.id,
-    'email', u.email,
-    'name', u.name,
-    'status', COALESCE(u.status, 'active'),
+    'id',         u.id,
+    'identifier', u.identifier,
+    'name',       u.name,
     'created_at', u.created_at,
     'updated_at', u.updated_at
   ) AS data
@@ -105,17 +107,15 @@ WHERE u.deleted_at IS NULL;
 CREATE VIEW v_user_with_posts AS
 SELECT
   u.id,
-  u.organization_id,
-  u.tenant_id,
-  u.is_current,
+  u.deleted_at IS NULL AS is_current,
   json_object(
-    'id', u.id,
-    'email', u.email,
-    'name', u.name,
+    'id',         u.id,
+    'identifier', u.identifier,
+    'name',       u.name,
     'posts', COALESCE(
       (
         SELECT json_group_array(
-          json_object('id', p.id, 'title', p.title, 'status', p.status)
+          json_object('id', p.id, 'identifier', p.identifier, 'title', p.title)
         )
         FROM tb_post p
         WHERE p.fk_user = u.pk_user AND p.deleted_at IS NULL
@@ -123,7 +123,8 @@ SELECT
       json_array()
     )
   ) AS data
-FROM v_user u;
+FROM tb_user u
+WHERE u.deleted_at IS NULL;
 ```
 
 <Aside type="note">
@@ -137,18 +138,15 @@ SQLite is single-writer, so materialized views are mainly useful for caching que
 ```sql
 -- File: 02414_tv_user.sql
 CREATE TABLE IF NOT EXISTS tv_user (
-  id TEXT PRIMARY KEY,
-  organization_id TEXT NOT NULL,
-  tenant_id TEXT NOT NULL,
+  id         TEXT    PRIMARY KEY,
   is_current BOOLEAN DEFAULT 1,
-  data TEXT NOT NULL,  -- JSON stored as TEXT (SQLite has no JSONB type)
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  data       TEXT    NOT NULL,  -- JSON stored as TEXT (SQLite has no JSONB type)
+  updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   last_synced_at TIMESTAMP NULL,
   sync_count INTEGER DEFAULT 0,
-  is_stale BOOLEAN DEFAULT 0
+  is_stale   BOOLEAN DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS idx_tv_user_organization ON tv_user(organization_id);
 CREATE INDEX IF NOT EXISTS idx_tv_user_is_current ON tv_user(is_current);
 ```
 
@@ -159,13 +157,19 @@ CREATE TRIGGER trg_user_after_insert
 AFTER INSERT ON tb_user
 FOR EACH ROW
 BEGIN
-  INSERT OR REPLACE INTO tv_user (id, organization_id, tenant_id, is_current, data)
-  SELECT id, organization_id, tenant_id, is_current, data
+  INSERT OR REPLACE INTO tv_user (id, is_current, data)
+  SELECT id, is_current, data
   FROM v_user WHERE id = NEW.id;
 END;
 ```
 
 ## Mutation Triggers
+
+<Aside type="caution">
+**`@fraiseql.mutation` is not supported on SQLite.** The FraiseQL runtime returns a `FraiseQLError::Unsupported` error if a mutation decorated with `@fraiseql.mutation(sql_source="fn_...")` is attempted on a SQLite connection. SQLite has no stored procedures, so the standard FraiseQL mutation dispatch mechanism does not work.
+
+Use **INSTEAD OF triggers** or **application-level Python** (shown below) as alternatives. For full mutation support via `@fraiseql.mutation`, use PostgreSQL or SQL Server.
+</Aside>
 
 SQLite uses **INSTEAD OF triggers** for mutation logic (no stored procedures):
 
@@ -173,15 +177,15 @@ SQLite uses **INSTEAD OF triggers** for mutation logic (no stored procedures):
 -- File: 03311_create_user.sql
 CREATE TRIGGER trg_user_create
 INSTEAD OF INSERT ON v_user
-WHEN NEW.id IS NOT NULL AND NEW.email IS NOT NULL
+WHEN NEW.id IS NOT NULL AND NEW.identifier IS NOT NULL
 BEGIN
   SELECT CASE
-    WHEN EXISTS(SELECT 1 FROM tb_user WHERE email = NEW.email AND deleted_at IS NULL)
-    THEN RAISE(ABORT, 'conflict:email')
+    WHEN EXISTS(SELECT 1 FROM tb_user WHERE identifier = NEW.identifier AND deleted_at IS NULL)
+    THEN RAISE(ABORT, 'conflict:identifier')
   END;
 
-  INSERT INTO tb_user (id, email, name, status)
-  VALUES (NEW.id, NEW.email, NEW.name, COALESCE(NEW.status, 'active'));
+  INSERT INTO tb_user (id, identifier, name)
+  VALUES (NEW.id, NEW.identifier, NEW.name);
 END;
 ```
 
@@ -190,27 +194,28 @@ END;
 For more complex mutations, handle them in application code rather than triggers:
 
 ```python
-def create_user(db, tenant_id: str, user_id: str, payload: dict) -> dict:
-    if not payload.get('email') or '@' not in payload['email']:
-        return {'status': 'invalid_input', 'message': 'Valid email required', 'entity': None}
+def create_user(db, payload: dict) -> dict:
+    identifier = payload.get('identifier')
+    if not identifier:
+        return {'status': 'failed:validation', 'message': 'identifier is required', 'entity': None}
 
     existing = db.execute(
-        'SELECT id FROM tb_user WHERE email = ? AND deleted_at IS NULL',
-        (payload['email'],)
+        'SELECT id FROM tb_user WHERE identifier = ? AND deleted_at IS NULL',
+        (identifier,)
     ).fetchone()
 
     if existing:
-        return {'status': 'conflict:email', 'message': 'Email already in use', 'entity': None}
+        return {'status': 'conflict:duplicate_identifier', 'message': 'Identifier already in use', 'entity': None}
 
     new_id = str(uuid.uuid4())
     db.execute(
-        'INSERT INTO tb_user (id, email, name, status) VALUES (?, ?, ?, ?)',
-        (new_id, payload['email'], payload.get('name'), 'active')
+        'INSERT INTO tb_user (id, identifier, name) VALUES (?, ?, ?)',
+        (new_id, identifier, payload.get('name'))
     )
     db.commit()
 
     result = db.execute('SELECT data FROM v_user WHERE id = ?', (new_id,)).fetchone()
-    return {'status': 'success:created', 'message': 'User created', 'entity': json.loads(result[0])}
+    return {'status': 'success', 'message': 'User created', 'entity': json.loads(result[0])}
 ```
 
 ## Configuration: Essential Pragmas
@@ -249,13 +254,13 @@ def test_db():
 
 def test_create_user(test_db):
     test_db.execute(
-        'INSERT INTO tb_user (id, email, name) VALUES (?, ?, ?)',
+        'INSERT INTO tb_user (id, identifier, name) VALUES (?, ?, ?)',
         ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User')
     )
     test_db.commit()
 
     result = test_db.execute(
-        'SELECT data FROM v_user WHERE email = ?', ('test@example.com',)
+        'SELECT data FROM v_user WHERE identifier = ?', ('test@example.com',)
     ).fetchone()
     assert result is not None
 ```
@@ -286,7 +291,7 @@ PRAGMA foreign_keys = ON;
 SELECT COALESCE(
   json_group_array(id),
   json_array()
-) FROM tb_post WHERE user_id = 999;
+) FROM tb_post WHERE fk_user = 999;
 ```
 
 ### JSON Functions Not Available

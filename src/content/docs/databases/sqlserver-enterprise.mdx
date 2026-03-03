@@ -8,10 +8,16 @@ import { Tabs, TabItem, Aside, Steps, CardGrid, Card } from '@astrojs/starlight/
 Most GraphQL frameworks were designed for PostgreSQL-first teams. FraiseQL is different —
 SQL Server is a first-class runtime target, not an afterthought. If your organization already
 runs SQL Server for compliance, licensing, or organizational standards, FraiseQL compiles your
-schema to T-SQL and runs natively without requiring a database migration.
+schema definitions into a runtime configuration and executes against your existing T-SQL views
+and stored procedures — no database migration required.
+
+For teams with existing T-SQL expertise, this is not a compromise. SSMS debugging, Service
+Broker async messaging, temporal tables, and decades of stored-procedure tooling all carry over
+directly into FraiseQL's SQL-as-business-logic architecture.
 
 This guide covers enterprise-specific patterns: Azure AD authentication, Always On high
-availability, Transparent Data Encryption, Row-Level Security, and compliance frameworks.
+availability, Transparent Data Encryption, Row-Level Security, and compliance frameworks. For
+schema patterns and T-SQL business logic examples, see the [SQL Server Guide](/databases/sqlserver).
 
 ## Connection and Authentication
 
@@ -22,7 +28,7 @@ For on-premises SQL Server with Active Directory:
 ```toml
 # fraiseql.toml
 [database]
-url = "server=SQLSERVER01;database=fraiseql_db;integratedSecurity=true;trustServerCertificate=true"
+url = "mssql://SQLSERVER01/fraiseql_db?integratedSecurity=true&trustServerCertificate=true"
 ```
 
 Use a dedicated service account rather than a developer's AD account for production:
@@ -50,8 +56,15 @@ For Azure deployments, Managed Identity eliminates stored credentials entirely:
 ```toml
 # fraiseql.toml
 [database]
-url = "server=fraiseql-sql.database.windows.net;database=fraiseql_db;Authentication=ActiveDirectoryMsi"
+url = "mssql://fraiseql-sql.database.windows.net/fraiseql_db"
+# Azure Managed Identity authentication is enabled automatically when no username/password
+# is present and the compute resource has a system-assigned managed identity configured.
+# The FraiseQL SQL Server adapter (tiberius) handles token acquisition from the Azure IMDS endpoint.
 ```
+
+<Aside type="note">
+The `ActiveDirectoryMsi` authentication keyword is an ADO.NET (.NET driver) convention. The FraiseQL SQL Server adapter uses the `tiberius` Rust crate, which acquires Azure AD tokens differently — by detecting the absence of credentials and using the managed identity token endpoint. Provide only the server and database in the URL; do not include `Authentication=ActiveDirectoryMsi` as a URL parameter.
+</Aside>
 
 Setup:
 
@@ -96,7 +109,10 @@ For automated deployments or environments where Managed Identity is not availabl
 
 ```toml
 [database]
-url = "server=<server>.database.windows.net;database=<db>;Authentication=ActiveDirectoryServicePrincipal;User Id=<app-id>@<tenant-id>;Password=<client-secret>"
+url = "mssql://<app-id>%40<tenant-id>:<client-secret>@<server>.database.windows.net/<db>"
+# Note: Service Principal credentials should be supplied via environment variables,
+# not hardcoded in fraiseql.toml. Use:
+# url = "mssql://${SP_APP_ID}%40${SP_TENANT_ID}:${SP_SECRET}@<server>.database.windows.net/<db>"
 ```
 
 Store the client secret in Azure Key Vault and reference it via an environment variable.
@@ -113,7 +129,7 @@ routing to the primary for writes and can route to a secondary for read-only que
 # fraiseql.toml
 [database]
 # Primary — used for mutations
-url = "server=fraiseql-ag-listener.corp.local,1433;database=fraiseql_db;ApplicationIntent=ReadWrite;MultiSubnetFailover=True"
+url = "mssql://user:password@fraiseql-ag-listener.corp.local:1433/fraiseql_db?MultiSubnetFailover=true"
 ```
 
 <Aside type="note">
@@ -158,16 +174,16 @@ CREATE SECURITY POLICY dbo.UserDataPolicy
 WITH (STATE = ON);
 ```
 
-FraiseQL sets `SESSION_CONTEXT` automatically when you declare `inject` on a query:
+FraiseQL sets `SESSION_CONTEXT` automatically when you declare `inject` on a query. The `inject` parameter maps JWT claim names to SQL Server session context keys, which the runtime sets via `EXEC sp_set_session_context` before executing the query:
 
 ```python
 # schema.py
-@fraiseql.query
+@fraiseql.query(
+    sql_source="v_documents",
+    inject={"user_id": "jwt:sub"},  # inject JWT 'sub' claim as SESSION_CONTEXT 'user_id'
+)
 def documents(limit: int = 20) -> list[Document]:
-    return fraiseql.config(
-        sql_source="v_documents",
-        inject={"user_id": "sub"},  # inject JWT 'sub' claim as SESSION_CONTEXT 'user_id'
-    )
+    pass
 ```
 
 This provides **defense in depth**: FraiseQL filters at the application layer; SQL Server RLS

@@ -457,9 +457,9 @@ Join through the association table:
     ```sql
     -- Association table
     CREATE TABLE tb_post_tag (
-        pk_post_tag INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post),
-        fk_tag INTEGER NOT NULL REFERENCES tb_tag(pk_tag),
+        pk_post_tag BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        fk_post BIGINT NOT NULL REFERENCES tb_post(pk_post),
+        fk_tag BIGINT NOT NULL REFERENCES tb_tag(pk_tag),
         UNIQUE(fk_post, fk_tag)
     );
 
@@ -519,8 +519,8 @@ Join through the association table:
     -- Association table
     CREATE TABLE tb_post_tag (
         pk_post_tag INTEGER PRIMARY KEY AUTOINCREMENT,
-        fk_post INTEGER NOT NULL REFERENCES tb_post(pk_post),
-        fk_tag INTEGER NOT NULL REFERENCES tb_tag(pk_tag),
+        fk_post BIGINT NOT NULL REFERENCES tb_post(pk_post),
+        fk_tag BIGINT NOT NULL REFERENCES tb_tag(pk_tag),
         UNIQUE(fk_post, fk_tag)
     );
 

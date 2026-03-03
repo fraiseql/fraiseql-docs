@@ -25,8 +25,8 @@ $ fraiseql run
 INFO  FraiseQL 2.x starting…
 INFO  Schema compiled — 12 types, 8 queries, 4 mutations
 INFO  Connected to PostgreSQL at localhost:5432/mydb
-INFO  GraphQL endpoint: http://localhost:8000/graphql
-INFO  GraphiQL playground: http://localhost:8000/graphiql
+INFO  GraphQL endpoint: http://localhost:8080/graphql
+INFO  GraphiQL playground: http://localhost:8080/graphiql
 ```
 
 ## Start from a Template
@@ -443,29 +443,27 @@ def get_posts() -> list[Post]:
 
 ### Pagination
 
-Standard cursor-based pagination:
+Standard cursor-based pagination using relay:
 
 ```python
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query(sql_source="v_post", relay=True)
 def get_posts(
     first: int = 10,
     after: str | None = None
-) -> Connection[Post]:
-    """Paginate through posts."""
+) -> list[Post]:
+    """Paginate through posts (relay connection returned automatically)."""
     pass
 ```
 
 ### Error Handling
 
-Consistent error handling across all examples:
+Validation and error handling live in the SQL function, not in the Python decorator body. The Python layer is compile-time only:
 
 ```python
-@fraiseql.mutation
+@fraiseql.mutation(sql_source="fn_create_post", operation="CREATE")
 def create_post(title: str) -> Post:
-    """Create post with validation."""
-    if not title:
-        raise ValueError("Title is required")
-    # ...
+    """Create post. fn_create_post validates title and returns an error status on failure."""
+    pass
 ```
 
 ### Testing

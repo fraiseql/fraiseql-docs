@@ -47,7 +47,7 @@ query {
 FraiseQL supports **49 semantic scalar types** organized into 9 categories:
 
 ### Contact Information (5 types)
-`EmailAddress` · `PhoneNumber` · `URL` · `DomainName` · `Hostname`
+`Email` · `PhoneNumber` · `URL` · `DomainName` · `Hostname`
 
 ### Financial (11 types)
 `IBAN` · `CUSIP` · `ISIN` · `SEDOL` · `LEI` · `MIC` · `CurrencyCode` · `Money` · `ExchangeCode` · `ExchangeRate` · `StockSymbol`
@@ -185,7 +185,7 @@ Works across all databases with database-specific optimizations:
     ```sql
     SELECT data FROM v_restaurant
     WHERE ST_DWithin(
-        ST_Point(json_extract(data, '$.location.longitude'), json_extract(data, '$.location.latitude'))::geography,
+        ST_Point((data->'location'->>'longitude')::float, (data->'location'->>'latitude')::float)::geography,
         ST_Point(-74.0060, 40.7128)::geography,
         5000  -- 5km in meters
     )
@@ -284,7 +284,7 @@ query {
 
 | Type | PostgreSQL | MySQL | SQLite | SQL Server |
 |------|-----------|-------|--------|-----------|
-| EmailAddress | ✅ Native | ✅ Native | ✅ Native | ✅ Native |
+| Email | ✅ Native | ✅ Native | ✅ Native | ✅ Native |
 | PhoneNumber | ✅ Regex | ✅ REGEXP | ✅ GLOB | ✅ LIKE |
 | Coordinates | ✅ PostGIS | ✅ ST_Distance | ⚠️ Approx | ✅ Geography |
 | DateRange | ✅ Intervals | ✅ DATEDIFF | ✅ julianday | ✅ DATEDIFF |
@@ -294,12 +294,12 @@ query {
 
 Geographic queries on PostgreSQL require the PostGIS extension:
 
-```bash
-# Enable PostGIS
+```sql
+-- Enable PostGIS
 CREATE EXTENSION IF NOT EXISTS postgis;
 
-# Create spatial index for performance
-CREATE INDEX locations_idx ON users USING GIST (location);
+-- Create spatial index for performance
+CREATE INDEX idx_tv_restaurant_location ON tv_restaurant USING GIST ((data->'location'));
 ```
 
 ## How Rich Filters Work
@@ -311,14 +311,14 @@ When you compile your schema with `fraiseql compile`:
 ```python
 @fraiseql.type
 class User:
-    email: EmailAddress
+    email: Email
     location: Coordinates
 ```
 
 FraiseQL automatically generates:
 
 ```graphql
-input EmailAddressWhereInput {
+input EmailWhereInput {
   eq: String
   neq: String
   contains: String
@@ -380,22 +380,7 @@ This ensures:
 
 ## Validation with Rich Filters
 
-Rich filters integrate with FraiseQL's validation system to pre-validate parameters before SQL execution:
-
-```toml
-# fraiseql.toml
-[fraiseql.validation]
-# Email domain must be valid format
-email_domain_eq = { pattern = "^[a-z0-9]([a-z0-9-]*\\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$" }
-
-# IBAN must pass MOD-97 checksum
-iban_country_eq = { checksum = "mod97" }
-
-# Distance must be reasonable
-distance_within_radius_km = { numeric_range = { min: 0, max: 40075 } }
-```
-
-See [TOML Configuration - Validation](/reference/toml-config#fraiseqlvalidation) for complete validation documentation.
+Rich filters pre-validate parameters before SQL execution. Validation rules for each operator are compiled into the Rust runtime — for example, `domainEq` validates that the value is a well-formed domain name, `ibanCountryEq` validates the MOD-97 checksum, and `distanceWithin` enforces that `radiusKm` is a positive number. These rules are not user-configurable via TOML.
 
 ## Performance Considerations
 
@@ -436,6 +421,6 @@ WHERE ST_DWithin(location::geography, ST_Point(...)::geography, 5000)
 ## Next Steps
 
 - **[Semantic Scalars Reference](/reference/semantic-scalars)** — Detailed docs for all 49 types and their operators
-- **[TOML Configuration](/reference/toml-config)** — Configure validation rules for rich filter parameters
+- **[TOML Configuration](/reference/toml-config)** — Full configuration reference
 - **[Query Operators](/reference/operators)** — All standard operators reference
 - **[Automatic Where](/features/automatic-where)** — Learn about automatic filter generation

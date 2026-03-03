@@ -27,7 +27,7 @@ async def main() -> None:
     # Introspect schema and generate tools
     toolkit = await FraiseQLToolkit.from_url(
         "http://localhost:8080/graphql",
-        auth_token="Bearer eyJ..."
+        auth_token="eyJ..."
     )
     tools = toolkit.get_tools(
         exclude=["adminUsers"]   # hide admin operations from the agent

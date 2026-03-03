@@ -1,11 +1,11 @@
 ---
 title: Semantic Scalars
-description: Complete reference for all 49 semantic scalar types in FraiseQL
+description: Complete reference for semantic scalar types in FraiseQL
 ---
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
-Semantic scalar types extend basic scalars (`String`, `Int`, `Boolean`) with domain-specific operators and automatic validation. This reference documents all 49 available types, their operators, and validation rules.
+Semantic scalar types extend basic scalars (`String`, `Int`, `Boolean`) with domain-specific operators and automatic validation. This reference documents the available types, their operators, and validation rules.
 
 ## What Are Semantic Scalars?
 
@@ -29,56 +29,56 @@ FraiseQL's semantic ID types integrate with [Relay specification](/features/pagi
 
 | Type | Category | Use Case | Key Operators |
 |------|----------|----------|---|
-| EmailAddress | Contact | User emails | domainEq, domainIn, domainEndswith |
-| PhoneNumber | Contact | Phone numbers | countryCodeEq, typeEq |
-| URL | Contact | Web URLs | protocolEq, domainEq |
-| DomainName | Contact | Domain names | suffixEq, level |
-| Hostname | Contact | Server hostnames | suffixEq |
-| IBAN | Financial | Bank accounts | countryEq, checksum |
-| CUSIP | Financial | US securities | issuerEq |
-| ISIN | Financial | Int'l securities | countryEq, typeEq |
-| SEDOL | Financial | UK securities | issuerEq |
-| LEI | Financial | Legal entities | countryEq |
-| MIC | Financial | Exchanges | typeEq |
-| CurrencyCode | Financial | ISO currencies | symbolEq, decimalPlacesEq |
-| Money | Financial | Amounts | currencyEq, amountRange |
-| ExchangeCode | Financial | Stock symbols | typeEq |
-| ExchangeRate | Financial | Currency rates | baseCurrencyEq |
-| StockSymbol | Financial | Ticker symbols | exchangeEq |
-| PostalCode | Location | Zip codes | countryEq, formatEq |
-| Latitude | Location | Latitude coord | rangeEq, hemisphereEq |
-| Longitude | Location | Longitude coord | rangeEq |
-| Coordinates | Location | Lat/lng pairs | distanceWithin, withinBoundingBox |
-| Timezone | Location | IANA timezones | offsetEq, dstAwareEq |
-| LocaleCode | Location | BCP47 locales | languageEq, regionEq |
-| LanguageCode | Location | ISO639 codes | scriptEq |
-| CountryCode | Location | ISO3166 codes | continentEq, inEUEq |
-| Slug | Identifier | URL slugs | formatEq |
-| SemanticVersion | Identifier | SemVer (v1.2.3) | majorEq, minorEq |
-| HashSHA256 | Identifier | SHA256 hashes | formatEq |
-| APIKey | Identifier | API credentials | prefixEq, lengthEq |
-| LicensePlate | Identifier | Vehicle plates | countryEq, typeEq |
-| VIN | Identifier | Vehicle numbers | wmiEq, yearEq |
-| TrackingNumber | Identifier | Shipment tracking | carrierEq, typeEq |
-| ContainerNumber | Identifier | Container IDs | ownersCodeEq |
-| IPAddress | Network | IPv4/IPv6 | versionEq, cidrContains |
-| IPv4 | Network | IPv4 only | classEq, cidrContains |
-| IPv6 | Network | IPv6 only | scopeEq, cidrContains |
-| MACAddress | Network | MAC addresses | manufacturerEq |
-| CIDR | Network | IP ranges | containsAddress, overlaps |
-| Port | Network | Port numbers | serviceEq, isReservedEq |
-| AirportCode | Transportation | Airport codes | countryEq, typeEq |
-| PortCode | Transportation | Port codes | countryEq |
-| FlightNumber | Transportation | Flight numbers | carrierEq, routeEq |
-| Markdown | Content | Markdown text | headingCountEq, linkCountEq |
-| HTML | Content | HTML markup | tagEq, validEq |
-| MimeType | Content | Content types | typeEq, subtypeEq |
-| Color | Content | Hex colors | formatEq, brightnessEq |
-| Image | Content | Image files | formatEq, sizeEq |
-| File | Content | Attachments | mimetypeEq, sizeRange |
-| DateRange | Ranges | Date intervals | durationGte, overlaps |
-| Duration | Ranges | ISO8601 durations | unitEq, amountRange |
-| Percentage | Ranges | 0-100 values | rangeEq |
+| Email | Contact | User emails | domainEq, domainIn, domainEndswith, localPartStartswith |
+| PhoneNumber | Contact | Phone numbers | countryCodeEq, countryCodeIn, isValid, typeEq |
+| URL | Contact | Web URLs | protocolEq, hostEq, pathStartswith |
+| DomainName | Contact | Domain names | tldEq, tldIn |
+| Hostname | Contact | Server hostnames | — |
+| IBAN | Financial | Bank accounts | countryEq, checkDigitEq |
+| CUSIP | Financial | US securities | — |
+| ISIN | Financial | Int'l securities | — |
+| SEDOL | Financial | UK securities | — |
+| LEI | Financial | Legal entities | — |
+| MIC | Financial | Exchanges | countryEq |
+| CurrencyCode | Financial | ISO currencies | — |
+| Money | Financial | Amounts | — |
+| ExchangeCode | Financial | Stock symbols | — |
+| ExchangeRate | Financial | Currency rates | withinRange |
+| StockSymbol | Financial | Ticker symbols | eq |
+| PostalCode | Location | Zip codes | — |
+| Latitude | Location | Latitude coord | — |
+| Longitude | Location | Longitude coord | — |
+| Coordinates | Location | Lat/lng pairs | distanceWithin |
+| Timezone | Location | IANA timezones | — |
+| LocaleCode | Location | BCP47 locales | — |
+| LanguageCode | Location | ISO639 codes | — |
+| CountryCode | Location | ISO3166 codes | eq |
+| Slug | Identifier | URL slugs | — |
+| SemanticVersion | Identifier | SemVer (v1.2.3) | eq |
+| HashSHA256 | Identifier | SHA256 hashes | — |
+| APIKey | Identifier | API credentials | — |
+| LicensePlate | Identifier | Vehicle plates | — |
+| VIN | Identifier | Vehicle numbers | wmiEq |
+| TrackingNumber | Identifier | Shipment tracking | carrierEq |
+| ContainerNumber | Identifier | Container IDs | ownerCodeEq |
+| IPAddress | Network | IPv4/IPv6 | versionEq |
+| IPv4 | Network | IPv4 only | — |
+| IPv6 | Network | IPv6 only | — |
+| MACAddress | Network | MAC addresses | — |
+| CIDR | Network | IP ranges | containsAddress |
+| Port | Network | Port numbers | — |
+| AirportCode | Transportation | Airport codes | — |
+| PortCode | Transportation | Port codes | — |
+| FlightNumber | Transportation | Flight numbers | — |
+| Markdown | Content | Markdown text | — |
+| HTML | Content | HTML markup | — |
+| MimeType | Content | Content types | formatEq |
+| Color | Content | Hex colors | formatEq |
+| Image | Content | Image files | formatEq |
+| File | Content | Attachments | — |
+| DateRange | Ranges | Date intervals | overlaps |
+| Duration | Ranges | ISO8601 durations | withinRange |
+| Percentage | Ranges | 0-100 values | — |
 
 ## Type Categories
 
@@ -107,10 +107,11 @@ input EmailAddressFilter {
 **Python Decorator**:
 ```python
 import fraiseql
+from fraiseql.scalars import Email
 
 @fraiseql.type
 class User:
-    email: fraiseql.EmailAddress
+    email: Email
 ```
 
 **Operators**:
@@ -465,9 +466,7 @@ Latitude/longitude pairs for geospatial queries.
 
 **Operators**:
 - `eq` — Exact location
-- `distanceWithin` — Distance from point in kilometers
-- `withinBoundingBox` — Rectangular region
-- `withinPolygon` — Custom polygon (PostgreSQL only)
+- `distanceWithin` — Distance from point in kilometers (uses PostGIS `ST_DWithin`)
 
 **Validation**:
 - Valid latitude (-90 to +90)
@@ -494,9 +493,6 @@ query {
 
 **Database Support**:
 - PostgreSQL: Native PostGIS `ST_DWithin`
-- MySQL: `ST_Distance`
-- SQLite: Haversine approximation
-- SQL Server: Geography type
 
 ---
 
@@ -554,13 +550,10 @@ ISO 639 language codes (en, fr, de, etc.).
 
 #### CountryCode
 
-ISO 3166-1 alpha-2 country codes (US, UK, FR, etc.).
+ISO 3166-1 alpha-2 country codes (US, GB, FR, etc.).
 
 **Operators**:
-- `eq` — Exact code
-- `continentEq` — Continental location
-- `inEUEq` — EU membership
-- `inUNEq` — UN membership
+- `eq` — Exact country code match
 
 **Validation**:
 - Must be 2-letter ISO code
@@ -569,7 +562,7 @@ ISO 3166-1 alpha-2 country codes (US, UK, FR, etc.).
 **Example Query**:
 ```graphql
 query {
-  users(where: { country: { continentEq: "EU" } }) {
+  users(where: { country: { eq: "US" } }) {
     id
     name
     country
@@ -612,9 +605,6 @@ Semantic versioning (v1.2.3, 1.2.3-alpha, etc.).
 
 **Operators**:
 - `eq` — Exact version
-- `majorEq` — Major version match (1.x.x)
-- `minorEq` — Minor version match (1.2.x)
-- `isPrerelease` — Pre-release versions
 
 **Validation**:
 - Format: X.Y.Z or X.Y.Z-prerelease+build
@@ -711,8 +701,7 @@ ISO 6346 shipping container numbers.
 
 **Operators**:
 - `eq` — Exact container ID
-- `ownersCodeEq` — Owner company code
-- `checksumValid` — Check digit validation
+- `ownerCodeEq` — Owner company code
 
 **Validation**:
 - Format: 11 alphanumeric characters
@@ -846,7 +835,7 @@ IATA airport codes.
 
 #### PortCode
 
-ISO 4217 port codes.
+UN/LOCODE port codes (5-character code).
 
 **Operators**:
 - `eq` — Exact code
@@ -936,7 +925,6 @@ Hex color codes (#RRGGBB or #RGB).
 **Operators**:
 - `eq` — Exact color
 - `formatEq` — Format (hex, rgb, hsl)
-- `brightnessEq` — Brightness level
 
 **Validation**:
 - Valid hex color format
@@ -950,12 +938,9 @@ Image file content with metadata.
 **Operators**:
 - `eq` — Exact image
 - `formatEq` — Image format (JPEG, PNG, WebP)
-- `sizeEq` — Dimensions (width×height)
-- `sizeRange` — File size in bytes
 
 **Validation**:
 - Valid image format
-- Size constraints
 
 ---
 
@@ -982,10 +967,6 @@ Date intervals with start and end dates.
 
 **Operators**:
 - `eq` — Exact range
-- `durationGte` — Minimum duration in days
-- `durationLte` — Maximum duration in days
-- `startsAfter` — Range starts after date
-- `endsBefore` — Range ends before date
 - `overlaps` — Overlaps with date range
 
 **Validation**:
@@ -997,7 +978,6 @@ Date intervals with start and end dates.
 query {
   projects(where: {
     timeline: {
-      durationGte: 90
       overlaps: {
         start: "2024-06-01T00:00:00Z"
         end: "2024-08-31T23:59:59Z"
@@ -1018,8 +998,7 @@ ISO 8601 durations (e.g., "P1Y2M3DT4H5M6S").
 
 **Operators**:
 - `eq` — Exact duration
-- `unitEq` — Unit (days, hours, minutes)
-- `amountRange` — Duration amount range
+- `withinRange` — Duration within a range
 
 **Validation**:
 - Valid ISO 8601 format
@@ -1063,7 +1042,7 @@ query {
   users(where: {
     email: { domainEq: "example.com" }
     location: { distanceWithin: { latitude: 40.7, longitude: -74.0, radiusKm: 5 } }
-    country: { inEUEq: true }
+    country: { eq: "US" }
   }) {
     id
     email
@@ -1081,13 +1060,13 @@ Validation rules for semantic scalars are configured in TOML:
 # fraiseql.toml
 [fraiseql.validation]
 # Email domain must be valid
-email_domain_eq = { pattern = "^[a-z0-9]([a-z0-9-]*\\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$" }
+email_domain_eq = { pattern = { pattern = "^[a-z0-9]([a-z0-9-]*\\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$" } }
 
-# Distance must be positive
-distance_within_radius_km = { numeric_range = { min: 0, max: 40075 } }
+# Distance must be within valid range
+distance_within_radius_km = { range = { min = 0, max = 40075 } }
 
 # Country code must be valid ISO 3166-1
-country_eq = { enum = ["US", "CA", "UK", "FR", "DE", ...] }
+country_eq = { enum = { values = ["US", "CA", "GB", "FR", "DE"] } }
 ```
 
 See [TOML Configuration - Validation](/reference/toml-config#fraiseqlvalidation) for complete validation documentation.

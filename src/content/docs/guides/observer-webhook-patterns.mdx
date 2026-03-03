@@ -1,618 +1,358 @@
 ---
-title: Observer-Webhook Integration Patterns
-description: Advanced patterns for combining observers and webhooks
+title: Observer and Webhook Patterns
+description: Event-driven architecture with FraiseQL observers and outbound webhooks
 ---
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
-Observers and webhooks are powerful independently, but when combined they create sophisticated event-driven architectures. This guide shows production patterns for integrating these features.
+FraiseQL supports event-driven architectures through its observer system. When a mutation succeeds, the Rust runtime can publish events to a message bus (NATS, Redis, or PostgreSQL LISTEN/NOTIFY). From there, other services can subscribe to those events and deliver outbound webhooks. This guide explains the mental model and how to configure it correctly.
 
-## Overview: When to Use Each
+## The Mental Model
 
-**Observers** react to database mutations:
-- Watch specific entity changes (INSERT, UPDATE, DELETE)
-- Define conditions (field-level, value-based)
-- Trigger actions synchronously or async
+FraiseQL's observer system is **infrastructure-level**, not Python-level:
 
-**Webhooks** send external notifications:
-- HTTP POST to external services
-- Signed payloads for security
-- Automatic retries with exponential backoff
-
-**Together** they enable:
-- Event-driven workflows
-- Multi-service coordination
-- Audit trails and compliance
-- Real-time synchronization
-
-## Basic Observer-Webhook Pattern
-
-### Simple Order Notification
-
-```python
-from fraiseql import type, observer, webhook
-
-@type
-class Order:
-    id: ID
-    customer_email: str
-    total: float
-    status: str
-
-@observer(
-    entity="Order",
-    event="INSERT",
-    actions=[
-        webhook(
-            url="https://api.example.com/notifications",
-            method="POST",
-            headers={"Authorization": "Bearer ${WEBHOOK_API_KEY}"},
-            body={
-                "event": "order.created",
-                "order_id": "{{ id }}",
-                "customer_email": "{{ customer_email }}",
-                "total": "{{ total }}",
-                "timestamp": "{{ _timestamp }}"
-            }
-        )
-    ]
-)
-def on_order_created():
-    """Notify external service when order is created."""
-    pass
+```
+Client GraphQL mutation
+        ↓
+Rust runtime executes SQL (fn_create_order → mutation_response)
+        ↓
+Rust runtime publishes event to message bus
+        ↓
+Subscribers (other services, webhook delivery agents) react
 ```
 
-**Execution flow:**
-1. User creates order via GraphQL mutation
-2. Order inserted into database
-3. Observer triggers
-4. Webhook payload built with order data
-5. HMAC signature added
-6. POST sent to external service
-7. Response logged
+**There is no Python code involved at runtime.** The Python SDK is compile-time only — it generates `schema.json` which is compiled to `schema.compiled.json` and handed to the Rust runtime. The Rust runtime manages all event delivery.
 
-## Advanced Patterns
+<Aside type="note">
+There is no `@observer` decorator, no `webhook()` function, and no `fraiseql.observer` or `fraiseql.webhooks` Python module. Any code you write for event handling lives in your subscriber services, not in your FraiseQL schema definition.
+</Aside>
 
-### Pattern 1: Conditional Webhooks
+## Configuring the Observer Backend
 
-Only trigger webhooks for specific conditions:
+Observer configuration lives in `fraiseql.toml`. The `[observers]` section tells the Rust runtime which message bus to use for publishing mutation events.
 
-```python
-@observer(
-    entity="Order",
-    event="UPDATE",
-    condition="status.changed() && status == 'shipped'",
-    actions=[
-        webhook(
-            url="https://shipping.example.com/tracking",
-            body={
-                "order_id": "{{ id }}",
-                "tracking_number": "{{ tracking_number }}",
-                "customer_email": "{{ customer_email }}"
-            }
-        )
-    ]
-)
-def notify_shipping_update():
-    """Only notify when status changes to 'shipped'."""
-    pass
-```
-
-**Condition types:**
-- `field.changed()` — Any change to field
-- `field.old == value && field.new == other` — Specific state transition
-- `total > 1000` — Business logic
-- Complex: `(status == 'shipped' && total > 500) || is_priority`
-
-### Pattern 2: Webhook Chaining
-
-Multiple webhooks triggered in sequence:
-
-```python
-@observer(
-    entity="Payment",
-    event="INSERT",
-    condition="status == 'approved'",
-    actions=[
-        webhook(
-            url="https://inventory.example.com/reserve",
-            body={"order_id": "{{ order_id }}", "items": "{{ items }}"}
-        ),
-        webhook(
-            url="https://shipping.example.com/create-label",
-            body={"order_id": "{{ order_id }}", "address": "{{ shipping_address }}"}
-        ),
-        webhook(
-            url="https://analytics.example.com/track",
-            body={"event": "payment_approved", "amount": "{{ amount }}"}
-        )
-    ]
-)
-def process_payment():
-    """Execute multiple webhooks in order."""
-    pass
-```
-
-**Execution:**
-```
-Payment approved
-    ↓ (webhook 1)
-Inventory reserved
-    ↓ (webhook 2)
-Shipping label created
-    ↓ (webhook 3)
-Analytics event tracked
-```
-
-If webhook 2 fails, retries happen (webhook 3 may wait or execute in parallel).
-
-### Pattern 3: Fan-Out Pattern
-
-One observer triggers different webhooks based on data:
-
-```python
-@observer(
-    entity="User",
-    event="INSERT",
-    actions=[
-        webhook(
-            url="https://crm.example.com/contacts",
-            condition="country == 'US'",
-            body={"email": "{{ email }}", "country": "{{ country }}"}
-        ),
-        webhook(
-            url="https://gdpr.example.com/register",
-            condition="country IN ('DE', 'FR', 'UK')",
-            body={"email": "{{ email }}", "country": "{{ country }}", "gdpr_required": True}
-        ),
-        webhook(
-            url="https://analytics.example.com/signup",
-            body={"user_id": "{{ id }}", "signup_date": "{{ created_at }}"}
-        )
-    ]
-)
-def fan_out_user_registration():
-    """Route webhooks based on user attributes."""
-    pass
-```
-
-### Pattern 4: Aggregation Pattern
-
-Batch multiple events before sending webhook:
-
-```python
-@observer(
-    entity="Order",
-    event="INSERT",
-    condition="true",
-    actions=[
-        webhook(
-            url="https://analytics.example.com/batch",
-            batch={
-                "size": 10,
-                "timeout": "5s"
-            },
-            body={
-                "orders": [
-                    {"id": "{{ id }}", "total": "{{ total }}"}
-                ],
-                "batch_timestamp": "{{ _timestamp }}"
-            }
-        )
-    ]
-)
-def batch_order_analytics():
-    """Aggregate 10 orders or wait 5s before sending."""
-    pass
-```
-
-**Benefits:**
-- Reduces webhook calls by 90%
-- Improves analytics ingestion efficiency
-- Lowers HTTP overhead
-
-## Retry Strategies
-
-### Default Retry Behavior
+### NATS (Recommended for High Throughput)
 
 ```toml
-[webhooks.retry]
-max_attempts = 3
-backoff = "exponential"
-initial_delay = "100ms"
-max_delay = "5s"
-```
-
-Timeline:
-```
-Attempt 1: 0ms      (immediate)
-Attempt 2: 100ms    (100ms delay)
-Attempt 3: 500ms    (exponential: 100ms * 2.5)
-If all fail → Dead Letter Queue
-```
-
-### Custom Retry Per Observer
-
-```python
-@observer(
-    entity="Payment",
-    event="INSERT",
-    retry={
-        "max_attempts": 5,
-        "backoff": "linear",
-        "initial_delay": "1s"
-    },
-    actions=[...]
-)
-def critical_payment_notification():
-    """More aggressive retries for critical payments."""
-    pass
-```
-
-### Selective Retry
-
-```toml
-[webhooks.retry]
-# Retry on transient errors
-retry_on = [408, 429, 500, 502, 503, 504]
-
-# Don't retry on client errors
-dont_retry_on = [400, 401, 403, 404, 422]
-```
-
-| Status | Retry? | Reason |
-|--------|--------|--------|
-| 500 | Yes | Server error (transient) |
-| 400 | No | Bad request (our payload is wrong) |
-| 429 | Yes | Rate limited (temporary) |
-| 401 | No | Unauthorized (credentials wrong) |
-
-## Dead Letter Queue (DLQ) Handling
-
-### Configuration
-
-```toml
-[webhooks.dlq]
-enabled = true
-backend = "postgresql"
-table = "webhook_dlq"
-retention = "7d"
-max_size = "10GB"
-```
-
-### Supported Backends
-
-**PostgreSQL:**
-```toml
-[webhooks.dlq]
-backend = "postgresql"
-table = "webhook_dlq"
-schema = "public"
-```
-
-**NATS JetStream:**
-```toml
-[webhooks.dlq]
+[observers]
 backend = "nats"
-stream = "WEBHOOK_DLQ"
-bucket = "webhook-failures"
+nats_url = "nats://localhost:4222"
 ```
 
-**File-based:**
+When `backend = "nats"`, the Rust runtime publishes a message to a NATS subject after each successful mutation. The subject follows the pattern `fraiseql.{entity_type}.{operation}` — for example, `fraiseql.Order.CREATE`.
+
+### Redis Pub/Sub
+
 ```toml
-[webhooks.dlq]
-backend = "file"
-path = "/var/log/fraiseql/webhook_dlq.jsonl"
-rotation = "daily"
-compress = true
+[observers]
+backend = "redis"
+redis_url = "redis://localhost:6379"
 ```
 
-### DLQ Operations
+With Redis, events are published to Redis channels. Redis pub/sub is suitable for simpler deployments where NATS is not already in the stack.
 
-**Query failed webhooks:**
-```sql
-SELECT * FROM webhook_dlq
-WHERE failed_at > NOW() - INTERVAL '24 hours'
-ORDER BY failed_at DESC;
+### PostgreSQL LISTEN/NOTIFY
+
+```toml
+[observers]
+backend = "postgres"
 ```
 
-**Replay a failed webhook:**
+With the `postgres` backend, the Rust runtime uses PostgreSQL's `NOTIFY` on a channel (e.g., `fraiseql_events`) after each mutation. Subscribers use `LISTEN` on a persistent connection. This backend requires no additional infrastructure.
+
+## Event Payload Shape
+
+Regardless of backend, the event payload is a JSON object derived from the `mutation_response` returned by the PostgreSQL function:
+
+```json
+{
+  "event": "fraiseql.Order.CREATE",
+  "entity_type": "Order",
+  "operation": "CREATE",
+  "entity_id": "550e8400-e29b-41d4-a716-446655440000",
+  "entity": { ... },
+  "timestamp": "2026-03-02T14:00:00Z"
+}
+```
+
+The `entity` field contains the JSON representation of the created or updated record, sourced from the `entity` JSONB column of `mutation_response`.
+
+## Writing Subscriber Services
+
+Subscriber services are **separate processes** — they are not part of your FraiseQL schema definition. You write them in whatever language and framework you prefer.
+
+### Example: NATS Subscriber in Python
+
 ```python
-from fraiseql.webhooks import replay_dlq
+import asyncio
+import json
+import httpx
+import nats
 
-# Replay single webhook
-replay_dlq(dlq_id="webhook_123")
+WEBHOOK_URL = "https://notifications.example.com/orders"
+WEBHOOK_SECRET = "..."  # from environment
 
-# Replay all failures from last 24 hours
-replay_dlq(
-    failed_after="2025-02-10",
-    filter={"observer": "on_payment_created"}
-)
+async def handle_order_created(msg):
+    event = json.loads(msg.data.decode())
+    order_id = event["entity_id"]
+    entity = event["entity"]
 
-# Replay with custom delay
-replay_dlq(
-    dlq_id="webhook_456",
-    delay="30s"
-)
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            WEBHOOK_URL,
+            json={
+                "event": "order.created",
+                "order_id": order_id,
+                "customer_email": entity.get("customer_email"),
+                "total": entity.get("total"),
+            },
+            headers={"Authorization": f"Bearer {WEBHOOK_SECRET}"},
+            timeout=10.0,
+        )
+
+async def main():
+    nc = await nats.connect("nats://localhost:4222")
+    await nc.subscribe("fraiseql.Order.CREATE", cb=handle_order_created)
+    await asyncio.Event().wait()  # run forever
+
+asyncio.run(main())
 ```
 
-## Security Patterns
+This subscriber is a standalone process — it runs independently of the FraiseQL server and has no relation to your `schema.json` or Python schema definition files.
 
-### Webhook Signature Verification
+### Example: PostgreSQL LISTEN Subscriber
 
-FraiseQL automatically signs all webhooks with HMAC-SHA256:
+```python
+import asyncio
+import json
+import asyncpg
 
-```toml
-[webhooks.signing]
-enabled = true
-algorithm = "sha256"
-secret = "${WEBHOOK_SECRET}"
-header = "X-FraiseQL-Signature"
-timestamp_header = "X-FraiseQL-Timestamp"
+async def main():
+    conn = await asyncpg.connect("postgresql://localhost/mydb")
+
+    async def listener(conn, pid, channel, payload):
+        event = json.loads(payload)
+        print(f"Event received: {event['event']} for entity {event['entity_id']}")
+        # dispatch webhook, update cache, etc.
+
+    await conn.add_listener("fraiseql_events", listener)
+    await asyncio.Event().wait()
+
+asyncio.run(main())
 ```
 
-**Signature format:**
-```
-X-FraiseQL-Signature: sha256=abcd1234...
-X-FraiseQL-Timestamp: 1707604800
+## Outbound Webhook Delivery Patterns
+
+Delivering webhooks from event subscribers follows standard HTTP patterns. The FraiseQL runtime publishes events; your subscriber service is responsible for HTTP delivery, retries, and signature.
+
+### Signing Webhook Payloads (HMAC-SHA256)
+
+A webhook receiver should be able to verify the authenticity of the payload. Sign with HMAC-SHA256:
+
+```python
+import hmac
+import hashlib
+import json
+import time
+
+def send_signed_webhook(url: str, payload: dict, secret: str) -> None:
+    body = json.dumps(payload).encode()
+    timestamp = str(int(time.time()))
+    message = f"{timestamp}.".encode() + body
+    signature = "sha256=" + hmac.new(
+        secret.encode(), message, hashlib.sha256
+    ).hexdigest()
+
+    import httpx
+    httpx.post(
+        url,
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Signature": signature,
+            "X-Timestamp": timestamp,
+        },
+        timeout=15.0,
+    )
 ```
 
-**Receiver-side verification (Python):**
+**Receiver-side verification:**
+
 ```python
 import hmac
 import hashlib
 import time
 
-def verify_webhook(payload: bytes, signature: str, timestamp: str, secret: str) -> bool:
-    # Check timestamp freshness (prevent replay attacks)
-    ts = int(timestamp)
-    if abs(time.time() - ts) > 300:  # 5 minute window
+def verify_webhook(body: bytes, signature: str, timestamp: str, secret: str) -> bool:
+    # Reject stale payloads (> 5 minutes old)
+    if abs(time.time() - int(timestamp)) > 300:
         return False
 
-    # Compute expected signature
-    message = f"{timestamp}.".encode() + payload
+    message = f"{timestamp}.".encode() + body
     expected = "sha256=" + hmac.new(
-        secret.encode(),
-        message,
-        hashlib.sha256
+        secret.encode(), message, hashlib.sha256
     ).hexdigest()
-
-    # Constant-time comparison
     return hmac.compare_digest(signature, expected)
-
-# Flask example
-@app.route("/webhook", methods=["POST"])
-def handle_webhook():
-    if not verify_webhook(
-        request.data,
-        request.headers.get("X-FraiseQL-Signature"),
-        request.headers.get("X-FraiseQL-Timestamp"),
-        WEBHOOK_SECRET
-    ):
-        return "Invalid signature", 401
-
-    data = request.json
-    # Process webhook...
-    return "OK", 200
 ```
 
-### Payload Encryption
-
-Encrypt sensitive data in webhook payloads:
+### Retry with Exponential Backoff
 
 ```python
-@observer(
-    entity="User",
-    event="INSERT",
-    actions=[
-        webhook(
-            url="https://external.example.com/users",
-            encryption={
-                "enabled": True,
-                "algorithm": "AES-256-GCM",
-                "key": "${WEBHOOK_ENCRYPTION_KEY}"
-            },
-            body={
-                "id": "{{ id }}",
-                "email": "{{ email }}",  # Will be encrypted
-                "ssn": "{{ ssn }}"       # Will be encrypted
-            }
-        )
-    ]
-)
-def send_user_data():
+import asyncio
+import httpx
+
+async def deliver_with_retry(
+    url: str,
+    payload: dict,
+    max_attempts: int = 3,
+    initial_delay: float = 0.1,
+) -> None:
+    delay = initial_delay
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=payload, timeout=15.0)
+            if response.status_code < 500:
+                return  # success or unretryable client error
+        except httpx.TransportError:
+            pass  # network error — retry
+
+        if attempt < max_attempts:
+            await asyncio.sleep(delay)
+            delay *= 2.5  # exponential backoff
+    # all attempts exhausted — log to DLQ or alert
+```
+
+## FraiseQL Schema Definition (Compile-Time)
+
+Your `schema.py` defines mutations and types. The observer backend configuration in `fraiseql.toml` is separate from schema authoring.
+
+```python
+import fraiseql
+from fraiseql.scalars import ID
+from enum import Enum
+
+@fraiseql.enum
+class OrderStatus(Enum):
+    PENDING = "pending"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+
+@fraiseql.type
+class Order:
+    id: ID
+    customer_email: str
+    total: float
+    status: OrderStatus
+
+@fraiseql.input
+class CreateOrderInput:
+    customer_email: str
+    total: float
+
+@fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
+def create_order(input: CreateOrderInput) -> Order:
+    """Create a new order. The Rust runtime publishes a NATS event after success."""
     pass
+
+fraiseql.export_schema("schema.json")
 ```
 
-## Performance Tuning
+There are no observer annotations in the schema definition. The mutation executes SQL, the Rust runtime publishes the event to NATS (or Redis/Postgres), and subscribers handle delivery.
 
-### Async Webhook Dispatch
+## Database Side: Mutation Function
 
-```toml
-[webhooks.dispatch]
-# Don't block mutation on webhook completion
-async = true
-timeout = "30s"
+The mutation function follows the standard FraiseQL trinity pattern and returns `mutation_response`:
 
-# Queue failed webhooks in background
-background_retry = true
-max_queue_size = 1000
-```
-
-With async dispatch:
-```
-Mutation completes immediately
-    ↓
-Webhook queued for delivery
-    ↓
-(Happens in background)
-Webhook sent with retries
-```
-
-### Batching Configuration
-
-```toml
-[webhooks.batching]
-enabled = true
-batch_size = 50
-timeout = "10s"
-```
-
-With 100 order inserts:
-- Batch 1: 50 webhooks (0-50ms)
-- Batch 2: 50 webhooks (500-510ms)
-- Total: 2 HTTP calls instead of 100
-
-### Rate Limiting Observer Webhooks
-
-```toml
-[webhooks.rate_limiting]
-enabled = true
-max_per_second = 100
-burst = 200
-```
-
-Prevents overwhelming external service:
-- Sustain: 100 webhooks/second
-- Burst: Up to 200/second
-- Queues excess with backoff
-
-## Testing Observer-Webhook Integrations
-
-### Local Testing with ngrok
-
-```bash
-# Start ngrok tunnel
-ngrok http 8000
-
-# Update webhook URL in config
-[webhooks]
-test_url = "https://abc123.ngrok.io/webhook"
-
-# Start local server
-python -m flask run --port 8000
-```
-
-### Webhook Mocking in Tests
-
-```python
-from fraiseql.testing import MockWebhookServer
-
-def test_order_webhook():
-    with MockWebhookServer(port=9999) as mock:
-        # Create order (triggers webhook)
-        result = client.mutate("""
-            mutation {
-                createOrder(input: {
-                    customer_email: "user@example.com"
-                    total: 99.99
-                }) {
-                    id
-                }
-            }
-        """)
-
-        # Assert webhook was called
-        assert mock.called
-        assert mock.last_payload["customer_email"] == "user@example.com"
-
-        # Assert retry behavior
-        assert mock.call_count == 1  # or more if retried
-```
-
-## Monitoring & Observability
-
-### Prometheus Metrics
-
-```toml
-[observability.prometheus]
-enabled = true
-port = 9090
-namespace = "fraiseql"
-```
-
-Exposed metrics:
-```
-fraiseql_webhook_total{observer="on_order_created"}
-fraiseql_webhook_duration_seconds{observer="on_order_created", status="success"}
-fraiseql_webhook_failures_total{observer="on_order_created", reason="timeout"}
-fraiseql_webhook_retries_total{observer="on_order_created"}
-fraiseql_dlq_size{observer="on_order_created"}
-```
-
-### Alerting
-
-```yaml
-# Prometheus alerts
-- alert: WebhookFailureRate
-  expr: |
-    rate(fraiseql_webhook_failures_total[5m]) /
-    rate(fraiseql_webhook_total[5m]) > 0.05
-  annotations:
-    summary: "Webhook failure rate > 5%"
-
-- alert: DLQBacklog
-  expr: fraiseql_dlq_size > 1000
-  annotations:
-    summary: "Webhook DLQ has {{ $value }} items"
-```
-
-## Troubleshooting
-
-### Webhook Not Triggering
-
-**Check:**
-1. Observer condition matches data
-   ```sql
-   SELECT * FROM orders WHERE /* observer condition */;
-   ```
-
-2. Webhook URL is accessible
-   ```bash
-   curl -X POST https://api.example.com/notify
-   ```
-
-3. Observer is registered in schema
-
-### Webhook Timeouts
-
-**Solutions:**
-- Increase timeout:
-  ```toml
-  [webhooks]
-  timeout = "60s"
-  ```
-
-- Make receiver async:
-  ```python
-  @app.route("/webhook", methods=["POST"])
-  def webhook_handler():
-      task_queue.enqueue(process_payload, request.json)
-      return "Accepted", 202  # Return immediately
-  ```
-
-### DLQ Growing Unbounded
-
-**Debug:**
 ```sql
-SELECT observer, COUNT(*), MAX(failed_at)
-FROM webhook_dlq
-GROUP BY observer
-ORDER BY COUNT(*) DESC;
+CREATE TABLE tb_order (
+    pk_order   BIGINT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID    DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT    UNIQUE NOT NULL,          -- e.g. order number
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
+    total      NUMERIC(12, 2) NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'pending'
+);
+
+CREATE FUNCTION fn_create_order(
+    p_customer_email TEXT,
+    p_total          NUMERIC
+) RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_order tb_order;
+    v_response mutation_response;
+BEGIN
+    INSERT INTO tb_order (identifier, fk_user, total)
+    VALUES (
+        'ORD-' || to_char(NOW(), 'YYYYMMDDHH24MISS'),
+        (SELECT pk_user FROM tb_user WHERE identifier = p_customer_email),
+        p_total
+    )
+    RETURNING * INTO v_order;
+
+    v_response.status      := 'success';
+    v_response.entity_id   := v_order.id;
+    v_response.entity_type := 'Order';
+    v_response.entity      := jsonb_build_object(
+        'id',             v_order.id,
+        'customer_email', p_customer_email,
+        'total',          v_order.total,
+        'status',         v_order.status
+    );
+    RETURN v_response;
+END;
+$$;
 ```
 
-**Remediate:**
-- Fix receiver service
-- Replay DLQ
-- Adjust retry policy
+After this function returns with `status = 'success'`, the Rust runtime publishes the event payload (including `entity`) to the configured observer backend.
+
+## Full fraiseql.toml Example
+
+```toml
+[project]
+name = "my-fraiseql-app"
+version = "1.0.0"
+
+[fraiseql]
+schema_file = "schema.json"
+output_file = "schema.compiled.json"
+
+[observers]
+backend = "nats"
+nats_url = "nats://localhost:4222"
+
+[fraiseql.security.audit_logging]
+enabled = true
+log_level = "info"
+include_sensitive_data = false
+async_logging = true
+
+[fraiseql.security.rate_limiting]
+enabled = true
+auth_start_max_requests = 100
+auth_start_window_secs = 60
+```
+
+## Architecture Summary
+
+| Layer | Responsibility | Language |
+|-------|---------------|----------|
+| Schema authoring | `@fraiseql.type`, `@fraiseql.mutation`, `@scalar` | Python |
+| Compilation | `fraiseql compile` → `schema.compiled.json` | CLI (Rust) |
+| GraphQL runtime | Query/mutation execution, event publishing | Rust |
+| Message bus | Event delivery (NATS / Redis / Postgres) | Infrastructure |
+| Subscribers | Event consumption, webhook delivery | Any language |
+
+FraiseQL handles the left side of this table. Your subscriber services own the right side.
 
 ## Next Steps
 
 <CardGrid>
-  <Card title="Advanced NATS" icon="external">
-    [NATS Messaging Patterns](/guides/advanced-nats) — Multi-service messaging
+  <Card title="TOML Configuration" icon="setting">
+    [Configuration Reference](/reference/toml-config) — Full fraiseql.toml key reference
   </Card>
-  <Card title="Federation + NATS" icon="puzzle">
-    [Hybrid Integration](/guides/federation-nats-integration) — Combine sync and async
+  <Card title="Mutations Guide" icon="pencil">
+    [Writing Mutations](/guides/mutations) — How to define mutations and SQL functions
   </Card>
 </CardGrid>

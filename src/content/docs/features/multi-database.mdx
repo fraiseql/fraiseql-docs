@@ -3,7 +3,7 @@ title: Multi-Database Support
 description: Use PostgreSQL, MySQL, SQLite, or SQL Server with FraiseQL
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
 FraiseQL supports multiple database backends, allowing you to use your preferred database while maintaining the same GraphQL API.
 
@@ -18,17 +18,19 @@ FraiseQL supports multiple database backends, allowing you to use your preferred
 
 ## Configuration
 
+Database configuration is set in the `[database]` section of `fraiseql.toml`. Pool settings are direct fields on `[database]` — there is no `[database.pool]` sub-table.
+
 ### PostgreSQL (Default)
 
 ```toml
 [database]
 type = "postgresql"
 url = "postgresql://user:password@localhost:5432/mydb"
-
-[database.pool]
-min_connections = 5
-max_connections = 20
-idle_timeout_seconds = 300
+pool_min = 5
+pool_max = 20
+idle_timeout_ms = 300000
+connect_timeout_ms = 5000
+ssl_mode = "prefer"
 ```
 
 ### MySQL / MariaDB
@@ -37,16 +39,8 @@ idle_timeout_seconds = 300
 [database]
 type = "mysql"
 url = "mysql://user:password@localhost:3306/mydb"
-
-[database.pool]
-min_connections = 5
-max_connections = 20
-
-[database.mysql]
-# Character set
-charset = "utf8mb4"
-# Timezone handling
-timezone = "UTC"
+pool_min = 5
+pool_max = 20
 ```
 
 ### SQLite
@@ -58,14 +52,6 @@ url = "sqlite:///path/to/database.db"
 
 # Or in-memory for testing
 # url = "sqlite::memory:"
-
-[database.sqlite]
-# Journal mode
-journal_mode = "wal"
-# Busy timeout
-busy_timeout_ms = 5000
-# Foreign keys
-foreign_keys = true
 ```
 
 ### SQL Server
@@ -74,15 +60,11 @@ foreign_keys = true
 [database]
 type = "sqlserver"
 url = "mssql://user:password@localhost:1433/mydb"
-
-[database.sqlserver]
-# Trust server certificate (dev only)
-trust_server_certificate = false
-# Application name
-application_name = "fraiseql"
-# Encrypt connection
-encrypt = true
 ```
+
+<Aside type="note">
+Database-specific connection parameters (character sets, journal mode, SSL trust, etc.) are passed via the connection URL query string, not as TOML sub-tables. The `[database]` section only accepts `url`, `pool_min`, `pool_max`, `idle_timeout_ms`, `connect_timeout_ms`, and `ssl_mode`.
+</Aside>
 
 ## Feature Matrix
 
@@ -104,11 +86,12 @@ encrypt = true
     Full feature support, recommended for production:
 
     ```sql
-    -- Native JSONB with indexing
+    -- Trinity pattern: pk_ (internal), id (public UUID), identifier (human key)
     CREATE TABLE tb_user (
-        pk_user BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        id UUID DEFAULT gen_random_uuid() UNIQUE,
-        data JSONB NOT NULL
+        pk_user    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id         UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        identifier TEXT   UNIQUE NOT NULL,
+        data       JSONB  NOT NULL
     );
 
     -- GIN index for JSONB
@@ -116,7 +99,10 @@ encrypt = true
 
     -- Native array support
     CREATE TABLE tb_post (
-        tags TEXT[] NOT NULL
+        pk_post    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id         UUID   DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        identifier TEXT   UNIQUE NOT NULL,
+        tags       TEXT[] NOT NULL
     );
     ```
 
@@ -131,11 +117,13 @@ encrypt = true
     JSON stored as JSON type:
 
     ```sql
-    -- JSON type (MySQL 5.7+)
+    -- MySQL adaptation of the trinity pattern
+    -- Note: MySQL 8.0+ supports GENERATED ALWAYS AS IDENTITY syntax
     CREATE TABLE tb_user (
-        pk_user BIGINT AUTO_INCREMENT PRIMARY KEY,
-        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
-        data JSON NOT NULL
+        pk_user    BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        id         CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
+        identifier VARCHAR(255) NOT NULL UNIQUE,
+        data       JSON NOT NULL
     );
 
     -- Generated column for indexing
@@ -155,11 +143,12 @@ encrypt = true
     Lightweight, ideal for development:
 
     ```sql
-    -- JSON as TEXT with JSON1 extension
+    -- SQLite adaptation of the trinity pattern
     CREATE TABLE tb_user (
-        pk_user INTEGER PRIMARY KEY AUTOINCREMENT,
-        id TEXT NOT NULL UNIQUE DEFAULT (lower(hex(randomblob(16)))),
-        data TEXT NOT NULL CHECK (json_valid(data))
+        pk_user    INTEGER PRIMARY KEY AUTOINCREMENT,
+        id         TEXT NOT NULL UNIQUE DEFAULT (lower(hex(randomblob(16)))),
+        identifier TEXT NOT NULL UNIQUE,
+        data       TEXT NOT NULL CHECK (json_valid(data))
     );
 
     -- Expression index for JSON
@@ -177,11 +166,12 @@ encrypt = true
     Enterprise Windows support:
 
     ```sql
-    -- NVARCHAR for JSON storage
+    -- SQL Server adaptation of the trinity pattern
     CREATE TABLE dbo.tb_user (
-        pk_user BIGINT IDENTITY(1,1) PRIMARY KEY,
-        id UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWID(),
-        data NVARCHAR(MAX) NOT NULL
+        pk_user    BIGINT IDENTITY(1,1) PRIMARY KEY,
+        id         UNIQUEIDENTIFIER NOT NULL UNIQUE DEFAULT NEWID(),
+        identifier NVARCHAR(255) NOT NULL UNIQUE,
+        data       NVARCHAR(MAX) NOT NULL
     );
 
     -- Computed column for indexing
@@ -239,27 +229,19 @@ query {
   </TabItem>
 </Tabs>
 
-## Migration Between Databases
+## Multi-Database Architecture
 
-### Export Schema
+FraiseQL does not support connecting a single service to multiple databases simultaneously. To expose multiple databases through a unified GraphQL API, run a separate FraiseQL service for each database and compose them with Apollo Federation:
 
-```bash
-# Export for PostgreSQL
-fraiseql-cli generate-views --database postgresql -o postgres.sql
-
-# Export for MySQL
-fraiseql-cli generate-views --database mysql -o mysql.sql
+```
+Client
+  └── Apollo Federation Gateway
+        ├── fraiseql-users  (PostgreSQL)
+        ├── fraiseql-orders (PostgreSQL — separate cluster)
+        └── fraiseql-legacy (SQL Server)
 ```
 
-### Data Migration
-
-```bash
-# Export data as JSON
-fraiseql-cli export --format jsonl > data.jsonl
-
-# Import to new database
-fraiseql-cli import --format jsonl < data.jsonl
-```
+Each service has its own `fraiseql.toml` with its own `[database]` section and schema. The Federation gateway merges the subgraph schemas into a single API surface.
 
 ## Development Workflow
 
@@ -293,97 +275,64 @@ url = "sqlite::memory:"
 [database]
 type = "postgresql"
 url = "${DATABASE_URL}"
-
-[database.pool]
-min_connections = 10
-max_connections = 50
+pool_min = 10
+pool_max = 50
+idle_timeout_ms = 600000
+connect_timeout_ms = 5000
+ssl_mode = "require"
 ```
 
 ## Connection Pooling
 
-### PostgreSQL/MySQL/SQL Server
+### Pool Configuration
 
-Uses Deadpool for async connection pooling:
+Pool settings are direct fields on the `[database]` section:
 
 ```toml
-[database.pool]
-min_connections = 5
-max_connections = 20
-connection_timeout_seconds = 30
-idle_timeout_seconds = 600
-max_lifetime_seconds = 1800
+[database]
+url = "postgresql://user:password@localhost:5432/mydb"
+pool_min = 5
+pool_max = 20
+connect_timeout_ms = 30000
+idle_timeout_ms = 600000
 ```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `pool_min` | `2` | Minimum connections to keep open |
+| `pool_max` | `20` | Maximum connections in the pool |
+| `connect_timeout_ms` | `5000` | Milliseconds to wait for a connection |
+| `idle_timeout_ms` | `600000` | Milliseconds before idle connections are closed |
 
 ### SQLite
 
-Single connection with WAL mode:
+SQLite uses a single connection with WAL mode. Configure WAL and busy timeout via the connection URL:
 
 ```toml
-[database.sqlite]
-journal_mode = "wal"
-busy_timeout_ms = 5000
-cache_size = -64000  # 64MB
-```
-
-## Performance Tuning
-
-### PostgreSQL
-
-```toml
-[database.postgresql]
-# Statement timeout
-statement_timeout_ms = 30000
-
-# Prepared statements
-prepare_threshold = 5
-
-# Extra connection params
-options = "-c work_mem=256MB"
-```
-
-### MySQL
-
-```toml
-[database.mysql]
-# Connection params
-charset = "utf8mb4"
-collation = "utf8mb4_unicode_ci"
-
-# Performance
-max_allowed_packet = "64M"
-```
-
-### SQLite
-
-```toml
-[database.sqlite]
-journal_mode = "wal"
-synchronous = "normal"
-cache_size = -64000
-mmap_size = 268435456  # 256MB
+[database]
+type = "sqlite"
+url = "sqlite:///path/to/db.sqlite?mode=rwc&journal_mode=wal&busy_timeout=5000"
 ```
 
 ## Troubleshooting
 
 ### Connection Issues
 
+Check connection by verifying your URL is reachable from the host running FraiseQL:
+
 ```bash
-# Test connection
-fraiseql-cli test-connection --database "${DATABASE_URL}"
+# PostgreSQL
+psql "${DATABASE_URL}" -c "SELECT 1"
+
+# MySQL
+mysql -u user -p -h localhost mydb -e "SELECT 1"
 ```
 
 ### Performance Problems
 
-1. Check connection pool settings
+1. Check pool settings — `pool_max` too low causes queuing under load
 2. Verify indexes on JSON fields
 3. Review query plans with `fraiseql-cli explain`
-
-### Feature Compatibility
-
-```bash
-# Check database capabilities
-fraiseql-cli check-features --database "${DATABASE_URL}"
-```
 
 ## Next Steps
 

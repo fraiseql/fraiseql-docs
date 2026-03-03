@@ -57,9 +57,11 @@ SELECT
                 )                  -- pre-aggregated, empty array when no comments
     ) AS data
 FROM tb_post p
-JOIN v_user vu ON vu.id = p.fk_user
-LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
-GROUP BY p.id, vu.data;
+JOIN tb_user u ON u.pk_user = p.fk_user
+JOIN v_user vu ON vu.id = u.id
+LEFT JOIN tb_comment c ON c.fk_post = p.pk_post
+LEFT JOIN v_comment vc ON vc.id = c.id
+GROUP BY p.id, p.title, vu.data;
 ```
 
 A GraphQL query like:

@@ -16,7 +16,7 @@ Both are enabled with a single flag on `@fraiseql.query()`. No manual Connection
 
 ## Offset Pagination
 
-The default for all list queries. Since rc.13, `limit`, `offset`, `where`, and `orderBy` are automatically available on any query that returns `list[T]`:
+The default for all list queries. `limit`, `offset`, `where`, and `orderBy` are automatically available on any query that returns `list[T]`:
 
 ```python
 @fraiseql.query(sql_source="v_post")
@@ -106,20 +106,23 @@ Relay pagination relies on the FraiseQL CQRS naming convention:
 ```sql
 -- Write table
 CREATE TABLE tb_post (
-  pk_post    BIGINT  PRIMARY KEY,   -- sequential, internal, never in GraphQL
-  id         UUID    UNIQUE NOT NULL, -- public identifier for node(id: ID!)
+  pk_post    BIGINT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,   -- sequential, internal, never in GraphQL
+  id         UUID    UNIQUE NOT NULL DEFAULT gen_random_uuid(),  -- public identifier for node(id: ID!)
+  identifier TEXT    UNIQUE NOT NULL,
   -- ... other columns
 );
 
 -- Read view (used by FraiseQL)
 CREATE VIEW v_post AS
-  SELECT jsonb_build_object(
-    'pk_post', pk_post,   -- included so FraiseQL can build cursors
-    'id',      id,
-    'title',   title
-    -- ...
-  ) AS data
-  FROM tb_post;
+  SELECT
+    p.id,
+    jsonb_build_object(
+      'pk_post', p.pk_post,   -- included so FraiseQL can build cursors
+      'id',      p.id,
+      'title',   p.title
+      -- ...
+    ) AS data
+  FROM tb_post p;
 ```
 
 `pk_post` drives keyset pagination — it stays in `data` JSONB for cursor generation, but is always stripped before being returned to the client.
@@ -250,7 +253,7 @@ The global ID encodes the type name and UUID (`base64("Post:uuid-value")`). The 
 
 ### UUID primary keys
 
-Since rc.13, the cursor column (`pk_{entity}`) can be either `BIGINT` or `UUID`. FraiseQL detects the column type at compile time and selects the appropriate cursor encoding automatically.
+The cursor column (`pk_{entity}`) can be either `BIGINT` or `UUID`. FraiseQL detects the column type at compile time and selects the appropriate cursor encoding automatically.
 
 ```sql
 -- BIGINT pk (original, most common)

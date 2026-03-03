@@ -44,16 +44,18 @@ WHERE id = $1;
 
 **Why?** The FraiseQL Rust server receives the complete entity as a single JSON payload, no assembly needed.
 
-### Trinity Pattern: CHAR(36) UUID + INTEGER PKs
+### Trinity Pattern: CHAR(36) UUID + BIGINT PKs
 
-FraiseQL uses a dual-identifier system (adapted for MySQL):
+FraiseQL uses a three-identifier system per entity (adapted for MySQL):
 
 ```sql
+-- Requires MySQL 8.0.13+ for DEFAULT (UUID()) expression syntax
 CREATE TABLE tb_user (
-  pk_user BIGINT PRIMARY KEY AUTO_INCREMENT,                    -- Internal, fast FKs
-  id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),                 -- Public, exposed in GraphQL
-  email VARCHAR(255) NOT NULL UNIQUE COLLATE utf8mb4_unicode_ci,
-  name VARCHAR(255) NOT NULL,
+  pk_user    BIGINT       PRIMARY KEY AUTO_INCREMENT,             -- Internal, fast FKs
+  id         CHAR(36)     NOT NULL UNIQUE DEFAULT (UUID()),       -- Public, exposed in GraphQL
+  identifier VARCHAR(255) NOT NULL UNIQUE,                        -- Human-readable key (e.g. email)
+  email      VARCHAR(255) NOT NULL UNIQUE COLLATE utf8mb4_unicode_ci,
+  name       VARCHAR(255) NOT NULL,
   deleted_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -62,29 +64,36 @@ CREATE TABLE tb_user (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE tb_post (
-  pk_post BIGINT PRIMARY KEY AUTO_INCREMENT,
-  id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
-  fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user) ON DELETE CASCADE,  -- Uses pk_user
-  title VARCHAR(255) NOT NULL,
+  pk_post    BIGINT       PRIMARY KEY AUTO_INCREMENT,
+  id         CHAR(36)     NOT NULL UNIQUE DEFAULT (UUID()),
+  identifier VARCHAR(255) NOT NULL UNIQUE,                        -- Human-readable key (e.g. slug)
+  fk_user    BIGINT       NOT NULL,
+  title      VARCHAR(255) NOT NULL,
   deleted_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  KEY idx_post_user (fk_user)
+  KEY idx_post_user (fk_user),
+  CONSTRAINT fk_post_user FOREIGN KEY (fk_user) REFERENCES tb_user(pk_user) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
+
+<Aside type="caution">
+**MySQL FK Syntax**: Unlike PostgreSQL, inline `REFERENCES` in column definitions is silently accepted by InnoDB but **not enforced** as a foreign key constraint. Always use a separate `CONSTRAINT ... FOREIGN KEY ... REFERENCES` clause for actual enforcement.
+</Aside>
 
 **Why?**
 - `id` (CHAR(36)): UUID exposed in GraphQL, immutable across systems
 - `pk_*` (BIGINT): Fast joins, small FK storage, internal only
+- `identifier` (VARCHAR(255)): Human-readable domain key (email, slug, SKU, etc.)
 - Resolver functions bridge them in mutations
 
 ### Resolver Functions
 
-Every table has UUID to INTEGER resolver functions:
+Every table has UUID to BIGINT resolver functions:
 
 ```sql
 -- Resolve UUID to internal pk (used in mutations)
 DELIMITER $$
-CREATE FUNCTION core_get_pk_user(p_user_id CHAR(36))
+CREATE FUNCTION fn_get_pk_user(p_user_id CHAR(36))
 RETURNS BIGINT
 READS SQL DATA
 DETERMINISTIC
@@ -102,7 +111,7 @@ All mutations return a structure with 8 fields (using JSON for compatibility):
 
 ```json
 {
-  "status": "success:created",
+  "status": "success",
   "message": "User created successfully",
   "entity_id": "550e8400-e29b-41d4-a716-446655440000",
   "entity_type": "User",
@@ -153,7 +162,9 @@ SELECT
     'name', u.name,
     'posts', COALESCE(
       JSON_ARRAYAGG(
-        JSON_OBJECT('id', p.id, 'title', p.title, 'status', p.status)
+        IF(p.id IS NOT NULL,
+          JSON_OBJECT('id', p.id, 'title', p.title, 'status', p.status),
+          NULL)
       ),
       JSON_ARRAY()
     )
@@ -165,7 +176,7 @@ GROUP BY u.pk_user, u.id, u.organization_id, u.tenant_id, u.is_current;
 ```
 
 <Aside type="note">
-`GROUP BY` is required for `JSON_ARRAYAGG` in MySQL. Always group by PK and all selected columns. Use `COALESCE(..., JSON_ARRAY())` to avoid NULL for empty arrays.
+`GROUP BY` is required for `JSON_ARRAYAGG` in MySQL. Always group by PK and all selected columns. Use `COALESCE(..., JSON_ARRAY())` to avoid NULL for empty arrays. Wrap each row expression in `IF(p.id IS NOT NULL, ..., NULL)` to prevent unmatched LEFT JOIN rows from producing `null` entries in the aggregated array.
 </Aside>
 
 ## Materialized Views: tv_* (Denormalized Projections)
@@ -194,7 +205,7 @@ CREATE TABLE IF NOT EXISTS tv_user (
 
 ```sql
 DELIMITER $$
-CREATE PROCEDURE core_refresh_user(IN p_user_id CHAR(36))
+CREATE PROCEDURE sync_tv_user_single(IN p_user_id CHAR(36))
 MODIFIES SQL DATA
 BEGIN
   DECLARE v_new_data JSON;
@@ -214,17 +225,17 @@ END$$
 DELIMITER ;
 ```
 
-## Mutation Procedures: app_ vs core_
+## Mutation Procedures: fn_ Naming Convention
 
-FraiseQL separates concerns into two procedure sets:
+All mutation procedures use the `fn_{action}_{entity}` naming convention. FraiseQL separates concerns into two procedure sets:
 
-### app_ Procedures: API Layer
+### API Layer
 
-Handles JSON deserialization from GraphQL payloads and delegates to `core_`:
+Handles JSON deserialization from GraphQL payloads and delegates to the business logic layer:
 
 ```sql
 DELIMITER $$
-CREATE PROCEDURE app_create_user(
+CREATE PROCEDURE fn_create_user(
   IN input_tenant_id CHAR(36),
   IN input_user_id CHAR(36),
   IN input_payload JSON
@@ -239,17 +250,49 @@ BEGIN
 
   -- Validate required fields
   IF v_email IS NULL OR v_email = '' THEN
-    SELECT JSON_OBJECT('status', 'invalid_input', 'message', 'email is required') AS result;
-    LEAVE app_create_user;
+    SELECT JSON_OBJECT('status', 'failed:validation', 'message', 'email is required') AS result;
+    LEAVE fn_create_user;
   END IF;
 
-  CALL core_create_user(input_tenant_id, input_user_id, v_email, v_name, input_payload);
+  CALL fn_create_user_core(input_tenant_id, input_user_id, v_email, v_name, input_payload);
 END$$
 DELIMITER ;
 ```
 
 <Aside type="note">
 **Security**: All input examples use **parameterized queries** (prepared statements with `?` placeholders) to prevent SQL injection. JSON values are extracted before SQL composition and enums are validated against a whitelist.
+</Aside>
+
+## Relay / Cursor Pagination
+
+`MySqlAdapter` implements `RelayDatabaseAdapter`, so Relay-spec cursor pagination works on MySQL out of the box. Enable it with `relay=True` on your query decorator:
+
+```python
+@fraiseql.type(relay=True)
+class Post:
+    id: ID
+    title: str
+    created_at: DateTime
+
+@fraiseql.query(sql_source="v_post", relay=True)
+def posts() -> list[Post]:
+    pass
+```
+
+This exposes `PostConnection` with `edges`, `node`, `cursor`, and `pageInfo` per the [Relay Cursor Connections spec](https://relay.dev/graphql/connections.htm).
+
+### MySQL-specific implementation details
+
+| Detail | Behaviour |
+|--------|-----------|
+| **ORDER BY** | Fields extracted via `JSON_UNQUOTE(JSON_EXTRACT(data, '$.field'))` |
+| **UUID cursors** | Compared as `CHAR(36)` strings (case-insensitive collation safe) |
+| **Forward pagination** | `WHERE … ORDER BY … LIMIT N` with cursor offset |
+| **Backward pagination** | Inner descending subquery + outer re-sort to restore stable order |
+| **`totalCount`** | Separate `COUNT(*)` query independent of cursor position (spec-compliant) |
+
+<Aside type="note">
+MySQL stores UUIDs as `CHAR(36)` strings. Cursor comparison is lexicographic (string order), which is consistent within MySQL but differs from PostgreSQL's `uuid` type ordering. Use UUID v4 or v7 values — sequential UUIDs (ULID, UUID v7) produce stable forward-iteration order.
 </Aside>
 
 ## Configuration and Performance
@@ -334,7 +377,7 @@ SELECT * FROM tv_user WHERE status_extracted = 'active';
 -- Always call refresh in the same transaction as the INSERT
 START TRANSACTION;
 INSERT INTO tb_user (...);
-CALL core_refresh_user(v_user_id);
+CALL sync_tv_user_single(v_user_id);
 COMMIT;
 ```
 

@@ -35,7 +35,7 @@ Use this table as a translation guide as you work through the migration:
 |----------------------|-----------------------------------------------------------|
 | Track table          | Create SQL view (`v_*`)                                   |
 | Permissions (YAML)   | PostgreSQL Row-Level Security via SQL view `WHERE` clause |
-| Event triggers       | Observers (`@observer` decorator)                         |
+| Event triggers       | Observers (TOML `[observers]` section)                    |
 | Actions              | SQL functions (`fn_*`) + mutations                        |
 | Remote schemas       | Federation (multi-database in one binary)                 |
 | Computed fields      | SQL view expressions                                      |
@@ -187,8 +187,16 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
        ```sql
        -- v_user_filtered enforces row-level access in SQL
        CREATE VIEW v_user_filtered AS
-       SELECT * FROM tb_user
-       WHERE id = current_setting('app.current_user_id')::uuid;
+       SELECT
+           u.id,
+           jsonb_build_object(
+               'id',         u.id::text,
+               'identifier', u.identifier,
+               'email',      u.email,
+               'name',       u.name
+           ) AS data
+       FROM tb_user u
+       WHERE u.id = current_setting('app.current_user_id')::uuid;
        ```
      </TabItem>
      <TabItem label="FraiseQL (TypeScript)">
@@ -205,8 +213,16 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
        ```sql
        -- v_user_filtered enforces row-level access in SQL
        CREATE VIEW v_user_filtered AS
-       SELECT * FROM tb_user
-       WHERE id = current_setting('app.current_user_id')::uuid;
+       SELECT
+           u.id,
+           jsonb_build_object(
+               'id',         u.id::text,
+               'identifier', u.identifier,
+               'email',      u.email,
+               'name',       u.name
+           ) AS data
+       FROM tb_user u
+       WHERE u.id = current_setting('app.current_user_id')::uuid;
        ```
      </TabItem>
      <TabItem label="FraiseQL (Go)">
@@ -220,8 +236,16 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
        ```sql
        -- v_user_filtered enforces row-level access in SQL
        CREATE VIEW v_user_filtered AS
-       SELECT * FROM tb_user
-       WHERE id = current_setting('app.current_user_id')::uuid;
+       SELECT
+           u.id,
+           jsonb_build_object(
+               'id',         u.id::text,
+               'identifier', u.identifier,
+               'email',      u.email,
+               'name',       u.name
+           ) AS data
+       FROM tb_user u
+       WHERE u.id = current_setting('app.current_user_id')::uuid;
        ```
      </TabItem>
    </Tabs>
@@ -279,20 +303,29 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
            email: str
            message: str
 
-       @fraiseql.mutation(sql_source="fn_send_email")
-       def send_email(input: SendEmailInput) -> ActionOutput:
-           """Send email via PostgreSQL function."""
+       @fraiseql.mutation(sql_source="fn_send_email", operation="CUSTOM")
+       def send_email(input: SendEmailInput) -> User:
+           """Queue email via PostgreSQL function."""
            pass
        ```
 
        ```sql
        -- Business logic lives in the database
        CREATE FUNCTION fn_send_email(p_email TEXT, p_message TEXT)
-       RETURNS TABLE(success BOOL, message TEXT) AS $$
+       RETURNS mutation_response AS $$
+       DECLARE
+           v_result mutation_response;
        BEGIN
            -- Insert into outbox for async processing
            INSERT INTO tb_email_outbox (recipient, body) VALUES (p_email, p_message);
-           RETURN QUERY SELECT true, 'Email queued'::TEXT;
+
+           v_result.status  := 'success';
+           v_result.message := 'Email queued';
+           RETURN v_result;
+       EXCEPTION WHEN OTHERS THEN
+           v_result.status  := 'error';
+           v_result.message := 'Failed to queue email.';
+           RETURN v_result;
        END;
        $$ LANGUAGE plpgsql;
        ```
@@ -307,19 +340,29 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
            message!: string;
        }
 
-       @mutation({ sqlSource: 'fn_send_email' })
-       function sendEmail(input: SendEmailInput): Promise<ActionOutput> {
-           return Promise.resolve({} as ActionOutput);
+       @mutation({ sqlSource: 'fn_send_email', operation: 'CUSTOM' })
+       function sendEmail(input: SendEmailInput): Promise<User> {
+           return Promise.resolve({} as User);
        }
        ```
 
        ```sql
        -- Business logic lives in the database
        CREATE FUNCTION fn_send_email(p_email TEXT, p_message TEXT)
-       RETURNS TABLE(success BOOL, message TEXT) AS $$
+       RETURNS mutation_response AS $$
+       DECLARE
+           v_result mutation_response;
        BEGIN
+           -- Insert into outbox for async processing
            INSERT INTO tb_email_outbox (recipient, body) VALUES (p_email, p_message);
-           RETURN QUERY SELECT true, 'Email queued'::TEXT;
+
+           v_result.status  := 'success';
+           v_result.message := 'Email queued';
+           RETURN v_result;
+       EXCEPTION WHEN OTHERS THEN
+           v_result.status  := 'error';
+           v_result.message := 'Failed to queue email.';
+           RETURN v_result;
        END;
        $$ LANGUAGE plpgsql;
        ```
@@ -333,16 +376,12 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
            Message string `fraiseql:"message"`
        }
 
-       type ActionOutput struct {
-           Success bool   `fraiseql:"success"`
-           Message string `fraiseql:"message"`
-       }
-
        func init() {
            fraiseql.Mutation("sendEmail", fraiseql.MutationConfig{
                SQLSource: "fn_send_email",
-           }, func(input SendEmailInput) (ActionOutput, error) {
-               return ActionOutput{}, nil
+               Operation: "CUSTOM",
+           }, func(input SendEmailInput) (interface{}, error) {
+               return nil, nil
            })
        }
        ```
@@ -350,10 +389,20 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
        ```sql
        -- Business logic lives in the database
        CREATE FUNCTION fn_send_email(p_email TEXT, p_message TEXT)
-       RETURNS TABLE(success BOOL, message TEXT) AS $$
+       RETURNS mutation_response AS $$
+       DECLARE
+           v_result mutation_response;
        BEGIN
+           -- Insert into outbox for async processing
            INSERT INTO tb_email_outbox (recipient, body) VALUES (p_email, p_message);
-           RETURN QUERY SELECT true, 'Email queued'::TEXT;
+
+           v_result.status  := 'success';
+           v_result.message := 'Email queued';
+           RETURN v_result;
+       EXCEPTION WHEN OTHERS THEN
+           v_result.status  := 'error';
+           v_result.message := 'Failed to queue email.';
+           RETURN v_result;
        END;
        $$ LANGUAGE plpgsql;
        ```
@@ -609,20 +658,28 @@ Users can see all data instead of just their own.
 
 **Solution:**
 
-1. Verify RLS is enabled on tables:
+1. Verify the SQL view applies the correct `WHERE` filter. In FraiseQL, row-level access is enforced in the view itself — there is no Python context object at runtime. The Rust binary sets a PostgreSQL session variable before executing the query:
    ```sql
-   SELECT relname, relrowsecurity FROM pg_class WHERE relname LIKE 'tb_%';
+   -- Correct: row-level filter is in the SQL view
+   CREATE VIEW v_user_filtered AS
+   SELECT
+       u.id,
+       jsonb_build_object('id', u.id::text, 'email', u.email, 'name', u.name) AS data
+   FROM tb_user u
+   WHERE u.id = current_setting('app.current_user_id')::uuid;
    ```
-   
-2. Check policy exists:
-   ```sql
-   SELECT * FROM pg_policies WHERE tablename = 'tb_user';
+
+2. Check that the JWT claim is being injected correctly via `fraiseql.toml`:
+   ```toml
+   [auth]
+   issuer_url  = "https://auth.example.com"
+   client_id   = "my-app"
+   redirect_uri = "https://app.example.com/callback"
    ```
-   
-3. Ensure `tenant_id` is being set:
-   ```python
-   # Check context in resolver
-   print(ctx.tenant_id)  # Should not be None
+
+3. Verify the session variable is set before queries run by checking the FraiseQL server logs at debug level:
+   ```bash
+   FRAISEQL_LOG=debug fraiseql run
    ```
 
 ### Issue: Event triggers not firing
@@ -632,23 +689,23 @@ Observers don't execute when data changes.
 
 **Solution:**
 
-1. Verify observer is registered:
-   ```python
-   # Check logs during startup
+Observers in FraiseQL are configured in `fraiseql.toml`, not via Python decorators. The `fraiseql` Python package has no `observer` export — observers are a TOML-level and runtime concern.
+
+1. Check that the `[observers]` section is present in `fraiseql.toml`:
+   ```toml
+   [observers]
+   backend  = "nats"
+   nats_url = "nats://localhost:4222"
+   ```
+
+2. Verify the observer logs at startup:
+   ```bash
    fraiseql run 2>&1 | grep "observer"
    ```
-   
-2. Check observer syntax:
-   ```python
-   @fraiseql.observer(
-       entity="User",  # Must match table name
-       event="INSERT"
-   )
-   ```
-   
-3. Test NATS connection:
+
+3. Test NATS connectivity:
    ```bash
-   docker-compose exec nats nats server info
+   nats pub test "hello"
    ```
 
 ### Issue: Schema too permissive
@@ -658,23 +715,42 @@ Hasura had field-level permissions, FraiseQL exposes everything.
 
 **Solution:**
 
-1. Use field-level decorators:
+To hide sensitive fields, simply omit them from the `@fraiseql.type` class and from the SQL view's `jsonb_build_object`. `fraiseql.field()` accepts `requires_scope`, `on_deny`, `deprecated`, and `description` — there is no `exclude` parameter.
+
+1. To restrict access to a field to authorized users only, use `requires_scope`:
    ```python
+   from typing import Annotated
+   import fraiseql
+
    @fraiseql.type
    class User:
-       id: str
-       email: str
-       # Hide sensitive fields
-       password_hash: Annotated[str, fraiseql.field(exclude=True)]
+       id: ID
+       name: str
+       # Requires a specific scope — rejects unauthorized requests by default
+       email: Annotated[str, fraiseql.field(requires_scope="read:User.email")]
    ```
-   
-2. Or create separate views for different roles:
+
+2. To create separate views for different roles, each view must still return `(id, data)`:
    ```sql
+   -- Public view: omits email from the JSONB data
    CREATE VIEW v_user_public AS
-   SELECT id, name FROM tb_user;
-   
+   SELECT
+       u.id,
+       jsonb_build_object('id', u.id::text, 'name', u.name) AS data
+   FROM tb_user u;
+
+   -- Admin view: includes all fields
    CREATE VIEW v_user_admin AS
-   SELECT id, name, email, created_at FROM tb_user;
+   SELECT
+       u.id,
+       jsonb_build_object(
+           'id',         u.id::text,
+           'identifier', u.identifier,
+           'name',       u.name,
+           'email',      u.email,
+           'created_at', u.created_at
+       ) AS data
+   FROM tb_user u;
    ```
 
 ### Issue: Relationships not resolving
@@ -684,11 +760,12 @@ Nested queries return null or empty arrays.
 
 **Solution:**
 
-1. Check SQL view has JOIN:
+1. Check SQL view has JOIN using integer FKs (not UUID):
    ```sql
-   -- View should JOIN related tables
+   -- View should JOIN via the pk_/fk_ integer pair
    SELECT ... FROM tb_user u
-   LEFT JOIN tb_post p ON p.user_id = u.id
+   LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+   GROUP BY u.pk_user, u.id
    ```
    
 2. Verify foreign keys exist:
@@ -719,8 +796,8 @@ FraiseQL is slower than Hasura.
    
 2. Create necessary indexes:
    ```sql
-   CREATE INDEX idx_user_email ON tb_user(email);
-   CREATE INDEX idx_post_user_id ON tb_post(user_id);
+   CREATE INDEX idx_tb_user_email   ON tb_user(email);
+   CREATE INDEX idx_tb_post_fk_user ON tb_post(fk_user);
    ```
    
 3. Analyze query plans:

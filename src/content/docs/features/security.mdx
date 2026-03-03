@@ -9,7 +9,7 @@ FraiseQL's security model has four layers: JWT verification by the engine, polic
 
 ## JWT Authentication
 
-FraiseQL verifies JWTs automatically on every request. Configuration is done via **environment variables**, not TOML — there is no `[auth]` section in `fraiseql.toml`.
+FraiseQL verifies JWTs automatically on every request. JWT secret and algorithm settings are configured via **environment variables**. OIDC provider identity (for browser login flows using PKCE) is configured in the `[auth]` section of `fraiseql.toml` — see [OIDC client identity](#oidc-client-identity) below.
 
 | Environment variable | Description |
 |----------------------|-------------|
@@ -163,13 +163,15 @@ FraiseQL passes `author_id` as a parameter to the view. The view can use it in a
 
 ```sql
 CREATE VIEW v_post AS
-SELECT jsonb_build_object(
-    'id',    id,
-    'title', title,
-    'body',  body
-)
-FROM tb_post
-WHERE fk_user = (current_setting('fraiseql.author_id'))::bigint;
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id',    p.id,
+        'title', p.title,
+        'body',  p.body
+    ) AS data
+FROM tb_post p
+WHERE p.fk_user = (current_setting('fraiseql.author_id'))::bigint;
 ```
 
 `inject=` only supports `jwt:<claim>` values. Compile-time validation rejects invalid formats.
@@ -198,7 +200,7 @@ See [Multi-Tenancy](/guides/multi-tenancy) for the full guide including PostgreS
 ## Error Sanitization
 
 <Aside type="note">
-Added in rc.13.
+Available in v2.0.0.
 </Aside>
 
 By default, FraiseQL returns raw error messages. Enable sanitization in production to prevent SQL errors and stack traces from reaching clients.
@@ -249,7 +251,7 @@ All errors include an `extensions` object clients can switch on:
 ## Rate Limiting
 
 <Aside type="note">
-Added in rc.13.
+Available in v2.0.0.
 </Aside>
 
 ```toml
@@ -268,7 +270,7 @@ See [Rate Limiting](/features/rate-limiting) for the full configuration referenc
 ## API Keys
 
 <Aside type="note">
-Added in rc.14.
+Available in v2.0.0.
 </Aside>
 
 For service-to-service authentication where JWT is impractical, FraiseQL supports static API keys stored hashed in the database. Keys are issued once (plaintext returned at creation, never stored) and validated on every request.
@@ -277,7 +279,7 @@ For service-to-service authentication where JWT is impractical, FraiseQL support
 [security.api_keys]
 enabled        = true
 header         = "X-API-Key"    # HTTP header to read the key from
-hash_algorithm = "argon2"       # "sha256" (fast) or "argon2" (production)
+hash_algorithm = "sha256"       # "sha256" is the supported value
 storage        = "postgres"     # "postgres" (production) or "env" (CI only)
 ```
 
@@ -288,7 +290,7 @@ See [Authentication](/guides/authentication#api-key-authentication) for the data
 ## Token Revocation
 
 <Aside type="note">
-Added in rc.14.
+Available in v2.0.0.
 </Aside>
 
 Revoke JWTs before their `exp` claim expires — for logout, security incidents, or key rotation.
@@ -314,7 +316,7 @@ See [Authentication](/guides/authentication) for the full revocation workflow.
 ### State encryption
 
 <Aside type="note">
-Added in rc.13.
+Available in v2.0.0.
 </Aside>
 
 Encrypts OAuth state blobs stored between `/auth/start` and `/auth/callback`, preventing tampering.
@@ -344,7 +346,7 @@ Set `enabled = false` explicitly in CI and local dev environments that do not ne
 ### PKCE
 
 <Aside type="note">
-Added in rc.13.
+Available in v2.0.0.
 </Aside>
 
 <Aside type="caution">
@@ -363,6 +365,19 @@ state_ttl_secs        = 600
 In multi-replica deployments, PKCE state is stored in memory per process by default. A user's `/auth/start` may hit replica A while `/auth/callback` hits replica B — causing a silent auth failure. Set `redis_url` and enable the `redis-pkce` Cargo feature to share state across replicas.
 </Aside>
 
+### OIDC client identity
+
+To use PKCE browser login flows, configure your OIDC provider client identity in `[auth]`:
+
+```toml
+[auth]
+issuer_url   = "https://accounts.google.com"
+client_id    = "my-fraiseql-client"
+redirect_uri = "https://api.example.com/auth/callback"
+```
+
+The OIDC client secret is never stored in `fraiseql.toml`. Provide it at runtime via the `OIDC_CLIENT_SECRET` environment variable (or whichever name your identity provider uses).
+
 ---
 
 ## Audit Logging
@@ -372,7 +387,7 @@ Enable the audit log via enterprise flags:
 ```toml
 [security.enterprise]
 audit_logging_enabled = true
-audit_log_level       = "info"  # "debug" | "info" | "warn"
+audit_log_backend     = "postgresql"   # "postgresql" | "syslog" | "file"
 ```
 
 Create an audit table in PostgreSQL:
@@ -425,9 +440,9 @@ CREATE POLICY post_owner_policy ON tb_post
     USING (fk_user = current_user_pk());
 
 -- Helper function
-CREATE FUNCTION current_user_pk() RETURNS INTEGER AS $$
+CREATE FUNCTION current_user_pk() RETURNS BIGINT AS $$
 BEGIN
-    RETURN current_setting('app.current_user_pk')::INTEGER;
+    RETURN current_setting('app.current_user_pk')::BIGINT;
 END;
 $$ LANGUAGE plpgsql;
 ```

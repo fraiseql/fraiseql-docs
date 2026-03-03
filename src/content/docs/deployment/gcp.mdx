@@ -78,7 +78,25 @@ echo "https://app.example.com" | \
   gcloud secrets create fraiseql-cors-origins --data-file=-
 ```
 
-### 4. Deploy to Cloud Run
+### 4. Run Database Migrations
+
+Apply pending schema migrations with Confiture before deploying:
+
+```bash
+# Run Confiture as a Cloud Run Job (one-off)
+gcloud run jobs create fraiseql-migrate \
+  --image ghcr.io/fraiseql/confiture:latest \
+  --set-secrets="DATABASE_URL=fraiseql-database-url:latest" \
+  --args="confiture,migrate,up,--env,production" \
+  --region us-central1
+
+# Execute the migration job
+gcloud run jobs execute fraiseql-migrate --region us-central1 --wait
+```
+
+See [Confiture Migrate](/confiture/migrate) for rollback and status commands.
+
+### 5. Deploy to Cloud Run
 
 ```bash
 # Deploy service
@@ -277,7 +295,7 @@ spec:
     app: fraiseql
   ports:
     - port: 80
-      targetPort: 8000
+      targetPort: 8080
 ```
 
 Deploy:
@@ -326,13 +344,13 @@ gcloud alpha monitoring policies create \
 
 ### Cloud Trace
 
-Enable distributed tracing:
+FraiseQL exports traces via OpenTelemetry. To send traces to Cloud Trace, configure the
+OpenTelemetry exporter endpoint when deploying:
 
 ```bash
-# In your FraiseQL code, initialize tracer
-from google.cloud import trace_v2
-
-client = trace_v2.TraceServiceClient()
+gcloud run services update fraiseql \
+  --set-env-vars="OTEL_EXPORTER_OTLP_ENDPOINT=https://telemetry.googleapis.com" \
+  --region=$REGION
 ```
 
 ## Backup & Disaster Recovery

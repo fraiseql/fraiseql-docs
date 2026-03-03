@@ -26,7 +26,7 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health/live || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # fraiseql run compiles the schema and starts the HTTP server
 CMD ["fraiseql", "run"]
@@ -55,6 +55,17 @@ services:
       timeout: 5s
       retries: 5
 
+  # Apply database schema migrations before starting the API
+  migrate:
+    image: ghcr.io/fraiseql/confiture:latest
+    environment:
+      DATABASE_URL: postgresql://fraiseql:dev-password@postgres:5432/fraiseql_dev
+    command: ["confiture", "migrate", "up", "--env", "local"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
   # FraiseQL API
   fraiseql:
     build: .
@@ -68,8 +79,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -95,7 +108,7 @@ docker-compose down
 
 ```bash
 # Check if API is running
-curl http://localhost:8080/health/live
+curl http://localhost:8080/health
 # Response: 200 OK
 
 # Run a test query
@@ -114,7 +127,8 @@ FROM ghcr.io/fraiseql/fraiseql:latest AS builder
 
 WORKDIR /app
 COPY schema.py fraiseql.toml ./
-RUN fraiseql compile schema.py
+# Generate JSON from Python schema, then compile
+RUN python schema.py && fraiseql compile fraiseql.toml
 
 # Stage 2: Runtime — minimal image with compiled schema only
 FROM ghcr.io/fraiseql/fraiseql:latest
@@ -134,7 +148,7 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/health/live || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
 CMD ["fraiseql", "run", "schema.compiled.json"]
 ```
@@ -172,21 +186,19 @@ services:
     environment:
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
       JWT_SECRET: ${JWT_SECRET}
-      ENVIRONMENT: production
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      LOG_FORMAT: json
       CORS_ORIGINS: ${CORS_ORIGINS}
-      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-10000}
-      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
-      PGBOUNCER_MIN_POOL_SIZE: 5
-      PGBOUNCER_MAX_POOL_SIZE: 20
+      # Rate limiting overrides (auth endpoints only)
+      RATE_LIMIT_AUTH_START: ${RATE_LIMIT_AUTH_START:-100}
+      RATE_LIMIT_AUTH_CALLBACK: ${RATE_LIMIT_AUTH_CALLBACK:-50}
+      RATE_LIMIT_FAILED_LOGIN: ${RATE_LIMIT_FAILED_LOGIN:-5}
+      # Connection pooling and other settings: configure in fraiseql.toml
     ports:
       - "${FRAISEQL_PORT}:8080"
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -233,11 +245,11 @@ DB_PORT=5432
 JWT_SECRET=long-random-secret-min-32-chars
 FRAISEQL_PORT=8080
 CORS_ORIGINS=https://app.example.com,https://api.example.com
-LOG_LEVEL=info
 
-# Rate limiting
-RATE_LIMIT_REQUESTS=10000
-RATE_LIMIT_WINDOW_SECONDS=60
+# Rate limiting overrides (auth endpoints; full config in fraiseql.toml)
+RATE_LIMIT_AUTH_START=100
+RATE_LIMIT_AUTH_CALLBACK=50
+RATE_LIMIT_FAILED_LOGIN=5
 
 # Backup schedule (cron format)
 BACKUP_SCHEDULE="0 2 * * *"  # Daily at 2 AM

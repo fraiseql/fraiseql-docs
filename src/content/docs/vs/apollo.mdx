@@ -344,13 +344,12 @@ FraiseQL federation connects **multiple databases** (PostgreSQL, MySQL, SQLite, 
 
 ```toml
 # fraiseql.toml
-[[databases]]
-name = "users_db"
-url = "${USERS_DB_URL}"
+[database]
+url = "${USERS_DB_URL}"  # Primary database
 
-[[databases]]
-name = "analytics_db"
-url = "${ANALYTICS_DB_URL}"
+# Additional databases are configured per-entity in the [federation] section
+[federation]
+enabled = true
 ```
 
 ```python
@@ -409,32 +408,39 @@ const userInputValidator = new GraphQLInputObjectType({
 
 ### FraiseQL: Compile-Time + Integrated
 
-FraiseQL enforces validation during schema compilation:
+FraiseQL enforces validation during schema compilation. Access control rules are declared directly on fields using `fraiseql.field()`:
 
-```toml
-[fraiseql.validation]
-email = { pattern = "^[^@]+@[^@]+\\.[^@]+$" }
-age = { range = { min = 0, max = 150 } }
-status = { enum = ["active", "inactive"] }
+```python
+from typing import Annotated
+import fraiseql
+
+@fraiseql.input
+class CreateUserInput:
+    email: str
+    age: int
+    status: str
+
+    # Field-level access control — requires scope to set sensitive fields
+    role: Annotated[str, fraiseql.field(
+        requires_scope="admin:write",
+        on_deny="reject",
+        description="User role — admin only",
+    )]
 ```
 
-- **13 built-in validators** across 4 categories
-  - Standard: required, pattern, length, range, enum, checksum
-  - Cross-field: comparison operators, conditionals
-  - Mutual exclusivity: OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent
-- **Compile-time enforcement** — Invalid schemas impossible at runtime
-- **Zero overhead** — No per-request validation overhead
-- **Database protection** — Invalid data never reaches the database
+- **Scope-based field access control** — requires JWT scopes to read or write protected fields
+- **Compile-time enforcement** — Invalid schemas are caught at build time
+- **Zero overhead** — Access rules are baked into the compiled schema
+- **Database protection** — Unauthorized data never reaches the database
 
 ### Comparison
 
 | Aspect | FraiseQL | Apollo Server |
 |--------|----------|---------------|
-| Built-in validators | 13 rules | ~5-8 (via decorators) |
+| Field access control | Scope-based (compile-time) | Custom middleware |
 | Compile-time enforcement | ✅ Yes | ❌ No |
 | Runtime validation overhead | None | Per-request |
-| Mutual exclusivity | OneOf, AnyOf, ConditionalRequired, RequiredIfAbsent | @oneOf only (via GraphQL spec) |
-| Cross-field validation | ✅ Yes | ❌ Custom code required |
+| Cross-field validation | ✅ Yes (PostgreSQL CHECK constraints) | ❌ Custom code required |
 | Learning curve | Low | High |
 
 <Aside type="note">
@@ -627,22 +633,22 @@ Mutation: {
 }
 ```
 
-FraiseQL observer (the framework handles CRUD, you react to events):
-```python
-@observer(
-    entity="User",
-    event="INSERT",
-    actions=[
-        email(
-            to="{email}",
-            subject="Welcome to our platform!",
-            body="Hi {name}, thanks for signing up.",
-        ),
-    ],
-)
-def on_user_created():
-    """Send welcome email when user is created."""
-    pass
+FraiseQL observer (the framework handles CRUD, you react to events via TOML configuration):
+
+```toml title="fraiseql.toml"
+[observers]
+backend = "nats"
+nats_url = "nats://localhost:4222"
+
+[[observers.rules]]
+entity = "User"
+event = "INSERT"
+
+[[observers.rules.actions]]
+type = "email"
+to = "{email}"
+subject = "Welcome to our platform!"
+body = "Hi {name}, thanks for signing up."
 ```
 
 ### Step 4: Remove DataLoaders

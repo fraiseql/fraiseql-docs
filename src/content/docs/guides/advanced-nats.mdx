@@ -7,575 +7,338 @@ import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
 Advanced NATS patterns for building reliable, scalable event-driven systems with FraiseQL.
 
-## NATS Architecture Overview
+<Aside type="important">
+**NATS integration is a Rust-level feature.** The Python SDK has no NATS API. There is no `nats.publish()`, no `@nats.subscribe()`, and no `@fraiseql.observer` decorator. Python's role is limited to defining the GraphQL schema. The Rust observer runtime detects mutations, publishes events to NATS, and invokes observer actions — all configured via TOML, not Python code.
+</Aside>
 
-### Core Concepts
+## How NATS Fits Into FraiseQL
+
+The data flow is:
+
+1. A GraphQL client sends a mutation request to the FraiseQL Rust server
+2. The Rust server calls your PostgreSQL mutation function (e.g. `fn_create_order`)
+3. The Rust observer detects the mutation and publishes an event to NATS JetStream
+4. External services subscribe to those NATS subjects and react
+
+Python code defines the schema at compile time. All NATS communication happens inside the Rust runtime.
 
 ```mermaid
 graph LR
-  subgraph CLIENTS["NATS Clients"]
-    publisher["Publisher"]
-    subscriber_a["Subscriber A"]
-    subscriber_b["Subscriber B"]
+  subgraph PYTHON["Python (compile-time)"]
+    schema["@fraiseql.mutation\nsql_source='fn_create_order'"]
   end
 
-  subgraph CLUSTER["NATS Server Cluster"]
-    server1["Server 1 (Leader)"]
-    server2["Server 2"]
-    server3["Server 3"]
+  subgraph RUST["Rust Runtime"]
+    server["FraiseQL Server"]
+    observer["Observer Worker"]
   end
 
-  subgraph PERSISTENCE["Persistence"]
-    jetstream["JetStream\n(Event Log)"]
-    snapshots["Snapshots"]
+  subgraph POSTGRES["PostgreSQL"]
+    fn["fn_create_order()"]
+    pg_notify["LISTEN/NOTIFY\nor CDC"]
   end
 
-  subjects["Subject Space\nevents.orders.*\nevents.users.*\ncommands.*"]
+  subgraph NATS["NATS JetStream"]
+    stream["fraiseql_events stream\nfraiseql.mutation.Order.INSERT"]
+  end
 
-  publisher -- "Publish" --> server1
-  subscriber_a -- "Subscribe" --> server2
-  subscriber_b -- "Subscribe" --> server3
+  subgraph CONSUMERS["External Consumers"]
+    svc_a["Email Service"]
+    svc_b["Analytics Service"]
+  end
 
-  server1 -- "Persist" --> jetstream
-  server1 -- "Route by subject" --> subjects
-  jetstream --> snapshots
-```
-
-### Event Streaming with JetStream
-
-FraiseQL integrates with NATS JetStream for durable event streaming:
-
-```python
-from fraiseql import nats, Subject, ConsumerGroup
-
-# Enable NATS in configuration
-# fraiseql.toml: [nats]
-# enabled = true
-# servers = ["nats://localhost:4222"]
-
-@fraiseql.observer(
-    entity="Order",
-    event="CREATE"
-)
-async def on_order_created(order: Order):
-    """Publish order creation events."""
-    await nats.publish(
-        subject="events.orders.created",
-        data={
-            "order_id": order.id,
-            "user_id": order.user_id,
-            "timestamp": order.created_at
-        }
-    )
-
-@nats.subscribe(
-    subject="events.orders.created",
-    consumer_group="order_processors"
-)
-async def process_order_event(message):
-    """Consume order creation events."""
-    order_data = message.data
-    await handle_new_order(order_data)
-    await message.ack()  # Acknowledge after processing
+  schema -->|"schema.json → compile"| server
+  server --> fn
+  fn --> pg_notify
+  pg_notify --> observer
+  observer -->|"publish"| stream
+  stream --> svc_a
+  stream --> svc_b
 ```
 
 ---
 
-## Advanced Event Streaming Patterns
+## Configuration
 
-### Publisher-Subscriber with Backpressure
+### Main Application Config (`fraiseql.toml`)
 
-```python
-from fraiseql import nats
-import asyncio
+Enable the NATS observer backend in your main config file:
 
-@fraiseql.observer(entity="Transaction", event="CREATE")
-async def publish_transaction(transaction: Transaction):
-    """
-    Publish with backpressure handling.
-    Prevents overwhelming subscribers.
-    """
-    try:
-        await nats.publish(
-            subject="events.transactions.created",
-            data=transaction.to_dict(),
-            timeout=5000  # 5s timeout
-        )
-    except nats.TimeoutError:
-        # Backpressure: NATS server too busy
-        await asyncio.sleep(1)
-        # Retry with exponential backoff
-        await nats.publish(...)
+```toml title="fraiseql.toml"
+[project]
+name = "my-app"
+version = "1.0.0"
 
-@nats.subscribe(
-    subject="events.transactions.created",
-    max_concurrent=10,  # Process 10 at a time
-    drain_timeout=30000  # 30s to drain on shutdown
-)
-async def process_transactions(message):
-    """Handle backpressure by limiting concurrency."""
-    try:
-        await heavy_processing(message.data)
-        await message.ack()
-    except Exception as e:
-        await message.nak(timeout=5000)  # Requeue after 5s
+[fraiseql]
+schema_file   = "schema.json"
+output_file   = "schema.compiled.json"
+
+[observers]
+backend   = "nats"
+nats_url  = "${NATS_URL}"
 ```
 
-### Subject-Based Routing
+`nats_url` is read from the `NATS_URL` environment variable at runtime. For a single server, use `nats://localhost:4222`. For a cluster, set `NATS_URL` to the URL of any cluster member — NATS client libraries handle cluster discovery automatically.
 
-```python
-# Hierarchical subject namespace
-events.orders.created      # Order lifecycle
-events.orders.updated
-events.orders.shipped
-events.orders.cancelled
+---
 
-events.payments.initiated  # Payment events
-events.payments.succeeded
-events.payments.failed
+### Observer Worker Config (`fraiseql-observer.toml`)
 
-commands.orders.create     # Commands (different from events)
-commands.orders.cancel
+The observer worker is a separate process that reads from NATS and executes observer actions. Its advanced transport settings live in `fraiseql-observer.toml`:
 
-# Wildcard subscriptions
-@nats.subscribe("events.orders.>")  # All order events
-async def handle_order_events(msg):
-    subject = msg.subject
-    if subject == "events.orders.created":
-        await handle_order_created(msg.data)
-    elif subject == "events.orders.shipped":
-        await handle_order_shipped(msg.data)
+```toml title="fraiseql-observer.toml"
+[transport]
+transport = "nats"
 
-# Partial subscriptions
-@nats.subscribe("events.*.created")  # All .created events
-async def handle_created_events(msg):
-    entity_type = msg.subject.split(".")[1]  # Extract "orders", "users", etc.
-    await handle_creation(entity_type, msg.data)
-```
+[transport.nats]
+url              = "${NATS_URL}"
+stream_name      = "fraiseql_events"
+subject_prefix   = "fraiseql.mutation"
+consumer_name    = "fraiseql_observer_worker"
 
-### Request-Reply Pattern (Request/Response over NATS)
-
-```python
-from fraiseql import nats
-
-# Service that responds to requests
-@nats.handler("services.order.validate")
-async def validate_order(request_data) -> dict:
-    """
-    Synchronous RPC-style request/reply.
-    Useful for inter-service communication.
-    """
-    return {
-        "valid": True,
-        "estimated_delivery": "2 days"
-    }
-
-# Client making request
-async def create_order_with_validation(order_data):
-    """Make request and wait for reply."""
-    response = await nats.request(
-        subject="services.order.validate",
-        data=order_data,
-        timeout=5000
-    )
-    if response.valid:
-        await create_order(order_data)
+[transport.nats.jetstream]
+max_bytes             = 10_737_418_240  # 10 GB retention limit
+max_age_days          = 7               # Retain events for 7 days
+max_deliver           = 3               # Retry delivery up to 3 times
+ack_wait_secs         = 30              # Re-deliver if not acked within 30s
+dedup_window_minutes  = 5               # Deduplicate messages within 5-min window
 ```
 
 ---
 
-## Reliability & Guarantees
+## NATS Subject Format
 
-### At-Least-Once Delivery
+FraiseQL publishes events on subjects following this pattern:
 
-```python
-@nats.subscribe(
-    subject="events.orders.created",
-    deliver_policy="deliver_new",  # Only new events
-    ack_policy="explicit"  # Manual ack required
-)
-async def process_order_exactly_once(message):
-    """
-    At-least-once delivery guarantee:
-    - Message resent if not acked
-    - Must be idempotent
-    """
-    try:
-        # Idempotent processing
-        await upsert_order_in_db(
-            order_id=message.data.id,
-            data=message.data
-        )
-        await message.ack()
-    except Exception as e:
-        # Don't ack - message will be redelivered
-        await message.nak(timeout=5000)
+```
+{subject_prefix}.{EntityType}.{OPERATION}
 ```
 
-### Exactly-Once Semantics with Deduplication
+With the default `subject_prefix = "fraiseql.mutation"`:
 
-```python
-import hashlib
+| Mutation | NATS Subject |
+|----------|-------------|
+| `fn_create_order` (INSERT) | `fraiseql.mutation.Order.INSERT` |
+| `fn_update_order` (UPDATE) | `fraiseql.mutation.Order.UPDATE` |
+| `fn_delete_order` (DELETE) | `fraiseql.mutation.Order.DELETE` |
+| `fn_create_user` (INSERT)  | `fraiseql.mutation.User.INSERT` |
 
-@nats.subscribe("events.payments.processed")
-async def handle_payment_exactly_once(message):
-    """
-    Achieve exactly-once by deduplicating.
-    Track message ID in database.
-    """
-    message_id = message.metadata.sequence.stream
-
-    # Check if we've processed this before
-    existing = await db.query(
-        "SELECT id FROM processed_messages WHERE message_id = $1",
-        [message_id]
-    )
-
-    if existing:
-        # Already processed, just ack
-        await message.ack()
-        return
-
-    try:
-        # Process payment
-        await process_payment(message.data)
-
-        # Record as processed
-        await db.insert(
-            "processed_messages",
-            {"message_id": message_id, "processed_at": datetime.now()}
-        )
-
-        await message.ack()
-    except Exception as e:
-        await message.nak(timeout=10000)
-```
-
-### Consumer Groups & Load Balancing
-
-```python
-# Multiple consumers in same group = load balanced
-# Multiple consumers in different groups = all get copy
-
-@nats.subscribe(
-    subject="events.orders.created",
-    consumer_group="order_processors",  # Load balanced
-    durable_name="order_processor_durable"  # Survives restart
-)
-async def process_order_1(message):
-    """Processor 1 - gets some messages."""
-    print(f"Processor 1 handling: {message.data}")
-    await message.ack()
-
-@nats.subscribe(
-    subject="events.orders.created",
-    consumer_group="order_processors",  # Same group
-    durable_name="order_processor_durable"
-)
-async def process_order_2(message):
-    """Processor 2 - gets other messages."""
-    print(f"Processor 2 handling: {message.data}")
-    await message.ack()
-
-# With 2 subscribers in same consumer group:
-# - Each message delivered to exactly one subscriber
-# - Automatically load balanced
-# - If processor 1 crashes, processor 2 handles its messages
-```
+External consumers subscribe to these subjects directly using any NATS client library (Go, Node.js, Python nats.py, etc.).
 
 ---
 
-## Event Replay & History
+## Mutations That Trigger Events
 
-### Replay Policies
+Define your mutation in Python (schema declaration only — no runtime code):
 
-```python
-from fraiseql.nats import DeliverPolicy
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID, DateTime
 
-# 1. New messages only (default)
-@nats.subscribe(
-    subject="events.audit.>",
-    deliver_policy=DeliverPolicy.DELIVER_NEW
-)
-async def audit_new_events(msg):
-    """Only receives events created after subscription."""
-    pass
+@fraiseql.type
+class Order:
+    id: ID
+    identifier: str
+    status: str
+    total_amount: float
+    created_at: DateTime
 
-# 2. All messages from start
-@nats.subscribe(
-    subject="events.audit.>",
-    deliver_policy=DeliverPolicy.DELIVER_ALL
-)
-async def audit_replay_all(msg):
-    """Replay entire event history."""
-    pass
+@fraiseql.input
+class CreateOrderInput:
+    items: list[str]
+    shipping_address: str
 
-# 3. Last message in subject
-@nats.subscribe(
-    subject="events.users.>",
-    deliver_policy=DeliverPolicy.DELIVER_LAST
-)
-async def user_state_sync(msg):
-    """Get current state for each user."""
-    pass
-
-# 4. Messages from time range
-@nats.subscribe(
-    subject="events.orders.>",
-    deliver_policy=DeliverPolicy.DELIVER_BY_START_TIME,
-    start_time="2024-02-08T00:00:00Z"  # Last 24 hours
-)
-async def recent_orders(msg):
-    """Replay last 24 hours of orders."""
-    pass
-
-# 5. Last N messages
-@nats.subscribe(
-    subject="events.transactions.>",
-    deliver_policy=DeliverPolicy.DELIVER_LAST_PER_SUBJECT,
-    opt_start_seq=100  # Last 100 per subject
-)
-async def recent_transactions(msg):
-    """Last 100 transactions per type."""
+@fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
+def create_order(input: CreateOrderInput) -> Order:
+    """Create an order. The Rust observer will publish to NATS after this succeeds."""
     pass
 ```
 
-### Temporal Queries (Time-Travel)
+The PostgreSQL function does the work; the Rust observer publishes the NATS event after a successful commit:
 
-```python
-import datetime
+```sql title="db/schema/fn_create_order.sql"
+CREATE OR REPLACE FUNCTION fn_create_order(
+    p_items             TEXT[],
+    p_shipping_address  TEXT
+)
+RETURNS mutation_response LANGUAGE plpgsql AS $$
+DECLARE
+    v_id    UUID;
+    v_pk    BIGINT;
+    v_slug  TEXT := gen_random_uuid()::text;
+BEGIN
+    INSERT INTO tb_order (identifier, items, shipping_address, status)
+    VALUES (v_slug, p_items, p_shipping_address, 'pending')
+    RETURNING pk_order, id INTO v_pk, v_id;
 
-async def get_user_state_at_time(user_id: ID, at_time: datetime):
-    """
-    Reconstruct user state at a point in time.
-    Replay events up to that point.
-    """
-    events = await nats.query_stream(
-        subject=f"events.users.{user_id}",
-        start_time=datetime.datetime(2024, 1, 1),
-        end_time=at_time
-    )
-
-    # Replay events to reconstruct state
-    user_state = {"id": user_id, "created_at": at_time}
-    for event in events:
-        if event.type == "created":
-            user_state.update(event.data)
-        elif event.type == "updated":
-            user_state.update(event.data)
-        elif event.type == "deleted":
-            return None
-
-    return user_state
+    RETURN ROW(
+        'success', NULL, v_id, 'Order',
+        (SELECT data FROM v_order WHERE id = v_id),
+        NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$;
 ```
+
+After `fn_create_order` returns `status = 'success'`, the FraiseQL observer automatically publishes to `fraiseql.mutation.Order.INSERT`.
 
 ---
 
-## Error Handling & Dead Letter Queues
+## PostgreSQL-Triggered NATS Events
 
-### DLQ Pattern
-
-```python
-from fraiseql import nats
-
-@nats.subscribe(
-    subject="events.payments.processed",
-    max_retries=3,
-    retry_backoff="exponential"
-)
-async def process_payment(message):
-    """Process payment with retries."""
-    try:
-        await charge_customer(message.data)
-        await message.ack()
-    except Exception as e:
-        # Automatic retry on nak
-        await message.nak(timeout=5000)
-
-# Dead letter handler
-@nats.subscribe(
-    subject="events.payments.dlq",
-    durable_name="payment_dlq_handler"
-)
-async def handle_failed_payment(message):
-    """
-    Handle permanently failed payments.
-    Invoked after max_retries exceeded.
-    """
-    order_id = message.data.order_id
-    await send_alert(f"Payment failed for order {order_id}")
-    await store_failed_payment(message.data)
-    await message.ack()
-```
-
----
-
-## Database-Triggered Events
-
-### Dual-Write Prevention
-
-```python
-# Problem: Mutations trigger events AND direct DB writes
-# Solution: Use database triggers as single source of truth
-
-@fraiseql.mutation(operation="CREATE")
-def create_order(user_id: ID, items: list) -> Order:
-    """Database trigger handles NATS publication."""
-    pass
-```
+For cases where you need to publish directly from the database (e.g. background jobs or triggers that fire outside of a FraiseQL mutation), use `pg_notify`. The FraiseQL observer listens on PostgreSQL channels and bridges to NATS:
 
 ```sql
--- PostgreSQL trigger publishes to NATS
-CREATE FUNCTION publish_order_created() RETURNS TRIGGER AS $$
+-- PostgreSQL trigger publishes via LISTEN/NOTIFY
+CREATE OR REPLACE FUNCTION notify_order_created()
+RETURNS TRIGGER AS $$
 BEGIN
-  PERFORM pg_notify('order_created', json_build_object(
-    'order_id', NEW.id,
-    'user_id', NEW.user_id,
-    'timestamp', NEW.created_at
-  )::text);
-  RETURN NEW;
+    PERFORM pg_notify(
+        'fraiseql_events',
+        json_build_object(
+            'entity_type', 'Order',
+            'operation',   'INSERT',
+            'entity_id',   NEW.id::text,
+            'timestamp',   NOW()
+        )::text
+    );
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER tr_order_created
 AFTER INSERT ON tb_order
-FOR EACH ROW EXECUTE FUNCTION publish_order_created();
+FOR EACH ROW
+EXECUTE FUNCTION notify_order_created();
 ```
 
-### Event Sourcing Pattern
-
-```python
-@fraiseql.observer(entity="Order", event="CREATE")
-async def append_to_event_log(order: Order):
-    """Append to immutable event log."""
-    await nats.publish(
-        subject="event_log.orders",
-        data={
-            "event_type": "OrderCreated",
-            "aggregate_id": order.id,
-            "data": order.to_dict(),
-            "timestamp": order.created_at,
-            "version": 1
-        }
-    )
-
-@fraiseql.observer(entity="Order", event="UPDATE")
-async def append_order_updated(order: Order, previous: Order):
-    """Track all updates."""
-    version = await get_latest_version(order.id)
-    await nats.publish(
-        subject="event_log.orders",
-        data={
-            "event_type": "OrderUpdated",
-            "aggregate_id": order.id,
-            "data": {
-                "changes": diff_objects(previous, order)
-            },
-            "timestamp": datetime.now(),
-            "version": version + 1
-        }
-    )
-```
+The FraiseQL observer bridges `pg_notify` events to NATS JetStream, so external consumers still receive them on the standard subject.
 
 ---
 
-## Monitoring & Metrics
+## Reliability and Delivery Guarantees
 
-### JetStream Metrics
+### At-Least-Once Delivery
 
-```python
-# Monitor consumer lag
-@fraiseql.job(interval=60000)  # Every minute
-async def check_consumer_lag():
-    """Alert if subscribers fall behind."""
-    for consumer in await nats.list_consumers():
-        lag = consumer.num_pending
-        if lag > 1000:
-            await send_alert(f"Consumer {consumer.name} lagging: {lag} messages")
+JetStream provides at-least-once delivery by default. The observer worker acknowledges each message after it successfully executes its action. If the worker crashes before acknowledging, NATS re-delivers after `ack_wait_secs`.
 
-# Monitor stream size
-@fraiseql.job(interval=300000)  # Every 5 minutes
-async def check_stream_size():
-    """Prevent running out of storage."""
-    for stream in await nats.list_streams():
-        if stream.bytes > MAX_STREAM_SIZE * 0.9:  # 90% full
-            await send_alert(f"Stream {stream.name} approaching limit")
-```
-
-### Performance Metrics
-
-```python
-# Prometheus metrics
-fraiseql_nats_publish_duration_seconds  # Message publish latency
-fraiseql_nats_subscribe_lag_seconds     # Subscriber lag
-fraiseql_nats_errors_total             # Failed messages
-fraiseql_nats_consumer_pending         # Messages waiting to be processed
-```
-
----
-
-## Integration with FraiseQL
-
-### Database-NATS Integration
-
-In `fraiseql.toml`, enable NATS via the observers backend:
+Configure in `fraiseql-observer.toml`:
 
 ```toml
-[observers]
-enabled = true
-backend = "nats"
-nats_url = "${NATS_URL}"  # comma-separated for clusters: nats://n1:4222,nats://n2:4222
-```
-
-Advanced JetStream settings belong in the observer runtime config (`fraiseql-observer.toml`):
-
-```toml
-[transport]
-transport = "nats"
-
-[transport.nats]
-url = "${NATS_URL}"
-stream_name = "fraiseql_events"
-subject_prefix = "fraiseql.mutation"
-consumer_name = "fraiseql_observer_worker"
-
 [transport.nats.jetstream]
-max_bytes = 10_737_418_240  # 10 GB
-max_age_days = 7
-max_deliver = 3
-ack_wait_secs = 30
-dedup_window_minutes = 5
+max_deliver   = 3    # Retry delivery up to 3 times
+ack_wait_secs = 30   # Re-deliver if not acked within 30s
 ```
 
-### Custom Event Publishing
+Your consumer logic must be **idempotent** — a message may arrive more than once.
 
-```python
-from fraiseql import observer, nats
+### Dead Letter Queue
 
-@fraiseql.observer(
-    entity="Order",
-    event="CREATE",
-    database="primary"
-)
-async def on_order_created(order: Order, ctx):
-    """
-    Publish custom event with business context.
-    """
-    await nats.publish(
-        subject=f"events.orders.{order.user_id}.created",
-        data={
-            "order_id": str(order.id),
-            "user_id": str(order.user_id),
-            "total": float(order.total),
-            "items_count": len(order.items),
-            "timestamp": order.created_at.isoformat()
-        },
-        headers={
-            "source": "order-service",
-            "version": "1",
-            "correlation_id": ctx.request_id
-        }
+When `max_deliver` is exhausted, JetStream moves the message to the `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.*` advisory subject. Monitor this subject to detect permanently failed events:
+
+```toml title="fraiseql-observer.toml"
+[transport.nats.jetstream]
+max_deliver          = 3
+dedup_window_minutes = 5   # Prevent reprocessing the same message within 5 min
+```
+
+### Event Deduplication
+
+Set `dedup_window_minutes` to prevent duplicate processing when a message is re-delivered within the deduplication window. FraiseQL includes a message ID derived from the mutation's transaction ID in the NATS message headers, which JetStream uses for deduplication.
+
+---
+
+## Replay and Event History
+
+JetStream retains events according to `max_age_days` and `max_bytes`. External consumers can replay history by subscribing with a `DeliverPolicy` set via their NATS client library:
+
+```toml title="fraiseql-observer.toml"
+[transport.nats.jetstream]
+max_age_days = 7     # Events retained for 7 days
+max_bytes    = 10_737_418_240  # Up to 10 GB
+```
+
+To replay from the start, configure your external consumer's NATS subscription with `DeliverAll` (or the equivalent in your client library). This is a client-side configuration, not a FraiseQL configuration.
+
+---
+
+## External Consumer Example (Python nats.py)
+
+External services consume FraiseQL events using any NATS client library. Here is an example using the `nats-py` library — note this is your external service code, completely separate from the FraiseQL schema:
+
+```python title="services/email_service/consumer.py"
+"""External consumer for FraiseQL NATS events.
+
+This is NOT part of the FraiseQL Python SDK.
+It is a separate service that subscribes to FraiseQL NATS events
+using the standard nats-py library.
+"""
+import asyncio
+import json
+import nats   # pip install nats-py — NOT fraiseql
+
+
+NATS_URL = "nats://localhost:4222"
+STREAM   = "fraiseql_events"
+SUBJECT  = "fraiseql.mutation.Order.INSERT"
+
+
+async def handle_order_created(msg):
+    """Handle new order events from FraiseQL mutations."""
+    event = json.loads(msg.data.decode())
+    order_id   = event["entity_id"]
+    order_data = event.get("entity", {})
+
+    print(f"New order created: {order_id}")
+    # ... send confirmation email, update analytics, etc.
+
+    await msg.ack()  # Acknowledge after successful processing
+
+
+async def main():
+    nc = await nats.connect(NATS_URL)
+    js = nc.jetstream()
+
+    # Subscribe to FraiseQL Order INSERT events
+    sub = await js.subscribe(
+        SUBJECT,
+        durable="email-service-order-handler",  # Durable = survives restart
+        stream=STREAM,
     )
+
+    async for msg in sub.messages:
+        try:
+            await handle_order_created(msg)
+        except Exception as exc:
+            print(f"Processing failed: {exc}")
+            await msg.nak()  # Re-deliver after ack_wait_secs
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+---
+
+## Monitoring
+
+The FraiseQL observer exposes Prometheus metrics with the `fraiseql_observer_` prefix:
+
+| Metric | Description |
+|--------|-------------|
+| `fraiseql_observer_events_processed_total` | Total events processed successfully |
+| `fraiseql_observer_events_failed_total` | Total events that failed processing |
+| `fraiseql_observer_events_retried_total` | Total events redelivered by JetStream |
+| `fraiseql_observer_processing_duration_seconds` | Histogram of event processing latency |
+
+Monitor consumer lag via the NATS monitoring endpoint (`http://localhost:8222/jsz`) or via the `nats` CLI:
+
+```bash
+# Show consumer status and pending message count
+nats consumer info fraiseql_events fraiseql_observer_worker
+
+# Stream info (bytes, message count, retention)
+nats stream info fraiseql_events
 ```
 
 ---
@@ -584,20 +347,19 @@ async def on_order_created(order: Order, ctx):
 
 <Aside type="tip">
 **Design Checklist:**
-- Use hierarchical subjects (e.g., `events.entity.action`)
-- Make consumers idempotent (handle duplicate messages)
-- Implement circuit breakers for external calls
-- Use consumer groups for load distribution
-- Set appropriate retention policies
+- Use hierarchical subjects (`fraiseql.mutation.Entity.OPERATION`) for precise routing
+- Make all consumers idempotent — JetStream guarantees at-least-once, not exactly-once
+- Set `max_deliver` and `dedup_window_minutes` appropriate to your workload
+- Use durable consumers so event processing survives worker restarts
+- Set `max_age_days` and `max_bytes` to prevent unbounded JetStream growth
 </Aside>
 
 <Aside type="note">
-**Implementation Checklist:**
-- Always use explicit ack for reliability
-- Implement DLQ for failed messages
-- Add correlation IDs to track events
-- Handle backpressure with max_concurrent
-- Graceful shutdown with drain timeout
+**Configuration Checklist:**
+- Set `NATS_URL` via environment variable — never hardcode credentials
+- Separate the `fraiseql.toml` (server config) from `fraiseql-observer.toml` (observer worker config)
+- Monitor `fraiseql_observer_events_failed_total` and alert when it rises
+- Test with `nats consumer info` to confirm events are being delivered and acknowledged
 </Aside>
 
 ---

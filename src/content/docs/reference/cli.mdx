@@ -57,7 +57,7 @@ fraiseql run [OPTIONS] [INPUT]
 |--------|---------|-------------|
 | `--database <URL>` | `$DATABASE_URL` | PostgreSQL connection string |
 | `--port <PORT>` | `8080` | HTTP port to listen on |
-| `--bind <ADDR>` | `0.0.0.0` | Bind address |
+| `--bind <HOST>` | `0.0.0.0` | Bind address |
 | `--watch` | off | Hot-reload when schema file changes |
 | `--introspection` | off | Enable GraphQL introspection endpoint |
 
@@ -105,7 +105,7 @@ fraiseql compile [OPTIONS] [INPUT]
 ```
 
 **Arguments:**
-- `INPUT` — Schema file or directory (default: `fraiseql.toml`)
+- `INPUT` — Schema file path (required, e.g. `fraiseql.toml` or `schema.json`)
 
 **Options:**
 
@@ -114,22 +114,21 @@ fraiseql compile [OPTIONS] [INPUT]
 | `-o, --output <FILE>` | `schema.compiled.json` | Output file path |
 | `--check` | off | Validate only; do not write output |
 | `--database <URL>` | `$DATABASE_URL` | Validate against live database schema |
-| `-v, --verbose` | off | Verbose output |
 
 **Examples:**
 
 ```bash
-# Compile from fraiseql.toml
-fraiseql compile
+# Compile from fraiseql.toml (INPUT is required)
+fraiseql compile fraiseql.toml
 
 # Compile a specific schema file to a custom output path
 fraiseql compile schema.json -o compiled.json
 
 # Validate without writing (useful in CI)
-fraiseql compile --check
+fraiseql compile fraiseql.toml --check
 
 # Validate against the database schema
-fraiseql compile --check --database "$DATABASE_URL"
+fraiseql compile fraiseql.toml --check --database "$DATABASE_URL"
 ```
 
 **Expected output:**
@@ -175,7 +174,8 @@ fraiseql extract [OPTIONS] [INPUT]
 | Option | Description |
 |--------|-------------|
 | `-o, --output <FILE>` | Output schema file |
-| `--format <FMT>` | Output format |
+| `--language <LANG>` | Source language hint |
+| `--recursive` | Scan directories recursively |
 
 **Example:**
 
@@ -199,26 +199,14 @@ fraiseql explain [OPTIONS] <QUERY>
 **Arguments:**
 - `QUERY` — GraphQL query string or path to a `.graphql` file
 
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--schema <FILE>` | Compiled schema (default: `schema.compiled.json`) |
-| `--variables <JSON>` | Query variables as a JSON string |
-| `--format <FMT>` | Output format: `sql`, `plan`, `json` |
-
 **Examples:**
 
 ```bash
 # Show the generated SQL for a simple query
 fraiseql explain "{ users { id name } }"
 
-# With variables
-fraiseql explain "query(\$id: ID!) { user(id: \$id) { name } }" \
-    --variables '{"id": "123"}'
-
-# Show the full execution plan from a query file
-fraiseql explain query.graphql --format plan
+# Explain a query from a file
+fraiseql explain "query(\$id: ID!) { user(id: \$id) { name } }"
 ```
 
 ---
@@ -234,22 +222,11 @@ fraiseql cost [OPTIONS] <QUERY>
 **Arguments:**
 - `QUERY` — GraphQL query string or path to a `.graphql` file
 
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--schema <FILE>` | Compiled schema |
-| `--max-cost <N>` | Exit with a non-zero code if cost exceeds N |
-| `--json` | Machine-readable JSON output |
-
 **Examples:**
 
 ```bash
 # Check cost of a deeply nested query
 fraiseql cost "{ users { posts { comments { id } } } }"
-
-# Enforce a cost budget in CI
-fraiseql cost query.graphql --max-cost 100
 ```
 
 ---
@@ -265,22 +242,11 @@ fraiseql analyze [OPTIONS] [SCHEMA]
 **Arguments:**
 - `SCHEMA` — Compiled schema file (default: `schema.compiled.json`)
 
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--category <CAT>` | Filter: `performance`, `security`, `federation`, `complexity`, `caching`, `indexing` |
-| `--json` | Machine-readable JSON output |
-| `--verbose` | Include detailed recommendations |
-
 **Examples:**
 
 ```bash
 # Full analysis with recommendations
 fraiseql analyze schema.compiled.json
-
-# Security-focused analysis
-fraiseql analyze --category security --verbose
 ```
 
 ---
@@ -300,23 +266,20 @@ fraiseql dependency-graph [OPTIONS] [SCHEMA]
 
 | Option | Description |
 |--------|-------------|
-| `--format <FMT>` | Output format: `json`, `dot`, `mermaid`, `d2`, `console` |
-| `--output <FILE>` | Write output to file instead of stdout |
-| `--show-cycles` | Highlight circular dependencies |
-| `--unused` | Include unused types in the graph |
+| `-f, --format <FMT>` | Output format: `json`, `dot`, `mermaid`, `d2`, `console` |
 
 **Examples:**
 
 ```bash
 # Quick console view
-fraiseql dependency-graph
+fraiseql dependency-graph schema.compiled.json
 
 # Graphviz DOT for rendering as a PNG
-fraiseql dependency-graph --format dot -o deps.dot
+fraiseql dependency-graph schema.compiled.json -f dot > deps.dot
 dot -Tpng deps.dot -o deps.png
 
 # Mermaid diagram (paste into Markdown)
-fraiseql dependency-graph --format mermaid
+fraiseql dependency-graph schema.compiled.json -f mermaid
 ```
 
 ---
@@ -336,10 +299,14 @@ fraiseql lint [OPTIONS] [SCHEMA]
 
 | Option | Description |
 |--------|-------------|
-| `--audit <AUDIT>` | Audit category: `federation`, `cost`, `cache`, `auth`, `compilation` |
-| `--fail-on <LEVEL>` | Exit non-zero on: `critical`, `warning`, `all` |
-| `--fix` | Auto-fix issues where possible |
-| `--json` | Machine-readable JSON output |
+| `--federation` | Run federation audit |
+| `--cost` | Run cost audit |
+| `--cache` | Run cache audit |
+| `--auth` | Run auth audit |
+| `--compilation` | Run compilation audit |
+| `--fail-on-critical` | Exit non-zero on critical issues |
+| `--fail-on-warning` | Exit non-zero on any warning |
+| `--verbose` | Include detailed recommendations |
 
 **Examples:**
 
@@ -347,11 +314,14 @@ fraiseql lint [OPTIONS] [SCHEMA]
 # Run all lint checks
 fraiseql lint
 
-# Auth audit only, fail on any warning
-fraiseql lint --audit auth --fail-on warning
+# Auth audit only
+fraiseql lint --auth
 
-# Auto-fix and verify in CI
-fraiseql lint --fix --fail-on critical
+# Fail on any warning in CI
+fraiseql lint --fail-on-warning
+
+# Run cost and cache audits only
+fraiseql lint --cost --cache --fail-on-critical
 ```
 
 ---
@@ -372,8 +342,8 @@ fraiseql validate [OPTIONS] [SCHEMA]
 | Option | Description |
 |--------|-------------|
 | `--strict` | Treat warnings as errors |
-| `--database <URL>` | Validate against a live database |
-| `--json` | Machine-readable JSON output |
+| `--check-unused` | Warn on unused types |
+| `--check-cycles` | Warn on circular dependencies |
 
 **Examples:**
 
@@ -381,8 +351,11 @@ fraiseql validate [OPTIONS] [SCHEMA]
 # Basic structural validation
 fraiseql validate schema.json
 
-# Strict mode with database cross-check
-fraiseql validate --strict --database "$DATABASE_URL"
+# Strict mode
+fraiseql validate schema.json --strict
+
+# Validate facts against a live database
+fraiseql validate facts --database "$DATABASE_URL"
 ```
 
 **Expected output:**
@@ -414,18 +387,19 @@ fraiseql generate-views [OPTIONS] [SCHEMA]
 
 | Option | Description |
 |--------|-------------|
-| `-o, --output <FILE>` | Output SQL file |
-| `--refresh <STRATEGY>` | Refresh strategy: `trigger`, `scheduled` |
-| `--include <PATTERNS>` | Include only views matching a pattern (e.g. `va_*`, `tv_*`) |
+| `-s, --schema <FILE>` | Schema path (required) |
+| `-e, --entity <NAME>` | Entity name to generate view for (required) |
+| `--view <NAME>` | View name to generate |
+| `--refresh-strategy <STRATEGY>` | Refresh strategy: `trigger-based`, `scheduled` |
 
 **Examples:**
 
 ```bash
-# Generate all views to a SQL file
-fraiseql generate-views -o views.sql
+# Generate a view for the User entity
+fraiseql generate-views -s schema.json -e User --view va_users
 
-# Arrow views only, with trigger-based refresh
-fraiseql generate-views --include "va_*" --refresh trigger -o arrow_views.sql
+# With trigger-based refresh strategy
+fraiseql generate-views -s schema.json -e Order --view va_orders --refresh-strategy trigger-based
 ```
 
 ---
@@ -435,25 +409,24 @@ fraiseql generate-views --include "va_*" --refresh trigger -o arrow_views.sql
 Connect to a PostgreSQL database and discover fact tables, then emit a schema stub.
 
 ```bash
-fraiseql introspect [OPTIONS]
+fraiseql introspect facts [OPTIONS]
 ```
 
 **Options:**
 
 | Option | Description |
 |--------|-------------|
-| `--database <URL>` | PostgreSQL connection string |
-| `--output <FORMAT>` | Output format: `python`, `json` |
-| `--tables <PATTERN>` | Table name pattern (default: `tf_*`) |
+| `-d, --database <URL>` | PostgreSQL connection string (required) |
+| `--format <FMT>` | Output format: `python`, `json` |
 
 **Examples:**
 
 ```bash
 # Discover all fact tables in the database
-fraiseql introspect --database "$DATABASE_URL"
+fraiseql introspect facts --database "$DATABASE_URL"
 
 # Emit a Python schema stub
-fraiseql introspect --database "$DATABASE_URL" --output python > facts.py
+fraiseql introspect facts --database "$DATABASE_URL" --format python > facts.py
 ```
 
 ---
@@ -474,8 +447,7 @@ fraiseql generate [OPTIONS] [SCHEMA]
 | Option | Description |
 |--------|-------------|
 | `--language <LANG>` | Target language for generated code |
-| `--output <DIR>` | Output directory |
-| `--types-only` | Generate type definitions only, no resolvers |
+| `-o, --output <FILE>` | Output file path |
 
 ---
 
@@ -496,14 +468,15 @@ fraiseql init [OPTIONS] [NAME]
 
 | Option | Description |
 |--------|-------------|
-| `--template <TPL>` | Starter template |
-| `--database <URL>` | Pre-fill database URL in config |
-| `--sdk <SDK>` | Include SDK for a specific language |
+| `--language <LANG>` | SDK language: `python`, `typescript`, etc. |
+| `--database <TYPE>` | Database type: `postgres`, `mysql`, etc. |
+| `--size <SIZE>` | Project size: `xs`, `s`, `m` |
+| `--no-git` | Skip git repository initialization |
 
 **Example:**
 
 ```bash
-fraiseql init my-api --database postgres://localhost/mydb
+fraiseql init my-api --language python --database postgres
 ```
 
 ---
@@ -599,9 +572,8 @@ All commands support the following options:
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | Validation or compilation error |
-| `2` | Configuration error |
-| `3` | Database connection error |
+| `1` | Error (validation, compilation, or runtime failure) |
+| `2` | Structural manifest error (only for `validate-documents`) |
 
 ---
 
@@ -643,8 +615,8 @@ Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if 
 | Start development server | `fraiseql run --watch` |
 | Compile for production | `fraiseql compile --check` |
 | Validate schema | `fraiseql validate --strict` |
-| Check query cost | `fraiseql cost query.graphql --max-cost 100` |
-| Analyze performance | `fraiseql analyze --category performance` |
+| Check query cost | `fraiseql cost "{ users { id } }"` |
+| Analyze schema | `fraiseql analyze schema.compiled.json` |
 | Generate client types | `fraiseql generate --language typescript` |
 | Run migrations | `fraiseql migrate up` |
 
@@ -652,10 +624,9 @@ Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if 
 
 ```bash
 # Typical CI pipeline
-fraiseql validate                 # Validate configuration
-fraiseql compile --check          # Compile and validate schema
-fraiseql lint --fail-on warning   # Run all audits
-fraiseql test                     # Run tests (if configured)
+fraiseql validate schema.json     # Validate configuration
+fraiseql compile fraiseql.toml --check  # Compile and validate schema
+fraiseql lint --fail-on-warning   # Run all audits
 fraiseql migrate up               # Apply migrations
 fraiseql run                      # Start server
 ```
@@ -700,11 +671,11 @@ fraiseql run                      # Start server
 
 4. **Test explain command**:
    ```bash
-   fraiseql explain "{ __typename }" --format sql
+   fraiseql explain "{ __typename }"
    ```
-   
+
    Expected output:
-   ```sql
+   ```
    -- Generated SQL for query
    SELECT 'Query' as typename;
    ```
@@ -724,7 +695,7 @@ fraiseql run                      # Start server
 
 6. **Run a lint check**:
    ```bash
-   fraiseql lint --fail-on warning
+   fraiseql lint --fail-on-warning
    ```
    
    Expected output:
@@ -795,5 +766,8 @@ Error: Address already in use (os error 48)
   </Card>
   <Card title="Deployment" icon="rocket">
     [Production Deployment](/guides/deployment) — Production deployment guide
+  </Card>
+  <Card title="Confiture" icon="seti:db">
+    [Confiture](/confiture) — Database schema management with Confiture
   </Card>
 </CardGrid>

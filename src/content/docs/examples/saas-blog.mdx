@@ -28,7 +28,7 @@ A complete example of a production-ready, multi-tenant blogging platform using F
 
 ```sql
 CREATE TABLE tb_tenant (
-    pk_tenant  SERIAL PRIMARY KEY,
+    pk_tenant  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier TEXT NOT NULL UNIQUE,
     name       TEXT NOT NULL,
@@ -37,10 +37,10 @@ CREATE TABLE tb_tenant (
 );
 
 CREATE TABLE tb_user (
-    pk_user    SERIAL PRIMARY KEY,
+    pk_user    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier TEXT NOT NULL UNIQUE,
-    fk_tenant  INTEGER NOT NULL REFERENCES tb_tenant(pk_tenant),
+    fk_tenant BIGINT NOT NULL REFERENCES tb_tenant(pk_tenant),
     email      TEXT UNIQUE NOT NULL,
     name       TEXT NOT NULL,
     role       TEXT NOT NULL DEFAULT 'subscriber',  -- admin, editor, subscriber
@@ -48,11 +48,11 @@ CREATE TABLE tb_user (
 );
 
 CREATE TABLE tb_post (
-    pk_post    SERIAL PRIMARY KEY,
+    pk_post    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier TEXT NOT NULL UNIQUE,
-    fk_tenant  INTEGER NOT NULL REFERENCES tb_tenant(pk_tenant),
-    fk_user    INTEGER NOT NULL REFERENCES tb_user(pk_user),
+    fk_tenant BIGINT NOT NULL REFERENCES tb_tenant(pk_tenant),
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
     title      TEXT NOT NULL,
     content    TEXT NOT NULL DEFAULT '',
     published  BOOLEAN NOT NULL DEFAULT FALSE,
@@ -62,12 +62,12 @@ CREATE TABLE tb_post (
 );
 
 CREATE TABLE tb_comment (
-    pk_comment SERIAL PRIMARY KEY,
+    pk_comment BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier TEXT NOT NULL UNIQUE,
-    fk_tenant  INTEGER NOT NULL REFERENCES tb_tenant(pk_tenant),
-    fk_post    INTEGER NOT NULL REFERENCES tb_post(pk_post),
-    fk_user    INTEGER NOT NULL REFERENCES tb_user(pk_user),
+    fk_tenant BIGINT NOT NULL REFERENCES tb_tenant(pk_tenant),
+    fk_post BIGINT NOT NULL REFERENCES tb_post(pk_post),
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
     content    TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -123,6 +123,7 @@ JOIN tb_user u ON u.pk_user = c.fk_user;
 import fraiseql
 from fraiseql.scalars import ID
 from datetime import datetime
+from typing import Annotated
 
 @fraiseql.type
 class Tenant:
@@ -152,8 +153,6 @@ class Post:
 @fraiseql.type
 class Comment:
     id: ID
-    post_id: ID
-    user_id: ID
     content: str
     created_at: datetime
 
@@ -253,29 +252,71 @@ mutation {
 
 ## Authentication & Authorization
 
+FraiseQL mutations are compile-time declarations backed by PostgreSQL functions. Role enforcement lives in the SQL function, and the current user's identity is injected from the JWT via the `inject` parameter — no runtime Python needed.
+
 ```python
 # JWT token includes tenant and role
-{
-  "user_id": "user123",
-  "tenant_id": "tenant456",
-  "role": "editor",
-  "scopes": ["read:posts", "write:posts", "read:comments"]
-}
+# {
+#   "sub": "user-uuid-here",
+#   "tenant_id": "tenant-uuid-here",
+#   "role": "editor",
+#   "scopes": ["read:posts", "write:posts", "read:comments"]
+# }
 
+# RLS automatically filters to the current tenant's rows.
+# The SET ROLE and SET app.tenant_id are applied by the FraiseQL
+# runtime before executing any query, driven by the compiled schema.
 @fraiseql.query(sql_source="v_post")
-def posts(info) -> list[Post]:
+def posts(first: int = 20, after: str | None = None) -> list[Post]:
     """Automatically filters to current tenant via RLS."""
-    # PostgreSQL RLS policy:
-    # WHERE fk_tenant = (SELECT pk_tenant FROM tb_tenant WHERE id = current_setting('app.tenant_id'))
     pass
 
-@fraiseql.mutation
-def create_post(info, title: str, content: str) -> Post:
-    """Only editors can create posts."""
-    user = get_current_user(info)
-    if user['role'] not in ['admin', 'editor']:
-        raise PermissionError("Only editors can create posts")
+# The SQL function fn_create_post checks the caller's role.
+# The user_id is injected from the JWT claim 'sub' — not passed by the client.
+@fraiseql.mutation(
+    sql_source="fn_create_post",
+    operation="CREATE",
+    inject={"user_id": "jwt:sub"}
+)
+def create_post(title: str, content: str) -> Post:
+    """Only editors can create posts. Role check enforced in fn_create_post."""
     pass
+```
+
+The corresponding SQL function enforces the role constraint:
+
+```sql
+CREATE FUNCTION fn_create_post(
+    p_user_id UUID,
+    p_title   TEXT,
+    p_content TEXT
+) RETURNS mutation_response AS $$
+DECLARE
+    v_user_role TEXT;
+    v_fk_user   BIGINT;
+    v_fk_tenant BIGINT;
+BEGIN
+    SELECT role, pk_user, fk_tenant
+      INTO v_user_role, v_fk_user, v_fk_tenant
+      FROM tb_user WHERE id = p_user_id;
+
+    IF v_user_role NOT IN ('admin', 'editor') THEN
+        RETURN ROW('failed:authorization', 'Only editors can create posts',
+                   NULL, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+
+    INSERT INTO tb_post (fk_tenant, fk_user, title, content, identifier)
+    VALUES (
+        v_fk_tenant,
+        v_fk_user,
+        p_title,
+        p_content,
+        lower(regexp_replace(p_title, '[^a-zA-Z0-9]+', '-', 'g'))
+    );
+
+    RETURN ROW('success', NULL, NULL, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+END;
+$$ LANGUAGE plpgsql;
 ```
 
 ## Multi-Tenancy Implementation
@@ -300,112 +341,140 @@ CREATE POLICY posts_exclude_deleted ON tb_post
 USING (deleted_at IS NULL);
 
 -- Set tenant context from request
-SET app.tenant_id = 'tenant456';
+-- FraiseQL sets this automatically from the JWT before each query:
+-- SET app.tenant_id = '<tenant_id from JWT>';
 ```
 
-### Application Middleware
-
-```python
-@fraiseql.middleware
-async def set_tenant_context(request, next):
-    """Set tenant context from JWT token."""
-    user = get_current_user_from_request(request)
-    if user:
-        # Set PostgreSQL context for RLS
-        await ctx.db.execute(
-            "SELECT set_config('app.tenant_id', $1, true)",
-            [user['tenant_id']]
-        )
-        request.user = user
-    return await next(request)
-```
+<Aside type="note">
+FraiseQL sets the PostgreSQL session variable `app.tenant_id` from the JWT claim automatically before executing any query. No middleware code is needed — configure the claim name in `fraiseql.toml`.
+</Aside>
 
 ## Soft Deletes & Recovery
 
+The soft-delete pattern is implemented entirely in SQL functions. FraiseQL mutations are compile-time declarations that map to these functions.
+
 ```python
 @fraiseql.query(sql_source="v_post")
-def post(info, id: ID) -> Post:
+def post(id: ID) -> Post | None:
     """Get single post (v_post already excludes soft-deleted)."""
     pass
 
-@fraiseql.mutation
-async def delete_post(info, id: ID) -> Post:
+@fraiseql.mutation(
+    sql_source="fn_delete_post",
+    operation="DELETE",
+    inject={"user_id": "jwt:sub"}
+)
+def delete_post(id: ID) -> Post:
     """Soft-delete a post (sets deleted_at, does not remove row)."""
-    result = await ctx.db.query_one(
-        """
-        UPDATE tb_post SET deleted_at = NOW()
-        WHERE id = $1
-        RETURNING id, deleted_at
-        """,
-        [id]
-    )
-    return Post(**result)
+    pass
 
-@fraiseql.mutation
-async def restore_post(info, id: ID) -> Post:
+@fraiseql.mutation(
+    sql_source="fn_restore_post",
+    operation="UPDATE",
+    inject={"user_id": "jwt:sub"}
+)
+def restore_post(id: ID) -> Post:
     """Restore a soft-deleted post."""
-    result = await ctx.db.query_one(
-        """
-        UPDATE tb_post SET deleted_at = NULL
-        WHERE id = $1
-        RETURNING id, deleted_at
-        """,
-        [id]
-    )
-    return Post(**result)
+    pass
+```
+
+The SQL functions handle the actual data operations:
+
+```sql
+CREATE FUNCTION fn_delete_post(p_user_id UUID, p_id UUID)
+RETURNS mutation_response AS $$
+BEGIN
+    UPDATE tb_post SET deleted_at = NOW()
+    WHERE id = p_id
+      AND fk_user = (SELECT pk_user FROM tb_user WHERE id = p_user_id);
+
+    RETURN ROW('success', NULL, p_id, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION fn_restore_post(p_user_id UUID, p_id UUID)
+RETURNS mutation_response AS $$
+BEGIN
+    UPDATE tb_post SET deleted_at = NULL
+    WHERE id = p_id
+      AND fk_user = (SELECT pk_user FROM tb_user WHERE id = p_user_id);
+
+    RETURN ROW('success', NULL, p_id, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+END;
+$$ LANGUAGE plpgsql;
 ```
 
 ## Audit Trail
+
+Audit logging is implemented as a PostgreSQL trigger on the base tables. No application-layer middleware is needed.
 
 ```python
 @fraiseql.type
 class AuditLog:
     id: ID
-    user_id: ID
     entity_type: str  # "post", "comment"
     entity_id: ID
     action: str  # "create", "update", "delete"
-    changes: dict  # { field: { old: value, new: value } }
     created_at: datetime
+```
 
-# Middleware to log all mutations
-@fraiseql.middleware
-async def audit_mutations(request, next):
-    """Audit all data modifications."""
-    result = await next(request)
-    if is_mutation(request):
-        changes = extract_changes(request, result)
-        await log_audit_event(get_current_user(request), changes)
-    return result
+```sql
+-- Audit trigger fires automatically on tb_post mutations
+CREATE TABLE tb_audit_log (
+    pk_audit_log BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id           UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier   TEXT NOT NULL UNIQUE
+                     GENERATED ALWAYS AS (id::text) STORED,
+    entity_type  TEXT NOT NULL,
+    entity_id    UUID NOT NULL,
+    action       TEXT NOT NULL,
+    changes      JSONB,
+    created_at   TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE FUNCTION fn_audit_post_changes() RETURNS trigger AS $$
+BEGIN
+    INSERT INTO tb_audit_log (entity_type, entity_id, action, changes)
+    VALUES (
+        'post',
+        COALESCE(NEW.id, OLD.id),
+        TG_OP,
+        jsonb_build_object('old', to_jsonb(OLD), 'new', to_jsonb(NEW))
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_audit_post
+AFTER INSERT OR UPDATE OR DELETE ON tb_post
+FOR EACH ROW EXECUTE FUNCTION fn_audit_post_changes();
 ```
 
 ## Caching Strategy
 
 ```python
-@fraiseql.query(sql_source="v_post", cache_ttl=3600)  # Cache for 1 hour
+@fraiseql.query(sql_source="v_post", cache_ttl_seconds=3600)  # Cache for 1 hour
 def popular_posts(first: int = 10) -> list[Post]:
     """Cache popular posts to reduce database load."""
     pass
 
-# Invalidate cache on mutations
-@fraiseql.mutation
-async def create_post(info, title: str, content: str) -> Post:
-    """Invalidate post cache after creating."""
-    result = await ctx.db.query_one(
-        """
-        INSERT INTO tb_post (fk_tenant, fk_user, title, content, identifier)
-        VALUES (
-            (SELECT pk_tenant FROM tb_tenant WHERE id = $1),
-            (SELECT pk_user FROM tb_user WHERE id = $2),
-            $3, $4,
-            lower(regexp_replace($3, '[^a-zA-Z0-9]+', '-', 'g'))
-        )
-        RETURNING id, title, content, published, deleted_at, created_at, updated_at
-        """,
-        [info.context.tenant_id, info.context.user_id, title, content]
-    )
-    invalidate_cache("popular_posts")
-    return Post(**result)
+@fraiseql.mutation(
+    sql_source="fn_create_post",
+    operation="CREATE",
+    inject={"user_id": "jwt:sub"},
+    invalidates_views=["v_post"]
+)
+def create_post(title: str, content: str) -> Post:
+    """Create post and automatically invalidate the v_post cache."""
+    pass
+```
+
+Enable caching in your configuration:
+
+```toml
+[caching]
+enabled = true
+backend = "redis"
 ```
 
 ## Getting Started
@@ -446,7 +515,7 @@ async def create_post(info, title: str, content: str) -> Post:
 6. **Visit GraphQL playground**
 
    ```bash
-   open http://localhost:8000/graphql
+   open http://localhost:8080/graphql
    ```
 
 7. **Test the API**
@@ -563,7 +632,7 @@ If you get permission errors:
 
 1. Ensure RLS policy is created:
    ```sql
-   CREATE POLICY tenant_isolation ON tb_post 
+   CREATE POLICY tenant_isolation ON tb_post
    USING (fk_tenant = current_setting('app.tenant_id')::int);
    ```
 

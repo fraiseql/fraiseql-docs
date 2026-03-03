@@ -201,7 +201,7 @@ class UpdateOrderResult:
 
 @fraiseql.mutation
 def update_order_status(order_id: str, status: str) -> UpdateOrderResult:
-    return fraiseql.config(fn_source="sp_update_order_status")
+    return fraiseql.config(sql_source="sp_update_order_status")
 ```
 
 ```graphql
@@ -271,9 +271,9 @@ No T-SQL rewriting. Your existing stored procedures work as-is.
 It can be useful to see exactly what T-SQL FraiseQL executes. Enable query logging to
 capture generated statements:
 
-```toml
-[server]
-log_queries = true
+```bash
+# Enable query logging via environment variable
+FRAISEQL_LOG=debug fraiseql run schema.compiled.json
 ```
 
 A GraphQL query like:

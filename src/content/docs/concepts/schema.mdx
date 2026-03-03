@@ -202,27 +202,21 @@ FraiseQL creates default query endpoints for each type, mapped to the correspond
 
 ### Custom Queries
 
-```python
-@fraiseql.query
-async def active_users(info, limit: int = 10) -> list[User]:
-    """Get recently active users."""
-    return await info.context.db.query(
-        "SELECT * FROM v_user WHERE last_seen > now() - interval '1 day' LIMIT $1",
-        limit
-    )
+Map a query to any SQL view you own using `sql_source`:
 
-@fraiseql.query
-async def search_posts(info, query: str) -> list[Post]:
-    """Search posts by title or content."""
-    return await info.context.db.query(
-        "SELECT * FROM v_post WHERE title ILIKE $1 OR content ILIKE $1",
-        f"%{query}%"
-    )
+```python
+@fraiseql.query(sql_source="v_user")
+def active_users(limit: int = 10) -> list[User]:
+    """Get all users — FraiseQL adds WHERE filters from arguments automatically."""
+    pass
+
+@fraiseql.query(sql_source="v_post")
+def posts_by_author(author_id: fraiseql.ID) -> list[Post]:
+    """Get posts for a specific author."""
+    pass
 ```
 
-<Aside type="caution">
-**Low-level escape hatch.** The `info.context.db` API bypasses FraiseQL's SQL view mapping. Prefer `@fraiseql.query(sql_source="v_your_view")` for standard queries. Use raw database access only when you need dynamic SQL that cannot be expressed as a view.
-</Aside>
+FraiseQL compiles the `sql_source` view name into optimized SQL at build time. At runtime it executes `SELECT data FROM v_user WHERE ...` and maps the result to the return type. No resolver body is needed — `pass` is the correct body for compiled queries.
 
 ## Mutations
 
@@ -232,48 +226,71 @@ FraiseQL creates default mutation endpoints mapped to SQL functions you write (`
 
 ### Custom Mutations
 
-```python
-@fraiseql.mutation
-async def publish_post(info, id: str) -> Post:
-    """Publish a draft post."""
-    await info.context.db.execute(
-        "UPDATE posts SET published = true WHERE id = $1",
-        id
-    )
-    return await info.context.db.find_one("v_post", id=id)
+Map a mutation to a SQL function using `sql_source` and `operation`:
 
-@fraiseql.mutation
-async def archive_user(info, id: str) -> bool:
+```python
+@fraiseql.mutation(sql_source="fn_publish_post", operation="UPDATE")
+def publish_post(id: fraiseql.ID) -> Post:
+    """Publish a draft post."""
+    pass
+
+@fraiseql.mutation(sql_source="fn_archive_user", operation="UPDATE")
+def archive_user(id: fraiseql.ID) -> bool:
     """Archive a user and their content."""
-    async with info.context.db.transaction():
-        await info.context.db.execute(
-            "UPDATE users SET archived = true WHERE id = $1", id
-        )
-        await info.context.db.execute(
-            "UPDATE posts SET published = false WHERE author_id = $1", id
-        )
-    return True
+    pass
+```
+
+The corresponding SQL functions implement the business logic and return a `mutation_response`:
+
+```sql
+CREATE FUNCTION fn_publish_post(p_id UUID) RETURNS mutation_response AS $$
+DECLARE v_id UUID;
+BEGIN
+    UPDATE tb_post SET is_published = true, published_at = NOW()
+    WHERE id = p_id RETURNING id INTO v_id;
+
+    IF NOT FOUND THEN
+        RETURN ROW('failed:not_found', 'Post not found', NULL, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+
+    PERFORM sync_tv_post_single(v_id);
+    RETURN ROW('success', 'Post published', v_id, 'Post',
+        (SELECT data FROM v_post WHERE id = v_id), NULL, NULL, NULL)::mutation_response;
+END;
+$$ LANGUAGE plpgsql;
 ```
 
 ## Directives
 
 ### Field Visibility
 
+Use `fraiseql.field(requires_scope=...)` to restrict access to sensitive fields:
+
 ```python
+from typing import Annotated
+import fraiseql
+
 @fraiseql.type
 class User:
     id: str
     name: str
-    email: str = fraiseql.field(private=True)  # Not in public API
-    password_hash: str = fraiseql.field(exclude=True)  # Never exposed
+    # Requires scope to access — returns FORBIDDEN if missing
+    email: Annotated[str, fraiseql.field(requires_scope="read:User.email")]
+    # Mask mode: returns null for unauthorized users instead of failing
+    phone: Annotated[str | None, fraiseql.field(requires_scope="read:User.phone", on_deny="mask")]
 ```
 
-| Option | Effect | Use Case |
-|--------|--------|----------|
-| `private=True` | Field exists in the schema but requires authentication | Internal fields, PII |
-| `exclude=True` | Field excluded from the GraphQL schema entirely | DB-only columns |
+To exclude a field entirely (e.g., `password_hash`), simply omit it from your Python type. Since FraiseQL reads from SQL views, any column not in the view's JSONB output is never exposed — no decorator needed.
+
+| Approach | Effect | When to use |
+|----------|--------|-------------|
+| `requires_scope="..."` | Field in schema, rejected or masked without scope | PII, internal fields |
+| `on_deny="mask"` | Field returns null when scope missing | Optional exposure |
+| Omit from type + view | Field never in GraphQL schema | Secrets, hashes |
 
 ### Computed Fields
+
+Computed fields are calculated in the SQL view. Declare them as regular fields in the Python type:
 
 ```python
 @fraiseql.type
@@ -281,11 +298,10 @@ class User:
     id: str
     first_name: str
     last_name: str
-
-    @fraiseql.computed
-    def full_name(self) -> str:
-        return f"{self.first_name} {self.last_name}"
+    full_name: str  # Computed in v_user via first_name || ' ' || last_name
 ```
+
+There is no `@fraiseql.computed` decorator. The computation happens in the SQL view's `jsonb_build_object()`.
 
 ### Deprecation
 
@@ -303,7 +319,7 @@ class User:
 
 ```typescript
 // schema.ts
-import { type, input, query, enumType } from 'fraiseql';
+import { Type, input, query, enumType } from 'fraiseql';
 
 // Enum
 @enumType()
@@ -314,7 +330,7 @@ enum UserRole {
 }
 
 // Object types with relationships
-@type()
+@Type()
 class User {
   id: string;
   name: string;
@@ -324,7 +340,7 @@ class User {
   bio?: string;                // optional field
 }
 
-@type()
+@Type()
 class Post {
   id: string;
   title: string;
@@ -333,7 +349,7 @@ class Post {
   tags: Tag[];                 // many-to-many
 }
 
-@type()
+@Type()
 class Tag {
   id: string;
   name: string;
@@ -537,21 +553,19 @@ class User:
 
 ### Validation
 
-Add validation at the schema level:
+Validation is implemented in your PostgreSQL `fn_*` functions via `RAISE EXCEPTION`, or at the type level using custom scalars. There is no `fraiseql.validate()` function:
 
 ```python
 from typing import Annotated
+import fraiseql
 
 @fraiseql.input
 class CreateUserInput:
-    email: Annotated[str, fraiseql.validate(
-        pattern=r'^[^@]+@[^@]+\.[^@]+$',
-        message="Invalid email format"
-    )]
-    age: Annotated[int, fraiseql.validate(
-        minimum=13,
-        maximum=120
-    )]
+    email: str  # Validate in fn_create_user() with RAISE EXCEPTION
+    age: int    # Validate in fn_create_user() with RAISE EXCEPTION
+
+# For reusable scalar validation, use a CustomScalar:
+# email: Email  # Where Email is a fraiseql.scalar subclassing CustomScalar
 ```
 
 ## Troubleshooting

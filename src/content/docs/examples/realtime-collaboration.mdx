@@ -23,31 +23,35 @@ A complete example of a Google Docs-like collaborative editor using FraiseQL and
 
 ```sql
 CREATE TABLE tb_document (
-    pk_document SERIAL PRIMARY KEY,
+    pk_document BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
     identifier  TEXT NOT NULL UNIQUE,
     title       TEXT NOT NULL,
     content     TEXT NOT NULL DEFAULT '',
-    fk_owner    INTEGER NOT NULL REFERENCES tb_user(pk_user),
+    fk_owner BIGINT NOT NULL REFERENCES tb_user(pk_user),
     created_at  TIMESTAMPTZ DEFAULT now(),
     updated_at  TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE tb_document_share (
-    pk_share    SERIAL PRIMARY KEY,
+    pk_share    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    fk_document INTEGER NOT NULL REFERENCES tb_document(pk_document),
-    fk_user     INTEGER NOT NULL REFERENCES tb_user(pk_user),
+    identifier  TEXT NOT NULL UNIQUE
+                    GENERATED ALWAYS AS (id::text) STORED,
+    fk_document BIGINT NOT NULL REFERENCES tb_document(pk_document),
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
     permission  TEXT NOT NULL DEFAULT 'view',  -- 'view', 'edit', 'admin'
     shared_at   TIMESTAMPTZ DEFAULT now(),
     UNIQUE(fk_document, fk_user)
 );
 
 CREATE TABLE tb_document_edit (
-    pk_edit     SERIAL PRIMARY KEY,
+    pk_edit     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id          UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
-    fk_document INTEGER NOT NULL REFERENCES tb_document(pk_document),
-    fk_user     INTEGER NOT NULL REFERENCES tb_user(pk_user),
+    identifier  TEXT NOT NULL UNIQUE
+                    GENERATED ALWAYS AS (id::text) STORED,
+    fk_document BIGINT NOT NULL REFERENCES tb_document(pk_document),
+    fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
     operation   JSONB NOT NULL,  -- { type: "insert", position: 100, content: "text" }
     timestamp   TIMESTAMPTZ DEFAULT now()
 );
@@ -56,7 +60,6 @@ CREATE TABLE tb_document_edit (
 CREATE VIEW v_document AS
 SELECT
     d.id,
-    d.identifier,
     jsonb_build_object(
         'id',         d.id::text,
         'identifier', d.identifier,
@@ -78,8 +81,7 @@ SELECT
         'user_id',      u.id::text,
         'operation',    e.operation,
         'timestamp',    e.timestamp
-    ) AS data,
-    e.fk_document
+    ) AS data
 FROM tb_document_edit e
 JOIN tb_document d ON d.pk_document = e.fk_document
 JOIN tb_user u ON u.pk_user = e.fk_user;
@@ -157,6 +159,26 @@ subscription {
 }
 ```
 
+The subscriptions are declared as compile-time projections in Python:
+
+```python
+@fraiseql.subscription(
+    entity_type="Document",
+    operation="UPDATE"
+)
+def document_changed(document_id: ID | None = None) -> Document:
+    """Subscribe to document content changes."""
+    pass
+
+@fraiseql.subscription(
+    entity_type="DocumentPresence",
+    topic="documents.presence"
+)
+def presence_updated(document_id: ID | None = None) -> DocumentPresence:
+    """Subscribe to presence updates (cursors, selections)."""
+    pass
+```
+
 ## Key Mutations
 
 ```graphql
@@ -189,17 +211,16 @@ mutation {
   }
 }
 
-# Add comment to document range
+# Share document with another user
 mutation {
-  addComment(
+  shareDocument(
     documentId: "doc123"
-    startPosition: 100
-    endPosition: 150
-    content: "This needs clarification"
+    userId: "user456"
+    permission: "edit"
   ) {
     id
-    content
-    author { name }
+    permission
+    sharedAt
   }
 }
 ```
@@ -207,218 +228,201 @@ mutation {
 ## Conflict Resolution with OT
 
 <Aside type="tip">
-Operational Transformation ensures that concurrent edits from multiple users are merged correctly, even when they arrive out of order. Each operation is transformed against pending operations before being applied.
+Operational Transformation ensures that concurrent edits from multiple users are merged correctly, even when they arrive out of order. Each operation is transformed against pending operations before being applied. This logic lives in the PostgreSQL function, keeping it atomic and consistent.
 </Aside>
 
+The `apply_edit` mutation maps to `fn_apply_edit`, which performs OT conflict resolution and persists the result in a single atomic transaction:
+
 ```python
-from operational_transform import apply_operation, transform_operations
-
-@fraiseql.mutation
-async def apply_edit(info, document_id: str, operation: dict) -> DocumentEdit:
+@fraiseql.mutation(
+    sql_source="fn_apply_edit",
+    operation="CUSTOM",
+    inject={"user_id": "jwt:sub"}
+)
+def apply_edit(document_id: ID, operation: dict) -> DocumentEdit:
     """Apply edit with automatic conflict resolution."""
-    user_id = get_current_user(info)
-
-    # Get current document and pending operations
-    doc = await ctx.db.query_one(
-        "SELECT pk_document, content FROM tb_document WHERE id = $1",
-        [document_id]
-    )
-
-    pending_ops = await ctx.db.query(
-        """
-        SELECT operation FROM tb_document_edit
-        WHERE fk_document = $1 AND timestamp > $2
-        ORDER BY timestamp ASC
-        """,
-        [doc['pk_document'], operation['timestamp']]
-    )
-
-    # Transform operation against pending operations
-    transformed_op = operation
-    for pending_op in pending_ops:
-        transformed_op = transform_operations(
-            transformed_op,
-            pending_op['operation']
-        )
-
-    # Apply transformed operation to document
-    new_content = apply_operation(doc['content'], transformed_op)
-
-    # Save operation and updated document
-    await ctx.db.execute(
-        """
-        UPDATE tb_document
-        SET content = $1, updated_at = NOW()
-        WHERE pk_document = $2
-        """,
-        [new_content, doc['pk_document']]
-    )
-
-    edit = await ctx.db.query_one(
-        """
-        INSERT INTO tb_document_edit (fk_document, fk_user, operation)
-        VALUES ($1, (SELECT pk_user FROM tb_user WHERE id = $2), $3::jsonb)
-        RETURNING id, operation, timestamp
-        """,
-        [doc['pk_document'], user_id, json.dumps(transformed_op)]
-    )
-
-    # Broadcast to other connected users
-    await fraiseql.nats.publish(
-        subject=f"documents:changed:{document_id}",
-        data={
-            'document_id': document_id,
-            'operation': transformed_op,
-            'user_id': user_id,
-            'content': new_content
-        }
-    )
-
-    return DocumentEdit(**edit)
+    pass
 ```
 
-## Subscription Implementation
+```sql
+CREATE FUNCTION fn_apply_edit(
+    p_user_id     UUID,
+    p_document_id UUID,
+    p_operation   JSONB
+) RETURNS mutation_response AS $$
+DECLARE
+    v_fk_doc    BIGINT;
+    v_content   TEXT;
+    v_edit_id   UUID;
+BEGIN
+    SELECT pk_document, content
+      INTO v_fk_doc, v_content
+      FROM tb_document
+     WHERE id = p_document_id;
 
-```python
-@fraiseql.subscription
-async def document_changed(info, document_id: str):
-    """Subscribe to document changes."""
-    user_id = get_current_user(info)
+    IF v_fk_doc IS NULL THEN
+        RETURN ROW('failed:not_found', 'Document not found',
+                   NULL, 'DocumentEdit', NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
 
-    # Check permission
-    share = await ctx.db.query_one(
-        """
-        SELECT permission FROM tb_document_share
-        WHERE fk_document = (SELECT pk_document FROM tb_document WHERE id = $1)
-          AND fk_user = (SELECT pk_user FROM tb_user WHERE id = $2)
-        """,
-        [document_id, user_id]
+    -- In a full OT implementation, transform p_operation against any
+    -- operations recorded since p_operation->>'client_timestamp'.
+    -- For simplicity this example appends the operation as-is.
+
+    INSERT INTO tb_document_edit (fk_document, fk_user, operation)
+    VALUES (
+        v_fk_doc,
+        (SELECT pk_user FROM tb_user WHERE id = p_user_id),
+        p_operation
     )
+    RETURNING id INTO v_edit_id;
 
-    if not share:
-        raise PermissionError("You don't have access to this document")
+    -- Update document content (apply operation result)
+    UPDATE tb_document
+       SET content    = p_operation->>'result_content',
+           updated_at = NOW()
+     WHERE pk_document = v_fk_doc;
 
-    async for event in fraiseql.nats.subscribe(f'documents:changed:{document_id}'):
-        yield {
-            'id': event['document_id'],
-            'content': event['content'],
-            'updatedAt': datetime.utcnow()
-        }
+    -- pg_notify triggers the subscription broadcast automatically
+    PERFORM pg_notify(
+        'documents:changed:' || p_document_id::text,
+        jsonb_build_object(
+            'document_id', p_document_id,
+            'edit_id',     v_edit_id,
+            'user_id',     p_user_id
+        )::text
+    );
+
+    RETURN ROW(
+        'success', NULL, v_edit_id, 'DocumentEdit',
+        NULL, NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$ LANGUAGE plpgsql;
 ```
 
 ## Presence Tracking
 
+Presence (cursor positions and selections) is stored in `tb_document_edit` as ephemeral update records, or alternatively handled by an external Redis service outside FraiseQL. The mutation declaration is a standard compile-time pattern:
+
 ```python
-@fraiseql.mutation
-async def update_presence(
-    info,
-    document_id: str,
+@fraiseql.mutation(
+    sql_source="fn_update_presence",
+    operation="UPDATE",
+    inject={"user_id": "jwt:sub"}
+)
+def update_presence(
+    document_id:     ID,
     cursor_position: int,
     selection_start: int = 0,
-    selection_end: int = 0
+    selection_end:   int = 0
 ) -> DocumentPresence:
-    """Update user's cursor/selection and broadcast."""
-    user_id = get_current_user(info)
+    """Update user's cursor/selection and broadcast via pg_notify."""
+    pass
+```
 
-    # Store presence in Redis (ephemeral, expires after 1 hour)
-    await redis.setex(
-        f"presence:{document_id}:{user_id}",
-        3600,
-        json.dumps({
-            'cursor_position': cursor_position,
-            'selection_start': selection_start,
-            'selection_end': selection_end,
-            'updated_at': datetime.utcnow().isoformat()
-        })
-    )
+```sql
+CREATE FUNCTION fn_update_presence(
+    p_user_id        UUID,
+    p_document_id    UUID,
+    p_cursor_pos     INT,
+    p_sel_start      INT DEFAULT 0,
+    p_sel_end        INT DEFAULT 0
+) RETURNS mutation_response AS $$
+BEGIN
+    -- Broadcast presence via pg_notify; FraiseQL delivers to subscribers.
+    PERFORM pg_notify(
+        'documents:presence:' || p_document_id::text,
+        jsonb_build_object(
+            'user_id',         p_user_id,
+            'cursor_position', p_cursor_pos,
+            'selection_start', p_sel_start,
+            'selection_end',   p_sel_end
+        )::text
+    );
 
-    # Broadcast presence update
-    await fraiseql.nats.publish(
-        subject=f"documents:presence:{document_id}",
-        data={
-            'user_id': user_id,
-            'cursor_position': cursor_position,
-            'selection_start': selection_start,
-            'selection_end': selection_end
-        }
-    )
-
-    return DocumentPresence(
-        user_id=user_id,
-        cursor_position=cursor_position,
-        selection_start=selection_start,
-        selection_end=selection_end
-    )
-
-@fraiseql.subscription
-async def presence_updated(info, document_id: str):
-    """Subscribe to presence updates (cursors, selections)."""
-    async for event in fraiseql.nats.subscribe(f'documents:presence:{document_id}'):
-        yield {
-            'userId': event['user_id'],
-            'cursorPosition': event['cursor_position'],
-            'selectionStart': event['selection_start'],
-            'selectionEnd': event['selection_end']
-        }
+    RETURN ROW(
+        'success', NULL, NULL, 'DocumentPresence',
+        jsonb_build_object(
+            'user_id',         p_user_id,
+            'cursor_position', p_cursor_pos,
+            'selection_start', p_sel_start,
+            'selection_end',   p_sel_end
+        ),
+        NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$ LANGUAGE plpgsql;
 ```
 
 ## Permissions & Sharing
 
 ```python
-@fraiseql.mutation
-async def share_document(
-    info,
-    document_id: str,
-    user_id: str,
-    permission: str
-) -> DocumentShare:
-    """Share document with another user."""
-    current_user_id = get_current_user(info)
+@fraiseql.mutation(
+    sql_source="fn_share_document",
+    operation="CREATE",
+    inject={"owner_id": "jwt:sub"}
+)
+def share_document(document_id: ID, user_id: ID, permission: str) -> DocumentShare:
+    """Share document with another user. Ownership verified in SQL."""
+    pass
+```
 
-    # Verify ownership
-    doc = await ctx.db.query_one(
-        """
-        SELECT pk_document FROM tb_document
-        WHERE id = $1
-          AND fk_owner = (SELECT pk_user FROM tb_user WHERE id = $2)
-        """,
-        [document_id, current_user_id]
+```sql
+CREATE FUNCTION fn_share_document(
+    p_owner_id    UUID,
+    p_document_id UUID,
+    p_user_id     UUID,
+    p_permission  TEXT
+) RETURNS mutation_response AS $$
+DECLARE
+    v_fk_doc   BIGINT;
+    v_share_id UUID;
+BEGIN
+    -- Verify ownership
+    SELECT pk_document INTO v_fk_doc
+      FROM tb_document
+     WHERE id = p_document_id
+       AND fk_owner = (SELECT pk_user FROM tb_user WHERE id = p_owner_id);
+
+    IF v_fk_doc IS NULL THEN
+        RETURN ROW('failed:authorization', 'You can only share documents you own',
+                   NULL, 'DocumentShare', NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+
+    INSERT INTO tb_document_share (fk_document, fk_user, permission)
+    VALUES (
+        v_fk_doc,
+        (SELECT pk_user FROM tb_user WHERE id = p_user_id),
+        p_permission
     )
-    if not doc:
-        raise PermissionError("You can't share documents you don't own")
+    ON CONFLICT (fk_document, fk_user)
+    DO UPDATE SET permission = EXCLUDED.permission
+    RETURNING id INTO v_share_id;
 
-    share = await ctx.db.query_one(
-        """
-        INSERT INTO tb_document_share (fk_document, fk_user, permission)
-        VALUES (
-            $1,
-            (SELECT pk_user FROM tb_user WHERE id = $2),
-            $3
-        )
-        ON CONFLICT (fk_document, fk_user) DO UPDATE SET permission = EXCLUDED.permission
-        RETURNING id, permission, shared_at
-        """,
-        [doc['pk_document'], user_id, permission]
-    )
+    -- Notify recipient via pg_notify
+    PERFORM pg_notify(
+        'share:received',
+        jsonb_build_object(
+            'document_id', p_document_id,
+            'user_id',     p_user_id,
+            'permission',  p_permission
+        )::text
+    );
 
-    # Notify recipient
-    await fraiseql.nats.publish(
-        subject="share:received",
-        data={
-            'document_id': document_id,
-            'user_id': user_id,
-            'permission': permission
-        }
-    )
-
-    return DocumentShare(**share)
+    RETURN ROW(
+        'success', NULL, v_share_id, 'DocumentShare',
+        NULL, NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$ LANGUAGE plpgsql;
 ```
 
 ## Edit History
 
 ```python
 @fraiseql.query(sql_source="v_document_edit")
-def document_history(document_id: str, first: int = 50) -> list[DocumentEdit]:
+def document_history(document_id: ID, first: int = 50) -> list[DocumentEdit]:
     """Get edit history for a document in chronological order."""
     pass
 ```

@@ -41,26 +41,28 @@ WHERE id = $1;
 
 **Why?** The FraiseQL Rust server receives the complete entity as a single JSONB payload, no assembly needed.
 
-### Trinity Pattern: UUID + INTEGER PKs
+### Trinity Pattern: UUID + BIGINT PKs
 
-FraiseQL uses a dual-identifier system:
+FraiseQL uses a three-identifier system per entity:
 
 ```sql
 CREATE TABLE tb_user (
-  pk_user BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,  -- Internal, fast FKs
-  id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),        -- Public, exposed in GraphQL
-  email VARCHAR(255) NOT NULL UNIQUE,
-  name VARCHAR(255) NOT NULL,
+  pk_user    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,  -- Internal, fast FKs
+  id         UUID   NOT NULL UNIQUE DEFAULT gen_random_uuid(), -- Public, exposed in GraphQL
+  identifier TEXT   NOT NULL UNIQUE,                           -- Human-readable key (e.g. email)
+  email      VARCHAR(255) NOT NULL UNIQUE,
+  name       VARCHAR(255) NOT NULL,
   deleted_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE tb_post (
-  pk_post BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-  id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
-  fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user) ON DELETE CASCADE,  -- Uses pk_user
-  title VARCHAR(255) NOT NULL,
+  pk_post    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  id         UUID   NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+  identifier TEXT   NOT NULL UNIQUE,                           -- Human-readable key (e.g. slug)
+  fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user) ON DELETE CASCADE, -- Uses pk_user
+  title      VARCHAR(255) NOT NULL,
   deleted_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -68,16 +70,17 @@ CREATE TABLE tb_post (
 
 **Why?**
 - `id` (UUID): Exposed in GraphQL, immutable across systems, stateless
-- `pk_*` (INTEGER): Fast joins, small FK storage, internal only
+- `pk_*` (BIGINT): Fast joins, small FK storage, internal only
+- `identifier` (TEXT): Human-readable domain key (email, slug, SKU, etc.)
 - Resolver functions bridge them in mutations
 
 ### Resolver Functions
 
-Every table has UUID to INTEGER resolver functions:
+Every table has UUID to BIGINT resolver functions:
 
 ```sql
 -- Resolve UUID to internal pk (used in mutations)
-CREATE OR REPLACE FUNCTION core.get_pk_user(p_user_id UUID)
+CREATE OR REPLACE FUNCTION fn_get_pk_user(p_user_id UUID)
 RETURNS BIGINT
 LANGUAGE SQL STABLE PARALLEL SAFE
 AS $$
@@ -85,7 +88,7 @@ AS $$
 $$;
 
 -- Resolve pk to UUID (used in responses)
-CREATE OR REPLACE FUNCTION core.get_user_id(p_pk_user BIGINT)
+CREATE OR REPLACE FUNCTION fn_get_user_id(p_pk_user BIGINT)
 RETURNS UUID
 LANGUAGE SQL STABLE PARALLEL SAFE
 AS $$
@@ -99,10 +102,10 @@ All mutations return a **composite type** with 8 fields:
 
 ```sql
 -- File: 00402_type_mutation_response.sql
-CREATE TYPE app.mutation_response AS (
-  status          TEXT,              -- "success:created", "failed:validation", "not_found:user"
+CREATE TYPE mutation_response AS (
+  status          TEXT,              -- "success", "failed:validation", "conflict:duplicate_email"
   message         TEXT,              -- Human-readable error/success message
-  entity_id       TEXT,              -- UUID of created/updated entity
+  entity_id       UUID,              -- UUID of created/updated entity
   entity_type     TEXT,              -- GraphQL type name: "User", "Post"
   entity          JSONB,             -- Complete entity from v_* view (null if error)
   updated_fields  TEXT[],            -- Array of field names that changed
@@ -114,7 +117,7 @@ CREATE TYPE app.mutation_response AS (
 **Example mutation result:**
 ```json
 {
-  "status": "success:created",
+  "status": "success",
   "message": "User created successfully",
   "entity_id": "550e8400-e29b-41d4-a716-446655440000",
   "entity_type": "User",
@@ -226,7 +229,7 @@ CREATE INDEX idx_tv_user_organization ON tv_user(organization_id);
 **Refresh function:**
 
 ```sql
-CREATE OR REPLACE FUNCTION core.refresh_user(p_user_id UUID) RETURNS VOID
+CREATE OR REPLACE FUNCTION sync_tv_user_single(p_user_id UUID) RETURNS VOID
 LANGUAGE plpgsql AS $$
 DECLARE v_new_data JSONB;
 BEGIN
@@ -248,17 +251,17 @@ FraiseQL separates concerns into two PostgreSQL schemas:
 ### app/ Schema: API Layer
 
 ```sql
--- File: 03311_create_user.sql
-CREATE OR REPLACE FUNCTION app.create_user(
+-- File: 03311_fn_create_user.sql
+CREATE OR REPLACE FUNCTION app.fn_create_user(
   input_tenant_id UUID,
   input_user_id UUID,
   input_payload JSONB
-) RETURNS app.mutation_response
+) RETURNS mutation_response
 LANGUAGE plpgsql AS $$
 DECLARE v_input app.type_user_input;
 BEGIN
   v_input := jsonb_populate_record(NULL::app.type_user_input, input_payload);
-  RETURN core.create_user(input_tenant_id, input_user_id, v_input, input_payload);
+  RETURN core.fn_create_user(input_tenant_id, input_user_id, v_input, input_payload);
 EXCEPTION WHEN others THEN
   RETURN core.build_error_response('invalid_input', 'Input validation failed: ' || SQLERRM, NULL, NULL);
 END; $$;
@@ -267,12 +270,12 @@ END; $$;
 ### core/ Schema: Business Logic Layer
 
 ```sql
-CREATE OR REPLACE FUNCTION core.create_user(
+CREATE OR REPLACE FUNCTION core.fn_create_user(
   input_tenant_id UUID,
   input_user_id UUID,
   input_data app.type_user_input,
   input_payload JSONB
-) RETURNS app.mutation_response
+) RETURNS mutation_response
 LANGUAGE plpgsql AS $$
 DECLARE
   v_user_id UUID := gen_random_uuid();
@@ -283,18 +286,18 @@ BEGIN
     RETURN core.build_error_response('invalid_input', 'email is required', NULL, 'User');
   END IF;
 
-  INSERT INTO tb_user (id, email, name, status, created_by)
-  VALUES (v_user_id, input_data.email, input_data.name, COALESCE(input_data.status, 'active'), input_user_id)
+  INSERT INTO tb_user (id, identifier, email, name, status, created_by)
+  VALUES (v_user_id, input_data.email, input_data.email, input_data.name, COALESCE(input_data.status, 'active'), input_user_id)
   RETURNING pk_user INTO v_user_pk;
 
   SELECT data INTO v_entity_data FROM v_user WHERE id = v_user_id;
 
-  PERFORM core.refresh_user(v_user_id);
+  PERFORM sync_tv_user_single(v_user_id);
 
-  RETURN ('success:created', 'User created successfully', v_user_id::TEXT, 'User',
+  RETURN ('success', 'User created successfully', v_user_id, 'User',
     v_entity_data, ARRAY['id', 'email', 'name']::TEXT[], NULL::JSONB,
     jsonb_build_object('operation', 'INSERT', 'entity_pk', v_user_pk, 'timestamp', CURRENT_TIMESTAMP)
-  )::app.mutation_response;
+  )::mutation_response;
 
 EXCEPTION WHEN others THEN
   RETURN core.build_error_response('database_error', 'Create user failed: ' || SQLERRM, NULL, 'User');
@@ -347,7 +350,7 @@ CREATE VIEW v_fixed AS
 SELECT COALESCE(
   jsonb_agg(p.data ORDER BY p.created_at DESC) FILTER (WHERE p.deleted_at IS NULL),
   '[]'::jsonb
-) as posts FROM tb_post p GROUP BY p.user_id;
+) as posts FROM tb_post p GROUP BY p.fk_user;
 ```
 
 ### JSONB GIN Index Not Being Used

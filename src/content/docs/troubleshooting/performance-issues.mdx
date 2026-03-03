@@ -21,7 +21,7 @@ Solutions for FraiseQL performance problems.
 
 1. Check logs for slow queries:
 ```bash
-LOG_LEVEL=debug fraiseql run
+RUST_LOG=debug fraiseql run
 ```
 
 2. Monitor during slow period:
@@ -193,7 +193,7 @@ PGBOUNCER_MAX_POOL_SIZE=50
 docker stats fraiseql --no-stream
 
 # 3. Check for GC pauses (Python)
-LOG_LEVEL=debug
+RUST_LOG=debug
 
 # 4. Check database locks (PostgreSQL)
 SELECT * FROM pg_locks WHERE NOT granted;
@@ -368,8 +368,7 @@ CREATE INDEX idx_posts_published ON posts(id) WHERE published = true;
 
 **Cache Expensive Queries**:
 ```python
-@cached(ttl=3600)
-@fraiseql.query
+@fraiseql.query(sql_source="v_user_stats", cache_ttl_seconds=3600)
 def user_stats(user_id: ID) -> UserStats:
     # Expensive aggregation computed once per hour
     pass
@@ -412,7 +411,7 @@ watch -n 60 'docker stats fraiseql'
 
 # Check memory per query
 for i in {1..100}; do
-    curl http://localhost:8000/graphql ...
+    curl http://localhost:8080/graphql ...
 done
 docker stats fraiseql  # Memory increased?
 ```
@@ -440,12 +439,12 @@ query {
 
 **Fix Unbounded Cache**:
 ```python
-# Set TTL to prevent indefinite growth
-@cached(ttl=3600)  # Expires after 1 hour
-def expensive_query():
+# Set TTL to prevent indefinite growth — use cache_ttl_seconds on @fraiseql.query
+@fraiseql.query(sql_source="v_expensive_query", cache_ttl_seconds=3600)
+def expensive_query() -> ExpensiveResult:
     pass
 
-# Or use LRU cache with max size
+# Or use LRU cache with max size for non-FraiseQL computations
 from functools import lru_cache
 @lru_cache(maxsize=1000)
 def expensive_computation():
@@ -567,7 +566,7 @@ WHERE state = 'idle' AND query_start < NOW() - INTERVAL '5 minutes';
 1. **Find why connections aren't returning**:
    ```bash
    # Check logs for exceptions that don't close connections
-   LOG_LEVEL=debug fraiseql run
+   RUST_LOG=debug fraiseql run
    ```
 
 2. **Reduce transaction time**:
@@ -710,8 +709,8 @@ docker-compose logs redis
 **Increase TTL**:
 ```python
 # From 1 hour to 24 hours
-@cached(ttl=86400)
-def stable_data():
+@fraiseql.query(sql_source="v_stable_data", cache_ttl_seconds=86400)
+def stable_data() -> StableData:
     pass
 ```
 
@@ -757,21 +756,21 @@ redis-cli INFO memory
 ### Solutions
 
 **Make I/O Async**:
-```python
-# BAD: Blocks request
-@fraiseql.mutation
-def create_user(email: str) -> User:
-    user = db.create(email)
-    send_email(user.email)  # Blocks!
-    return user
 
-# GOOD: Async (don't wait for email)
-@fraiseql.mutation
-async def create_user(email: str) -> User:
-    user = await db.create(email)
-    # Send email in background
-    asyncio.create_task(send_email(user.email))
-    return user
+FraiseQL Python mutations are compile-time schema descriptors only — there is no Python runtime execution. Background work (such as sending emails) should be handled by the Rust runtime's observer/NATS system, configured in `fraiseql.toml`. The mutation itself maps to a SQL function:
+
+```python
+# CORRECT: Compile-time descriptor — no runtime logic in Python
+@fraiseql.mutation(sql_source="fn_create_user")
+def create_user(email: str) -> User:
+    pass
+```
+
+```toml
+# Configure observers in fraiseql.toml to trigger async side-effects
+[observers]
+backend = "nats"
+nats_url = "nats://localhost:4222"
 ```
 
 **Use Circuit Breaker**:
@@ -867,7 +866,7 @@ scrape_configs:
 
 ```bash
 # Before optimization
-curl -s http://localhost:8000/graphql -d '{"query":"..."}' | jq '.timing'
+curl -s http://localhost:8080/graphql -d '{"query":"..."}' | jq '.timing'
 
 # After optimization
 # Should see improvement in latency and query count

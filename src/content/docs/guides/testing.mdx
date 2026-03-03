@@ -1,6 +1,6 @@
 ---
 title: Testing
-description: Test FraiseQL APIs with schema tests, database tests, integration tests, and CI pipelines
+description: Test FraiseQL APIs with schema export verification, database tests, integration tests, and CI pipelines
 ---
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
@@ -9,221 +9,179 @@ FraiseQL applications have three distinct testing layers, each validating a diff
 
 | Layer | What it tests | Speed |
 |-------|--------------|-------|
-| **Schema tests** | Type definitions and schema compilation | Instant |
+| **Schema export tests** | Type definitions produce valid schema JSON | Instant |
 | **Database tests** | SQL views and PostgreSQL functions | Fast (real DB, transaction rollback) |
 | **Integration tests** | End-to-end GraphQL API behaviour | Slower (real server) |
 
-Start with database tests — they give the most coverage at the best speed.
+<Aside type="tip">
+Start with database tests — they give the most coverage at the best speed. Testing your SQL views and mutation functions directly with psycopg is the most reliable way to verify FraiseQL behaviour.
+</Aside>
+
+## Understanding the FraiseQL Architecture
+
+FraiseQL's Python SDK is **compile-time only**. The workflow is:
+
+1. Define your schema with `@fraiseql.type`, `@fraiseql.query`, `@fraiseql.mutation`
+2. Export the schema: `fraiseql.export_schema("schema.json")` (writes JSON to disk)
+3. Compile: `fraiseql compile` produces `schema.compiled.json`
+4. Run the Rust server pointing to your compiled schema and PostgreSQL
+
+There is no runtime Python execution, no Python test client, and no Python server. Tests either talk directly to PostgreSQL (database tests) or send HTTP requests to a running Rust server (integration tests).
+
+---
 
 ## Test Setup
 
 ### Dependencies
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-    ```bash
-    # Install test dependencies
-    uv add --dev pytest pytest-asyncio httpx testcontainers factory-boy
-    ```
+```bash
+# Install test dependencies
+uv add --dev pytest pytest-asyncio httpx testcontainers factory-boy psycopg
+```
 
-    ```toml title="pyproject.toml"
-    [tool.pytest.ini_options]
-    asyncio_mode = "auto"
-    testpaths = ["tests"]
+```toml title="pyproject.toml"
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 
-    [tool.uv]
-    dev-dependencies = [
-        "pytest>=8.0",
-        "pytest-asyncio>=0.23",
-        "httpx>=0.27",
-        "testcontainers[postgres]>=4.0",
-        "factory-boy>=3.3",
-    ]
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```bash
-    # Install test dependencies
-    npm install --save-dev vitest @vitest/ui fraiseql testcontainers
-    ```
-
-    ```json title="package.json"
-    {
-      "scripts": {
-        "test": "vitest run",
-        "test:watch": "vitest",
-        "test:ui": "vitest --ui"
-      },
-      "devDependencies": {
-        "vitest": "^1.0",
-        "fraiseql": "latest",
-        "testcontainers": "^10.0"
-      }
-    }
-    ```
-  </TabItem>
-</Tabs>
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "testcontainers[postgres]>=4.0",
+    "factory-boy>=3.3",
+    "psycopg[binary]>=3.1",
+]
+```
 
 ### Test Database Fixture
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-    ```python title="tests/conftest.py"
-    import pytest
-    import psycopg
-    import subprocess
-    from testcontainers.postgres import PostgresContainer
+```python title="tests/conftest.py"
+import pytest
+import psycopg
+import subprocess
+from testcontainers.postgres import PostgresContainer
 
-    @pytest.fixture(scope="session")
-    def postgres():
-        """Spin up a throwaway PostgreSQL container for the test session."""
-        with PostgresContainer("postgres:16-alpine") as pg:
-            yield pg
+@pytest.fixture(scope="session")
+def postgres():
+    """Spin up a throwaway PostgreSQL container for the test session."""
+    with PostgresContainer("postgres:16-alpine") as pg:
+        yield pg
 
-    @pytest.fixture(scope="session")
-    def db_url(postgres):
-        return postgres.get_connection_url().replace("postgresql+psycopg2", "postgresql")
+@pytest.fixture(scope="session")
+def db_url(postgres):
+    return postgres.get_connection_url().replace("postgresql+psycopg2", "postgresql")
 
-    @pytest.fixture(scope="session")
-    def migrated_db(db_url):
-        """Apply your schema (tables, views, functions) to the test database."""
-        subprocess.run(
-            ["fraiseql", "db", "build", "--database-url", db_url],
-            check=True,
-        )
-        return db_url
+@pytest.fixture(scope="session")
+def migrated_db(db_url):
+    """Apply your schema (tables, views, functions) to the test database.
 
-    @pytest.fixture
-    def db(migrated_db):
-        """Per-test database connection that rolls back after each test."""
-        with psycopg.connect(migrated_db) as conn:
-            conn.autocommit = False
-            yield conn
-            conn.rollback()
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="tests/setup.ts"
-    import { PostgreSqlContainer, StartedPostgreSqlContainer } from 'testcontainers';
-    import { execSync } from 'child_process';
-    import { TestClient } from 'fraiseql/testing';
+    Replace the confiture command with however your project applies DDL.
+    A common approach: run confiture (FraiseQL's migration tool) or
+    execute your SQL migration scripts directly.
+    """
+    subprocess.run(
+        ["confiture", "build", "--env", "test"],
+        env={"DATABASE_URL": db_url, **__import__("os").environ},
+        check=True,
+    )
+    return db_url
 
-    let container: StartedPostgreSqlContainer;
-    let testDatabaseUrl: string;
-
-    beforeAll(async () => {
-      container = await new PostgreSqlContainer('postgres:16-alpine').start();
-      testDatabaseUrl = container.getConnectionUri();
-
-      // Apply schema (tables, views, functions) to the test database
-      execSync(`fraiseql db build --database-url ${testDatabaseUrl}`, {
-        stdio: 'inherit',
-      });
-    });
-
-    afterAll(async () => {
-      await container.stop();
-    });
-
-    export function getTestDatabaseUrl(): string {
-      return testDatabaseUrl;
-    }
-
-    export function createTestClient(): TestClient {
-      return new TestClient({
-        schemaPath: './schema.ts',
-        databaseUrl: testDatabaseUrl,
-      });
-    }
-    ```
-  </TabItem>
-</Tabs>
+@pytest.fixture
+def db(migrated_db):
+    """Per-test database connection that rolls back after each test."""
+    with psycopg.connect(migrated_db) as conn:
+        conn.autocommit = False
+        yield conn
+        conn.rollback()
+```
 
 ---
 
-## 1. Schema Tests
+## 1. Schema Export Tests
 
-Verify that your type definitions compile to the expected GraphQL schema:
+Verify that your type definitions produce valid schema JSON. Because FraiseQL is compile-time only, schema tests work by calling `fraiseql.export_schema()` and inspecting the resulting JSON file.
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-    ```python title="tests/test_schema.py"
-    import fraiseql
-    from schema import User, Post, Comment
+```python title="tests/test_schema.py"
+import json
+import fraiseql
+import pytest
 
-    def test_user_type_has_expected_fields():
-        schema = fraiseql.compile_schema()
-        user_type = schema.types["User"]
+# Import your schema module so decorators register types/queries
+import schema  # noqa: F401  — side-effects register types with SchemaRegistry
 
-        assert "id" in user_type.fields
-        assert "email" in user_type.fields
-        assert "username" in user_type.fields
-        assert user_type.fields["id"].scalar == "ID"
 
-    def test_post_has_author_relationship():
-        schema = fraiseql.compile_schema()
-        post_type = schema.types["Post"]
+def test_schema_exports_without_error(tmp_path):
+    """export_schema() should write valid JSON without raising."""
+    output = tmp_path / "schema.json"
+    fraiseql.export_schema(str(output))
+    assert output.exists()
 
-        assert "author" in post_type.fields
-        assert post_type.fields["author"].type_name == "User"
+    with output.open() as f:
+        data = json.load(f)
 
-    def test_mutations_are_registered():
-        schema = fraiseql.compile_schema()
+    # Top-level keys must be present
+    assert "types" in data
+    assert "queries" in data
+    assert "mutations" in data
 
-        assert "createPost" in schema.mutations
-        assert "publishPost" in schema.mutations
-        assert "deletePost" in schema.mutations
 
-    def test_schema_compiles_without_error():
-        """Full compilation should produce valid schema JSON."""
-        schema_json = fraiseql.export_schema_json()
-        assert "types" in schema_json
-        assert "queries" in schema_json
-        assert "mutations" in schema_json
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="tests/schema.test.ts"
-    import { compileSchema, exportSchemaJson } from 'fraiseql';
-    import { describe, it, expect } from 'vitest';
+def test_user_type_is_registered(tmp_path):
+    """User type must appear in the exported schema."""
+    output = tmp_path / "schema.json"
+    fraiseql.export_schema(str(output))
 
-    describe('Schema compilation', () => {
-      it('User type has expected fields', () => {
-        const schema = compileSchema();
-        const userType = schema.types['User'];
+    with output.open() as f:
+        data = json.load(f)
 
-        expect(userType.fields).toHaveProperty('id');
-        expect(userType.fields).toHaveProperty('email');
-        expect(userType.fields).toHaveProperty('username');
-        expect(userType.fields['id'].scalar).toBe('ID');
-      });
+    type_names = {t["name"] for t in data["types"]}
+    assert "User" in type_names
 
-      it('Post has author relationship', () => {
-        const schema = compileSchema();
-        const postType = schema.types['Post'];
 
-        expect(postType.fields).toHaveProperty('author');
-        expect(postType.fields['author'].typeName).toBe('User');
-      });
+def test_user_type_has_expected_fields(tmp_path):
+    """User type must declare id, email, and username fields."""
+    output = tmp_path / "schema.json"
+    fraiseql.export_schema(str(output))
 
-      it('mutations are registered', () => {
-        const schema = compileSchema();
+    with output.open() as f:
+        data = json.load(f)
 
-        expect(schema.mutations).toHaveProperty('createPost');
-        expect(schema.mutations).toHaveProperty('publishPost');
-        expect(schema.mutations).toHaveProperty('deletePost');
-      });
+    user_type = next(t for t in data["types"] if t["name"] == "User")
+    field_names = {f["name"] for f in user_type["fields"]}
 
-      it('schema compiles without error', () => {
-        const schemaJson = exportSchemaJson();
-        expect(schemaJson).toHaveProperty('types');
-        expect(schemaJson).toHaveProperty('queries');
-        expect(schemaJson).toHaveProperty('mutations');
-      });
-    });
-    ```
-  </TabItem>
-</Tabs>
+    assert "id" in field_names
+    assert "email" in field_names
+    assert "username" in field_names
+
+
+def test_mutations_are_registered(tmp_path):
+    """Core mutations must appear in the exported schema."""
+    output = tmp_path / "schema.json"
+    fraiseql.export_schema(str(output))
+
+    with output.open() as f:
+        data = json.load(f)
+
+    mutation_names = {m["name"] for m in data["mutations"]}
+    assert "createPost" in mutation_names
+    assert "publishPost" in mutation_names
+
+
+def test_queries_have_sql_source(tmp_path):
+    """Every query must declare a sql_source (view name)."""
+    output = tmp_path / "schema.json"
+    fraiseql.export_schema(str(output))
+
+    with output.open() as f:
+        data = json.load(f)
+
+    for query in data["queries"]:
+        assert "sql_source" in query, (
+            f"Query {query['name']!r} is missing sql_source — "
+            "add sql_source= to @fraiseql.query"
+        )
+```
 
 ---
 
@@ -237,743 +195,393 @@ Testing views directly is the most reliable way to verify FraiseQL behaviour. If
 
 ### Testing Views
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-    ```python title="tests/test_views.py"
-    import pytest
-    import psycopg
+```python title="tests/test_views.py"
+import pytest
+import psycopg
 
-    class TestUserView:
-        def test_v_user_returns_data_column(self, db):
-            """v_user must expose a JSONB data column."""
-            with db.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO tb_user (username, email, identifier)
-                    VALUES ('alice', 'alice@example.com', 'alice@example.com')
-                    RETURNING id
-                """)
-                user_id = cur.fetchone()[0]
 
-                cur.execute("SELECT data FROM v_user WHERE id = %s", (user_id,))
-                data = cur.fetchone()[0]
+class TestUserView:
+    def test_v_user_returns_data_column(self, db):
+        """v_user must expose a JSONB data column."""
+        with db.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tb_user (username, email, identifier)
+                VALUES ('alice', 'alice@example.com', 'alice@example.com')
+                RETURNING id
+            """)
+            user_id = cur.fetchone()[0]
 
-            assert data["email"] == "alice@example.com"
-            assert data["username"] == "alice"
-            assert "id" in data
-            # Surrogate key must NOT be exposed
-            assert "pk_user" not in data
+            cur.execute("SELECT data FROM v_user WHERE id = %s", (user_id,))
+            data = cur.fetchone()[0]
 
-        def test_v_user_filters_by_id(self, db):
-            """v_user supports filtering by id column."""
-            with db.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO tb_user (username, email, identifier)
-                    VALUES ('bob', 'bob@example.com', 'bob@example.com')
-                    RETURNING id
-                """)
-                user_id = cur.fetchone()[0]
+        assert data["email"] == "alice@example.com"
+        assert data["username"] == "alice"
+        assert "id" in data
+        # Surrogate key must NOT be exposed
+        assert "pk_user" not in data
 
-                cur.execute("SELECT COUNT(*) FROM v_user WHERE id = %s", (user_id,))
-                count = cur.fetchone()[0]
+    def test_v_user_filters_by_id(self, db):
+        """v_user supports filtering by id column."""
+        with db.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tb_user (username, email, identifier)
+                VALUES ('bob', 'bob@example.com', 'bob@example.com')
+                RETURNING id
+            """)
+            user_id = cur.fetchone()[0]
 
-            assert count == 1
+            cur.execute("SELECT COUNT(*) FROM v_user WHERE id = %s", (user_id,))
+            count = cur.fetchone()[0]
 
-    class TestPostView:
-        def test_v_post_nests_author(self, db):
-            """v_post must include nested author data from v_user."""
-            with db.cursor() as cur:
-                # Create author
-                cur.execute("""
-                    INSERT INTO tb_user (username, email, identifier)
-                    VALUES ('carol', 'carol@example.com', 'carol@example.com')
-                    RETURNING pk_user, id
-                """)
-                pk_user, user_id = cur.fetchone()
+        assert count == 1
 
-                # Create post
-                cur.execute("""
-                    INSERT INTO tb_post (fk_user, title, content, slug, identifier)
-                    VALUES (%s, 'Hello World', 'Content here', 'hello-world', 'hello-world')
-                    RETURNING id
-                """, (pk_user,))
-                post_id = cur.fetchone()[0]
 
-                cur.execute("SELECT data FROM v_post WHERE id = %s", (post_id,))
-                data = cur.fetchone()[0]
+class TestPostView:
+    def test_v_post_nests_author(self, db):
+        """v_post must include nested author data."""
+        with db.cursor() as cur:
+            # Create author
+            cur.execute("""
+                INSERT INTO tb_user (username, email, identifier)
+                VALUES ('carol', 'carol@example.com', 'carol@example.com')
+                RETURNING pk_user, id
+            """)
+            pk_user, user_id = cur.fetchone()
 
-            assert data["title"] == "Hello World"
-            assert data["author"]["username"] == "carol"
-            assert data["author"]["id"] == str(user_id)
+            # Create post
+            cur.execute("""
+                INSERT INTO tb_post (fk_user, title, content, slug, identifier)
+                VALUES (%s, 'Hello World', 'Content here', 'hello-world', 'hello-world')
+                RETURNING id
+            """, (pk_user,))
+            post_id = cur.fetchone()[0]
 
-        def test_v_post_filters_by_is_published(self, db):
-            """is_published column available for automatic-where filtering."""
-            with db.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO tb_user (username, email, identifier)
-                    VALUES ('dave', 'dave@example.com', 'dave@example.com')
-                    RETURNING pk_user
-                """)
-                pk_user = cur.fetchone()[0]
+            cur.execute("SELECT data FROM v_post WHERE id = %s", (post_id,))
+            data = cur.fetchone()[0]
 
-                cur.execute("""
-                    INSERT INTO tb_post (fk_user, title, content, slug, identifier, is_published)
-                    VALUES
-                        (%s, 'Draft', 'Draft content', 'draft', 'draft', false),
-                        (%s, 'Published', 'Published content', 'published', 'published', true)
-                """, (pk_user, pk_user))
+        assert data["title"] == "Hello World"
+        assert data["author"]["username"] == "carol"
+        assert data["author"]["id"] == str(user_id)
 
-                cur.execute("SELECT COUNT(*) FROM v_post WHERE is_published = true")
-                published_count = cur.fetchone()[0]
+    def test_v_post_filters_by_is_published(self, db):
+        """is_published column available for automatic-where filtering."""
+        with db.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tb_user (username, email, identifier)
+                VALUES ('dave', 'dave@example.com', 'dave@example.com')
+                RETURNING pk_user
+            """)
+            pk_user = cur.fetchone()[0]
 
-            assert published_count >= 1
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="tests/views.test.ts"
-    import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-    import { sql } from 'fraiseql/testing';
-    import { getTestDatabaseUrl } from './setup';
-    import postgres from 'postgres';
+            cur.execute("""
+                INSERT INTO tb_post (fk_user, title, content, slug, identifier, is_published)
+                VALUES
+                    (%s, 'Draft', 'Draft content', 'draft', 'draft', false),
+                    (%s, 'Published', 'Published content', 'published', 'published', true)
+            """, (pk_user, pk_user))
 
-    let db: ReturnType<typeof postgres>;
+            cur.execute("SELECT COUNT(*) FROM v_post WHERE is_published = true")
+            published_count = cur.fetchone()[0]
 
-    beforeAll(() => {
-      db = postgres(getTestDatabaseUrl());
-    });
-
-    afterAll(async () => {
-      await db.end();
-    });
-
-    describe('v_user view', () => {
-      it('returns a JSONB data column', async () => {
-        const [{ id: userId }] = await db`
-          INSERT INTO tb_user (username, email, identifier)
-          VALUES ('alice', 'alice@example.com', 'alice@example.com')
-          RETURNING id
-        `;
-        const [{ data }] = await db`
-          SELECT data FROM v_user WHERE id = ${userId}
-        `;
-
-        expect(data.email).toBe('alice@example.com');
-        expect(data.username).toBe('alice');
-        expect(data).toHaveProperty('id');
-        // Surrogate key must NOT be exposed
-        expect(data).not.toHaveProperty('pk_user');
-
-        await db`ROLLBACK`;
-      });
-
-      it('filters by id column', async () => {
-        const [{ id: userId }] = await db`
-          INSERT INTO tb_user (username, email, identifier)
-          VALUES ('bob', 'bob@example.com', 'bob@example.com')
-          RETURNING id
-        `;
-        const [{ count }] = await db`
-          SELECT COUNT(*)::int AS count FROM v_user WHERE id = ${userId}
-        `;
-
-        expect(count).toBe(1);
-        await db`ROLLBACK`;
-      });
-    });
-
-    describe('v_post view', () => {
-      it('nests author data from v_user', async () => {
-        const [{ pk_user, id: userId }] = await db`
-          INSERT INTO tb_user (username, email, identifier)
-          VALUES ('carol', 'carol@example.com', 'carol@example.com')
-          RETURNING pk_user, id
-        `;
-        const [{ id: postId }] = await db`
-          INSERT INTO tb_post (fk_user, title, content, slug, identifier)
-          VALUES (${pk_user}, 'Hello World', 'Content here', 'hello-world', 'hello-world')
-          RETURNING id
-        `;
-        const [{ data }] = await db`
-          SELECT data FROM v_post WHERE id = ${postId}
-        `;
-
-        expect(data.title).toBe('Hello World');
-        expect(data.author.username).toBe('carol');
-        expect(data.author.id).toBe(String(userId));
-
-        await db`ROLLBACK`;
-      });
-
-      it('exposes is_published for filtering', async () => {
-        const [{ pk_user }] = await db`
-          INSERT INTO tb_user (username, email, identifier)
-          VALUES ('dave', 'dave@example.com', 'dave@example.com')
-          RETURNING pk_user
-        `;
-        await db`
-          INSERT INTO tb_post (fk_user, title, content, slug, identifier, is_published)
-          VALUES
-            (${pk_user}, 'Draft', 'Draft content', 'draft', 'draft', false),
-            (${pk_user}, 'Published', 'Published content', 'published', 'published', true)
-        `;
-        const [{ count }] = await db`
-          SELECT COUNT(*)::int AS count FROM v_post WHERE is_published = true
-        `;
-
-        expect(count).toBeGreaterThanOrEqual(1);
-        await db`ROLLBACK`;
-      });
-    });
-    ```
-  </TabItem>
-</Tabs>
+        assert published_count >= 1
+```
 
 ### Testing PostgreSQL Functions
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-    ```python title="tests/test_functions.py"
-    import pytest
-    import psycopg
+Mutation functions return a `mutation_response` composite type. Test the `status` and `entity` fields:
 
-    class TestCreateUser:
-        def test_creates_user_and_returns_data(self, db):
-            """fn_create_user inserts a row and returns via v_user."""
-            with db.cursor() as cur:
-                cur.execute("""
-                    SELECT data FROM fn_create_user(
-                        '{"username": "eve", "email": "eve@example.com"}'::jsonb
-                    )
-                """)
-                user = cur.fetchone()[0]
+```python title="tests/test_functions.py"
+import pytest
+import psycopg
 
-            assert user["username"] == "eve"
-            assert user["email"] == "eve@example.com"
-            assert "id" in user
 
-        def test_rejects_duplicate_email(self, db):
-            """fn_create_user raises an error on duplicate email."""
-            with db.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO tb_user (username, email, identifier)
-                    VALUES ('frank', 'frank@example.com', 'frank@example.com')
-                """)
+class TestCreateUser:
+    def test_creates_user_and_returns_success(self, db):
+        """fn_create_user inserts a row and returns status='success'."""
+        with db.cursor() as cur:
+            cur.execute("""
+                SELECT status, entity_id, entity
+                FROM fn_create_user('{"username": "eve", "email": "eve@example.com"}'::jsonb)
+            """)
+            row = cur.fetchone()
+            status, entity_id, entity = row
 
-                with pytest.raises(psycopg.errors.RaiseException) as exc_info:
-                    cur.execute("""
-                        SELECT data FROM fn_create_user(
-                            '{"username": "frank2", "email": "frank@example.com"}'::jsonb
-                        )
-                    """)
+        assert status == "success"
+        assert entity_id is not None
+        assert entity["username"] == "eve"
+        assert entity["email"] == "eve@example.com"
 
-            assert "already exists" in str(exc_info.value).lower()
+    def test_rejects_duplicate_email(self, db):
+        """fn_create_user returns conflict status on duplicate email."""
+        with db.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tb_user (username, email, identifier)
+                VALUES ('frank', 'frank@example.com', 'frank@example.com')
+            """)
 
-        def test_rejects_missing_required_fields(self, db):
-            """fn_create_user raises when required fields are absent."""
-            with db.cursor() as cur:
-                with pytest.raises(psycopg.errors.RaiseException):
-                    cur.execute("""
-                        SELECT data FROM fn_create_user('{"username": "nomail"}'::jsonb)
-                    """)
-
-    class TestPublishPost:
-        def test_sets_is_published(self, db):
-            """fn_publish_post sets is_published = true."""
-            with db.cursor() as cur:
-                # Setup
-                cur.execute("""
-                    INSERT INTO tb_user (username, email, identifier)
-                    VALUES ('grace', 'grace@example.com', 'grace@example.com')
-                    RETURNING pk_user, id
-                """)
-                pk_user, user_id = cur.fetchone()
-
-                cur.execute("""
-                    INSERT INTO tb_post (fk_user, title, content, slug, identifier)
-                    VALUES (%s, 'Draft Post', 'Content', 'draft-post', 'draft-post')
-                    RETURNING id
-                """, (pk_user,))
-                post_id = cur.fetchone()[0]
-
-                # Publish
-                cur.execute(
-                    "SELECT data FROM fn_publish_post(%s::uuid, %s::uuid)",
-                    (post_id, user_id),
+            cur.execute("""
+                SELECT status FROM fn_create_user(
+                    '{"username": "frank2", "email": "frank@example.com"}'::jsonb
                 )
-                post = cur.fetchone()[0]
+            """)
+            status = cur.fetchone()[0]
 
-            assert post["isPublished"] is True
+        assert status.startswith("conflict:")
 
-        def test_rejects_wrong_author(self, db):
-            """fn_publish_post raises if caller is not the author."""
-            with db.cursor() as cur:
+    def test_rejects_missing_required_fields(self, db):
+        """fn_create_user raises when required fields are absent."""
+        with db.cursor() as cur:
+            with pytest.raises(psycopg.errors.RaiseException):
                 cur.execute("""
-                    INSERT INTO tb_user (username, email, identifier)
-                    VALUES
-                        ('hank', 'hank@example.com', 'hank@example.com'),
-                        ('ivy', 'ivy@example.com', 'ivy@example.com')
-                    RETURNING pk_user, id
+                    SELECT status FROM fn_create_user('{"username": "nomail"}'::jsonb)
                 """)
-                rows = cur.fetchall()
-                hank_pk, hank_id = rows[0]
-                _ivy_pk, ivy_id = rows[1]
 
-                cur.execute("""
-                    INSERT INTO tb_post (fk_user, title, content, slug, identifier)
-                    VALUES (%s, 'Hank Post', 'Content', 'hank-post', 'hank-post')
-                    RETURNING id
-                """, (hank_pk,))
-                post_id = cur.fetchone()[0]
 
-                with pytest.raises(psycopg.errors.RaiseException):
-                    cur.execute(
-                        "SELECT data FROM fn_publish_post(%s::uuid, %s::uuid)",
-                        (post_id, ivy_id),  # ivy tries to publish hank's post
-                    )
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="tests/functions.test.ts"
-    import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-    import { getTestDatabaseUrl } from './setup';
-    import postgres from 'postgres';
+class TestPublishPost:
+    def test_sets_is_published(self, db):
+        """fn_publish_post sets is_published = true."""
+        with db.cursor() as cur:
+            # Setup
+            cur.execute("""
+                INSERT INTO tb_user (username, email, identifier)
+                VALUES ('grace', 'grace@example.com', 'grace@example.com')
+                RETURNING pk_user, id
+            """)
+            pk_user, user_id = cur.fetchone()
 
-    let db: ReturnType<typeof postgres>;
+            cur.execute("""
+                INSERT INTO tb_post (fk_user, title, content, slug, identifier)
+                VALUES (%s, 'Draft Post', 'Content', 'draft-post', 'draft-post')
+                RETURNING id
+            """, (pk_user,))
+            post_id = cur.fetchone()[0]
 
-    beforeAll(() => {
-      db = postgres(getTestDatabaseUrl());
-    });
+            # Publish
+            cur.execute(
+                "SELECT status, entity FROM fn_publish_post(%s::uuid, %s::uuid)",
+                (post_id, user_id),
+            )
+            status, entity = cur.fetchone()
 
-    afterAll(async () => {
-      await db.end();
-    });
+        assert status == "success"
+        assert entity["isPublished"] is True
 
-    describe('fn_create_user', () => {
-      it('inserts a user and returns data via v_user', async () => {
-        const [user] = await db`
-          SELECT data FROM fn_create_user(
-            '{"username": "eve", "email": "eve@example.com"}'::jsonb
-          )
-        `;
+    def test_rejects_wrong_author(self, db):
+        """fn_publish_post raises if caller is not the author."""
+        with db.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tb_user (username, email, identifier)
+                VALUES
+                    ('hank', 'hank@example.com', 'hank@example.com'),
+                    ('ivy', 'ivy@example.com', 'ivy@example.com')
+                RETURNING pk_user, id
+            """)
+            rows = cur.fetchall()
+            hank_pk, _hank_id = rows[0]
+            _ivy_pk, ivy_id = rows[1]
 
-        expect(user.data.username).toBe('eve');
-        expect(user.data.email).toBe('eve@example.com');
-        expect(user.data).toHaveProperty('id');
+            cur.execute("""
+                INSERT INTO tb_post (fk_user, title, content, slug, identifier)
+                VALUES (%s, 'Hank Post', 'Content', 'hank-post', 'hank-post')
+                RETURNING id
+            """, (hank_pk,))
+            post_id = cur.fetchone()[0]
 
-        await db`ROLLBACK`;
-      });
-
-      it('raises an error on duplicate email', async () => {
-        await db`
-          INSERT INTO tb_user (username, email, identifier)
-          VALUES ('frank', 'frank@example.com', 'frank@example.com')
-        `;
-
-        await expect(
-          db`SELECT data FROM fn_create_user(
-            '{"username": "frank2", "email": "frank@example.com"}'::jsonb
-          )`
-        ).rejects.toThrow(/already exists/i);
-
-        await db`ROLLBACK`;
-      });
-
-      it('raises when required fields are absent', async () => {
-        await expect(
-          db`SELECT data FROM fn_create_user('{"username": "nomail"}'::jsonb)`
-        ).rejects.toThrow();
-
-        await db`ROLLBACK`;
-      });
-    });
-
-    describe('fn_publish_post', () => {
-      it('sets is_published to true', async () => {
-        const [{ pk_user, id: userId }] = await db`
-          INSERT INTO tb_user (username, email, identifier)
-          VALUES ('grace', 'grace@example.com', 'grace@example.com')
-          RETURNING pk_user, id
-        `;
-        const [{ id: postId }] = await db`
-          INSERT INTO tb_post (fk_user, title, content, slug, identifier)
-          VALUES (${pk_user}, 'Draft Post', 'Content', 'draft-post', 'draft-post')
-          RETURNING id
-        `;
-
-        const [{ data: post }] = await db`
-          SELECT data FROM fn_publish_post(${postId}::uuid, ${userId}::uuid)
-        `;
-
-        expect(post.isPublished).toBe(true);
-        await db`ROLLBACK`;
-      });
-
-      it('raises if caller is not the author', async () => {
-        const rows = await db`
-          INSERT INTO tb_user (username, email, identifier)
-          VALUES
-            ('hank', 'hank@example.com', 'hank@example.com'),
-            ('ivy', 'ivy@example.com', 'ivy@example.com')
-          RETURNING pk_user, id
-        `;
-        const hankPk = rows[0].pk_user;
-        const ivyId = rows[1].id;
-
-        const [{ id: postId }] = await db`
-          INSERT INTO tb_post (fk_user, title, content, slug, identifier)
-          VALUES (${hankPk}, 'Hank Post', 'Content', 'hank-post', 'hank-post')
-          RETURNING id
-        `;
-
-        // ivy tries to publish hank's post
-        await expect(
-          db`SELECT data FROM fn_publish_post(${postId}::uuid, ${ivyId}::uuid)`
-        ).rejects.toThrow();
-
-        await db`ROLLBACK`;
-      });
-    });
-    ```
-  </TabItem>
-</Tabs>
+            with pytest.raises(psycopg.errors.RaiseException):
+                cur.execute(
+                    "SELECT status FROM fn_publish_post(%s::uuid, %s::uuid)",
+                    (post_id, ivy_id),  # ivy tries to publish hank's post
+                )
+```
 
 ---
 
 ## 3. Integration Tests
 
-End-to-end tests that send GraphQL requests to a running FraiseQL server:
+End-to-end tests send GraphQL requests to a running FraiseQL Rust server. The server is started against a test database with your compiled schema.
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-    ```python title="tests/conftest.py"
-    import pytest
-    import httpx
-    import subprocess
-    import time
+<Steps>
+1. Export schema JSON: `fraiseql.export_schema("schema.json")`
+2. Compile: `fraiseql compile` → `schema.compiled.json`
+3. Start the Rust server: `fraiseql-server --schema schema.compiled.json`
+4. Run tests via HTTP with `httpx`
+</Steps>
 
-    @pytest.fixture(scope="session")
-    def fraiseql_server(migrated_db):
-        """Start a FraiseQL server against the test database."""
-        proc = subprocess.Popen([
-            "fraiseql", "serve",
-            "--database-url", migrated_db,
-            "--port", "18080",
-            "--no-playground",
-        ])
-        # Wait for server to be ready
-        for _ in range(20):
-            try:
-                httpx.get("http://localhost:18080/health", timeout=1)
-                break
-            except httpx.ConnectError:
-                time.sleep(0.5)
-        yield proc
-        proc.terminate()
-        proc.wait()
+```python title="tests/conftest.py"
+import pytest
+import httpx
+import subprocess
+import time
+import os
 
-    @pytest.fixture
-    def client(fraiseql_server):
-        return httpx.Client(base_url="http://localhost:18080", timeout=10)
-    ```
+@pytest.fixture(scope="session")
+def fraiseql_server(migrated_db):
+    """Start a FraiseQL server against the test database.
 
-    ```python title="tests/test_api.py"
-    import pytest
+    Assumes schema.compiled.json has already been built
+    (e.g., via fraiseql compile in a CI step or conftest setup).
+    """
+    proc = subprocess.Popen(
+        ["fraiseql-server", "--schema", "schema.compiled.json", "--port", "18080"],
+        env={**os.environ, "DATABASE_URL": migrated_db},
+    )
+    # Wait for server to be ready
+    for _ in range(30):
+        try:
+            httpx.get("http://localhost:18080/health", timeout=1)
+            break
+        except httpx.ConnectError:
+            time.sleep(0.5)
+    yield proc
+    proc.terminate()
+    proc.wait()
 
-    class TestUserQueries:
-        def test_list_users(self, client):
-            response = client.post("/graphql", json={
-                "query": "query { users(limit: 10) { id username email } }"
-            })
-            assert response.status_code == 200
-            data = response.json()
-            assert "errors" not in data
-            assert isinstance(data["data"]["users"], list)
+@pytest.fixture
+def client(fraiseql_server):
+    return httpx.Client(base_url="http://localhost:18080", timeout=10)
+```
 
-        def test_single_user_by_id(self, client, created_user):
-            response = client.post("/graphql", json={
-                "query": """
-                    query GetUser($id: ID!) {
-                        user(id: $id) { id username email }
+```python title="tests/test_api.py"
+import pytest
+
+
+class TestUserQueries:
+    def test_list_users(self, client):
+        response = client.post("/graphql", json={
+            "query": "query { users(limit: 10) { id username email } }"
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "errors" not in data
+        assert isinstance(data["data"]["users"], list)
+
+    def test_single_user_by_id(self, client, created_user):
+        response = client.post("/graphql", json={
+            "query": """
+                query GetUser($id: ID!) {
+                    user(id: $id) { id username email }
+                }
+            """,
+            "variables": {"id": created_user["id"]},
+        })
+        data = response.json()
+        assert "errors" not in data
+        assert data["data"]["user"]["id"] == created_user["id"]
+
+
+class TestUserMutations:
+    def test_create_user(self, client):
+        response = client.post("/graphql", json={
+            "query": """
+                mutation {
+                    createUser(input: {
+                        username: "newuser"
+                        email: "newuser@example.com"
+                    }) { id username email }
+                }
+            """
+        })
+        data = response.json()
+        assert "errors" not in data
+        user = data["data"]["createUser"]
+        assert user["username"] == "newuser"
+        assert user["id"] is not None
+
+    def test_create_user_duplicate_email(self, client, created_user):
+        response = client.post("/graphql", json={
+            "query": """
+                mutation CreateUser($input: CreateUserInput!) {
+                    createUser(input: $input) { id }
+                }
+            """,
+            "variables": {
+                "input": {
+                    "username": "other",
+                    "email": created_user["email"],
+                }
+            },
+        })
+        data = response.json()
+        assert "errors" in data
+
+
+class TestPostQueries:
+    def test_post_includes_nested_author(self, client, created_post):
+        response = client.post("/graphql", json={
+            "query": """
+                query {
+                    posts(limit: 10) {
+                        id
+                        title
+                        author { id username }
                     }
-                """,
-                "variables": {"id": created_user["id"]},
-            })
-            data = response.json()
-            assert data["data"]["user"]["id"] == created_user["id"]
-
-    class TestUserMutations:
-        def test_create_user(self, client):
-            response = client.post("/graphql", json={
-                "query": """
-                    mutation {
-                        createUser(input: {
-                            username: "newuser"
-                            email: "newuser@example.com"
-                        }) { id username email }
-                    }
-                """
-            })
-            data = response.json()
-            assert "errors" not in data
-            user = data["data"]["createUser"]
-            assert user["username"] == "newuser"
-            assert user["id"] is not None
-
-        def test_create_user_duplicate_email(self, client, created_user):
-            response = client.post("/graphql", json={
-                "query": """
-                    mutation CreateUser($input: CreateUserInput!) {
-                        createUser(input: $input) { id }
-                    }
-                """,
-                "variables": {
-                    "input": {
-                        "username": "other",
-                        "email": created_user["email"],
-                    }
-                },
-            })
-            data = response.json()
-            assert "errors" in data
-            assert "already exists" in data["errors"][0]["message"].lower()
-
-    class TestPostQueries:
-        def test_post_includes_nested_author(self, client, created_post):
-            response = client.post("/graphql", json={
-                "query": """
-                    query {
-                        posts(limit: 10) {
-                            id
-                            title
-                            author { id username }
-                        }
-                    }
-                """
-            })
-            data = response.json()
-            posts = data["data"]["posts"]
-            assert len(posts) > 0
-            assert posts[0]["author"]["username"] is not None
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="tests/api.test.ts"
-    import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-    import { TestClient } from 'fraiseql/testing';
-    import { createTestClient } from './setup';
-
-    let client: TestClient;
-
-    beforeAll(() => {
-      client = createTestClient();
-    });
-
-    afterAll(async () => {
-      await client.close();
-    });
-
-    describe('User queries', () => {
-      it('lists users', async () => {
-        const result = await client.query(`
-          query { users(limit: 10) { id username email } }
-        `);
-
-        expect(result.errors).toBeUndefined();
-        expect(Array.isArray(result.data.users)).toBe(true);
-      });
-
-      it('fetches a single user by id', async () => {
-        const created = await client.mutate(`
-          mutation {
-            createUser(input: { username: "querytest", email: "querytest@example.com" })
-            { id username }
-          }
-        `);
-        const userId = created.data.createUser.id;
-
-        const result = await client.query(
-          `query GetUser($id: ID!) { user(id: $id) { id username email } }`,
-          { id: userId }
-        );
-
-        expect(result.data.user.id).toBe(userId);
-      });
-    });
-
-    describe('User mutations', () => {
-      it('creates a user', async () => {
-        const result = await client.mutate(`
-          mutation {
-            createUser(input: {
-              username: "newuser"
-              email: "newuser@example.com"
-            }) { id username email }
-          }
-        `);
-
-        expect(result.errors).toBeUndefined();
-        expect(result.data.createUser.username).toBe('newuser');
-        expect(result.data.createUser.id).toBeTruthy();
-      });
-
-      it('returns an error on duplicate email', async () => {
-        await client.mutate(`
-          mutation {
-            createUser(input: { username: "orig", email: "dup@example.com" }) { id }
-          }
-        `);
-
-        const result = await client.mutate(`
-          mutation CreateUser($input: CreateUserInput!) {
-            createUser(input: $input) { id }
-          }
-        `, { input: { username: 'other', email: 'dup@example.com' } });
-
-        expect(result.errors).toBeDefined();
-        expect(result.errors![0].message.toLowerCase()).toContain('already exists');
-      });
-    });
-
-    describe('Post queries', () => {
-      it('includes nested author data', async () => {
-        const result = await client.query(`
-          query {
-            posts(limit: 10) {
-              id
-              title
-              author { id username }
-            }
-          }
-        `);
-
-        const posts = result.data.posts;
-        expect(posts.length).toBeGreaterThan(0);
-        expect(posts[0].author.username).toBeTruthy();
-      });
-    });
-    ```
-  </TabItem>
-</Tabs>
+                }
+            """
+        })
+        data = response.json()
+        assert "errors" not in data
+        posts = data["data"]["posts"]
+        assert len(posts) > 0
+        assert posts[0]["author"]["username"] is not None
+```
 
 ---
 
 ## Test Factories
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-    ```python title="tests/factories.py"
-    import factory
-    import uuid
+```python title="tests/factories.py"
+import factory
+import uuid
 
-    class UserFactory(factory.DictFactory):
-        id       = factory.LazyFunction(lambda: str(uuid.uuid4()))
-        username = factory.Sequence(lambda n: f"user{n}")
-        email    = factory.Sequence(lambda n: f"user{n}@example.com")
-        bio      = factory.Faker("sentence")
+class UserFactory(factory.DictFactory):
+    username = factory.Sequence(lambda n: f"user{n}")
+    email    = factory.Sequence(lambda n: f"user{n}@example.com")
+    bio      = factory.Faker("sentence")
 
-    class PostFactory(factory.DictFactory):
-        id      = factory.LazyFunction(lambda: str(uuid.uuid4()))
-        title   = factory.Faker("sentence", nb_words=5)
-        content = factory.Faker("paragraph")
-        slug    = factory.Sequence(lambda n: f"post-{n}")
-    ```
+class PostFactory(factory.DictFactory):
+    title   = factory.Faker("sentence", nb_words=5)
+    content = factory.Faker("paragraph")
+    slug    = factory.Sequence(lambda n: f"post-{n}")
+```
 
-    ```python title="tests/conftest.py"
-    from tests.factories import UserFactory
+```python title="tests/conftest.py"
+from tests.factories import UserFactory
 
-    @pytest.fixture
-    def created_user(client):
-        """Create a user via the API and return the created record."""
-        data = UserFactory()
-        response = client.post("/graphql", json={
-            "query": """
-                mutation CreateUser($input: CreateUserInput!) {
-                    createUser(input: $input) { id username email }
-                }
-            """,
-            "variables": {"input": {"username": data["username"], "email": data["email"]}},
-        })
-        return response.json()["data"]["createUser"]
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="tests/factories.ts"
-    let userSeq = 0;
-    let postSeq = 0;
-
-    export function userFactory(overrides: Partial<{ username: string; email: string; bio: string }> = {}) {
-      const n = ++userSeq;
-      return {
-        username: `user${n}`,
-        email: `user${n}@example.com`,
-        bio: 'A test user biography.',
-        ...overrides,
-      };
-    }
-
-    export function postFactory(overrides: Partial<{ title: string; content: string; slug: string }> = {}) {
-      const n = ++postSeq;
-      return {
-        title: `Test Post ${n}`,
-        content: 'Lorem ipsum dolor sit amet.',
-        slug: `post-${n}`,
-        ...overrides,
-      };
-    }
-    ```
-
-    ```typescript title="tests/fixtures.ts"
-    import { TestClient } from 'fraiseql/testing';
-    import { userFactory } from './factories';
-
-    export async function createTestUser(client: TestClient, overrides = {}) {
-      const data = userFactory(overrides);
-      const result = await client.mutate(`
-        mutation CreateUser($input: CreateUserInput!) {
-          createUser(input: $input) { id username email }
-        }
-      `, { input: { username: data.username, email: data.email } });
-      return result.data.createUser;
-    }
-    ```
-  </TabItem>
-</Tabs>
+@pytest.fixture
+def created_user(client):
+    """Create a user via the API and return the created record."""
+    data = UserFactory()
+    response = client.post("/graphql", json={
+        "query": """
+            mutation CreateUser($input: CreateUserInput!) {
+                createUser(input: $input) { id username email }
+            }
+        """,
+        "variables": {"input": {"username": data["username"], "email": data["email"]}},
+    })
+    return response.json()["data"]["createUser"]
+```
 
 ---
 
 ## Running Tests
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-    ```bash
-    # All tests
-    uv run pytest
+```bash
+# All tests
+uv run pytest
 
-    # Database tests only (fast)
-    uv run pytest tests/test_views.py tests/test_functions.py
+# Database tests only (fast, no server required)
+uv run pytest tests/test_views.py tests/test_functions.py
 
-    # With coverage
-    uv run pytest --cov=schema --cov-report=html
+# Schema export tests only
+uv run pytest tests/test_schema.py
 
-    # In parallel
-    uv run pytest -n auto
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```bash
-    # All tests
-    npm test
+# With coverage
+uv run pytest --cov=schema --cov-report=html
 
-    # Database tests only (fast)
-    npx vitest run tests/views.test.ts tests/functions.test.ts
-
-    # With coverage
-    npx vitest run --coverage
-
-    # Watch mode during development
-    npx vitest
-    ```
-  </TabItem>
-</Tabs>
+# In parallel
+uv run pytest -n auto
+```
 
 ---
 
@@ -1011,10 +619,16 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Build database schema
+      - name: Apply database schema
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
-        run: uv run fraiseql db build
+        # Replace with your project's DDL migration command
+        run: confiture build --env ci
+
+      - name: Export and compile schema
+        run: |
+          uv run python schema.py   # runs export_schema("schema.json")
+          fraiseql compile          # produces schema.compiled.json
 
       - name: Run tests
         env:

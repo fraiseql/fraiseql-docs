@@ -91,17 +91,16 @@ type User {
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `database` | `str` | Database for federated types |
-| `dataplane` | `str` | Data plane (`"graphql"` or `"arrow"`) |
 | `implements` | `list[str]` | Interfaces to implement |
 | `relay` | `bool` | Implement the `Node` interface and enable keyset cursor generation |
+| `requires_role` | `str` | Required role to access this type |
 
 When `relay=True`, the type implements the `Node` interface, the global `node(id: ID!)` query is added to the schema, and `fraiseql compile` validates that `pk_{entity}` is present in the corresponding SQL view.
 
 <Tabs syncKey="language">
   <TabItem label="Python">
     ```python
-    @fraiseql.type(database="analytics", implements=["Node"])
+    @fraiseql.type(implements=["Node"])
     class UserAnalytics:
         id: ID
         page_views: int
@@ -109,7 +108,7 @@ When `relay=True`, the type implements the `Node` interface, the global `node(id
   </TabItem>
   <TabItem label="TypeScript">
     ```typescript
-    @type({ database: 'analytics', implements: ['Node'] })
+    @type({ implements: ['Node'] })
     class UserAnalytics {
         id!: ID;
         pageViews!: number;
@@ -132,17 +131,14 @@ Use `Annotated` (Python) or field decorators (TypeScript) for field-level option
         id: ID
         email: str
 
-        # Protected field
-        salary: Annotated[Decimal, fraiseql.field(requires_scope="hr:read")]
+        # Protected field — hidden or rejected if scope missing
+        salary: Annotated[Decimal, fraiseql.field(requires_scope="hr:read", on_deny="mask")]
 
         # Deprecated field
         username: Annotated[str, fraiseql.field(deprecated="Use email instead")]
 
-        # Non-nullable with default
-        role: Annotated[str, fraiseql.field(default="user")]
-
-        # Computed field (not from database)
-        display_name: Annotated[str, fraiseql.field(computed=True)]
+        # Field with description
+        bio: Annotated[str | None, fraiseql.field(description="User biography")]
     ```
   </TabItem>
   <TabItem label="TypeScript">
@@ -159,12 +155,6 @@ Use `Annotated` (Python) or field decorators (TypeScript) for field-level option
 
         @field({ deprecated: 'Use email instead' })
         username!: string;
-
-        @field({ default: 'user' })
-        role!: string;
-
-        @field({ computed: true })
-        displayName!: string;
     }
     ```
   </TabItem>
@@ -211,14 +201,13 @@ type Query {
 | `relay` | `bool` | `False` | Enable Relay spec (Connection/Edge/PageInfo, keyset cursors) |
 | `auto_params` | `bool \| dict` | inferred | `True` = all four params; `False` = none; dict for partial overrides (e.g. `{"limit": True, "offset": False}`). Partial dicts merge with `[query_defaults]` in `fraiseql.toml`. |
 | `inject` | `dict[str, str]` | — | Server-side JWT claim injection. Keys are SQL param names; values are `"jwt:<claim>"`. See [Server-Side Injection](/features/server-side-injection). |
-| `cache_ttl` | `int` | — | Cache duration in seconds |
-| `cache` | `bool` | — | Enable/disable caching |
+| `cache_ttl_seconds` | `int` | — | Cache duration in seconds. Set to `0` to disable caching for this query |
 | `requires_role` | `str` | — | Required role |
 | `requires_scope` | `str` | — | Required scope |
 
 ### Auto Params
 
-For list queries (`-> list[T]`), all four params are enabled automatically since rc.13. Pass `auto_params=False` to opt out:
+For list queries (`-> list[T]`), all four params are enabled automatically. Pass `auto_params=False` to opt out:
 
 | Param | GraphQL argument | SQL |
 |-------|-----------------|-----|
@@ -246,7 +235,7 @@ When `relay=True`, the query generates a Relay-spec `{Type}Connection` instead o
 ```python
 @fraiseql.type(relay=True)
 class Post:
-    id: UUID
+    id: ID
     title: str
 
 @fraiseql.query(sql_source="v_post", relay=True)
@@ -294,11 +283,12 @@ type Mutation {
 | Option | Type | Description |
 |--------|------|-------------|
 | `sql_source` | `str` | SQL function to call |
-| `operation` | `str` | `"CREATE"`, `"UPDATE"`, `"DELETE"` |
+| `operation` | `str` | `"CREATE"`, `"UPDATE"`, `"DELETE"`, `"CUSTOM"` |
 | `inject` | `dict[str, str]` | Server-side JWT claim injection. Keys are SQL param names; values are `"jwt:<claim>"`. Injected params are never exposed to clients. See [Server-Side Injection](/features/server-side-injection). |
 | `requires_role` | `str` | Required role |
 | `requires_scope` | `str` | Required scope |
-| `cache_update` | `bool` | Update cache after mutation |
+| `invalidates_views` | `list[str]` | View names to purge from response cache after the mutation runs (e.g. `["v_post", "v_comment"]`). |
+| `invalidates_fact_tables` | `list[str]` | Fact table names to invalidate after the mutation (e.g. `["tf_sales"]`). |
 
 <Tabs syncKey="language">
   <TabItem label="Python">
@@ -414,9 +404,6 @@ type Subscription {
 | `entity_type` | `str` | Entity to watch |
 | `topic` | `str` | NATS topic |
 | `operation` | `str` | `"INSERT"`, `"UPDATE"`, `"DELETE"` |
-| `filter` | `str` | Filter expression |
-| `jetstream` | `bool` | Use JetStream |
-| `replay` | `bool` | Allow replay |
 
 <Tabs syncKey="language">
   <TabItem label="Python">
@@ -424,10 +411,10 @@ type Subscription {
     @fraiseql.subscription(
         entity_type="Order",
         operation="UPDATE",
-        filter="status == 'shipped'"
+        topic="order_updated"
     )
     def order_shipped(customer_id: ID | None = None) -> Order:
-        """Subscribe to shipped orders."""
+        """Subscribe to order updates."""
         pass
     ```
   </TabItem>
@@ -436,7 +423,7 @@ type Subscription {
     @subscription({
         entityType: 'Order',
         operation: 'UPDATE',
-        filter: "status == 'shipped'",
+        topic: 'order_updated',
     })
     function orderShipped(customerId?: ID): AsyncIterator<Order> {
         return {} as AsyncIterator<Order>;
@@ -473,24 +460,7 @@ input CreateUserInput {
 
 ### Validation
 
-```python
-from typing import Annotated
-
-@fraiseql.input
-class CreateUserInput:
-    email: Annotated[str, fraiseql.validate(
-        pattern=r"^[^@]+@[^@]+\.[^@]+$",
-        message="Invalid email format"
-    )]
-    name: Annotated[str, fraiseql.validate(
-        min_length=2,
-        max_length=100
-    )]
-    age: Annotated[int, fraiseql.validate(
-        minimum=0,
-        maximum=150
-    )]
-```
+Input validation is enforced in PostgreSQL functions using `RAISE EXCEPTION`, not via Python-level decorators. See [Validation Rules](/reference/validation-rules) for the TOML-based validation configuration that FraiseQL applies before SQL execution.
 
 ## @enum
 
@@ -577,128 +547,34 @@ def search(query: str) -> list[SearchResult]:
 
 ## @scalar
 
-Defines a custom scalar type.
+Defines a custom scalar type. The class must inherit from `CustomScalar` and implement `serialize`, `parse_value`, and `parse_literal`.
 
 ```python
-@fraiseql.scalar
-class Email:
-    """Email address with validation."""
+from fraiseql import CustomScalar, scalar
 
-    @staticmethod
-    def serialize(value: str) -> str:
-        return value.lower()
+@scalar
+class TaxId(CustomScalar):
+    """Tax ID with validation."""
+    name = "TaxId"
 
-    @staticmethod
-    def parse(value: str) -> str:
-        if "@" not in value:
-            raise ValueError("Invalid email format")
-        return value.lower()
+    def serialize(self, value: str) -> str:
+        return value.upper().replace("-", "")
 
-    @staticmethod
-    def parse_literal(ast) -> str:
-        if isinstance(ast, StringValueNode):
-            return Email.parse(ast.value)
-        raise ValueError("Email must be a string")
-```
+    def parse_value(self, value: str) -> str:
+        cleaned = value.upper().replace("-", "")
+        if len(cleaned) != 9:
+            raise ValueError("Tax ID must be 9 characters")
+        return cleaned
 
-## @observer
-
-Defines an event observer.
-
-```python
-from fraiseql import observer, webhook, email, slack
-
-@observer(
-    entity="Order",
-    event="INSERT",
-    condition="total > 1000",
-    actions=[
-        webhook("https://api.example.com/orders"),
-        slack("#sales", "New order: {id}")
-    ]
-)
-def on_high_value_order():
-    """Triggered for high-value orders."""
-    pass
-```
-
-### Options
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `entity` | `str` | Entity to watch |
-| `event` | `str` | `"INSERT"`, `"UPDATE"`, `"DELETE"` |
-| `condition` | `str` | Trigger condition |
-| `actions` | `list` | Actions to execute |
-| `retry` | `RetryConfig` | Retry configuration |
-
-### Actions
-
-```python
-# Webhook
-webhook(
-    url="https://api.example.com",
-    headers={"Authorization": "Bearer {TOKEN}"},
-    body_template='{"id": "{{id}}"}'
-)
-
-# Email
-email(
-    to="{customer_email}",
-    subject="Order {id} confirmed",
-    body="Your order has been confirmed."
-)
-
-# Slack
-slack(
-    channel="#orders",
-    message="New order: {id} for ${total}"
-)
-```
-
-## @middleware
-
-Defines request middleware.
-
-```python
-@fraiseql.middleware
-async def log_requests(request, next):
-    """Log all requests."""
-    start = time.time()
-    response = await next(request)
-    duration = time.time() - start
-    logger.info(f"{request.operation} completed in {duration:.3f}s")
-    return response
-```
-
-## @after_mutation
-
-Hook that runs after a mutation.
-
-```python
-@fraiseql.after_mutation("create_user")
-async def after_create_user(user: User, context):
-    """Send welcome email after user creation."""
-    await send_welcome_email(user.email, user.name)
-```
-
-## @before_mutation
-
-Hook that runs before a mutation.
-
-```python
-@fraiseql.before_mutation("delete_user")
-async def before_delete_user(id: ID, context):
-    """Validate deletion is allowed."""
-    user = await get_user(id)
-    if user.is_system_user:
-        raise ValueError("Cannot delete system user")
+    def parse_literal(self, ast) -> str:
+        return self.parse_value(ast.value)
 ```
 
 ## Typed Error Unions
 
+Use `@fraiseql.error` to annotate error types returned by mutations. Scalar fields (`str`, `int`, `float`, `datetime`, `UUID`, etc.) are populated from the `metadata` JSONB column of the `mutation_response` row returned by your SQL function. Both camelCase and snake_case metadata keys are resolved automatically.
+
 ```python
-# Available from rc.14
 @fraiseql.error
 class InsufficientFundsError:
     code: str
@@ -714,98 +590,27 @@ def transfer_funds(
     ...
 ```
 
-This would generate a GraphQL union return type instead of raising a GraphQL error — allowing clients to handle domain errors as typed data rather than error extensions. Track progress in the FraiseQL Python SDK repository.
-
-## @observer and @after_mutation: Choosing the Right Hook
-
-Both `@observer` and `@after_mutation` can react to data changes. They serve different purposes:
-
-`@after_mutation` runs **synchronously in the same transaction** (blocks the response until it completes). `@observer` runs **asynchronously after commit** (fire-and-forget via NATS — does not block the response).
-
-| | `@after_mutation` | `@observer` |
-|---|---|---|
-| **Trigger** | Specific named mutation | Any insert/update/delete on an entity |
-| **Runs** | In-process, synchronously after mutation | Asynchronously via NATS event |
-| **Use for** | Tightly-coupled side effects (audit log, cache bust) | Loosely-coupled notifications (email, webhook, Slack) |
-| **Access to context** | Full request context (user, headers) | Entity data only |
-| **Retries** | No built-in retry | Configurable retry with backoff |
-
-**Use `@after_mutation`** when you need the full request context and want the side effect to be part of the same request lifecycle:
-
-```python
-@fraiseql.after_mutation("create_user")
-async def after_create_user(user: User, context):
-    """Bust cache for user lists immediately after creation."""
-    await context.cache.invalidate("users:*")
-```
-
-**Use `@observer`** when you need reliable delivery, retries, or want to decouple the side effect from the mutation:
-
-```python
-@observer(
-    entity="User",
-    event="INSERT",
-    actions=[
-        email(to="{email}", subject="Welcome!", body="Hi {name}"),
-    ],
-    retry=RetryConfig(max_attempts=3, backoff_strategy="exponential"),
-)
-def on_user_created():
-    """Send welcome email — retried on failure, decoupled from mutation."""
-    pass
-```
-
-<Aside type="tip">
-If both `@after_mutation` and `@observer` are registered for the same event, `@after_mutation` runs first (synchronously), then the observer fires asynchronously via NATS.
-</Aside>
-
-## @arrow_query
-
-Defines an Arrow Flight query.
-
-```python
-@fraiseql.arrow_query(sql_source="va_analytics")
-def analytics_data(
-    start_date: Date,
-    end_date: Date
-) -> list[AnalyticsRow]:
-    """Query analytics via Arrow Flight."""
-    pass
-```
+This generates a GraphQL union return type — clients handle domain errors as typed data rather than error extensions. The SQL function must return a `mutation_response` row; when `status` begins with `"failed:"` or is `"error"`, the `metadata` JSONB is used to populate the error type's fields.
 
 ## fraiseql.field()
 
-Field-level configuration.
+Field-level configuration for use with `Annotated`.
 
 ```python
 fraiseql.field(
-    requires_scope="scope",     # Required scope
-    deprecated="message",       # Deprecation message
-    default=value,              # Default value
-    filterable=True,            # Include in WhereInput
-    orderable=True,             # Include in OrderByInput
-    computed=False,             # Is computed (not in DB)
-    filter_type=CustomFilter,   # Custom filter type
-    filter_operators=["_eq"],   # Allowed operators
+    requires_scope="scope",   # Required OAuth scope
+    on_deny="reject",         # "reject" (default) or "mask"
+    deprecated="message",     # Deprecation reason
+    description="text",       # Field description
 )
 ```
 
-## fraiseql.validate()
-
-Input validation rules.
-
-```python
-fraiseql.validate(
-    pattern="regex",          # Regex pattern
-    min_length=1,             # Minimum string length
-    max_length=100,           # Maximum string length
-    minimum=0,                # Minimum number value
-    maximum=100,              # Maximum number value
-    enum=["a", "b"],          # Allowed values
-    custom=validator_func,    # Custom validator
-    message="Error message",  # Custom error message
-)
-```
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `requires_scope` | `str` | OAuth scope required to read this field |
+| `on_deny` | `str` | `"reject"` raises an error; `"mask"` returns `null` |
+| `deprecated` | `str` | Marks the field deprecated with a reason message |
+| `description` | `str` | Field description exposed in introspection |
 
 ## Type Annotations
 
@@ -835,32 +640,22 @@ class User:
     manager: 'User | None'  # Self-reference
 ```
 
-## Export
-
-Export schema to JSON:
-
-```python
 ## Quick Reference
 
 ### Decorator Cheat Sheet
 
 | Decorator | Purpose | Key Options |
 |-----------|---------|-------------|
-| `@type` | Define object type | `database`, `implements` |
+| `@type` | Define object type | `implements`, `relay`, `requires_role` |
 | `@input` | Define input type | — |
-| `@query` | Define query | `sql_source`, `auto_params`, `cache_ttl` |
+| `@query` | Define query | `sql_source`, `auto_params`, `cache_ttl_seconds` |
 | `@mutation` | Define mutation | `sql_source`, `operation`, `requires_scope` |
-| `@subscription` | Define subscription | `entity_type`, `filter`, `topic` |
+| `@subscription` | Define subscription | `entity_type`, `topic`, `operation` |
 | `@enum` | Define enum | — |
 | `@interface` | Define interface | — |
 | `@union` | Define union | `members` |
 | `@scalar` | Define custom scalar | — |
-| `@observer` | Event observer | `entity`, `event`, `condition`, `actions` |
-| `@role` | Define role | — |
-| `@middleware` | Request middleware | — |
-| `@before_mutation` | Pre-mutation hook | — |
-| `@after_mutation` | Post-mutation hook | — |
-| `@arrow_query` | Arrow Flight query | `sql_source` |
+| `@error` | Define error type | — |
 
 ### Common Auto Params
 
@@ -869,10 +664,9 @@ Export schema to JSON:
     sql_source="v_user",
     auto_params={
         "limit": True,        # Add limit: Int parameter
-        "offset": True,       # Add offset: Int parameter  
+        "offset": True,       # Add offset: Int parameter
         "where": True,        # Add where: UserWhereInput
         "order_by": True,     # Add orderBy: UserOrderByInput
-        "total_count": True,  # Wrap result with totalCount
     }
 )
 ```
@@ -888,28 +682,9 @@ class User:
     id: ID
     email: Annotated[str, fraiseql.field(
         requires_scope="user:read_email",  # Require scope
+        on_deny="mask",                    # Return null instead of error
         deprecated="Use contactEmail instead",  # Deprecation
-        default="",  # Default value
-        computed=True,  # Computed field
-    )]
-```
-
-### Validation Rules
-
-```python
-@fraiseql.input
-class CreateUserInput:
-    email: Annotated[str, fraiseql.validate(
-        pattern=r"^[^@]+@[^@]+\.[^@]+$",
-        message="Invalid email format"
-    )]
-    name: Annotated[str, fraiseql.validate(
-        min_length=2,
-        max_length=100
-    )]
-    age: Annotated[int, fraiseql.validate(
-        minimum=13,
-        maximum=120
+        description="Primary contact email",    # Description
     )]
 ```
 

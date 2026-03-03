@@ -42,10 +42,11 @@ Most business logic in FraiseQL lives in PostgreSQL functions. Raise errors with
 
 ```sql title="db/schema/03_functions/fn_publish_post.sql"
 CREATE OR REPLACE FUNCTION fn_publish_post(p_post_id UUID, p_user_id UUID)
-RETURNS SETOF v_post
+RETURNS mutation_response
 LANGUAGE plpgsql AS $$
 DECLARE
     v_post tb_post;
+    v_entity JSONB;
 BEGIN
     SELECT * INTO v_post
     FROM tb_post
@@ -76,7 +77,10 @@ BEGIN
     UPDATE tb_post SET is_published = true, updated_at = now()
     WHERE pk_post = v_post.pk_post;
 
-    RETURN QUERY SELECT * FROM v_post WHERE id = p_post_id;
+    SELECT data INTO v_entity FROM v_post WHERE id = p_post_id;
+
+    RETURN ROW('success', 'Post published', p_post_id, 'Post',
+               v_entity, NULL, NULL, NULL)::mutation_response;
 END;
 $$;
 ```
@@ -117,11 +121,12 @@ Service-wide error conditions — rate limits, authentication requirements — a
 ### Rate limiting
 
 ```toml
-[security.rate_limiting]
+[fraiseql.security.rate_limiting]
 enabled = true
-requests_per_minute = 1000
-burst = 50
-per_user = true
+auth_start_max_requests = 100
+auth_start_window_secs = 60
+failed_login_max_requests = 5
+failed_login_window_secs = 3600
 ```
 
 When a client exceeds the limit, FraiseQL automatically returns:
@@ -138,7 +143,7 @@ When a client exceeds the limit, FraiseQL automatically returns:
 ### Authentication policy
 
 ```toml
-[security]
+[fraiseql.security]
 default_policy = "authenticated"  # Require a valid JWT on all operations
 ```
 
@@ -172,11 +177,11 @@ For business-logic validation that can't happen at compile time, raise from the 
 
 ## Authentication and Authorization Errors
 
-FraiseQL raises these automatically based on `@authenticated` and `@requires_scope` decorators:
+FraiseQL raises these automatically based on JWT authentication and field-level scope enforcement (configured via `fraiseql.field(requires_scope=...)`):
 
 ### 401 Unauthorized
 
-Raised when a query or mutation decorated with `@authenticated` is called without a valid token:
+Raised when a query or mutation requires authentication and no valid token is present:
 
 ```json
 {

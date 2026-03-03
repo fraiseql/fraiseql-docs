@@ -1,11 +1,11 @@
 ---
 title: Go SDK
-description: Define GraphQL schemas in Go using FraiseQL's type-safe schema authoring SDK
+description: Define GraphQL schemas in Go using FraiseQL's fluent builder schema authoring SDK
 ---
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
-The FraiseQL Go SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations in Go using struct tags and builder patterns, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+The FraiseQL Go SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations in Go using struct tags and fluent builder patterns, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
 
 <Aside type="note">
 This is not a GraphQL client library. FraiseQL Go lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client.
@@ -17,115 +17,96 @@ This is not a GraphQL client library. FraiseQL Go lets you **define** APIs, not 
 go get github.com/fraiseql/fraiseql-go
 ```
 
-**Requirements:** Go 1.22+ (for generics support)
+**Requirements:** Go 1.22+
 
 ## Core Concepts
 
-FraiseQL Go provides struct tags and builder types that map your Go types to GraphQL schema constructs:
+FraiseQL Go provides struct tags and fluent builders that map your Go types to GraphQL schema constructs:
 
 | Construct | GraphQL Equivalent | Purpose |
 |-----------|-------------------|---------|
-| `fraiseql:"type"` struct tag | `type` | Define a GraphQL output type |
-| `fraiseql:"input"` struct tag | `input` | Define a GraphQL input type |
-| `fraiseql.Query{...}` | `Query` field | Wire a query to a SQL view |
-| `fraiseql.Mutation{...}` | `Mutation` field | Define a mutation |
+| Go struct + `fraiseql:` tags | `type` | Define a GraphQL output type |
+| `fraiseql.RegisterTypes(...)` | type registration | Register struct types with the schema |
+| `fraiseql.NewQuery(name)...` | `Query` field | Wire a query to a SQL view |
+| `fraiseql.NewMutation(name)...` | `Mutation` field | Define a mutation |
 
 ---
 
 ## Defining Types
 
-Use the `fraiseql:"type"` struct tag to define GraphQL output types. Fields map 1:1 to columns in your backing SQL view's `.data` JSONB object.
+Define Go structs with `fraiseql:` struct tags. Fields map 1:1 to keys in your backing SQL view's `.data` JSONB object. Register the types with `fraiseql.RegisterTypes`.
 
 ```go title="schema.go"
 package schema
 
-import "github.com/fraiseql/fraiseql-go"
+import "github.com/fraiseql/fraiseql-go/fraiseql"
 
-// User is a registered user.
-// fraiseql:type
 type User struct {
-    ID        fraiseql.ID       `fraiseql:"id"`
+    ID        fraiseql.ID       `fraiseql:"id,type=ID"`
     Username  string            `fraiseql:"username"`
-    Email     fraiseql.Email    `fraiseql:"email"`
-    Bio       *string           `fraiseql:"bio"`
-    CreatedAt fraiseql.DateTime `fraiseql:"created_at"`
+    Email     fraiseql.Email    `fraiseql:"email,type=Email"`
+    Bio       *string           `fraiseql:"bio,nullable=true"`
+    CreatedAt fraiseql.DateTime `fraiseql:"created_at,type=DateTime"`
 }
 
-// Post is a blog post.
-// fraiseql:type
 type Post struct {
-    ID          fraiseql.ID       `fraiseql:"id"`
+    ID          fraiseql.ID       `fraiseql:"id,type=ID"`
     Title       string            `fraiseql:"title"`
-    Slug        fraiseql.Slug     `fraiseql:"slug"`
+    Slug        fraiseql.Slug     `fraiseql:"slug,type=Slug"`
     Content     string            `fraiseql:"content"`
     IsPublished bool              `fraiseql:"is_published"`
-    CreatedAt   fraiseql.DateTime `fraiseql:"created_at"`
-    UpdatedAt   fraiseql.DateTime `fraiseql:"updated_at"`
-    // Nested types are composed from views at compile time
-    Author   User      `fraiseql:"author"`
-    Comments []Comment `fraiseql:"comments"`
+    CreatedAt   fraiseql.DateTime `fraiseql:"created_at,type=DateTime"`
+    UpdatedAt   fraiseql.DateTime `fraiseql:"updated_at,type=DateTime"`
 }
 
-// Comment is a comment on a post.
-// fraiseql:type
-type Comment struct {
-    ID        fraiseql.ID       `fraiseql:"id"`
-    Content   string            `fraiseql:"content"`
-    CreatedAt fraiseql.DateTime `fraiseql:"created_at"`
-    Author    User              `fraiseql:"author"`
+func init() {
+    fraiseql.RegisterTypes(User{}, Post{})
 }
 ```
 
 ### Built-in Scalars
 
-FraiseQL provides semantic scalars that add validation and documentation:
+FraiseQL provides semantic scalar types. Use the `type=` tag option to emit the correct GraphQL scalar type in schema.json:
 
 ```go
-import "github.com/fraiseql/fraiseql-go"
+import "github.com/fraiseql/fraiseql-go/fraiseql"
 
-// Available scalar types
-fraiseql.ID        // UUID, auto-serialized
-fraiseql.Email     // Validated email address
-fraiseql.Slug      // URL-safe slug
-fraiseql.DateTime  // ISO 8601 datetime
-fraiseql.URL       // Validated URL
+// Core
+fraiseql.ID        // UUID — use `fraiseql:"id,type=ID"`
+fraiseql.Email     // Validated email — use `fraiseql:"email,type=Email"`
+fraiseql.Slug      // URL-safe slug — use `fraiseql:"slug,type=Slug"`
+fraiseql.DateTime  // ISO 8601 datetime — use `fraiseql:"created_at,type=DateTime"`
+fraiseql.URL       // Validated URL — use `fraiseql:"website,type=URL"`
 ```
+
+The scalar types are Go type aliases with no runtime behavior. Validation and serialization happen in the FraiseQL Rust runtime after compilation.
 
 ---
 
 ## Defining Inputs
 
-Use the `fraiseql:"input"` struct tag to define GraphQL input types for mutations:
+Input types are plain Go structs registered with `fraiseql.RegisterTypes`. Declare them before use so the compiler knows their shape:
 
 ```go title="schema.go"
 package schema
 
-import "github.com/fraiseql/fraiseql-go"
+import "github.com/fraiseql/fraiseql-go/fraiseql"
 
-// CreateUserInput is the input for creating a user.
-// fraiseql:input
-type CreateUserInput struct {
-    Username string        `fraiseql:"username" validate:"min=3,max=50,pattern=^[a-z0-9_]+$"`
-    Email    fraiseql.Email `fraiseql:"email" validate:"required"`
-    Bio      *string       `fraiseql:"bio"`
-}
-
-// CreatePostInput is the input for creating a post.
-// fraiseql:input
 type CreatePostInput struct {
-    Title       string      `fraiseql:"title" validate:"min=1,max=200"`
+    Title       string      `fraiseql:"title"`
     Content     string      `fraiseql:"content"`
-    AuthorID    fraiseql.ID `fraiseql:"author_id"`
     IsPublished bool        `fraiseql:"is_published"`
 }
 
-// UpdatePostInput is the input for updating a post.
-// fraiseql:input
 type UpdatePostInput struct {
-    ID          fraiseql.ID `fraiseql:"id"`
-    Title       *string     `fraiseql:"title"`
-    Content     *string     `fraiseql:"content"`
-    IsPublished *bool       `fraiseql:"is_published"`
+    ID          fraiseql.ID `fraiseql:"id,type=ID"`
+    Title       *string     `fraiseql:"title,nullable=true"`
+    Content     *string     `fraiseql:"content,nullable=true"`
+    IsPublished *bool       `fraiseql:"is_published,nullable=true"`
+}
+
+func init() {
+    fraiseql.RegisterTypes(CreatePostInput{}, UpdatePostInput{})
 }
 ```
 
@@ -133,49 +114,33 @@ type UpdatePostInput struct {
 
 ## Defining Queries
 
-Use `fraiseql.Query` to wire queries to SQL views. The `SQLSource` field names the view that backs this query:
+Use `fraiseql.NewQuery` to build query definitions and wire them to SQL views. Call `.Register()` to add each query to the global schema registry:
 
 ```go title="schema.go"
 package schema
 
-import "github.com/fraiseql/fraiseql-go"
+import "github.com/fraiseql/fraiseql-go/fraiseql"
 
-// Schema defines all queries and mutations.
-var Schema = fraiseql.Schema{
-    Queries: []fraiseql.Query{
-        // List query — maps to SELECT * FROM v_post WHERE <args>
-        {
-            Name:      "posts",
-            SQLSource: "v_post",
-            Returns:   []Post{},
-            Args: fraiseql.Args{
-                "is_published": (*bool)(nil),
-                "author_id":    (*fraiseql.ID)(nil),
-                "limit":        20,
-                "offset":       0,
-            },
-            Description: "Fetch published posts, optionally filtered by author.",
-        },
-        // Single-item query — maps to SELECT * FROM v_post WHERE id = $1
-        {
-            Name:      "post",
-            SQLSource: "v_post",
-            IDArg:     "id",
-            Returns:   (*Post)(nil),
-            Description: "Fetch a single post by ID.",
-        },
-        // Query with row filter for current user's posts
-        {
-            Name:      "my_posts",
-            SQLSource: "v_post",
-            RowFilter: "author_id = {current_user_id}",
-            Returns:   []Post{},
-            Args: fraiseql.Args{
-                "limit": 20,
-            },
-            Description: "Fetch the current user's posts.",
-        },
-    },
+func init() {
+    // List query — maps to v_post view
+    fraiseql.NewQuery("posts").
+        SqlSource("v_post").
+        ReturnType(Post{}).
+        ReturnsArray(true).
+        Arg("is_published", "Boolean", nil, true).
+        Arg("limit", "Int", 20).
+        Arg("offset", "Int", 0).
+        Description("Fetch posts, optionally filtered by published status.").
+        Register()
+
+    // Single-item query — maps to v_post with id filter
+    fraiseql.NewQuery("post").
+        SqlSource("v_post").
+        ReturnType(Post{}).
+        Nullable(true).
+        Arg("id", "ID", nil).
+        Description("Fetch a single post by ID.").
+        Register()
 }
 ```
 
@@ -185,7 +150,7 @@ FraiseQL's **automatic-where** feature maps query arguments to SQL filters autom
 
 ```graphql
 query {
-  posts(is_published: true, author_id: "usr_01HZ3K") { ... }
+  posts(is_published: true, limit: 10) { id title }
 }
 ```
 
@@ -194,8 +159,7 @@ Becomes:
 ```sql
 SELECT data FROM v_post
 WHERE is_published = true
-  AND author_id = 'usr_01HZ3K'
-LIMIT 20 OFFSET 0;
+LIMIT 10 OFFSET 0;
 ```
 
 No resolver code required.
@@ -204,104 +168,129 @@ No resolver code required.
 
 ## Defining Mutations
 
-Add mutations to `fraiseql.Schema`. Each mutation maps to a PostgreSQL function:
+Use `fraiseql.NewMutation` to build mutation definitions. Each mutation maps to a PostgreSQL function using the `fn_` naming convention:
 
 ```go title="schema.go"
 package schema
 
-import "github.com/fraiseql/fraiseql-go"
+import "github.com/fraiseql/fraiseql-go/fraiseql"
 
-var Schema = fraiseql.Schema{
-    // ...queries above...
-    Mutations: []fraiseql.Mutation{
-        {
-            Name:        "create_user",
-            Input:       CreateUserInput{},
-            Returns:     User{},
-            Description: "Create a new user account.",
-            // FraiseQL calls: SELECT * FROM fn_create_user($1::jsonb)
-        },
-        {
-            Name:        "create_post",
-            Input:       CreatePostInput{},
-            Returns:     Post{},
-            Auth:        fraiseql.RequiresScope("write:posts"),
-            Description: "Create a new blog post.",
-        },
-        {
-            Name:        "publish_post",
-            Args:        fraiseql.Args{"id": fraiseql.ID("")},
-            Returns:     Post{},
-            Auth:        fraiseql.RequiresScope("write:posts"),
-            Description: "Publish a draft post.",
-        },
-        {
-            Name:        "delete_post",
-            Args:        fraiseql.Args{"id": fraiseql.ID("")},
-            Returns:     false,
-            Auth:        fraiseql.RequiresScope("admin:posts"),
-            Description: "Soft-delete a post.",
-        },
-    },
+func init() {
+    // Maps to fn_create_post PostgreSQL function
+    fraiseql.NewMutation("create_post").
+        SqlSource("fn_create_post").
+        ReturnType(Post{}).
+        Arg("input", "CreatePostInput", nil).
+        Operation("insert").
+        InvalidatesViews([]string{"v_post"}).
+        Description("Create a new blog post.").
+        Register()
+
+    // Maps to fn_publish_post PostgreSQL function
+    fraiseql.NewMutation("publish_post").
+        SqlSource("fn_publish_post").
+        ReturnType(Post{}).
+        Arg("id", "ID", nil).
+        RequiresRole("editor").
+        Operation("update").
+        InvalidatesViews([]string{"v_post"}).
+        Description("Publish a draft post.").
+        Register()
+
+    // Maps to fn_delete_post PostgreSQL function
+    fraiseql.NewMutation("delete_post").
+        SqlSource("fn_delete_post").
+        ReturnType(Post{}).
+        Arg("id", "ID", nil).
+        RequiresRole("admin").
+        Operation("delete").
+        InvalidatesViews([]string{"v_post"}).
+        Description("Soft-delete a post.").
+        Register()
 }
 ```
 
-Each mutation maps to a PostgreSQL function in `db/schema/03_functions/`. The Go definition is the schema; the SQL function is the implementation.
+Each mutation maps to a PostgreSQL function in `db/schema/`. The Go definition is the schema; the SQL function is the implementation.
+
+### The SQL Side
+
+```sql
+-- db/schema/tb_post.sql
+CREATE TABLE tb_post (
+    pk_post    BIGINT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID    DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+    identifier TEXT    UNIQUE NOT NULL,                  -- slug
+    title      TEXT    NOT NULL,
+    content    TEXT    NOT NULL DEFAULT '',
+    is_published BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    fk_author BIGINT NOT NULL REFERENCES tb_user(pk_user)
+);
+
+-- db/schema/v_post.sql
+CREATE VIEW v_post AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id',           p.id::text,
+        'identifier',   p.identifier,
+        'title',        p.title,
+        'content',      p.content,
+        'is_published', p.is_published,
+        'created_at',   p.created_at,
+        'updated_at',   p.updated_at
+    ) AS data
+FROM tb_post p;
+
+-- db/schema/fn_create_post.sql
+CREATE FUNCTION fn_create_post(p_input jsonb)
+RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id UUID := gen_random_uuid();
+BEGIN
+    INSERT INTO tb_post (id, identifier, title, content, is_published)
+    VALUES (
+        v_id,
+        p_input->>'title',          -- use title as identifier/slug
+        p_input->>'title',
+        p_input->>'content',
+        (p_input->>'is_published')::boolean
+    );
+    RETURN ROW('success', NULL, v_id, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+END;
+$$;
+```
 
 ---
 
 ## Authorization
 
-Use `fraiseql.Authenticated` and `fraiseql.RequiresScope` to protect queries and mutations:
+Use `.RequiresRole(role)` on any query or mutation builder to restrict access to callers who hold the specified role:
 
 ```go title="schema.go"
-var Schema = fraiseql.Schema{
-    Queries: []fraiseql.Query{
-        {
-            Name:      "posts",
-            SQLSource: "v_post",
-            Returns:   []Post{},
-            Auth:      fraiseql.Authenticated,
-        },
-    },
-    Mutations: []fraiseql.Mutation{
-        {
-            Name:    "create_post",
-            Input:   CreatePostInput{},
-            Returns: Post{},
-            Auth: fraiseql.All(
-                fraiseql.Authenticated,
-                fraiseql.RequiresScope("write:posts"),
-            ),
-        },
-    },
+func init() {
+    // Restrict query to users with the "member" role
+    fraiseql.NewQuery("my_posts").
+        SqlSource("v_post").
+        ReturnType(Post{}).
+        ReturnsArray(true).
+        RequiresRole("member").
+        InjectParams(map[string]string{"author_id": "jwt:sub"}).
+        Register()
+
+    // Restrict mutation to users with the "editor" role
+    fraiseql.NewMutation("create_post").
+        SqlSource("fn_create_post").
+        ReturnType(Post{}).
+        Arg("input", "CreatePostInput", nil).
+        RequiresRole("editor").
+        Register()
 }
 ```
 
----
-
-## Middleware
-
-Use `fraiseql.Middleware` to intercept requests and set context:
-
-```go title="schema.go"
-package schema
-
-import "github.com/fraiseql/fraiseql-go"
-
-var Middleware = []fraiseql.MiddlewareFunc{
-    // Extract user ID and org from verified JWT
-    func(req *fraiseql.Request, next fraiseql.Handler) (*fraiseql.Response, error) {
-        if req.Auth != nil {
-            req.Context["current_user_id"] = req.Auth.Claims["sub"]
-            req.Context["current_org_id"] = req.Auth.Claims["org_id"]
-        }
-        return next(req)
-    },
-}
-```
-
-Values set on `req.Context` are available in `RowFilter` expressions and in mutation context.
+JWT claim injection via `InjectParams` lets you pass server-side values (like the authenticated user's ID) into queries without exposing them as client-controlled arguments.
 
 ---
 
@@ -312,161 +301,108 @@ A full blog API schema:
 ```go title="schema.go"
 package schema
 
-import "github.com/fraiseql/fraiseql-go"
+import "github.com/fraiseql/fraiseql-go/fraiseql"
 
 // Types
 
-// fraiseql:type
 type User struct {
-    ID        fraiseql.ID       `fraiseql:"id"`
+    ID        fraiseql.ID       `fraiseql:"id,type=ID"`
     Username  string            `fraiseql:"username"`
-    Email     fraiseql.Email    `fraiseql:"email"`
-    Bio       *string           `fraiseql:"bio"`
-    CreatedAt fraiseql.DateTime `fraiseql:"created_at"`
+    Email     fraiseql.Email    `fraiseql:"email,type=Email"`
+    Bio       *string           `fraiseql:"bio,nullable=true"`
+    CreatedAt fraiseql.DateTime `fraiseql:"created_at,type=DateTime"`
 }
 
-// fraiseql:type
 type Post struct {
-    ID          fraiseql.ID       `fraiseql:"id"`
+    ID          fraiseql.ID       `fraiseql:"id,type=ID"`
     Title       string            `fraiseql:"title"`
-    Slug        fraiseql.Slug     `fraiseql:"slug"`
+    Slug        fraiseql.Slug     `fraiseql:"slug,type=Slug"`
     Content     string            `fraiseql:"content"`
     IsPublished bool              `fraiseql:"is_published"`
-    CreatedAt   fraiseql.DateTime `fraiseql:"created_at"`
-    UpdatedAt   fraiseql.DateTime `fraiseql:"updated_at"`
-    Author      User              `fraiseql:"author"`
-    Comments    []Comment         `fraiseql:"comments"`
-}
-
-// fraiseql:type
-type Comment struct {
-    ID        fraiseql.ID       `fraiseql:"id"`
-    Content   string            `fraiseql:"content"`
-    CreatedAt fraiseql.DateTime `fraiseql:"created_at"`
-    Author    User              `fraiseql:"author"`
+    CreatedAt   fraiseql.DateTime `fraiseql:"created_at,type=DateTime"`
+    UpdatedAt   fraiseql.DateTime `fraiseql:"updated_at,type=DateTime"`
 }
 
 // Inputs
 
-// fraiseql:input
 type CreatePostInput struct {
-    Title       string `fraiseql:"title" validate:"min=1,max=200"`
+    Title       string `fraiseql:"title"`
     Content     string `fraiseql:"content"`
     IsPublished bool   `fraiseql:"is_published"`
 }
 
-// fraiseql:input
-type CreateCommentInput struct {
-    PostID  fraiseql.ID `fraiseql:"post_id"`
-    Content string      `fraiseql:"content" validate:"min=1,max=10000"`
-}
+func init() {
+    // Register types
+    fraiseql.RegisterTypes(User{}, Post{}, CreatePostInput{})
 
-// Schema
+    // Queries
+    fraiseql.NewQuery("posts").
+        SqlSource("v_post").
+        ReturnType(Post{}).
+        ReturnsArray(true).
+        Arg("is_published", "Boolean", nil, true).
+        Arg("limit", "Int", 20).
+        Register()
 
-var Schema = fraiseql.Schema{
-    Queries: []fraiseql.Query{
-        {Name: "posts", SQLSource: "v_post", Returns: []Post{}, Args: fraiseql.Args{"is_published": (*bool)(nil), "limit": 20}},
-        {Name: "post", SQLSource: "v_post", IDArg: "id", Returns: (*Post)(nil)},
-    },
-    Mutations: []fraiseql.Mutation{
-        {Name: "create_post", Input: CreatePostInput{}, Returns: Post{}, Auth: fraiseql.All(fraiseql.Authenticated, fraiseql.RequiresScope("write:posts"))},
-        {Name: "create_comment", Input: CreateCommentInput{}, Returns: Comment{}, Auth: fraiseql.All(fraiseql.Authenticated, fraiseql.RequiresScope("write:comments"))},
-    },
-    Middleware: []fraiseql.MiddlewareFunc{
-        func(req *fraiseql.Request, next fraiseql.Handler) (*fraiseql.Response, error) {
-            if req.Auth != nil {
-                req.Context["current_user_id"] = req.Auth.Claims["sub"]
-            }
-            return next(req)
-        },
-    },
+    fraiseql.NewQuery("post").
+        SqlSource("v_post").
+        ReturnType(Post{}).
+        Nullable(true).
+        Arg("id", "ID", nil).
+        Register()
+
+    // Mutations
+    fraiseql.NewMutation("create_post").
+        SqlSource("fn_create_post").
+        ReturnType(Post{}).
+        Arg("input", "CreatePostInput", nil).
+        RequiresRole("editor").
+        Operation("insert").
+        InvalidatesViews([]string{"v_post"}).
+        Register()
 }
 ```
 
 ---
 
-## Build and Serve
+## Build and Export
 
 <Steps>
 
-1. Build the schema — compiles Go types to the FraiseQL IR:
+1. Export the schema — compiles Go types to the FraiseQL schema JSON:
+
+   ```go title="cmd/export/main.go"
+   package main
+
+   import (
+       "encoding/json"
+       "os"
+       _ "your-module/schema" // side-effect: runs init() functions
+       "github.com/fraiseql/fraiseql-go/fraiseql"
+   )
+
+   func main() {
+       data, err := fraiseql.GetSchemaJSON(true)
+       if err != nil {
+           panic(err)
+       }
+       os.WriteFile("schema.json", data, 0644)
+   }
+   ```
+
+2. Compile with the CLI:
 
    ```bash
-   fraiseql compile
+   fraiseql compile --schema schema.json
    ```
 
-   Expected output:
-
-   ```
-   ✓ Schema compiled: 3 types, 2 queries, 2 mutations
-   ✓ Views validated against database
-   ✓ Build complete: schema.json
-   ```
-
-2. Serve the API:
+3. Serve the API:
 
    ```bash
    fraiseql run
    ```
 
-   Expected output:
-
-   ```
-   ✓ FraiseQL 2.0.0 running on http://localhost:8080/graphql
-   ✓ GraphQL Playground at http://localhost:8080/graphql
-   ```
-
 </Steps>
-
----
-
-## Testing
-
-FraiseQL provides a test client that compiles your schema and runs queries against a real database:
-
-```go title="schema_test.go"
-package schema_test
-
-import (
-    "testing"
-    "github.com/fraiseql/fraiseql-go/testing"
-)
-
-func TestCreateAndFetchPost(t *testing.T) {
-    client := fraiseqltest.NewClient(t, fraiseqltest.Config{
-        SchemaPath:  "./schema.go",
-        DatabaseURL: os.Getenv("FRAISEQL_TEST_DATABASE_URL"),
-    })
-
-    // Create a post
-    result, err := client.Mutate(t, `
-        mutation {
-            createPost(input: { title: "Hello", content: "World" }) {
-                id
-                title
-                isPublished
-            }
-        }
-    `)
-    if err != nil {
-        t.Fatal(err)
-    }
-
-    post := result["createPost"].(map[string]any)
-    if post["title"] != "Hello" {
-        t.Errorf("expected title Hello, got %v", post["title"])
-    }
-
-    // Fetch it back
-    postID := post["id"].(string)
-    result, err = client.Query(t, `
-        query { post(id: "`+postID+`") { title content } }
-    `)
-    if err != nil {
-        t.Fatal(err)
-    }
-}
-```
 
 ---
 
@@ -480,9 +416,9 @@ func TestCreateAndFetchPost(t *testing.T) {
     [Filtering, pagination, and full-text search](/guides/custom-queries)
   </Card>
   <Card title="Security" icon="approve-check-circle">
-    [Authentication, RBAC, and input validation](/features/security)
+    [Authentication, RBAC, and field-level scopes](/features/security)
   </Card>
   <Card title="Other SDKs" icon="puzzle">
-    [Python, TypeScript, Java, Rust, PHP](/sdk/)
+    [Python, TypeScript, Java, PHP](/sdk/)
   </Card>
 </CardGrid>

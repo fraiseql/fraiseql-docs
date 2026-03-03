@@ -8,7 +8,7 @@ import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/
 Automatic Persisted Queries (APQ) reduce bandwidth and improve latency by caching query strings on the server.
 
 <Aside type="note">
-APQ is **implemented and enabled by default** as of rc.14. No configuration is required — the server caches query strings in memory automatically. To use Redis instead of in-memory storage (required for multi-instance deployments), add the `redis-apq` feature flag to your deployment image.
+APQ is **implemented and enabled by default**. No configuration is required — the server caches query strings in memory automatically. To use Redis instead of in-memory storage (required for multi-instance deployments), add the `redis-apq` feature flag to your deployment image.
 </Aside>
 
 ## How APQ Works
@@ -59,12 +59,12 @@ APQ is enabled by default with an in-memory LRU cache. No TOML configuration is 
 
 ### Single Instance (default)
 
-No configuration needed. The server caches up to 10,000 query strings in memory with a 24-hour TTL.
+No configuration needed. The server caches up to 1,000 query strings in memory with a 1-hour TTL.
 
-To disable APQ (e.g., in testing), set the environment variable:
+To disable APQ (e.g., in testing), set the environment variable using the `FRAISEQL_` prefix with `__` for nesting:
 
 ```bash
-FRAISEQL_APQ_ENABLED=false fraiseql run
+FRAISEQL_APQ__ENABLED=false fraiseql run
 ```
 
 ### Multi-Instance (Redis required)
@@ -235,13 +235,7 @@ curl -s -X POST http://localhost:8080/graphql \
 
 ## GET Requests
 
-With APQ, you can use GET requests for cached queries:
-
-```toml
-[fraiseql.apq]
-enabled = true
-allow_get = true
-```
+With APQ, cached queries can be sent as GET requests:
 
 ```
 GET /graphql?extensions={"persistedQuery":{"version":1,"sha256Hash":"abc123"}}&variables={"id":"123"}
@@ -286,52 +280,23 @@ Response:
 
 ### Query Allowlisting
 
-For maximum security, only allow prepopulated queries:
+APQ caching is additive by default — any query can be registered on first use. For deployments where you want to restrict execution to known queries only, use the `redis-apq` feature flag in combination with infrastructure-level controls (e.g., only pre-seeding the Redis cache before deploy and blocking the registration flow via a reverse proxy).
 
-```toml
-[fraiseql.apq]
-enabled = true
-require_prepopulated = true  # Reject queries not in cache
-```
+## Warming the Cache
 
-<Aside type="caution">
-Setting `require_prepopulated = true` prevents arbitrary queries in production, but means you must pre-register all queries before deploying changes. Build this into your CI/CD pipeline.
-</Aside>
-
-## Prepopulating the Cache
-
-For production, prepopulate the APQ cache at build time:
-
-### Extract Queries
-
-```javascript
-// extract-queries.js
-const fs = require('fs');
-const crypto = require('crypto');
-const glob = require('glob');
-
-const queries = {};
-
-// Find all GraphQL queries in source
-glob.sync('src/**/*.graphql').forEach(file => {
-    const query = fs.readFileSync(file, 'utf8');
-    const hash = crypto.createHash('sha256').update(query).digest('hex');
-    queries[hash] = query;
-});
-
-fs.writeFileSync('queries.json', JSON.stringify(queries, null, 2));
-```
-
-### Upload to Server
+APQ queries are registered automatically on first use — no batch upload API is needed. To warm the cache after a deploy, run your queries once against the live server:
 
 ```bash
-# Upload extracted queries
-fraiseql apq upload --file queries.json
+# Warm cache by executing each query once after deploy
+for hash in $(cat queries.json | jq -r 'keys[]'); do
+    query=$(cat queries.json | jq -r --arg h "$hash" '.[$h]')
+    curl -s -X POST $FRAISEQL_URL/graphql \
+        -H "Content-Type: application/json" \
+        -d "{\"query\": $(echo "$query" | jq -R -s '.'), \
+             \"extensions\": {\"persistedQuery\": {\"version\": 1, \"sha256Hash\": \"$hash\"}}}" \
+        > /dev/null
+done
 ```
-
-### CLI Commands
-
-APQ cache management is handled via the REST API at `/api/v1/apq/` when the server is running. See [CLI Reference](/reference/cli) for full command reference. The `fraiseql apq` subcommand is not available in rc.14.
 
 ## Metrics
 
@@ -341,8 +306,8 @@ Monitor APQ performance:
 |--------|-------------|
 | `fraiseql_apq_hits_total` | Cache hits |
 | `fraiseql_apq_misses_total` | Cache misses |
-| `fraiseql_apq_cache_size` | Current cache size |
-| `fraiseql_apq_bytes_saved` | Bandwidth saved |
+| `fraiseql_apq_stored_total` | Queries stored |
+| `fraiseql_apq_redis_errors_total` | Redis backend errors (only present with `redis-apq` feature) |
 
 ### Grafana Dashboard
 
@@ -351,8 +316,8 @@ Monitor APQ performance:
 sum(rate(fraiseql_apq_hits_total[5m])) /
 (sum(rate(fraiseql_apq_hits_total[5m])) + sum(rate(fraiseql_apq_misses_total[5m])))
 
-# Bandwidth saved (MB/s)
-sum(rate(fraiseql_apq_bytes_saved[5m])) / 1024 / 1024
+# Queries stored over time
+rate(fraiseql_apq_stored_total[5m])
 ```
 
 ## Benefits
@@ -377,12 +342,12 @@ Typical GraphQL queries are 1–10 KB. Hashes are 64 bytes.
 
 ### Warm the Cache in CI/CD
 
+After deploying, run your queries once against the live server so subsequent requests can use the hash-only path:
+
 ```yaml
 # .github/workflows/deploy.yml
-- name: Extract and upload queries
-  run: |
-    npm run extract-queries
-    fraiseql apq upload --file queries.json
+- name: Warm APQ cache
+  run: npm run warm-apq-cache  # script that POSTs each query+hash once to $FRAISEQL_URL/graphql
 ```
 
 ### Monitor Hit Rate
@@ -395,21 +360,14 @@ fraiseql_apq_hits_total / (fraiseql_apq_hits_total + fraiseql_apq_misses_total) 
 
 ### Size the Cache
 
-```toml
-# Estimate: unique queries x 2 (for safety margin)
-[fraiseql.apq]
-cache_size = 10000  # For ~5000 unique queries
-```
+The in-memory APQ store uses an LRU cache with a default capacity of 1,000 query entries. This is not currently configurable via TOML or environment variables — if you need a larger cache, use the `redis-apq` feature flag (Redis has no fixed capacity limit).
 
 ### Use Redis for Distributed
 
-Single-instance memory cache doesn't share across servers:
+Single-instance memory cache doesn't share across servers. Enable the `redis-apq` Cargo feature and set `REDIS_URL`:
 
-```toml
-# Production with multiple instances
-[fraiseql.apq]
-backend = "redis"
-redis_url = "${REDIS_URL}"
+```bash
+REDIS_URL=redis://your-redis:6379 fraiseql run
 ```
 
 ## Troubleshooting
@@ -423,11 +381,13 @@ redis_url = "${REDIS_URL}"
 ### Cache Not Working
 
 ```bash
-# Check APQ status
-fraiseql apq status
+# Check APQ hit/miss counts via the metrics endpoint
+curl -s http://localhost:8080/metrics | grep fraiseql_apq
 
-# Test a query
-fraiseql apq lookup --hash "abc123..."
+# Test manually: send hash + query to register, then hash-only to verify
+curl -s -X POST http://localhost:8080/graphql \
+    -H "Content-Type: application/json" \
+    -d '{"query":"{__typename}","extensions":{"persistedQuery":{"version":1,"sha256Hash":"ecf4edb46db40b5132295c0291d62fb65d6759a9aeacfe1f108c30a4740c5f71"}}}'
 ```
 
 ### Hash Mismatch

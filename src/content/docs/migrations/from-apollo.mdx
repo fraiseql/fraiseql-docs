@@ -128,30 +128,39 @@ This guide walks through migrating from manually-built Apollo Server GraphQL bac
    -- v_user: replaces User query resolvers
    CREATE VIEW v_user AS
    SELECT
-     u.id,
-     u.email,
-     u.name,
-     COALESCE(
-       json_agg(
-         json_build_object('id', p.id, 'title', p.title, 'content', p.content)
-       ) FILTER (WHERE p.id IS NOT NULL),
-       '[]'
-     ) AS posts
+       u.id,
+       jsonb_build_object(
+           'id',         u.id::text,
+           'identifier', u.identifier,
+           'email',      u.email,
+           'name',       u.name,
+           'posts',      COALESCE(
+               jsonb_agg(
+                   jsonb_build_object('id', p.id::text, 'title', p.title, 'content', p.content)
+               ) FILTER (WHERE p.pk_post IS NOT NULL),
+               '[]'::jsonb
+           )
+       ) AS data
    FROM tb_user u
-   LEFT JOIN tb_post p ON p.user_id = u.id
-   GROUP BY u.id;
+   LEFT JOIN tb_post p ON p.fk_user = u.pk_user
+   GROUP BY u.pk_user, u.id;
 
    -- v_post: replaces Post query resolvers
    CREATE VIEW v_post AS
    SELECT
-     p.id,
-     p.title,
-     p.content,
-     u.id AS author_id,
-     u.email AS author_email,
-     u.name AS author_name
+       p.id,
+       jsonb_build_object(
+           'id',      p.id::text,
+           'title',   p.title,
+           'content', p.content,
+           'author',  jsonb_build_object(
+               'id',    u.id::text,
+               'email', u.email,
+               'name',  u.name
+           )
+       ) AS data
    FROM tb_post p
-   JOIN tb_user u ON u.id = p.user_id;
+   JOIN tb_user u ON u.pk_user = p.fk_user;
    ```
 
 3. **Write PostgreSQL Functions for Mutations**
@@ -160,18 +169,48 @@ This guide walks through migrating from manually-built Apollo Server GraphQL bac
 
    ```sql
    CREATE FUNCTION fn_create_user(p_email TEXT, p_name TEXT)
-   RETURNS SETOF v_user AS $$
+   RETURNS mutation_response AS $$
+   DECLARE
+       v_id     UUID := gen_random_uuid();
+       v_result mutation_response;
    BEGIN
-       INSERT INTO tb_user (email, name) VALUES (p_email, p_name);
-       RETURN QUERY SELECT * FROM v_user WHERE email = p_email;
+       INSERT INTO tb_user (id, identifier, email, name)
+       VALUES (v_id, p_email, p_email, p_name);
+
+       v_result.status      := 'success';
+       v_result.entity_id   := v_id;
+       v_result.entity_type := 'User';
+       v_result.entity      := (SELECT data FROM v_user WHERE id = v_id);
+       RETURN v_result;
+   EXCEPTION WHEN unique_violation THEN
+       v_result.status  := 'conflict:duplicate_email';
+       v_result.message := 'A user with that email already exists.';
+       RETURN v_result;
    END;
    $$ LANGUAGE plpgsql;
 
    CREATE FUNCTION fn_create_post(p_title TEXT, p_content TEXT, p_author_id UUID)
-   RETURNS SETOF v_post AS $$
+   RETURNS mutation_response AS $$
+   DECLARE
+       v_id      UUID := gen_random_uuid();
+       v_fk_user BIGINT;
+       v_result  mutation_response;
    BEGIN
-       INSERT INTO tb_post (title, content, user_id) VALUES (p_title, p_content, p_author_id);
-       RETURN QUERY SELECT * FROM v_post WHERE user_id = p_author_id ORDER BY id DESC LIMIT 1;
+       SELECT pk_user INTO v_fk_user FROM tb_user WHERE id = p_author_id;
+       IF v_fk_user IS NULL THEN
+           v_result.status  := 'failed:not_found';
+           v_result.message := 'Author not found.';
+           RETURN v_result;
+       END IF;
+
+       INSERT INTO tb_post (id, identifier, title, content, fk_user)
+       VALUES (v_id, p_title, p_title, p_content, v_fk_user);
+
+       v_result.status      := 'success';
+       v_result.entity_id   := v_id;
+       v_result.entity_type := 'Post';
+       v_result.entity      := (SELECT data FROM v_post WHERE id = v_id);
+       RETURN v_result;
    END;
    $$ LANGUAGE plpgsql;
    ```
@@ -181,9 +220,8 @@ This guide walks through migrating from manually-built Apollo Server GraphQL bac
    Map each GraphQL SDL type to a FraiseQL type decorator. The Rust binary reads these decorator definitions to generate the full GraphQL schema — no SDL authoring needed.
 
    ```python
-   from fraiseql import FraiseQL, ID
-
-   fraiseql = FraiseQL()
+   import fraiseql
+   from fraiseql import ID
 
    @fraiseql.type
    class User:
@@ -197,12 +235,11 @@ This guide walks through migrating from manually-built Apollo Server GraphQL bac
        id: ID
        title: str
        content: str
-       author_id: ID
        author: User
 
    # Queries map to SQL views
    @fraiseql.query(sql_source="v_user")
-   def user(id: ID) -> User:
+   def user(id: ID) -> User | None:
        """Get single user."""
        pass
 
@@ -212,7 +249,7 @@ This guide walks through migrating from manually-built Apollo Server GraphQL bac
        pass
 
    @fraiseql.query(sql_source="v_post")
-   def post(id: ID) -> Post:
+   def post(id: ID) -> Post | None:
        """Get single post."""
        pass
 
@@ -222,12 +259,12 @@ This guide walks through migrating from manually-built Apollo Server GraphQL bac
        pass
 
    # Mutations map to PostgreSQL functions
-   @fraiseql.mutation(sql_source="fn_create_user")
+   @fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
    def create_user(email: str, name: str) -> User:
        """Create user."""
        pass
 
-   @fraiseql.mutation(sql_source="fn_create_post")
+   @fraiseql.mutation(sql_source="fn_create_post", operation="CREATE")
    def create_post(title: str, content: str, author_id: ID) -> Post:
        """Create post."""
        pass
@@ -348,12 +385,11 @@ query GetUsers {
 }
 ```
 
-FraiseQL executes only **2 queries**:
+FraiseQL executes only **1 query** — the JSONB `data` column in `v_user` already embeds all post data via the SQL JOIN written at view-definition time:
 
-1. `SELECT * FROM v_user LIMIT 10`
-2. `SELECT * FROM v_post WHERE user_id IN (list_of_user_ids)`
+1. `SELECT id, data FROM v_user LIMIT 10` — posts are nested inside the `data` JSONB column
 
-That's **5x fewer queries** — and you cannot accidentally create N+1 because the SQL is pre-written.
+That's **11x fewer queries** — and you cannot accidentally create N+1 because the SQL is pre-written into the view.
 
 ## Performance Comparison
 
@@ -537,9 +573,15 @@ FraiseQL queries are slower than Apollo.
    EXPLAIN ANALYZE SELECT data FROM v_user WHERE id = '123';
    ```
 
-3. Consider materialized views for heavy queries:
+3. For hot-path queries, use a `tv_` projection table that is kept in sync via a `sync_` trigger function:
    ```sql
-   CREATE MATERIALIZED VIEW tv_user AS ...
+   -- tv_ tables are regular tables with JSONB, not PostgreSQL materialized views
+   CREATE TABLE tv_user (
+       pk_tv_user BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+       id         UUID   UNIQUE NOT NULL,
+       data       JSONB  NOT NULL
+   );
+   -- Populated and refreshed by sync_tv_user() on INSERT/UPDATE/DELETE
    ```
 
 ### Issue: Subscriptions not working
@@ -551,9 +593,9 @@ WebSocket connections fail.
 
 1. Verify NATS is configured:
    ```toml
-   [nats]
-   enabled = true
-   url = "nats://localhost:4222"
+   [observers]
+   backend = "nats"
+   nats_url = "nats://localhost:4222"
    ```
 
 2. Check subscription decorator:

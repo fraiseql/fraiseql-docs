@@ -54,7 +54,7 @@ Projection tables live alongside your write tables in `db/schema/01_write/`. The
   <TabItem label="SQLite">
     ```sql title="db/schema/01_write/tv_post_stats.sql"
     CREATE TABLE tv_post_stats (
-        fk_post       INTEGER NOT NULL,
+        fk_post       BIGINT NOT NULL,
         comment_count INTEGER NOT NULL DEFAULT 0,
         view_count    INTEGER NOT NULL DEFAULT 0,
         last_activity TEXT,
@@ -585,7 +585,7 @@ Add a `recordView` mutation that calls a database function to increment `view_co
     class RecordViewInput:
         post_id: ID
 
-    @fraiseql.mutation(operation="custom", sql_function="fn_record_post_view")
+    @fraiseql.mutation(sql_source="fn_record_post_view", operation="CUSTOM")
     def record_view(input: RecordViewInput) -> bool:
         """Increment view count for a post."""
         pass
@@ -599,7 +599,7 @@ Add a `recordView` mutation that calls a database function to increment `view_co
       postId: ID;
     }
 
-    @mutation({ operation: 'custom', sqlFunction: 'fn_record_post_view' })
+    @mutation({ sqlSource: 'fn_record_post_view', operation: 'CUSTOM' })
     async function recordView(input: RecordViewInput): Promise<boolean> {
       // Increment view count for a post
     }
@@ -614,7 +614,7 @@ Add a `recordView` mutation that calls a database function to increment `view_co
     }
 
     // RecordView increments the view count for a post.
-    // Maps to fn_record_post_view database function, operation=custom.
+    // Maps to fn_record_post_view database function, operation=CUSTOM.
     func RecordView(ctx context.Context, input RecordViewInput) (bool, error) {
         return false, nil
     }
@@ -628,7 +628,7 @@ Then write the backing function:
   <TabItem label="PostgreSQL">
     ```sql title="db/schema/01_write/fn_record_post_view.sql"
     CREATE OR REPLACE FUNCTION fn_record_post_view(p_post_id UUID)
-    RETURNS BOOLEAN LANGUAGE plpgsql AS $$
+    RETURNS mutation_response LANGUAGE plpgsql AS $$
     DECLARE
         v_pk BIGINT;
     BEGIN
@@ -637,7 +637,8 @@ Then write the backing function:
         WHERE id = p_post_id;
 
         IF v_pk IS NULL THEN
-            RETURN FALSE;
+            RETURN ROW('failed:not_found', 'post not found: ' || p_post_id,
+                NULL, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
         END IF;
 
         INSERT INTO tv_post_stats (fk_post, view_count)
@@ -645,7 +646,8 @@ Then write the backing function:
         ON CONFLICT (fk_post) DO UPDATE
             SET view_count = tv_post_stats.view_count + 1;
 
-        RETURN TRUE;
+        RETURN ROW('success', 'View recorded', p_post_id, 'Post',
+            NULL, NULL, NULL, NULL)::mutation_response;
     END;
     $$;
     ```
@@ -681,7 +683,7 @@ Then write the backing function:
     --   SELECT pk_post, 1 FROM tb_post WHERE id = ?
     --   ON CONFLICT (fk_post) DO UPDATE SET view_count = view_count + 1;
     --
-    -- Map the mutation to operation="custom" and provide the SQL inline
+    -- Map the mutation to operation="CUSTOM" and provide the SQL inline
     -- in your fraiseql.toml or via a named statement file.
     ```
   </TabItem>
