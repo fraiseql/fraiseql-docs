@@ -143,6 +143,7 @@ export default defineConfig({
                 { label: 'Deployment', slug: 'guides/deployment' },
                 { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
                 { label: 'FAQ', slug: 'guides/faq' },
+                { label: 'Observer Idempotency', slug: 'operations/observer-idempotency' },
               ],
             },
           ],

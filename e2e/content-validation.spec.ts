@@ -10,7 +10,7 @@
  * Run: bun run test:e2e -- e2e/content-validation.spec.ts
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 // Pages that contain SQL schema examples
 const SCHEMA_PAGES = [
@@ -39,7 +39,7 @@ const MUTATION_PAGES = [
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-async function getCodeBlocks(page: ReturnType<typeof test["info"]> extends never ? never : Parameters<Parameters<typeof test>[1]>[0]["page"], url: string): Promise<string[]> {
+async function getCodeBlocks(page: Page, url: string): Promise<string[]> {
   await page.goto(url, { waitUntil: "domcontentloaded" });
   return page.locator("pre code").allTextContents();
 }
