@@ -7,6 +7,8 @@ import { CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
 FraiseQL supports multiple databases out of the box. This section provides database-specific guides to help you optimize, configure, and troubleshoot your chosen database.
 
+Before picking a database, check the **[Compatibility Matrix](/databases/compatibility)** to see which features are supported on each backend.
+
 ## Supported Databases
 
 ### PostgreSQL
@@ -62,14 +64,14 @@ Enterprise-grade relational database with advanced features.
 
 | FraiseQL Feature | PostgreSQL | MySQL | SQLite | SQL Server |
 |-----------------|-----------|-------|--------|-----------|
-| **Relay cursor pagination** | ✅ | ❌ offset only | ❌ offset only | v2.0.2+ |
+| **Relay cursor pagination** | ✅ | ❌ offset only | ❌ offset only | ✅ |
 | **Offset pagination** | ✅ | ✅ | ✅ | ✅ |
 | **Rich filters** | ✅ | ✅ | ✅ | ✅ |
 | **JSON field filters** | ✅ JSONB operators | ✅ | ✅ | ✅ JSON_VALUE |
 | **Full-text search** | ✅ | ✅ | ✅ FTS5 | ✅ CONTAINS/FREETEXT |
 | **Mutations (functions)** | ✅ | ✅ | ❌ [^sqlite-fn] | ✅ |
 | **Row-level security** | ✅ native RLS | via views | via views | ✅ native RLS |
-| **Subscriptions** | ✅ | ✅ | ❌ | ✅ |
+| **Subscriptions** | ✅ | ❌ | ❌ | ✅ |
 | **Windows Authentication** | ❌ | ❌ | ❌ | ✅ native |
 | **Azure AD / Entra ID** | via extension | ❌ | ❌ | ✅ native |
 | **Always On / HA** | via streaming replication | via replication | ❌ | ✅ Always On AG |
@@ -106,11 +108,11 @@ Enterprise-grade relational database with advanced features.
 - SQL Server if your organization already runs it — Windows Auth, Azure AD/Entra ID, Always On, and TDE work natively without any migration
 
 <Aside type="note">
-SQL Server is a first-class FraiseQL runtime target. If your organization already runs SQL Server for compliance, licensing, or organizational standards, there is no need to migrate to PostgreSQL. FraiseQL compiles your schema to T-SQL and runs natively. See the [SQL Server Enterprise Guide](/databases/sqlserver-enterprise) for Azure AD, Always On, and compliance patterns.
+SQL Server is a first-class FraiseQL runtime target. If your organization already runs SQL Server for compliance, licensing, or organizational standards, there is no need to migrate to PostgreSQL. FraiseQL compiles your schema definitions into a runtime configuration and executes against your existing T-SQL views and stored procedures — no database migration required. See the [SQL Server Enterprise Guide](/databases/sqlserver-enterprise) for Azure AD, Always On, and compliance patterns.
 </Aside>
 
 <Aside type="tip">
-FraiseQL schemas are database-agnostic. The `tb_*`, `v_*`, `fn_*`, `tv_*` naming conventions and the data column pattern work across all supported databases. Switch databases by changing your connection string.
+FraiseQL schemas are database-agnostic. The `tb_*`, `v_*`, `fn_*`, `tv_*` naming conventions and the data column pattern work across PostgreSQL, MySQL, and SQL Server. SQLite supports read operations only — mutations via `fn_*` functions are not supported on SQLite.
 </Aside>
 
 ## Common Database Tasks
@@ -140,7 +142,7 @@ For production applications, use connection pooling:
 FraiseQL makes it easy to change databases without rewriting your schema definition.
 
 - **Same schema definition** — Python/TypeScript/Go/Java/Rust/PHP code is database-agnostic
-- **Portable applications** — switch databases by changing the connection string
+- **SQL schema files are database-specific** — tables, views, and functions must be written for each database dialect (PostgreSQL JSONB vs MySQL JSON vs SQL Server FOR JSON PATH differ substantially)
 - **Testing flexibility** — use SQLite in tests, PostgreSQL in production
 
 See each database guide for migration strategies and syntax differences.

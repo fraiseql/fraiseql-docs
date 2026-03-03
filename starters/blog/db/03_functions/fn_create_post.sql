@@ -3,7 +3,7 @@ CREATE OR REPLACE FUNCTION fn_create_post(
     p_content   TEXT,
     p_author_id UUID
 )
-RETURNS UUID
+RETURNS mutation_response
 LANGUAGE plpgsql
 AS $$
 DECLARE
@@ -17,7 +17,11 @@ BEGIN
      WHERE id = p_author_id;
 
     IF v_pk_user IS NULL THEN
-        RAISE EXCEPTION 'User with id % not found', p_author_id;
+        RETURN ROW(
+            'failed:not_found',
+            format('User with id %s not found', p_author_id),
+            NULL, 'Post', NULL, NULL::TEXT[], NULL::JSONB, NULL::JSONB
+        )::mutation_response;
     END IF;
 
     -- Insert the new post and capture the generated UUID
@@ -25,6 +29,15 @@ BEGIN
     VALUES (v_pk_user, p_title, p_content, true)
     RETURNING id INTO v_post_id;
 
-    RETURN v_post_id;
+    RETURN ROW(
+        'created',
+        'Post created',
+        v_post_id::TEXT,
+        'Post',
+        NULL::JSONB,
+        NULL::TEXT[],
+        NULL::JSONB,
+        NULL::JSONB
+    )::mutation_response;
 END;
 $$;

@@ -152,6 +152,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             { label: 'Database Overview', slug: 'databases' },
+            { label: 'Compatibility Matrix', slug: 'databases/compatibility' },
             { label: 'PostgreSQL', slug: 'databases/postgresql' },
             { label: 'MySQL', slug: 'databases/mysql' },
             { label: 'SQLite', slug: 'databases/sqlite' },
@@ -259,6 +260,9 @@ export default defineConfig({
             { label: 'Java', slug: 'sdk/java' },
             { label: 'Rust', slug: 'sdk/rust' },
             { label: 'PHP', slug: 'sdk/php' },
+            { label: 'C#', slug: 'sdk/csharp' },
+            { label: 'Elixir', slug: 'sdk/elixir' },
+            { label: 'F#', slug: 'sdk/fsharp' },
           ],
         },
         {

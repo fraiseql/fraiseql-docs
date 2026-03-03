@@ -1,0 +1,262 @@
+---
+title: Elixir SDK
+description: Define GraphQL schemas in Elixir using FraiseQL's compile-time macro DSL
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+The FraiseQL Elixir SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations using compile-time Elixir macros, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+
+<Aside type="note">
+This is not a GraphQL client library. FraiseQL Elixir lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client (e.g. Neuron, AbsintheClient).
+</Aside>
+
+<Aside type="tip">
+FraiseQL Elixir requires **Elixir 1.14+** and **OTP 25+**. The macros run at compile time — no Elixir code executes at GraphQL query time.
+</Aside>
+
+## Installation
+
+Add to `mix.exs`:
+
+```elixir title="mix.exs"
+defp deps do
+  [
+    {:fraiseql, "~> 2.0"}
+  ]
+end
+```
+
+Then:
+
+```bash
+mix deps.get
+```
+
+---
+
+## Core Concepts
+
+FraiseQL Elixir provides compile-time macros that map Elixir module definitions to GraphQL schema constructs:
+
+| Macro | GraphQL Equivalent | Purpose |
+|-------|-------------------|---------|
+| `fraiseql_type/2` | `type` | Define a GraphQL output type with fields |
+| `fraiseql_query/2` | `Query` field | Wire a query to a SQL view |
+| `fraiseql_mutation/2` | `Mutation` field | Define a mutation backed by a SQL function |
+| `field/3` | field declaration | Declare a field inside a type block |
+| `argument/3` | argument declaration | Declare an argument inside a query/mutation block |
+
+---
+
+## Defining a Schema Module
+
+All schema definitions live in a module that uses `FraiseQL.Schema`:
+
+```elixir title="lib/my_app/schema.ex"
+defmodule MyApp.Schema do
+  use FraiseQL.Schema
+
+  fraiseql_type "User", sql_source: "v_user", description: "A registered user" do
+    field :id,         :id,       nullable: false
+    field :username,   :string,   nullable: false
+    field :email,      :email,    nullable: false
+    field :bio,        :string,   nullable: true
+    field :created_at, :datetime, nullable: false
+  end
+
+  fraiseql_type "Post", sql_source: "v_post" do
+    field :id,           :id,       nullable: false
+    field :title,        :string,   nullable: false
+    field :slug,         :slug,     nullable: false
+    field :content,      :string,   nullable: false
+    field :is_published, :boolean,  nullable: false
+    field :created_at,   :datetime, nullable: false
+  end
+end
+```
+
+### Built-in Scalar Atoms
+
+FraiseQL maps Elixir atoms to GraphQL scalars:
+
+| Atom | GraphQL Scalar |
+|------|---------------|
+| `:id` | `ID` (UUID) |
+| `:string` | `String` |
+| `:integer` | `Int` |
+| `:float` | `Float` |
+| `:boolean` | `Boolean` |
+| `:email` | `Email` |
+| `:slug` | `Slug` |
+| `:datetime` | `DateTime` |
+| `:url` | `URL` |
+
+---
+
+## Defining Inputs
+
+Input types use `input: true`:
+
+```elixir title="lib/my_app/schema.ex"
+fraiseql_type "CreatePostInput", input: true do
+  field :title,        :string,  nullable: false
+  field :content,      :string,  nullable: false
+  field :is_published, :boolean, nullable: false
+end
+```
+
+---
+
+## Defining Queries
+
+```elixir title="lib/my_app/schema.ex"
+# List query — maps to v_post SQL view
+fraiseql_query :posts,
+  return_type: "Post",
+  returns_list: true,
+  sql_source: "v_post",
+  description: "Fetch posts, optionally filtered by published status" do
+  argument :is_published, :boolean, nullable: true
+  argument :limit,        :integer, default: 20
+  argument :offset,       :integer, default: 0
+end
+
+# Single-item query
+fraiseql_query :post,
+  return_type: "Post",
+  sql_source: "v_post",
+  nullable: true do
+  argument :id, :id, nullable: false
+end
+```
+
+### How Arguments Become WHERE Clauses
+
+FraiseQL maps query arguments directly to `WHERE` clauses on the backing SQL view. An `:is_published` argument becomes `WHERE is_published = $1` — no resolver code needed.
+
+---
+
+## Defining Mutations
+
+```elixir title="lib/my_app/schema.ex"
+# Maps to fn_create_post PostgreSQL function
+fraiseql_mutation :create_post,
+  return_type: "Post",
+  sql_source: "fn_create_post",
+  operation: "insert",
+  invalidates_views: ["v_post"],
+  description: "Create a new blog post" do
+  argument :input, "CreatePostInput", nullable: false
+end
+
+# Role-restricted mutation
+fraiseql_mutation :delete_post,
+  return_type: "Post",
+  sql_source: "fn_delete_post",
+  operation: "delete",
+  requires_role: "admin",
+  invalidates_views: ["v_post"] do
+  argument :id, :id, nullable: false
+end
+```
+
+### The SQL Side
+
+```sql
+-- db/schema/fn_create_post.sql
+CREATE FUNCTION fn_create_post(p_input jsonb)
+RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id UUID := gen_random_uuid();
+BEGIN
+    INSERT INTO tb_post (id, identifier, title, content, is_published)
+    VALUES (
+        v_id,
+        p_input->>'title',
+        p_input->>'title',
+        p_input->>'content',
+        (p_input->>'is_published')::boolean
+    );
+    RETURN ROW('created', NULL, v_id, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+END;
+$$;
+```
+
+---
+
+## Authorization
+
+Use `requires_role:` on query or mutation definitions:
+
+```elixir
+fraiseql_query :my_posts,
+  return_type: "Post",
+  sql_source: "v_post",
+  returns_list: true,
+  requires_role: "member",
+  inject_params: %{author_id: "jwt:sub"} do
+  argument :limit, :integer, default: 20
+end
+```
+
+Field-level scope restrictions use `scope:` in `field/3`:
+
+```elixir
+fraiseql_type "User", sql_source: "v_user" do
+  field :id,    :id,    nullable: false
+  field :email, :email, nullable: false, scope: "user:read:email"
+end
+```
+
+---
+
+## Build and Export
+
+<Steps>
+
+1. Export the schema — converts your module to `schema.json`:
+
+   ```bash
+   mix fraiseql.export --module MyApp.Schema --output schema.json
+   ```
+
+   Or from an IEx session:
+
+   ```elixir
+   MyApp.Schema.export_to_file!("schema.json")
+   ```
+
+2. Compile with the FraiseQL CLI:
+
+   ```bash
+   fraiseql compile --schema schema.json
+   ```
+
+3. Serve the API:
+
+   ```bash
+   fraiseql run
+   ```
+
+</Steps>
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Full Tutorial" icon="open-book">
+    [Build a complete blog API from scratch](/getting-started/first-api)
+  </Card>
+  <Card title="Custom Queries" icon="magnifier">
+    [Filtering, pagination, and full-text search](/guides/custom-queries)
+  </Card>
+  <Card title="Security" icon="approve-check-circle">
+    [Authentication, RBAC, and field-level scopes](/features/security)
+  </Card>
+  <Card title="Other SDKs" icon="puzzle">
+    [Python, TypeScript, Go, Java, PHP](/sdk/)
+  </Card>
+</CardGrid>

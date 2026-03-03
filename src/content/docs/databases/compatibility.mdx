@@ -1,0 +1,132 @@
+---
+title: Database Compatibility Matrix
+description: Feature-by-feature support matrix for PostgreSQL, MySQL, SQL Server, and SQLite
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+This page shows which FraiseQL features are supported on each database backend. Check this before starting a project to avoid discovering limitations mid-development.
+
+<Aside type="tip">
+**PostgreSQL** is the recommended database for production deployments. It is the only backend with full feature support. All other databases have one or more limitations.
+</Aside>
+
+---
+
+## Core Features
+
+| Feature | PostgreSQL | MySQL 8+ | SQL Server | SQLite |
+|---------|:----------:|:--------:|:----------:|:------:|
+| Queries (SELECT from views) | ✅ | ✅ | ✅ | ✅ |
+| Mutations (PostgreSQL functions) | ✅ | ✅ | ✅ | ⚠️ Stubbed |
+| Relay cursor pagination | ✅ | ✅ | ✅ | ✅ |
+| Automatic WHERE from args | ✅ | ✅ | ✅ | ✅ |
+| Rich filters (operators, ILIKE, IS NULL) | ✅ | ✅ | ✅ | ✅ |
+| Full-text search | ✅ | ⚠️ Limited | ⚠️ Limited | ❌ |
+| JSONB field traversal | ✅ | ⚠️ JSON_EXTRACT | ⚠️ JSON_VALUE | ⚠️ json_extract |
+| Row-Level Security (RLS) | ✅ Native | ⚠️ View-based | ⚠️ View-based | ❌ |
+
+---
+
+## Advanced Query Features
+
+| Feature | PostgreSQL | MySQL 8+ | SQL Server | SQLite |
+|---------|:----------:|:--------:|:----------:|:------:|
+| Window functions | ✅ Full | ⚠️ Partial | ⚠️ Partial | ⚠️ Partial |
+| Fact table analytics (`tf_*`) | ✅ | ❌ | ❌ | ❌ |
+| Automatic Persisted Queries (APQ) | ✅ | ✅ | ✅ | ✅ |
+| Query result caching | ✅ | ✅ | ✅ | ✅ |
+| Subscriptions (CDC) | ✅ pg_notify | ❌ | ❌ | ❌ |
+| Multi-tenancy / RLS injection | ✅ | ⚠️ Manual | ⚠️ Manual | ❌ |
+
+---
+
+## Window Function Support Detail
+
+| Function | PostgreSQL | MySQL 8+ | SQL Server | SQLite |
+|----------|:----------:|:--------:|:----------:|:------:|
+| `ROW_NUMBER()`, `RANK()`, `DENSE_RANK()` | ✅ | ✅ | ✅ | ✅ |
+| `NTILE(n)` | ✅ | ✅ | ✅ | ✅ |
+| `PERCENT_RANK()`, `CUME_DIST()` | ✅ | ❌ | ✅ | ❌ |
+| `LAG()`, `LEAD()`, `FIRST_VALUE()`, `LAST_VALUE()` | ✅ | ✅ | ✅ | ✅ |
+| `SUM() OVER`, `COUNT() OVER` | ✅ | ✅ | ✅ | ✅ |
+| `STDDEV() OVER`, `VARIANCE() OVER` | ✅ | ❌ | ✅ | ❌ |
+| `FILTER (WHERE ...)` on aggregates | ✅ | ❌ | ❌ | ❌ |
+| `GROUPS` frame type | ✅ | ❌ | ❌ | ❌ |
+
+---
+
+## Operational Features
+
+| Feature | PostgreSQL | MySQL 8+ | SQL Server | SQLite |
+|---------|:----------:|:--------:|:----------:|:------:|
+| Wire protocol (binary streaming) | ✅ | ❌ | ❌ | ❌ |
+| Apollo Federation subgraph | ✅ | ✅ | ✅ | ❌ |
+| Federation circuit breaker | ✅ | ✅ | ✅ | ❌ |
+| TLS / mTLS connections | ✅ | ✅ | ✅ | N/A |
+| Connection pooling (PgBouncer-compatible) | ✅ | ✅ | ✅ | N/A |
+| Health check endpoint | ✅ | ✅ | ✅ | ✅ |
+
+---
+
+## Legend
+
+| Symbol | Meaning |
+|--------|---------|
+| ✅ | Fully supported |
+| ⚠️ | Partial support — see notes below |
+| ❌ | Not supported |
+| N/A | Not applicable |
+
+---
+
+## Notes by Database
+
+### MySQL 8+
+
+- **Mutations** — fully supported. All mutation functions use the same `mutation_response` return type as PostgreSQL.
+- **Window functions** — ranking and value functions work. `PERCENT_RANK`, `CUME_DIST`, `STDDEV`, `VARIANCE` aggregate-as-window, and the `FILTER` clause are not supported. The planner raises an error at compile time for unsupported functions.
+- **Fact table analytics** — not supported. Fact table introspection requires JSONB operators (PostgreSQL-native). MySQL uses `JSON_EXTRACT` which lacks the binary JSONB aggregation operators.
+- **RLS** — FraiseQL implements view-based security (inject a `WHERE tenant_id = $user` filter). MySQL does not have native RLS like PostgreSQL.
+- **Full-text search** — MySQL FULLTEXT indexes are supported via the `MATCH ... AGAINST` operator but require explicit index declarations. Not auto-detected.
+
+### SQL Server
+
+- **Mutations** — fully supported, using SQL Server's `SELECT * FROM fn_name(args)` calling convention.
+- **Window functions** — `ROWS`/`RANGE` frames work. `GROUPS` frame type is not supported. `PERCENT_RANK` is available on SQL Server 2012+.
+- **Fact table analytics** — not supported (no JSONB, limited JSON aggregation).
+- **JSONB traversal** — available via `JSON_VALUE(col, '$.path')` but requires explicit path declarations; JSONB operators (`->`, `->>`) are PostgreSQL-only.
+- **UUID columns** — use `UNIQUEIDENTIFIER`; cursor pagination uses `CONVERT(UNIQUEIDENTIFIER, @p)` comparisons.
+
+### SQLite
+
+- **Mutations** — `execute_function_call` is not implemented and returns `FraiseQLError::Unsupported`. SQLite does not support stored procedures. Use SQLite only for read-only development and unit-test environments.
+- **Subscriptions** — not supported. SQLite has no `LISTEN/NOTIFY` equivalent.
+- **Wire protocol** — not supported. SQLite is in-process only.
+- **Window functions** — basic ranking and `SUM/COUNT` OVER work. `PERCENT_RANK`, `CUME_DIST`, `STDDEV`, `VARIANCE`, and frame exclusion are not supported.
+
+---
+
+## Choosing a Database
+
+<Aside type="tip">
+**Start with PostgreSQL.** All FraiseQL features work, and you can always switch to a different backend later — the GraphQL API surface does not change.
+</Aside>
+
+| Scenario | Recommendation |
+|----------|---------------|
+| Production SaaS / multi-tenant | PostgreSQL (native RLS, subscriptions, JSONB) |
+| Existing MySQL codebase | MySQL 8+ (mutations, relay pagination, most query features) |
+| Enterprise .NET / Windows | SQL Server (full mutation support, most query features) |
+| Local development / tests | SQLite (zero config, fast, no server needed) |
+| Analytics / data warehouse | PostgreSQL (fact tables, window functions, JSONB dimensions) |
+| Real-time features (subscriptions) | PostgreSQL only |
+
+---
+
+## See Also
+
+- [PostgreSQL guide](/databases/postgresql) — Production configuration, connection pooling, RLS
+- [MySQL guide](/databases/mysql) — MySQL-specific idioms and limitations
+- [SQL Server guide](/databases/sqlserver) — Enterprise configuration and Windows auth
+- [SQLite guide](/databases/sqlite) — Local development and testing setup

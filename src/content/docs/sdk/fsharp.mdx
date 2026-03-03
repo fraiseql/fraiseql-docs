@@ -1,0 +1,255 @@
+---
+title: F# SDK
+description: Define GraphQL schemas in F# using FraiseQL's computation expression DSL
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+The FraiseQL F# SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations using F# computation expressions, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+
+<Aside type="note">
+This is not a GraphQL client library. FraiseQL F# lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client.
+</Aside>
+
+## Installation
+
+```bash
+dotnet add package FraiseQL.FSharp
+```
+
+**Requirements:** .NET 8+ / F# 7+
+
+---
+
+## Core Concepts
+
+FraiseQL F# uses computation expressions — F#'s idiomatic DSL mechanism — to define schema constructs without global mutable state:
+
+| Builder | GraphQL Equivalent | Purpose |
+|---------|-------------------|---------|
+| `fraiseql { type' ... }` | `type` | Accumulate type and query definitions into a schema |
+| `TypeCEBuilder` | field declarations | Define a GraphQL output or input type |
+| `QueryCEBuilder` | `Query` field | Wire a query to a SQL view |
+| `MutationCEBuilder` | `Mutation` field | Define a mutation |
+| `FieldBuilder` | field metadata | Configure a single field's type and nullability |
+
+---
+
+## Defining a Schema
+
+All definitions are composed into an `IntermediateSchema` value using the `fraiseql { }` computation expression:
+
+```fsharp title="Schema.fs"
+open FraiseQL
+
+let schema =
+    fraiseql {
+        type' "User" (TypeCEBuilder("User") {
+            sqlSource "v_user"
+            description "A registered user"
+            field "id"         "ID"       { nullable false }
+            field "username"   "String"   { nullable false }
+            field "email"      "Email"    { nullable false }
+            field "bio"        "String"   { nullable true  }
+            field "createdAt"  "DateTime" { nullable false }
+        })
+
+        type' "Post" (TypeCEBuilder("Post") {
+            sqlSource "v_post"
+            field "id"          "ID"       { nullable false }
+            field "title"       "String"   { nullable false }
+            field "slug"        "Slug"     { nullable false }
+            field "content"     "String"   { nullable false }
+            field "isPublished" "Boolean"  { nullable false }
+            field "createdAt"   "DateTime" { nullable false }
+        })
+    }
+```
+
+---
+
+## Defining Inputs
+
+Input types use `isInput true` on `TypeCEBuilder`:
+
+```fsharp title="Schema.fs"
+let schema =
+    fraiseql {
+        type' "CreatePostInput" (TypeCEBuilder("CreatePostInput") {
+            isInput true
+            field "title"       "String"  { nullable false }
+            field "content"     "String"  { nullable false }
+            field "isPublished" "Boolean" { nullable false }
+        })
+    }
+```
+
+---
+
+## Defining Queries
+
+Use `QueryCEBuilder` inside the `fraiseql { }` block:
+
+```fsharp title="Schema.fs"
+let schema =
+    fraiseql {
+        // List query
+        query "posts" (QueryCEBuilder("posts") {
+            returnType "Post"
+            returnsList true
+            sqlSource "v_post"
+            description "Fetch posts, optionally filtered by published status"
+            arg "isPublished" "Boolean" { nullable true  }
+            arg "limit"       "Int"     { defaultValue 20 }
+            arg "offset"      "Int"     { defaultValue 0  }
+        })
+
+        // Single-item query
+        query "post" (QueryCEBuilder("post") {
+            returnType "Post"
+            sqlSource "v_post"
+            nullable true
+            arg "id" "ID" { nullable false }
+        })
+    }
+```
+
+### How Arguments Become WHERE Clauses
+
+FraiseQL maps query arguments to `WHERE` clauses on the backing SQL view automatically. An argument named `isPublished` becomes `WHERE is_published = $1` — no resolver code needed.
+
+---
+
+## Defining Mutations
+
+Use `MutationCEBuilder` inside the `fraiseql { }` block:
+
+```fsharp title="Schema.fs"
+let schema =
+    fraiseql {
+        mutation "createPost" (MutationCEBuilder("createPost") {
+            sqlSource "fn_create_post"
+            returnType "Post"
+            operation "insert"
+            invalidatesViews [ "v_post" ]
+            description "Create a new blog post"
+            arg "input" "CreatePostInput" { nullable false }
+        })
+
+        mutation "deletePost" (MutationCEBuilder("deletePost") {
+            sqlSource "fn_delete_post"
+            returnType "Post"
+            operation "delete"
+            requiresRole "admin"
+            invalidatesViews [ "v_post" ]
+            arg "id" "ID" { nullable false }
+        })
+    }
+```
+
+### The SQL Side
+
+```sql
+-- db/schema/fn_create_post.sql
+CREATE FUNCTION fn_create_post(p_input jsonb)
+RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id UUID := gen_random_uuid();
+BEGIN
+    INSERT INTO tb_post (id, identifier, title, content, is_published)
+    VALUES (
+        v_id,
+        p_input->>'title',
+        p_input->>'title',
+        p_input->>'content',
+        (p_input->>'isPublished')::boolean
+    );
+    RETURN ROW('created', NULL, v_id, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+END;
+$$;
+```
+
+---
+
+## Authorization
+
+Use `requiresRole` on query or mutation builders:
+
+```fsharp
+query "myPosts" (QueryCEBuilder("myPosts") {
+    sqlSource "v_post"
+    returnType "Post"
+    returnsList true
+    requiresRole "member"
+    injectParams [ "authorId", "jwt:sub" ]
+})
+```
+
+Field-level scope restrictions use `scope` in `FieldBuilder`:
+
+```fsharp
+type' "User" (TypeCEBuilder("User") {
+    sqlSource "v_user"
+    field "id"    "ID"    { nullable false }
+    field "email" "Email" { nullable false; scope "user:read:email" }
+})
+```
+
+---
+
+## Build and Export
+
+<Steps>
+
+1. Export the schema — converts your `IntermediateSchema` to `schema.json`:
+
+   ```fsharp title="Export/Program.fs"
+   open FraiseQL
+   open MyApp
+
+   [<EntryPoint>]
+   let main _ =
+       Schema.schema
+       |> SchemaExporter.exportToFile "schema.json"
+       0
+   ```
+
+   Run the export:
+
+   ```bash
+   dotnet run --project Export
+   ```
+
+2. Compile with the FraiseQL CLI:
+
+   ```bash
+   fraiseql compile --schema schema.json
+   ```
+
+3. Serve the API:
+
+   ```bash
+   fraiseql run
+   ```
+
+</Steps>
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Full Tutorial" icon="open-book">
+    [Build a complete blog API from scratch](/getting-started/first-api)
+  </Card>
+  <Card title="Custom Queries" icon="magnifier">
+    [Filtering, pagination, and full-text search](/guides/custom-queries)
+  </Card>
+  <Card title="Security" icon="approve-check-circle">
+    [Authentication, RBAC, and field-level scopes](/features/security)
+  </Card>
+  <Card title="Other SDKs" icon="puzzle">
+    [Python, TypeScript, Go, Java, PHP](/sdk/)
+  </Card>
+</CardGrid>

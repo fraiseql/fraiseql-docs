@@ -1,0 +1,281 @@
+---
+title: C# SDK
+description: Define GraphQL schemas in C# using FraiseQL's attribute and fluent builder schema authoring SDK
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+The FraiseQL C# SDK is a **schema authoring SDK**: you define GraphQL types using .NET attributes and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
+
+<Aside type="note">
+This is not a GraphQL client library. FraiseQL C# lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client (e.g. StrawberryShake, Banana Cake Pop).
+</Aside>
+
+## Installation
+
+```bash
+dotnet add package FraiseQL
+```
+
+**Requirements:** .NET 8+
+
+## Core Concepts
+
+FraiseQL C# uses .NET attributes for type definitions and a fluent builder API for queries and mutations:
+
+| Construct | GraphQL Equivalent | Purpose |
+|-----------|-------------------|---------|
+| `[GraphQLType]` | `type` | Mark a class as a GraphQL output type |
+| `[GraphQLType(IsInput = true)]` | `input` | Mark a class as a GraphQL input type |
+| `[GraphQLField]` | field metadata | Configure field types, nullability, scopes |
+| `SchemaRegistry.Query(name)...` | `Query` field | Wire a query to a SQL view |
+| `SchemaRegistry.Mutation(name)...` | `Mutation` field | Define a mutation |
+
+---
+
+## Defining Types
+
+Annotate classes with `[GraphQLType]` and properties with `[GraphQLField]`. The `Type` parameter accepts GraphQL scalar names; when omitted the .NET type is auto-detected:
+
+```csharp title="Schema/User.cs"
+using FraiseQL.Attributes;
+
+[GraphQLType(SqlSource = "v_user")]
+public class User
+{
+    [GraphQLField(Type = "ID", Nullable = false)]
+    public string Id { get; set; } = "";
+
+    [GraphQLField(Nullable = false)]
+    public string Username { get; set; } = "";
+
+    [GraphQLField(Type = "Email", Nullable = false)]
+    public string Email { get; set; } = "";
+
+    [GraphQLField(Nullable = true)]
+    public string? Bio { get; set; }
+
+    [GraphQLField(Type = "DateTime", Nullable = false)]
+    public DateTimeOffset CreatedAt { get; set; }
+}
+```
+
+```csharp title="Schema/Post.cs"
+using FraiseQL.Attributes;
+
+[GraphQLType(SqlSource = "v_post")]
+public class Post
+{
+    [GraphQLField(Type = "ID", Nullable = false)]
+    public string Id { get; set; } = "";
+
+    [GraphQLField(Nullable = false)]
+    public string Title { get; set; } = "";
+
+    [GraphQLField(Type = "Slug", Nullable = false)]
+    public string Slug { get; set; } = "";
+
+    [GraphQLField(Nullable = false)]
+    public string Content { get; set; } = "";
+
+    [GraphQLField(Nullable = false)]
+    public bool IsPublished { get; set; }
+
+    [GraphQLField(Type = "DateTime", Nullable = false)]
+    public DateTimeOffset CreatedAt { get; set; }
+}
+```
+
+---
+
+## Defining Inputs
+
+Input types use `[GraphQLType(IsInput = true)]`:
+
+```csharp title="Schema/CreatePostInput.cs"
+using FraiseQL.Attributes;
+
+[GraphQLType(IsInput = true)]
+public class CreatePostInput
+{
+    [GraphQLField(Nullable = false)]
+    public string Title { get; set; } = "";
+
+    [GraphQLField(Nullable = false)]
+    public string Content { get; set; } = "";
+
+    [GraphQLField(Nullable = false)]
+    public bool IsPublished { get; set; }
+}
+```
+
+---
+
+## Defining Queries
+
+Use `SchemaRegistry.RegisterQuery` in your application startup to wire queries to SQL views:
+
+```csharp title="SchemaSetup.cs"
+using FraiseQL;
+using FraiseQL.Registry;
+
+public static class SchemaSetup
+{
+    public static void Register()
+    {
+        // Register types first
+        SchemaRegistry.Register(typeof(User), typeof(Post), typeof(CreatePostInput));
+
+        // List query — maps to v_post view
+        SchemaRegistry.RegisterQuery("posts")
+            .SqlSource("v_post")
+            .ReturnType<Post>()
+            .ReturnsList(true)
+            .Arg("isPublished", "Boolean", nullable: true)
+            .Arg("limit", "Int", defaultValue: 20)
+            .Arg("offset", "Int", defaultValue: 0)
+            .Description("Fetch posts, optionally filtered by published status.")
+            .Register();
+
+        // Single-item query
+        SchemaRegistry.RegisterQuery("post")
+            .SqlSource("v_post")
+            .ReturnType<Post>()
+            .Nullable(true)
+            .Arg("id", "ID")
+            .Description("Fetch a single post by ID.")
+            .Register();
+    }
+}
+```
+
+### How Arguments Become WHERE Clauses
+
+FraiseQL's automatic-where feature maps query arguments to SQL filters automatically. An argument named `isPublished` maps to a `WHERE is_published = $1` clause — no resolver code needed.
+
+---
+
+## Defining Mutations
+
+```csharp title="SchemaSetup.cs"
+// Maps to fn_create_post PostgreSQL function
+SchemaRegistry.RegisterMutation("createPost")
+    .SqlSource("fn_create_post")
+    .ReturnType<Post>()
+    .Arg("input", "CreatePostInput")
+    .Operation("insert")
+    .InvalidatesViews(["v_post"])
+    .Description("Create a new blog post.")
+    .Register();
+
+// Maps to fn_delete_post PostgreSQL function
+SchemaRegistry.RegisterMutation("deletePost")
+    .SqlSource("fn_delete_post")
+    .ReturnType<Post>()
+    .Arg("id", "ID")
+    .RequiresRole("admin")
+    .Operation("delete")
+    .InvalidatesViews(["v_post"])
+    .Description("Soft-delete a post.")
+    .Register();
+```
+
+### The SQL Side
+
+```sql
+-- db/schema/fn_create_post.sql
+CREATE FUNCTION fn_create_post(p_input jsonb)
+RETURNS mutation_response
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id UUID := gen_random_uuid();
+BEGIN
+    INSERT INTO tb_post (id, identifier, title, content, is_published)
+    VALUES (
+        v_id,
+        p_input->>'title',
+        p_input->>'title',
+        p_input->>'content',
+        (p_input->>'isPublished')::boolean
+    );
+    RETURN ROW('created', NULL, v_id, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
+END;
+$$;
+```
+
+---
+
+## Authorization
+
+Use `.RequiresRole(role)` on query or mutation builders to restrict access:
+
+```csharp
+SchemaRegistry.RegisterQuery("myPosts")
+    .SqlSource("v_post")
+    .ReturnType<Post>()
+    .ReturnsList(true)
+    .RequiresRole("member")
+    .InjectParams(new Dictionary<string, string> { ["authorId"] = "jwt:sub" })
+    .Register();
+```
+
+Field-level scope restrictions use `[GraphQLField(Scope = "...")]`:
+
+```csharp
+[GraphQLField(Type = "Email", Nullable = false, Scope = "user:read:email")]
+public string Email { get; set; } = "";
+```
+
+---
+
+## Build and Export
+
+<Steps>
+
+1. Call `SchemaSetup.Register()` in your export entry point:
+
+   ```csharp title="ExportSchema/Program.cs"
+   using FraiseQL.Registry;
+
+   SchemaSetup.Register();
+   await SchemaRegistry.ExportAsync("schema.json");
+   ```
+
+2. Run the export tool:
+
+   ```bash
+   dotnet run --project ExportSchema
+   ```
+
+3. Compile with the FraiseQL CLI:
+
+   ```bash
+   fraiseql compile --schema schema.json
+   ```
+
+4. Serve the API:
+
+   ```bash
+   fraiseql run
+   ```
+
+</Steps>
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Full Tutorial" icon="open-book">
+    [Build a complete blog API from scratch](/getting-started/first-api)
+  </Card>
+  <Card title="Custom Queries" icon="magnifier">
+    [Filtering, pagination, and full-text search](/guides/custom-queries)
+  </Card>
+  <Card title="Security" icon="approve-check-circle">
+    [Authentication, RBAC, and field-level scopes](/features/security)
+  </Card>
+  <Card title="Other SDKs" icon="puzzle">
+    [Python, TypeScript, Go, Java, PHP](/sdk/)
+  </Card>
+</CardGrid>

@@ -7,26 +7,39 @@ import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
 SQL functions in FraiseQL return data that maps to GraphQL types. This guide covers patterns for designing function return types.
 
-## Basic Return Types
+## Canonical Return Type: `mutation_response`
 
-### Returning IDs
-
-The simplest pattern — return the ID of the created/modified entity:
+All FraiseQL mutation functions return `mutation_response`, a composite type that carries status, the affected entity, and optional cascade information:
 
 ```sql
+-- mutation_response fields:
+-- status        TEXT    -- 'success', 'failed:not_found', 'conflict:duplicate', etc.
+-- message       TEXT    -- Human-readable description
+-- entity_id     TEXT    -- ID of the primary affected entity (UUID as text)
+-- entity_type   TEXT    -- GraphQL type name (e.g. 'User')
+-- entity        JSONB   -- Full entity data (fetched from v_*)
+-- updated_fields TEXT[] -- Which fields changed (for partial updates)
+-- cascade       JSONB   -- Side-effect entities (see Cascade section below)
+-- metadata      JSONB   -- Arbitrary extra data
+
 CREATE FUNCTION fn_create_user(
     user_email TEXT,
     user_name TEXT
-) RETURNS UUID AS $$
+) RETURNS mutation_response AS $$
 DECLARE
-    new_id UUID;
+    v_id UUID;
 BEGIN
     INSERT INTO tb_user (email, name, identifier)
     VALUES (user_email, user_name, user_email)
-    RETURNING id INTO new_id;
+    RETURNING id INTO v_id;
 
     PERFORM sync_tv_user();
-    RETURN new_id;
+
+    RETURN ROW(
+        'success', 'User created', v_id, 'User',
+        (SELECT data FROM v_user WHERE id = v_id),
+        NULL, NULL, NULL
+    )::mutation_response;
 END;
 $$ LANGUAGE plpgsql;
 ```
@@ -34,38 +47,45 @@ $$ LANGUAGE plpgsql;
 ```python
 @fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
 def create_user(email: str, name: str) -> User:
-    """Returns User - FraiseQL fetches from v_user using returned ID."""
     pass
 ```
 
-FraiseQL automatically:
-1. Calls the function to get the UUID
-2. Queries `v_user` with that UUID
-3. Returns the full User object
-
-### Returning Boolean
-
-For simple success/failure:
+For delete operations, set `entity` to NULL (the entity no longer exists):
 
 ```sql
-CREATE FUNCTION fn_delete_user(user_id UUID) RETURNS BOOLEAN AS $$
+CREATE FUNCTION fn_delete_user(p_id UUID) RETURNS mutation_response AS $$
 BEGIN
-    DELETE FROM tb_user WHERE id = user_id;
+    DELETE FROM tb_user WHERE id = p_id;
+
+    IF NOT FOUND THEN
+        RETURN ROW('failed:not_found', 'User not found', p_id, 'User',
+            NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+
     PERFORM sync_tv_user();
-    RETURN FOUND;  -- true if row was deleted
+    RETURN ROW('success', 'User deleted', p_id, 'User',
+        NULL, NULL, NULL, NULL)::mutation_response;
 END;
 $$ LANGUAGE plpgsql;
 ```
 
 ```python
 @fraiseql.mutation(sql_source="fn_delete_user", operation="DELETE")
-def delete_user(id: ID) -> bool:
+def delete_user(id: fraiseql.ID) -> bool:
     pass
 ```
 
+<Aside type="note">
+Status strings that trigger error handling are: anything starting with `failed:`, anything starting with `conflict:`, and the exact string `"error"`. Standard success statuses are `'success'`, `'new'`, `'updated'`, `'deleted'`, and `'noop:*'` for no-op outcomes.
+</Aside>
+
+## Legacy Return Shapes (v1)
+
+The following patterns worked in FraiseQL v1 and are documented here for reference when migrating older schemas. **New code should use `mutation_response`.**
+
 ### Returning Count
 
-For bulk operations:
+For bulk operations returning a count (v1 pattern):
 
 ```sql
 CREATE FUNCTION fn_archive_old_posts(days_old INT) RETURNS INTEGER AS $$
@@ -120,124 +140,75 @@ Use Cascade when your mutation:
 
 ### Cascade PostgreSQL Function Pattern
 
-**V2 Format (Recommended for new code)**:
+Build the cascade JSONB inline using `jsonb_build_object` and `jsonb_build_array`. This example creates a post and also updates the author's post count — two entities affected, reported via cascade:
 
 ```sql
-CREATE OR REPLACE FUNCTION graphql.create_post(input jsonb)
-RETURNS mutation_response AS $$
+CREATE OR REPLACE FUNCTION fn_create_post(
+    p_title   TEXT,
+    p_content TEXT,
+    p_author_id UUID
+) RETURNS mutation_response LANGUAGE plpgsql AS $$
 DECLARE
-    v_post_id uuid;
-    v_author_id uuid;
-    v_post_data jsonb;
-    v_author_data jsonb;
-    v_cascade_data jsonb;
+    v_id        UUID;
+    v_post_data JSONB;
 BEGIN
-    -- Create post
-    v_post_id := gen_random_uuid();
-    INSERT INTO posts (id, title, content, author_id, created_at)
-    VALUES (v_post_id, input->>'title', input->>'content',
-            (input->>'author_id')::uuid, now());
+    -- Insert and get the new post's id
+    INSERT INTO tb_post (identifier, title, content, fk_author)
+    VALUES (
+        'post_' || to_char(now(), 'YYYYMMDDHH24MISS'),
+        p_title,
+        p_content,
+        (SELECT pk_user FROM tb_user WHERE id = p_author_id)
+    )
+    RETURNING id INTO v_id;
 
-    v_author_id := (input->>'author_id')::uuid;
+    -- Update author's post count (side effect)
+    UPDATE tb_user SET post_count = post_count + 1
+    WHERE id = p_author_id;
 
-    -- Update author stats (side effect)
-    UPDATE users SET post_count = post_count + 1 WHERE id = v_author_id;
+    -- Refresh projection tables
+    PERFORM sync_tv_post_single(v_id);
 
-    -- Fetch complete entity data
-    SELECT jsonb_build_object('id', id, 'title', title, 'content', content,
-                              'author_id', author_id, 'created_at', created_at)
-    INTO v_post_data FROM posts WHERE id = v_post_id;
+    -- Fetch entity data for the response
+    SELECT data INTO v_post_data FROM v_post WHERE id = v_id;
 
-    SELECT jsonb_build_object('id', id, 'name', name, 'email', email,
-                              'post_count', post_count)
-    INTO v_author_data FROM users WHERE id = v_author_id;
-
-    -- Build cascade using helper functions
-    v_cascade_data := cascade_merge(
-        cascade_entity_created('Post', v_post_id, v_post_data),
-        cascade_entity_update('User', v_author_id, v_author_data)
-    );
-
-    -- Add invalidations (hints for list queries)
-    v_cascade_data := cascade_merge(
-        v_cascade_data,
-        cascade_invalidate_cache(ARRAY['posts', 'user_posts'], 'INVALIDATE')
-    );
-
-    -- Add metadata
-    v_cascade_data := cascade_merge(
-        v_cascade_data,
-        cascade_metadata(2, 1, NULL)
-    );
-
-    -- Return success with cascade
-    RETURN mutation_created(
-        'Post created successfully',
-        v_post_data,
+    -- Return mutation_response with cascade payload
+    RETURN ROW(
+        'success',
+        'Post created',
+        v_id,
         'Post',
-        v_cascade_data
-    );
-END;
-$$ LANGUAGE plpgsql;
-```
-
-**Legacy Format (v1.4)**:
-
-```sql
-CREATE OR REPLACE FUNCTION graphql.create_post(input jsonb)
-RETURNS jsonb AS $$
-DECLARE
-    v_post_id uuid;
-    v_author_id uuid;
-BEGIN
-    -- Create post
-    INSERT INTO tb_post (title, content, author_id)
-    VALUES (input->>'title', input->>'content', (input->>'author_id')::uuid)
-    RETURNING id INTO v_post_id;
-
-    v_author_id := (input->>'author_id')::uuid;
-
-    -- Update author stats
-    UPDATE tb_user SET post_count = post_count + 1 WHERE id = v_author_id;
-
-    -- Return with cascade metadata
-    RETURN jsonb_build_object(
-        'success', true,
-        'data', jsonb_build_object('id', v_post_id, 'title', input->>'title'),
-        '_cascade', jsonb_build_object(
+        v_post_data,
+        NULL,
+        jsonb_build_object(
             'updated', jsonb_build_array(
-                -- MUST include __typename in CASCADE data
                 jsonb_build_object(
                     '__typename', 'Post',
-                    'id', v_post_id,
-                    'operation', 'CREATED',
-                    'entity', (SELECT data FROM v_post WHERE id = v_post_id)
+                    'id',         v_id,
+                    'operation',  'CREATED',
+                    'entity',     v_post_data
                 ),
                 jsonb_build_object(
                     '__typename', 'User',
-                    'id', v_author_id,
-                    'operation', 'UPDATED',
-                    'entity', (SELECT data FROM v_user WHERE id = v_author_id)
+                    'id',         p_author_id,
+                    'operation',  'UPDATED',
+                    'entity',     (SELECT data FROM v_user WHERE id = p_author_id)
                 )
             ),
-            'deleted', '[]'::jsonb,
+            'deleted',       '[]'::jsonb,
             'invalidations', jsonb_build_array(
-                jsonb_build_object(
-                    'query_name', 'posts',
-                    'strategy', 'INVALIDATE',
-                    'scope', 'PREFIX'
-                )
+                jsonb_build_object('query_name', 'posts', 'strategy', 'INVALIDATE')
             ),
             'metadata', jsonb_build_object(
-                'timestamp', now(),
-                'affected_count', 2,
-                'depth', 1,
-                'transaction_id', txid_current()::text
+                'timestamp',     now(),
+                'affectedCount', 2,
+                'depth',         1
             )
-        )
-    );
+        ),
+        NULL
+    )::mutation_response;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 ```
 
 ### GraphQL Response with Cascade
@@ -279,9 +250,8 @@ $$ LANGUAGE plpgsql;
         "deleted": [],
         "invalidations": [
           {
-            "queryName": "posts",
-            "strategy": "INVALIDATE",
-            "scope": "PREFIX"
+            "query_name": "posts",
+            "strategy": "INVALIDATE"
           }
         ],
         "metadata": {
@@ -302,7 +272,7 @@ $$ LANGUAGE plpgsql;
 |-------|------|-------------|
 | **updated** | Array | Entities created or updated with `id`, `operation` (CREATED or UPDATED), `entity` (full data), and `__typename` |
 | **deleted** | Array | Entities deleted with `id`, `operation` ('DELETED'), `entity` (entity state at deletion), and `__typename` |
-| **invalidations** | Array | Cache invalidation hints with `queryName`, `strategy` (INVALIDATE/REFETCH/REMOVE), and `scope` |
+| **invalidations** | Array | Cache invalidation hints with `query_name` and `strategy` (INVALIDATE/REFETCH/REMOVE) |
 | **metadata** | Object | Operation metadata with `timestamp` (ISO 8601), `affectedCount`, `depth`, and optional `transactionId` |
 
 <Aside type="note">
@@ -311,26 +281,25 @@ SQL functions return `__typename` for each cascade entity. This helps the GraphQ
 
 ### Cascade Helper Functions
 
-PostgreSQL helper functions (v1.7+) simplify cascade construction:
+The cascade JSONB structure is built inline using `jsonb_build_object`. You can define your own helper functions to DRY up common patterns:
 
 ```sql
--- Create an entity
-SELECT cascade_entity_created('Post', post_id, post_data);
+-- Example user-defined helper: wrap a created entity for the cascade payload
+CREATE OR REPLACE FUNCTION cascade_entity_created(
+    p_typename TEXT,
+    p_id UUID,
+    p_data JSONB
+) RETURNS JSONB LANGUAGE sql AS $$
+    SELECT jsonb_build_object(
+        '__typename', p_typename,
+        'id',         p_id,
+        'operation',  'CREATED',
+        'entity',     p_data
+    );
+$$;
 
--- Update an entity
-SELECT cascade_entity_update('User', user_id, user_data);
-
--- Delete an entity
-SELECT cascade_entity_deleted('Comment', comment_id);
-
--- Add cache invalidations
-SELECT cascade_invalidate_cache(ARRAY['posts', 'user_posts'], 'INVALIDATE');
-
--- Add metadata
-SELECT cascade_metadata(affected_count, depth, transaction_id);
-
--- Merge multiple cascade objects
-SELECT cascade_merge(cascade1, cascade2);
+-- Usage inside a mutation function:
+-- updated := jsonb_build_array(cascade_entity_created('Post', v_post_id, v_post_data));
 ```
 
 ### Client Integration with Cascade
@@ -360,7 +329,7 @@ if (cascade) {
   // Apply invalidations
   for (const hint of cascade.invalidations) {
     if (hint.strategy === 'INVALIDATE') {
-      client.cache.evict({ fieldName: hint.queryName });
+      client.cache.evict({ fieldName: hint.query_name });
     }
   }
 }
@@ -390,43 +359,15 @@ commitMutation(environment, {
 
 ## Mutation Return Shape Requirements
 
-When designing database function return types, understand how FraiseQL interprets each shape:
+All v2 mutation functions return `mutation_response`. FraiseQL also supports JSONB returns for custom response shapes.
 
-### Return Shape Rules
+### Return Shape Reference
 
-| Return Type | FraiseQL Behavior | Use Case | Requirements |
-|-----------|------------------|----------|---|
-| **UUID/ID** | Fetches full entity from view | Most common: create/update operations | View (v_*) must exist; return must be valid ID from table |
-| **BOOLEAN** | Returns success/failure | Delete operations, toggles | `true` = success, `false` = failure |
-| **INTEGER** | Returns numeric count/value | Bulk operations, computed values | Any non-null integer |
-| **JSONB** | Maps directly to GraphQL type | Rich responses with computed fields | Must match GraphQL type shape exactly |
-| **TABLE (composite)** | First row maps to return type | Multiple related values | All columns must match GraphQL type |
-
-### ID-Based Returns (Most Common)
-
-When you return an ID from a mutation, FraiseQL performs a **two-step process**:
-
-```python
-@fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
-def create_user(email: str, name: str) -> User:
-    pass
-```
-
-**Requirements:**
-- Return type must be a valid ID from the table
-- The ID must exist in the view (v_*)
-- Projection table must be synced: `PERFORM sync_tv_user()`
-
-**Common mistake:**
-```sql
--- DON'T: Return non-existent ID
-INSERT INTO tb_user (email) VALUES ($1)
-RETURNING some_other_id;  -- Not an ID from tb_user!
-
--- DO: Return actual inserted ID
-INSERT INTO tb_user (email) VALUES ($1)
-RETURNING id;  -- Actual row ID
-```
+| Return Type | FraiseQL Behavior | Use Case |
+|-----------|------------------|----------|
+| **`mutation_response`** | Canonical v2 return; extracts entity from `entity` JSONB field | All mutations |
+| **JSONB** | Maps directly to a custom GraphQL result type | Rich responses with computed fields |
+| **INTEGER** | Returns numeric count (v1 legacy) | Bulk operations |
 
 ### JSONB Returns (Custom Shape)
 
@@ -600,16 +541,22 @@ def transfer_funds(
 
 ## Multiple Entity Returns
 
-### Return Multiple IDs
+All mutation functions return `mutation_response` — a single composite type that carries
+the operation outcome, affected entity data, and cascaded changes. For bulk operations,
+the created entities are embedded in the `entity` JSONB field as an array under `data.items`.
+
+### Bulk Create Pattern
 
 ```sql
 CREATE FUNCTION fn_bulk_create_users(
     users_data JSONB
-) RETURNS UUID[] AS $$
+)
+RETURNS mutation_response
+LANGUAGE plpgsql AS $$
 DECLARE
     user_record JSONB;
-    new_ids UUID[] := '{}';
-    new_id UUID;
+    created_ids JSONB := '[]'::JSONB;
+    new_id      UUID;
 BEGIN
     FOR user_record IN SELECT * FROM jsonb_array_elements(users_data)
     LOOP
@@ -621,21 +568,32 @@ BEGIN
         )
         RETURNING id INTO new_id;
 
-        new_ids := array_append(new_ids, new_id);
+        created_ids := created_ids || jsonb_build_array(new_id::TEXT);
     END LOOP;
 
-    PERFORM sync_tv_user();
-    RETURN new_ids;
+    RETURN ROW(
+        'created',
+        format('%s users created', jsonb_array_length(users_data)),
+        NULL,                                          -- entity_id (N/A for bulk)
+        'User',                                        -- entity_type
+        jsonb_build_object('items', created_ids),      -- entity: bulk results here
+        NULL::TEXT[],                                  -- updated_fields
+        NULL::JSONB,                                   -- cascade
+        NULL::JSONB                                    -- metadata
+    )::mutation_response;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 ```
 
 ```python
 @fraiseql.mutation(sql_source="fn_bulk_create_users", operation="CREATE")
-def bulk_create_users(users: list[CreateUserInput]) -> list[User]:
-    """Returns list of created Users."""
+def bulk_create_users(users: list[CreateUserInput]) -> MutationResult:
+    """Bulk-create users. Created IDs available in result.entity['items']."""
     pass
 ```
+
+The response `entity.items` array contains the UUIDs of all created records. Clients
+unpack the array from the GraphQL `MutationResult.entity` field:
 
 ## Error Handling Shapes
 
@@ -788,13 +746,13 @@ def search_products(
 ### Keep Functions Focused
 
 ```sql
--- Good: Single responsibility
-fn_create_user(email, name) → UUID
-fn_add_user_role(user_id, role) → BOOLEAN
-fn_set_user_avatar(user_id, url) → BOOLEAN
+-- Good: Single responsibility, each returns mutation_response
+fn_create_user(email, name) → mutation_response
+fn_add_user_role(user_id, role) → mutation_response
+fn_set_user_avatar(user_id, url) → mutation_response
 
 -- Avoid: Too many responsibilities
-fn_create_user_with_role_and_avatar_and_profile(...) → JSONB
+fn_create_user_with_role_and_avatar_and_profile(...) → mutation_response
 ```
 
 ### Sync Projections
@@ -861,7 +819,7 @@ result := jsonb_build_object(
 Before deploying, validate your schema:
 
 ```bash
-fraiseql validate schema.intermediate.json
+fraiseql validate schema.json
 ```
 
 This checks:
@@ -877,17 +835,17 @@ Before deploying mutations, test:
 # 1. Schema validation
 fraiseql validate schema.json
 
-# 2. Run migrations
-fraiseql migrate apply
+# 2. Compile schema (checks all types resolve correctly)
+fraiseql compile fraiseql.toml --check
 
-# 3. Test mutation execution
-fraiseql test mutations/create_user.test.graphql
+# 3. Apply migrations
+fraiseql migrate up
 
-# 4. Verify return shape
-fraiseql test --verbose mutations/  # Shows actual JSON returned
+# 4. Start server and test mutations manually
+fraiseql run --watch
 
-# 5. Check projections synced
-SELECT COUNT(*) FROM v_user;  # Should equal tb_user count
+# 5. Check projections synced (run in psql)
+SELECT COUNT(*) FROM v_user;  -- Should equal tb_user count
 ```
 
 ## Next Steps

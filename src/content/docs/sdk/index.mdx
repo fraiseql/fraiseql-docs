@@ -1,11 +1,11 @@
 ---
 title: Schema Authoring SDKs
-description: Define GraphQL schemas in your favorite language with 6 supported SDKs
+description: Define GraphQL schemas in Python, TypeScript, Go, Java, or PHP using FraiseQL's schema authoring SDKs
 ---
 
 import { CardGrid, Card, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-FraiseQL provides **6 schema authoring SDKs** across different programming languages. Each SDK lets you define your GraphQL schema using native language constructs — type annotations, decorators, attributes, or derive macros — which the FraiseQL CLI compiles into an optimized Rust-powered GraphQL API backed by SQL views.
+FraiseQL provides **schema authoring SDKs** across different programming languages, plus a Rust authorization library. The schema authoring SDKs (Python, TypeScript, Go, Java, PHP) let you define your GraphQL schema using native language constructs — type annotations, decorators, and attributes — which the FraiseQL CLI compiles into an optimized Rust-powered GraphQL API backed by SQL views.
 
 <Aside type="note">
 These are **schema authoring** SDKs, not GraphQL client libraries. You use them to define your API. The FraiseQL Rust binary serves that API. For consuming a FraiseQL GraphQL API, use any standard GraphQL client.
@@ -16,7 +16,7 @@ These are **schema authoring** SDKs, not GraphQL client libraries. You use them 
 You write your schema in your preferred language using native type definitions and decorators/annotations/attributes. The FraiseQL CLI (`fraiseql compile`) compiles this to a `schema.json` intermediate representation, which the FraiseQL Rust runtime serves as a GraphQL API — with SQL views (`v_*`) handling reads and PostgreSQL functions (`fn_*`) handling mutations.
 
 ```
-Your schema (Python/TS/Go/Java/Rust/PHP)
+Your schema (Python/TS/Go/Java/PHP)
          ↓  fraiseql compile
      schema.json (IR)
          ↓  fraiseql run
@@ -29,15 +29,22 @@ Your schema (Python/TS/Go/Java/Rust/PHP)
 
 | Language | Type System | Package Manager | Status |
 |----------|-------------|-----------------|--------|
-| **Python** | Type hints + decorators | PyPI / uv | Stable |
-| **TypeScript** | Native types + decorators | npm / yarn / pnpm | Stable |
-| **Go** | Struct tags + builders | Go modules 1.22+ | Stable |
-| **Java** | Annotations | Maven, Gradle | Stable |
-| **Rust** | Derive macros | Cargo | Stable |
-| **PHP** | Attributes (PHP 8.1+) | Composer | Stable |
+| **Python** | Type hints + decorators | PyPI / uv | Alpha (2.0.0-alpha.1) |
+| **TypeScript** | Native types + decorators | npm / yarn / pnpm | Alpha (2.0.0-alpha.1) |
+| **Go** | Struct tags + builders | Go modules 1.22+ | Beta |
+| **Java** | Annotations + builders | Maven, Gradle | Stable (2.0.0) |
+| **Rust** | Authorization library (RBAC) | Cargo | Stable (1.0.0) |
+| **PHP** | Attributes (PHP 8.2+) | Composer | Beta |
+| **C#** | Attributes (.NET 8+) | NuGet | Stable (2.0.0) |
+| **Elixir** | Compile-time macros (Elixir 1.14+) | Hex | Beta |
+| **F#** | Computation expressions (.NET 8+) | NuGet | Beta |
 
 <Aside type="tip">
 Kotlin, Scala, Groovy, and Clojure projects can use the **Java SDK** directly via JVM interop. Annotations work seamlessly across JVM languages.
+</Aside>
+
+<Aside type="tip">
+C# and F# projects use the same `FraiseQL` NuGet package. The F# SDK provides idiomatic computation expression builders on top of the same underlying schema registry.
 </Aside>
 
 ## Quick Comparison
@@ -58,106 +65,135 @@ Kotlin, Scala, Groovy, and Clojure projects can use the **Java SDK** directly vi
     def users(limit: int = 20) -> list[User]:
         pass
 
-    @fraiseql.mutation
-    def create_user(info, input: CreateUserInput) -> User:
+    @fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
+    def create_user(input: CreateUserInput) -> User:
         pass
     ```
   </TabItem>
   <TabItem label="TypeScript">
     ```typescript
-    import { type, query, mutation } from 'fraiseql';
+    import { Type, registerTypeFields, registerQuery, registerMutation } from 'fraiseql';
 
-    @type()
-    class User {
-      @field() id: ID;
-      @field() email: Email;
-      @field() createdAt: DateTime;
-    }
+    @Type()
+    class User {}
 
-    @query({ sqlSource: 'v_user' })
-    async function users(limit: number = 20): Promise<User[]> {}
+    registerTypeFields('User', [
+      { name: 'id',        type: 'ID',       nullable: false },
+      { name: 'email',     type: 'Email',    nullable: false },
+      { name: 'createdAt', type: 'DateTime', nullable: false },
+    ]);
 
-    @mutation()
-    async function createUser(info: Context, input: CreateUserInput): Promise<User> {}
+    registerQuery('users', 'User', true, false, [
+      { name: 'limit', type: 'Int', nullable: false, default: 20 },
+    ], 'Get all users', { sqlSource: 'v_user' });
+
+    registerMutation('createUser', 'User', false, false, [
+      { name: 'input', type: 'CreateUserInput', nullable: false },
+    ], 'Create a new user', { sqlSource: 'fn_create_user', operation: 'CREATE' });
     ```
   </TabItem>
   <TabItem label="Go">
     ```go
-    // fraiseql:type
+    import "github.com/fraiseql/fraiseql-go/fraiseql"
+
     type User struct {
-        ID        fraiseql.ID       `fraiseql:"id"`
-        Email     fraiseql.Email    `fraiseql:"email"`
-        CreatedAt fraiseql.DateTime `fraiseql:"created_at"`
+        ID        fraiseql.ID       `fraiseql:"id,type=ID"`
+        Email     fraiseql.Email    `fraiseql:"email,type=Email"`
+        CreatedAt fraiseql.DateTime `fraiseql:"created_at,type=DateTime"`
     }
 
-    var Schema = fraiseql.Schema{
-        Queries: []fraiseql.Query{
-            {Name: "users", SQLSource: "v_user", Returns: []User{}},
-        },
-        Mutations: []fraiseql.Mutation{
-            {Name: "create_user", Input: CreateUserInput{}, Returns: User{}},
-        },
+    func init() {
+        fraiseql.RegisterTypes(User{})
+
+        fraiseql.NewQuery("users").
+            SqlSource("v_user").
+            ReturnType(User{}).
+            ReturnsArray(true).
+            Arg("limit", "Int", 20).
+            Register()
+
+        fraiseql.NewMutation("create_user").
+            SqlSource("fn_create_user").
+            ReturnType(User{}).
+            Arg("input", "CreateUserInput", nil).
+            Operation("insert").
+            Register()
     }
     ```
   </TabItem>
   <TabItem label="Java">
     ```java
-    @FraiseType
+    import com.fraiseql.core.*;
+
+    @GraphQLType
     public class User {
-        public ID id;
-        public Email email;
-        public DateTime createdAt;
+        @GraphQLField(type = "ID",       nullable = false) public String id;
+        @GraphQLField(type = "Email",    nullable = false) public String email;
+        @GraphQLField(type = "DateTime", nullable = false) public String createdAt;
     }
 
-    public class Queries {
-        @FraiseQuery(sqlSource = "v_user")
-        public List<User> users(int limit) { return null; }
-    }
+    // Queries and mutations use a fluent builder — register in application startup
+    FraiseQL.registerTypes(User.class);
 
-    public class Mutations {
-        @FraiseMutation
-        public User createUser(MutationContext info, CreateUserInput input) { return null; }
-    }
+    FraiseQL.query("users")
+        .returnType(User.class)
+        .returnsArray(true)
+        .sqlSource("v_user")
+        .arg("limit", "Int", 20)
+        .register();
+
+    FraiseQL.mutation("createUser")
+        .returnType(User.class)
+        .sqlSource("fn_create_user")
+        .arg("input", "CreateUserInput")
+        .register();
     ```
   </TabItem>
   <TabItem label="Rust">
     ```rust
-    #[derive(FraiseType, Serialize, Deserialize)]
-    pub struct User {
-        pub id: ID,
-        pub email: Email,
-        pub created_at: DateTime,
-    }
+    use fraiseql_rust::{SchemaRegistry, Field};
 
-    #[fraiseql::query(sql_source = "v_user")]
-    pub async fn users(limit: i32) -> Vec<User> { unreachable!() }
-
-    #[fraiseql::mutation]
-    pub async fn create_user(info: MutationContext, input: CreateUserInput) -> User {
-        unreachable!()
-    }
+    // fraiseql-rust is an authorization library, not a schema authoring DSL.
+    // Use it to define field-level scope requirements and RBAC rules alongside
+    // another SDK (Python, Go, etc.) for type/query/mutation authoring.
+    let mut registry = SchemaRegistry::new();
+    registry.register_type("User", vec![
+        Field::new("id", "ID").with_nullable(false),
+        Field::new("email", "Email")
+            .with_nullable(false)
+            .with_requires_scope(Some("read:user.email".to_string())),
+        Field::new("created_at", "DateTime").with_nullable(false),
+    ]);
     ```
   </TabItem>
   <TabItem label="PHP">
     ```php
-    #[FraiseType]
+    use FraiseQL\Attributes\{GraphQLType, GraphQLField};
+    use FraiseQL\Scalars;
+    use FraiseQL\StaticAPI;
+
+    #[GraphQLType]
     class User {
-        public ID $id;
-        public Email $email;
-        public DateTime $createdAt;
+        #[GraphQLField(type: Scalars::ID,        nullable: false)] public string $id;
+        #[GraphQLField(type: Scalars::EMAIL,     nullable: false)] public string $email;
+        #[GraphQLField(type: Scalars::DATE_TIME, nullable: false)] public string $createdAt;
     }
 
-    class Queries {
-        #[FraiseQuery(sqlSource: 'v_user')]
-        public function users(int $limit = 20): array { return []; }
-    }
+    // Queries and mutations use a fluent builder — register in application startup
+    StaticAPI::register(User::class);
 
-    class Mutations {
-        #[FraiseMutation]
-        public function createUser(MutationContext $info, CreateUserInput $input): User {
-            return new User();
-        }
-    }
+    StaticAPI::query('users')
+        ->returnType('User')
+        ->returnsList(true)
+        ->sqlSource('v_user')
+        ->argument('limit', 'Int', nullable: true, default: 20)
+        ->register();
+
+    StaticAPI::mutation('createUser')
+        ->returnType('User')
+        ->sqlSource('fn_create_user')
+        ->argument('input', 'CreateUserInput', nullable: false)
+        ->register();
     ```
   </TabItem>
 </Tabs>
@@ -167,11 +203,10 @@ Kotlin, Scala, Groovy, and Clojure projects can use the **Java SDK** directly vi
 Each SDK provides:
 
 - **Type-safe schema definition** — use your language's native type system
-- **Decorators/attributes/macros** — metadata for GraphQL behavior (queries, mutations, authorization)
-- **Input validation** — validate inputs at compile time, before deployment
+- **Decorators/attributes/builders** — metadata for GraphQL behavior (queries, mutations, authorization)
 - **Schema compilation** — generate `schema.json` for the FraiseQL Rust runtime
-- **Full feature parity** — all SDKs support the same core feature set
-- **Testing utilities** — test clients that run queries against a real database
+- **Role-based access control** — restrict queries and mutations to callers with specific roles
+- **Comparable feature set** — all SDKs cover the core schema authoring primitives; capabilities may vary by language
 
 ## Choosing an SDK
 
@@ -197,7 +232,7 @@ Each SDK provides:
     [Java SDK docs](/sdk/java)
   </Card>
   <Card title="Rust SDK" icon="seti:rust">
-    Best for: maximum performance, systems programming, embedding in Rust applications.
+    Best for: field-level authorization metadata, scope validation, embedding security policy definitions in Rust applications.
 
     [Rust SDK docs](/sdk/rust)
   </Card>
@@ -205,6 +240,21 @@ Each SDK provides:
     Best for: Laravel/Symfony teams, web agencies, PHP-first backends.
 
     [PHP SDK docs](/sdk/php)
+  </Card>
+  <Card title="C# SDK" icon="seti:csharp">
+    Best for: ASP.NET Core teams, .NET enterprise backends, Azure-hosted services.
+
+    [C# SDK docs](/sdk/csharp)
+  </Card>
+  <Card title="Elixir SDK" icon="seti:elixir">
+    Best for: Phoenix/Elixir backends, functional teams, high-concurrency services.
+
+    [Elixir SDK docs](/sdk/elixir)
+  </Card>
+  <Card title="F# SDK" icon="seti:fsharp">
+    Best for: .NET functional programming teams, domain-driven design projects.
+
+    [F# SDK docs](/sdk/fsharp)
   </Card>
 </CardGrid>
 

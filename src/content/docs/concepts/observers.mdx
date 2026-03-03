@@ -7,6 +7,10 @@ import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/
 
 Observers provide **event-driven logic** for your FraiseQL API. They react to database changes and trigger actions like webhooks, emails, or Slack notifications.
 
+<Aside type="caution">
+**Observer configuration is TOML-only.** The Python `@observer`, `webhook()`, `email()`, `slack()`, and `RetryConfig` APIs shown in older examples do not exist in the `fraiseql` Python package. Observers are configured entirely via `fraiseql.toml` and the Rust server. The Python package is for schema definition only.
+</Aside>
+
 ## Why Observers?
 
 Traditional approaches to post-mutation logic:
@@ -14,45 +18,17 @@ Traditional approaches to post-mutation logic:
 - **Database triggers**: Limited to SQL, hard to debug
 - **Message queues**: Infrastructure complexity
 
-Observers centralize event-driven logic in your schema:
+Observers centralize event-driven logic in your `fraiseql.toml` configuration:
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-
-```python
-@observer(
-    entity="Order",
-    event="INSERT",
-    condition="total > 1000",
-    actions=[
-        slack("#sales", "High-value order: ${total}"),
-        email(to="sales@example.com", subject="New order")
-    ]
-)
-def on_high_value_order():
-    pass
+```toml
+# fraiseql.toml — configure observer backend
+[observers]
+backend   = "redis"      # "in-memory" | "postgres" | "redis" | "nats"
+redis_url = "${REDIS_URL}"
+# nats_url = "${NATS_URL}"
 ```
 
-  </TabItem>
-  <TabItem label="TypeScript">
-
-```typescript
-import { observer, slack, email } from 'fraiseql';
-
-observer({
-  entity: 'Order',
-  event: 'INSERT',
-  condition: 'total > 1000',
-  actions: [
-    slack('#sales', 'High-value order: ${total}'),
-    email({ to: 'sales@example.com', subject: 'New order' }),
-  ],
-  handler: function onHighValueOrder() {},
-});
-```
-
-  </TabItem>
-</Tabs>
+Observer actions (webhooks, Slack) are wired up in your schema configuration. See the sections below for each action type.
 
 ### Observer lifecycle
 
@@ -74,261 +50,105 @@ An observer consists of:
 
 1. **Entity**: The table/type being watched
 2. **Event**: INSERT, UPDATE, or DELETE
-3. **Condition**: When to trigger (optional)
-4. **Actions**: What to do when triggered
+3. **Condition**: When to trigger (optional Elo expression)
+4. **Actions**: What to do when triggered (webhook, Slack)
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
+Observers are configured in `fraiseql.toml`. Database change events are delivered via PostgreSQL `LISTEN`/`NOTIFY` — the FraiseQL server registers listeners at startup and routes each event to matching observers.
 
-```python
-from fraiseql import observer, webhook, email, slack
-
-@observer(
-    entity="Order",           # Watch tb_order
-    event="INSERT",           # On new records
-    condition="total > 100",  # Only if total > 100
-    actions=[                 # Actions to execute
-        webhook("https://api.example.com/orders"),
-        slack("#orders", "New order: {id}")
-    ]
-)
-def on_new_order():
-    """Triggered when a new order over $100 is created."""
-    pass
+```toml
+# Example observer configuration in fraiseql.toml
+[observers]
+backend   = "redis"
+redis_url = "${REDIS_URL}"
 ```
 
-  </TabItem>
-  <TabItem label="TypeScript">
-
-```typescript
-import { observer, webhook, slack } from 'fraiseql';
-
-observer({
-  entity: 'Order',           // Watch tb_order
-  event: 'INSERT',           // On new records
-  condition: 'total > 100',  // Only if total > 100
-  actions: [                 // Actions to execute
-    webhook('https://api.example.com/orders'),
-    slack('#orders', 'New order: {id}'),
-  ],
-  handler: function onNewOrder() {
-    // Triggered when a new order over $100 is created.
-  },
-});
-```
-
-  </TabItem>
-</Tabs>
+Each observer action (webhook, Slack) is registered in your schema configuration file alongside your type definitions. The condition uses the same Elo expression syntax as custom scalar validation (see [Elo Validation Language](/concepts/elo-validation)).
 
 ## Events
 
+FraiseQL observers react to three event types, delivered via PostgreSQL `LISTEN`/`NOTIFY`:
+
 ### INSERT
 
-Triggered when a new record is created:
+Triggered when a new record is created. The event payload contains the new record's data.
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-
-```python
-@observer(
-    entity="User",
-    event="INSERT",
-    actions=[
-        email(
-            to="{email}",
-            subject="Welcome to our platform!",
-            body="Hello {name}, thanks for signing up."
-        )
-    ]
-)
-def on_user_signup():
-    pass
 ```
-
-  </TabItem>
-  <TabItem label="TypeScript">
-
-```typescript
-observer({
-  entity: 'User',
-  event: 'INSERT',
-  actions: [
-    email({
-      to: '{email}',
-      subject: 'Welcome to our platform!',
-      body: 'Hello {name}, thanks for signing up.',
-    }),
-  ],
-  handler: function onUserSignup() {},
-});
+Entity: User
+Event:  INSERT
+→ Delivers new user data to configured webhook/Slack actions
 ```
-
-  </TabItem>
-</Tabs>
 
 ### UPDATE
 
-Triggered when a record is modified:
+Triggered when a record is modified. The condition can use `field.changed()` syntax to filter on specific field transitions:
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
-
-```python
-@observer(
-    entity="Order",
-    event="UPDATE",
-    condition="status.changed() and status == 'shipped'",
-    actions=[
-        email(
-            to="{customer_email}",
-            subject="Your order {id} has shipped!",
-            body="Your order is on its way."
-        )
-    ]
-)
-def on_order_shipped():
-    pass
+```
+Condition: status.changed() && status == 'shipped'
+→ Fires only when the status field transitions to 'shipped'
 ```
 
-  </TabItem>
-  <TabItem label="TypeScript">
-
-```typescript
-observer({
-  entity: 'Order',
-  event: 'UPDATE',
-  condition: "status.changed() and status == 'shipped'",
-  actions: [
-    email({
-      to: '{customer_email}',
-      subject: 'Your order {id} has shipped!',
-      body: 'Your order is on its way.',
-    }),
-  ],
-  handler: function onOrderShipped() {},
-});
-```
-
-  </TabItem>
-</Tabs>
-
-**Change detection:**
-- `field.changed()` — Field value changed
-- `field.old` — Previous value
-- `field.new` — New value
+**Change detection in conditions:**
+- `field.changed()` — True if the field value changed in this event
+- `field.old` — Previous value (available in condition context for UPDATE events)
+- `field.new` — New value (same as `field` in condition context)
 
 ### DELETE
 
-Triggered when a record is removed:
-
-<Tabs syncKey="language">
-  <TabItem label="Python">
-
-```python
-@observer(
-    entity="Order",
-    event="DELETE",
-    actions=[
-        webhook(
-            "https://api.example.com/archive",
-            body_template='{"type": "order", "id": "{{id}}", "data": {{_json}}}'
-        )
-    ]
-)
-def on_order_deleted():
-    pass
-```
-
-  </TabItem>
-  <TabItem label="TypeScript">
-
-```typescript
-observer({
-  entity: 'Order',
-  event: 'DELETE',
-  actions: [
-    webhook('https://api.example.com/archive', {
-      bodyTemplate: '{"type": "order", "id": "{{id}}", "data": {{_json}}}',
-    }),
-  ],
-  handler: function onOrderDeleted() {},
-});
-```
-
-  </TabItem>
-</Tabs>
+Triggered when a record is removed. The event payload contains the deleted record's data.
 
 ## Conditions
 
-Filter which events trigger the observer:
+Conditions filter which events trigger an observer. They use the Elo expression language with `&&` (AND) and `||` (OR) logical operators:
 
 ### Simple Comparisons
 
-```python
-condition="total > 1000"
-condition="status == 'active'"
-condition="is_premium == true"
+```text
+total > 1000
+status == 'active'
+is_premium == true
 ```
 
 ### Change Detection
 
-```python
+```text
 # Field changed to specific value
-condition="status.changed() and status == 'shipped'"
+status.changed() && status == 'shipped'
 
 # Field changed from specific value
-condition="status.old == 'pending' and status == 'approved'"
+status.old == 'pending' && status == 'approved'
 
 # Any change to field
-condition="email.changed()"
+email.changed()
 ```
 
 ### Complex Logic
 
-```python
+```text
 # Multiple conditions
-condition="total > 1000 and is_premium == true"
+total > 1000 && is_premium == true
 
 # OR conditions
-condition="status == 'failed' or retry_count > 3"
+status == 'failed' || retry_count > 3
 
 # Field comparisons
-condition="quantity > min_quantity"
+quantity > min_quantity
 ```
 
 ## Actions
 
 ### Webhook
 
-Send HTTP requests to external services:
-
-```python
-from fraiseql import webhook
-
-# Simple webhook
-webhook("https://api.example.com/orders")
-
-# With custom headers
-webhook(
-    "https://api.example.com/orders",
-    headers={"Authorization": "Bearer {API_TOKEN}"}
-)
-
-# With custom body
-webhook(
-    "https://api.example.com/orders",
-    body_template='{"order_id": "{{id}}", "total": {{total}}}'
-)
-
-# URL from environment variable
-webhook(url_env="SHIPPING_WEBHOOK_URL")
-```
+The webhook action sends an HTTP POST to a configured URL. It supports custom headers and Mustache-style body templates:
 
 **Template variables:**
-- `{field_name}` — Field value
-- `{ENV_VAR}` — Environment variable
-- `{{field}}` — Mustache-style for JSON templates
+- `{{field_name}}` — Mustache-style field substitution in body templates
 - `{{_json}}` — Complete record as JSON
+
+**Supported configuration:**
+- `url` — Hardcoded URL
+- `url_env` — URL from environment variable (preferred for secrets)
+- `headers` — Custom HTTP headers (use env var references for tokens)
+- `body_template` — Mustache template; if omitted, the raw event data is sent
 
 #### Webhook payload format
 
@@ -356,80 +176,26 @@ For UPDATE events, `"old"` contains the previous field values and `"new"` contai
 
 ### Email
 
-Send email notifications:
+<Aside type="caution">
+The email action is **not yet implemented**. The current Rust implementation (`EmailAction.execute()`) is a stub that always returns success without sending any email. Do not use the email action in production. Route email notifications through a webhook to your email provider instead.
+</Aside>
 
-```python
-from fraiseql import email
-
-email(
-    to="{customer_email}",
-    subject="Order {id} confirmed",
-    body="Thank you for your order of ${total}.",
-    from_email="orders@example.com"
-)
-
-# Multiple recipients
-email(
-    to=["admin@example.com", "{customer_email}"],
-    subject="New order",
-    body="Order {id} was placed."
-)
-
-# HTML body
-email(
-    to="{email}",
-    subject="Welcome!",
-    body_html="<h1>Welcome {name}!</h1><p>Thanks for joining.</p>"
-)
-```
+The email action is planned for a future release. For now, use a webhook action pointing to your email service's API (SendGrid, Resend, Postmark, etc.).
 
 ### Slack
 
-Send Slack messages:
+The Slack action sends a message to a Slack webhook URL. Configure the webhook URL via an environment variable and specify the message template:
 
-```python
-from fraiseql import slack
+**Supported configuration:**
+- `webhook_url` or `webhook_url_env` — Slack incoming webhook URL
+- `channel` — Slack channel (`#channel-name`)
+- `message` — Message text with `{field_name}` substitution
 
-# Simple message
-slack("#orders", "New order: {id} for ${total}")
-
-# With formatting
-slack(
-    "#sales",
-    ":moneybag: High-value order {id}: ${total} from {customer_email}"
-)
-
-# Direct message
-slack(
-    "@sales-lead",
-    "Urgent: Order {id} requires approval"
-)
-```
+Messages support standard Slack formatting (`:emoji:`, `*bold*`, `_italic_`).
 
 ## Retry Configuration
 
-Configure retry behavior for failed actions:
-
-```python
-from fraiseql import observer, webhook, RetryConfig
-
-@observer(
-    entity="Payment",
-    event="UPDATE",
-    condition="status == 'failed'",
-    actions=[
-        webhook("https://api.example.com/payment-failures")
-    ],
-    retry=RetryConfig(
-        max_attempts=5,
-        backoff_strategy="exponential",
-        initial_delay_ms=100,
-        max_delay_ms=60000
-    )
-)
-def on_payment_failure():
-    pass
-```
+The observer system uses **at-least-once delivery**. When a webhook action fails (non-2xx response or network error), it is retried with backoff. Retry behavior is configured per-observer in your schema configuration:
 
 **Retry options:**
 - `max_attempts`: Maximum retry count (default: 3)
@@ -437,19 +203,25 @@ def on_payment_failure():
 - `initial_delay_ms`: First retry delay in milliseconds
 - `max_delay_ms`: Maximum delay between retries
 
+Because delivery is at-least-once, your webhook endpoints should be **idempotent** — the same event may arrive more than once after a crash or network partition. Use the event's unique ID from the payload for deduplication.
+
 ## Complete Example
 
-Here's a full e-commerce observer setup:
+Here is an e-commerce observer setup showing the TOML configuration and corresponding Python schema types:
 
-<Tabs syncKey="language">
-  <TabItem label="Python">
+**`fraiseql.toml`** — configure the observer backend:
+
+```toml
+[observers]
+backend   = "redis"
+redis_url = "${REDIS_URL}"
+```
+
+**`schema.py`** — define the GraphQL types (observer actions are wired separately in schema configuration):
 
 ```python
 import fraiseql
-from fraiseql import (
-    ID, DateTime, email, observer,
-    slack, type, webhook, RetryConfig
-)
+from fraiseql.scalars import ID, DateTime
 
 @fraiseql.type
 class Order:
@@ -466,190 +238,102 @@ class Payment:
     amount: float
     status: str
     processed_at: DateTime | None
+```
 
-# High-value order notifications
-@observer(
-    entity="Order",
-    event="INSERT",
-    condition="total > 1000",
-    actions=[
-        webhook("https://api.example.com/high-value-orders"),
-        slack("#sales", ":moneybag: High-value order {id}: ${total}"),
-        email(
-            to="sales@example.com",
-            subject="High-value order {id}",
-            body="Order {id} for ${total} was created by {customer_email}"
-        )
-    ]
+The observer actions (high-value order webhook, order-shipped Slack message, payment-failed webhook) are registered via your schema configuration file alongside your type definitions. Each observer maps an entity + event + condition to one or more webhook or Slack actions.
+
+## Delivery Guarantees and CheckpointStrategy
+
+The observer system uses **at-least-once delivery** by default — the same event may be dispatched more than once after a crash or restart. For most side effects (sending a notification, calling a webhook) this is acceptable because the action is idempotent or the duplicate is harmless.
+
+| Strategy | Behaviour | Use when |
+|----------|-----------|----------|
+| `AtLeastOnce` (default) | Event may be processed more than once | Action is idempotent (update a read model, send a metric, post to Slack) |
+| `EffectivelyOnce` | Deduplication via an idempotency table | Action must not execute twice (charge a card, send an email, credit an account) |
+
+### AtLeastOnce (default)
+
+No configuration needed. Observers that send Slack notifications, update read models, or fire webhooks that are idempotent by design use this strategy:
+
+```python
+# AtLeastOnce — default, no extra configuration
+@fraiseql.subscription(
+    entity_type="Order",
+    topic="order.created",
+    operation="create"
 )
-def on_high_value_order():
-    """Triggered when a high-value order is created."""
+def notify_fulfillment(order: Order) -> None:
+    """Notifies the fulfillment system. Webhook is idempotent."""
     pass
+```
 
-# Order shipped notifications
-@observer(
-    entity="Order",
-    event="UPDATE",
-    condition="status.changed() and status == 'shipped'",
-    actions=[
-        webhook(url_env="SHIPPING_WEBHOOK_URL"),
-        email(
-            to="{customer_email}",
-            subject="Your order {id} has shipped!",
-            body="Your order is on its way.",
-            from_email="noreply@example.com"
-        )
-    ]
-)
-def on_order_shipped():
-    """Triggered when an order status changes to 'shipped'."""
-    pass
+### EffectivelyOnce
 
-# Payment failure handling
-@observer(
-    entity="Payment",
-    event="UPDATE",
-    condition="status == 'failed'",
-    actions=[
-        slack("#payments", ":warning: Payment failed for order {order_id}"),
-        webhook(
-            "https://api.example.com/payment-failures",
-            headers={"Authorization": "Bearer {PAYMENT_API_TOKEN}"}
-        )
-    ],
-    retry=RetryConfig(
-        max_attempts=5,
-        backoff_strategy="exponential",
-        initial_delay_ms=100,
-        max_delay_ms=60000
+For non-idempotent actions, configure an idempotency table. FraiseQL records a row before executing the action; duplicate events are detected and skipped via `ON CONFLICT DO NOTHING`:
+
+```python
+# EffectivelyOnce — deduplication via idempotency table
+@fraiseql.subscription(
+    entity_type="Order",
+    topic="order.created",
+    operation="create",
+    checkpoint=fraiseql.EffectivelyOnce(
+        idempotency_table="billing_observer_keys"
     )
 )
-def on_payment_failure():
-    """Triggered when a payment fails."""
-    pass
-
-# Archive deleted orders
-@observer(
-    entity="Order",
-    event="DELETE",
-    actions=[
-        webhook(
-            "https://api.example.com/archive",
-            body_template='{"type": "order", "id": "{{id}}", "data": {{_json}}}'
-        )
-    ]
-)
-def on_order_deleted():
-    """Triggered when an order is deleted."""
+def charge_customer(order: Order) -> None:
+    """Charges the customer. Must not execute twice."""
     pass
 ```
 
-  </TabItem>
-  <TabItem label="TypeScript">
+The idempotency table is created automatically on first startup if it does not exist. Its schema:
 
-```typescript
-import { type, observer, webhook, email, slack, RetryConfig } from 'fraiseql';
-
-@type()
-class Order {
-  id: string;
-  customerEmail: string;
-  status: string;
-  total: number;
-  createdAt: Date;
-}
-
-@type()
-class Payment {
-  id: string;
-  orderId: string;
-  amount: number;
-  status: string;
-  processedAt: Date | null;
-}
-
-// High-value order notifications
-observer({
-  entity: 'Order',
-  event: 'INSERT',
-  condition: 'total > 1000',
-  actions: [
-    webhook('https://api.example.com/high-value-orders'),
-    slack('#sales', ':moneybag: High-value order {id}: ${total}'),
-    email({
-      to: 'sales@example.com',
-      subject: 'High-value order {id}',
-      body: 'Order {id} for ${total} was created by {customer_email}',
-    }),
-  ],
-  handler: function onHighValueOrder() {},
-});
-
-// Order shipped notifications
-observer({
-  entity: 'Order',
-  event: 'UPDATE',
-  condition: "status.changed() and status == 'shipped'",
-  actions: [
-    webhook({ urlEnv: 'SHIPPING_WEBHOOK_URL' }),
-    email({
-      to: '{customer_email}',
-      subject: 'Your order {id} has shipped!',
-      body: 'Your order is on its way.',
-      fromEmail: 'noreply@example.com',
-    }),
-  ],
-  handler: function onOrderShipped() {},
-});
-
-// Payment failure handling
-observer({
-  entity: 'Payment',
-  event: 'UPDATE',
-  condition: "status == 'failed'",
-  actions: [
-    slack('#payments', ':warning: Payment failed for order {order_id}'),
-    webhook('https://api.example.com/payment-failures', {
-      headers: { Authorization: 'Bearer {PAYMENT_API_TOKEN}' },
-    }),
-  ],
-  retry: new RetryConfig({
-    maxAttempts: 5,
-    backoffStrategy: 'exponential',
-    initialDelayMs: 100,
-    maxDelayMs: 60000,
-  }),
-  handler: function onPaymentFailure() {},
-});
-
-// Archive deleted orders
-observer({
-  entity: 'Order',
-  event: 'DELETE',
-  actions: [
-    webhook('https://api.example.com/archive', {
-      bodyTemplate: '{"type": "order", "id": "{{id}}", "data": {{_json}}}',
-    }),
-  ],
-  handler: function onOrderDeleted() {},
-});
+```sql
+CREATE TABLE billing_observer_keys (
+    listener_id  TEXT        NOT NULL,
+    event_key    TEXT        NOT NULL,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (listener_id, event_key)
+);
 ```
 
-  </TabItem>
-</Tabs>
+Old rows accumulate over time and must be pruned by a cleanup job. See the [observer idempotency operational guide](/operations/observer-idempotency) for recommended cleanup strategies and retention policies.
+
+### Rust API
+
+`CheckpointStrategy` is also available directly from the `fraiseql_observers` crate for embedding FraiseQL observers in a custom Rust application:
+
+```rust
+use fraiseql_observers::{CheckpointStrategy, ListenerConfig};
+
+// Default: fast, no deduplication
+let strategy = CheckpointStrategy::AtLeastOnce;
+
+// Effectively-once: records an idempotency key before processing
+let strategy = CheckpointStrategy::EffectivelyOnce {
+    idempotency_table: "fraiseql_observer_idempotency".to_string(),
+};
+```
+
+| Method | Description |
+|--------|-------------|
+| `is_duplicate(pool, listener_id, key)` | Returns `true` if this event has already been processed |
+| `record_idempotency_key(pool, listener_id, key)` | Marks the event as processed (call before dispatching the action) |
 
 ## Observer Log Output
 
-When `LOG_LEVEL=debug` is set, FraiseQL prints each observer invocation to stdout. Here is what firing the high-value order observer looks like:
+When `RUST_LOG=debug` is set, FraiseQL prints each observer invocation to stdout. Here is what firing the high-value order observer looks like:
 
 ```
 [observer] on_high_value_order fired: Order{id=ord_123, total=1250.00}
 [observer] Sending Slack notification to #sales
 [observer] Slack notification delivered (channel=#sales, ts=1710509048.123456)
-[observer] Sending email to sales@example.com
-[observer] Email delivered (message_id=<msg_01HV3K@mail.fraiseql.io>)
 [observer] on_high_value_order completed in 287ms
 ```
+
+<Aside type="caution">
+The email action (`EmailAction`) is **not yet implemented** — the current Rust implementation is a stub that always returns success without sending any email. Route email notifications through a webhook action pointing to your email provider's API (SendGrid, Resend, Postmark, etc.) instead.
+</Aside>
 
 If an action fails, the log includes the error and retry schedule:
 
@@ -663,11 +347,12 @@ If an action fails, the log includes the error and retry schedule:
 
 ## How Observers Work
 
-1. **Compile time**: Observers are compiled into database triggers and action handlers
-2. **Write operation**: Mutation modifies `tb_` table
-3. **Trigger fires**: Database trigger evaluates condition
-4. **Action dispatch**: Matching observers queue their actions
-5. **Action execution**: Actions execute asynchronously with retry logic
+1. **Server startup**: FraiseQL registers PostgreSQL `LISTEN` listeners for database change events (not database triggers)
+2. **Write operation**: Mutation modifies a `tb_` table and emits a `pg_notify('fraiseql_changes', ...)` notification
+3. **Event received**: The FraiseQL server receives the notification via its LISTEN connection
+4. **Condition evaluation**: The observer's Elo condition is evaluated against the event data
+5. **Action dispatch**: Matching observers queue their actions for execution
+6. **Action execution**: Actions execute asynchronously with retry logic
 
 When multiple observers match the same event (same entity and event type), they execute in **definition order** — top-to-bottom as they appear in your schema file. This is deterministic and stable across deployments.
 
@@ -678,7 +363,7 @@ Observer execution pipeline
 ```mermaid
 graph LR
     A[GraphQL Mutation] --> B[Write to tb_* Table]
-    B --> C[Database Trigger]
+    B --> C[pg_notify&#40;fraiseql_changes&#41;]
     C --> D{Condition Met?}
     D -->|Yes| E[Queue Actions]
     D -->|No| F[Skip]
@@ -703,83 +388,40 @@ graph LR
 
 Complex conditions are harder to debug. Prefer simple, readable conditions:
 
-```python
+```text
 # Good
-condition="status == 'shipped'"
+status == 'shipped'
 
-# Avoid
-condition="status == 'shipped' and total > 100 and customer_type == 'premium' and region in ('US', 'CA')"
+# Avoid — hard to read and debug
+status == 'shipped' && total > 100 && customer_type == 'premium'
 ```
 
-For complex logic, create separate observers or use webhook endpoints that handle the logic.
+For complex logic, create separate observers or use webhook endpoints that handle the routing logic.
 
 ### Use Environment Variables
 
-Never hardcode secrets or URLs:
+Never hardcode secrets or URLs in your configuration. Reference environment variables in webhook URL and header settings:
 
-```python
-# Good
-webhook(url_env="WEBHOOK_URL")
-webhook(headers={"Authorization": "Bearer {API_TOKEN}"})
-
-# Bad
-webhook("https://api.example.com/secret-endpoint")
-webhook(headers={"Authorization": "Bearer sk-12345"})
+```text
+url_env = "WEBHOOK_URL"               # URL from environment variable
+headers.Authorization = "${API_TOKEN}" # Token from environment variable
 ```
 
 ### Handle Failures Gracefully
 
-Configure appropriate retry strategies:
+Configure retry strategies based on whether your action is idempotent:
 
-```python
-# Idempotent actions (safe to retry)
-retry=RetryConfig(max_attempts=5, backoff_strategy="exponential")
-
-# Non-idempotent actions (risky to retry)
-retry=RetryConfig(max_attempts=1)  # or omit retry
-```
-
-### Document Observer Purpose
-
-Use docstrings to explain business logic:
-
-```python
-@observer(
-    entity="Order",
-    event="UPDATE",
-    condition="status.changed() and status == 'cancelled'",
-    actions=[...]
-)
-def on_order_cancelled():
-    """
-    Triggered when an order is cancelled.
-
-    Actions:
-    - Notify warehouse to stop processing
-    - Send cancellation email to customer
-    - Update analytics dashboard
-
-    Business rule: Cancellation is only allowed within 24 hours.
-    """
-    pass
-```
+- **Idempotent webhook** (safe to retry): `max_attempts = 5`, `backoff_strategy = "exponential"`
+- **Non-idempotent** (charge a card, send an SMS): `max_attempts = 1` to avoid duplicates
 
 ## Verify It Works
 
 <Steps>
 
-1. **Define an observer in your schema**:
-   ```python
-   @observer(
-       entity="User",
-       event="INSERT",
-       actions=[
-           webhook("http://localhost:3001/webhook")
-       ]
-   )
-   def on_user_signup():
-       """Triggered when a new user signs up."""
-       pass
+1. **Configure the observer backend in `fraiseql.toml`**:
+   ```toml
+   [observers]
+   backend = "in-memory"  # Use in-memory for local testing
    ```
 
 2. **Start a test webhook server** (in another terminal):
@@ -804,36 +446,14 @@ def on_order_cancelled():
    # {"event": "INSERT", "table": "tb_user", "timestamp": "2024-01-15T10:30:00Z", "data": {"new": {...}}}
    ```
 
-5. **Check observer logs** (if `LOG_LEVEL=debug` is set):
+5. **Check observer logs** (if `RUST_LOG=debug` is set):
    ```
-   [observer] on_user_signup fired: User{id=usr_abc123, name="Test User"}
+   [observer] User INSERT event received: id=550e8400-e29b-41d4-a716-446655440000
    [observer] Sending webhook to http://localhost:3001/webhook
    [observer] Webhook delivered (status=200)
    ```
 
-6. **Test with conditions**:
-   ```python
-   @observer(
-       entity="Order",
-       event="INSERT",
-       condition="total > 100",
-       actions=[slack("#sales", "High-value order: {id}")]
-   )
-   def on_high_value_order():
-       pass
-   ```
-   
-   Create a small order (should NOT trigger):
-   ```bash
-   curl -X POST http://localhost:8080/graphql \
-     -d '{"query": "mutation { createOrder(input: { total: 50 }) { id } }"}'
-   ```
-   
-   Create a large order (SHOULD trigger):
-   ```bash
-   curl -X POST http://localhost:8080/graphql \
-     -d '{"query": "mutation { createOrder(input: { total: 150 }) { id } }"}'
-   ```
+6. **Test with conditions**: Configure an observer with `condition = "total > 100"` and verify that low-value orders do not trigger it.
 
 </Steps>
 
@@ -861,7 +481,7 @@ def on_order_cancelled():
 
 4. **Enable debug logging**:
    ```bash
-   LOG_LEVEL=debug fraiseql run
+   RUST_LOG=debug fraiseql run
    ```
 
 ### Webhook Not Received
@@ -889,18 +509,11 @@ def on_order_cancelled():
 
 If observers slow down mutations:
 
-1. **Use async execution** (default):
-   ```python
-   @observer(
-       entity="Order",
-       event="INSERT",
-       sync=False  # Fire-and-forget
-   )
-   ```
+1. **Use async execution** (default) — observers fire after the mutation response is sent, not before
 
-2. **Reduce action count** per observer
+2. **Reduce action count** per observer — each action (webhook, Slack) adds latency
 
-3. **Move heavy processing to background jobs** via NATS
+3. **Move heavy processing to background jobs** via NATS JetStream
 
 ## Next Steps
 
