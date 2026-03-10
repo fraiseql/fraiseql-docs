@@ -3,7 +3,7 @@ title: Adding Mutations
 description: Add the write path to your blog API — database functions, GraphQL mutations, and testing
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
 This guide picks up where [Your First API](/getting-started/first-api) left off. You have a working blog API with queries. Now you add the **write path**: database functions that validate and persist data, and GraphQL mutations that call them.
 
@@ -91,63 +91,11 @@ Create mutation functions in `db/schema/03_mutations/`. Each function validates 
   </TabItem>
 
   <TabItem label="MySQL">
-    ```sql title="db/schema/03_mutations/fn_create_user.sql"
-    DELIMITER $$
-    CREATE FUNCTION fn_create_user(
-        p_username VARCHAR(255), p_email VARCHAR(255), p_bio TEXT
-    ) RETURNS CHAR(36) NOT DETERMINISTIC
-    BEGIN
-        DECLARE v_id CHAR(36);
-        /*validate: no duplicate email*/
-        IF EXISTS (SELECT 1 FROM tb_user WHERE email = p_email) THEN
-            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'email already registered';
-        END IF;
-        SET v_id = UUID();
-        INSERT INTO tb_user (id, identifier, username, email, bio)
-        VALUES (v_id, CONCAT('usr_', LOWER(REPLACE(p_username, ' ', '_'))),
-                p_username, p_email, p_bio);
-        RETURN v_id;
-    END$$
-    DELIMITER ;
-    ```
+    <Aside type="caution">
+    **MySQL mutations are not supported in the current release.** The MySQL adapter's `execute_function_call` returns `Unsupported` — mutation functions are not executed. MySQL stored functions also cannot return the eight-column `mutation_response` composite type that the FraiseQL runtime expects (MySQL has no equivalent of PostgreSQL composite types).
 
-    ```sql title="db/schema/03_mutations/fn_create_post.sql"
-    DELIMITER $$
-    CREATE FUNCTION fn_create_post(
-        p_title TEXT, p_content LONGTEXT, p_author_id CHAR(36)
-    ) RETURNS CHAR(36) NOT DETERMINISTIC
-    BEGIN
-        DECLARE v_fk_user BIGINT;
-        DECLARE v_slug VARCHAR(255);
-        DECLARE v_id CHAR(36);
-        /*validate: author exists*/
-        SELECT pk_user INTO v_fk_user FROM tb_user WHERE id = p_author_id LIMIT 1;
-        IF v_fk_user IS NULL THEN
-            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'author not found';
-        END IF;
-        SET v_slug = LOWER(REPLACE(p_title, ' ', '-'));
-        SET v_id = UUID();
-        INSERT INTO tb_post (id, identifier, fk_user, title, slug, content)
-        VALUES (v_id, CONCAT('pst_', v_slug), v_fk_user, p_title, v_slug, p_content);
-        RETURN v_id;
-    END$$
-    DELIMITER ;
-    ```
-
-    ```sql title="db/schema/03_mutations/fn_publish_post.sql"
-    DELIMITER $$
-    CREATE FUNCTION fn_publish_post(p_post_id CHAR(36))
-    RETURNS CHAR(36) NOT DETERMINISTIC
-    BEGIN
-        /*MySQL updates updated_at automatically via ON UPDATE CURRENT_TIMESTAMP*/
-        UPDATE tb_post SET is_published = true WHERE id = p_post_id;
-        IF ROW_COUNT() = 0 THEN
-            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'post not found';
-        END IF;
-        RETURN p_post_id;
-    END$$
-    DELIMITER ;
-    ```
+    Use MySQL for read queries only. Mutation support is planned for a future release. For write operations on MySQL, consider running a PostgreSQL instance alongside MySQL, or use PostgreSQL as your primary database.
+    </Aside>
   </TabItem>
 
   <TabItem label="SQLite">

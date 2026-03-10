@@ -140,22 +140,6 @@ $ fraiseql compile
 ✓ Compiled to build/schema.compiled.json (0.4s)
 ```
 
-## Watch Mode
-
-`fraiseql compile --watch` monitors schema files and recompiles on change:
-
-- Watches: schema files, `fraiseql.toml`, `db/schema/*.sql`
-- On file change: recompiles and reports errors without exiting
-- Useful during development alongside `fraiseql run --watch`
-
-```bash
-# Recompile on every schema change
-fraiseql compile --watch
-
-# Serve with hot-reload (run handles watch internally)
-fraiseql run --watch
-```
-
 ---
 
 ## `fraiseql extract`
@@ -174,7 +158,7 @@ fraiseql extract [OPTIONS] [INPUT]
 | Option | Description |
 |--------|-------------|
 | `-o, --output <FILE>` | Output schema file |
-| `--language <LANG>` | Source language hint |
+| `-l, --language <LANG>` | Override language detection. Valid values: `python`, `typescript`, `rust`, `java`, `kotlin`, `go`, `csharp`, `swift`, `scala` |
 | `--recursive` | Scan directories recursively |
 
 **Example:**
@@ -526,6 +510,38 @@ fraiseql sbom [OPTIONS] [SCHEMA]
 
 ---
 
+### `fraiseql federation graph`
+
+Export the federation entity graph from a compiled schema, showing entity ownership, key fields, and inter-service relationships.
+
+```bash
+fraiseql federation graph <SCHEMA> [OPTIONS]
+```
+
+**Arguments:**
+- `SCHEMA` — Path to `schema.compiled.json`
+
+**Options:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-f, --format <FORMAT>` | `json` | Output format: `json`, `dot`, `mermaid` |
+
+**Examples:**
+
+```bash
+# Export as JSON (default)
+fraiseql federation graph schema.compiled.json
+
+# Export as Mermaid diagram (paste into docs or GitHub)
+fraiseql federation graph schema.compiled.json --format mermaid
+
+# Export as Graphviz DOT for rendering
+fraiseql federation graph schema.compiled.json --format dot | dot -Tsvg > graph.svg
+```
+
+---
+
 ### `fraiseql validate-documents`
 
 Validate a trusted documents manifest — checks that the file is well-formed JSON and that every key is a valid SHA-256 hex string matching its query body hash.
@@ -582,6 +598,8 @@ All commands support the following options:
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string (overrides `[database] url`) |
+| `FRAISEQL_PORT` | Override the TCP port (integer). Equivalent to `--port`. |
+| `FRAISEQL_HOST` | Override the bind address. Equivalent to `--bind`. |
 | `FRAISEQL_REQUIRE_REDIS=1` | Refuse to start if PKCE state or rate limiting is using in-memory storage. Recommended for Kubernetes and other multi-replica deployments — catches misconfiguration at startup rather than at request time. |
 | `FRAISEQL_MCP_STDIO=1` | Start the MCP (Model Context Protocol) server in stdio transport mode instead of HTTP. Used for Claude Desktop and other local MCP clients. Requires the server to be compiled with `--features mcp`. |
 
@@ -615,9 +633,11 @@ Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if 
 | Start development server | `fraiseql run --watch` |
 | Compile for production | `fraiseql compile --check` |
 | Validate schema | `fraiseql validate --strict` |
+| Validate trusted documents | `fraiseql validate-documents trusted-documents.json` |
 | Check query cost | `fraiseql cost "{ users { id } }"` |
 | Analyze schema | `fraiseql analyze schema.compiled.json` |
 | Generate client types | `fraiseql generate --language typescript` |
+| Export federation graph | `fraiseql federation graph schema.compiled.json --format mermaid` |
 | Run migrations | `fraiseql migrate up` |
 
 ### CI/CD Integration

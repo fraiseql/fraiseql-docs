@@ -23,6 +23,7 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[security]` | Stable |
 | `[security.enterprise]` | Stable |
 | `[security.error_sanitization]` | Stable |
+| `[security.constant_time]` | Stable |
 | `[security.rate_limiting]` | Stable |
 | `[security.state_encryption]` | Stable |
 | `[security.pkce]` | Stable |
@@ -366,6 +367,7 @@ audit_log_backend            = "postgresql"
 | `auth_endpoint_window_seconds` | integer | `60` | Auth rate limit window in seconds |
 | `audit_logging_enabled` | bool | `true` | Enable audit logging |
 | `audit_log_backend` | string | `"postgresql"` | Audit log storage backend (e.g. `"postgresql"`) |
+| `audit_retention_days` | integer | `365` | How many days to retain audit log entries |
 
 ### [security.error_sanitization]
 
@@ -388,6 +390,27 @@ custom_error_message        = "An internal error occurred"
 | `custom_error_message` | string | `"An internal error occurred"` | Message sent to clients when sanitizing |
 
 `ValidationError`, `Forbidden`, and `NotFound` codes pass through unchanged — clients need these to act on errors. Only `InternalServerError` and `DatabaseError` codes are sanitized.
+
+### [security.constant_time]
+
+Enables constant-time comparison for token validation to prevent timing attacks. All fields default to `true` — this section only needs to appear in `fraiseql.toml` if you need to selectively disable individual token types.
+
+```toml
+[security.constant_time]
+enabled                 = true
+apply_to_jwt            = true
+apply_to_session_tokens = true
+apply_to_csrf_tokens    = true
+apply_to_refresh_tokens = true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Master switch for constant-time comparisons |
+| `apply_to_jwt` | bool | `true` | Use constant-time comparison for JWT signature validation |
+| `apply_to_session_tokens` | bool | `true` | Use constant-time comparison for session tokens |
+| `apply_to_csrf_tokens` | bool | `true` | Use constant-time comparison for CSRF tokens |
+| `apply_to_refresh_tokens` | bool | `true` | Use constant-time comparison for refresh tokens |
 
 ### [security.rate_limiting]
 

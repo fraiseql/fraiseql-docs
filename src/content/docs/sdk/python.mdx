@@ -209,6 +209,22 @@ def org_posts(limit: int = 20) -> list[Post]:
 
 The `org_id` parameter is injected from the JWT claim `org_id` and never appears in the GraphQL schema.
 
+### Cache Invalidation Across Views
+
+Use `additional_views=` when a query reads from multiple SQL views. FraiseQL uses this list to evict the query's cache entries when any of those views change:
+
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    additional_views=["v_user", "v_tag"],  # also read from these views
+)
+def posts_with_authors(limit: int = 20) -> list[Post]:
+    """Fetch posts including denormalized author and tag data."""
+    pass
+```
+
+Without `additional_views`, only mutations targeting `v_post` would evict this query's cache. With it, mutations to `v_user` or `v_tag` also trigger eviction.
+
 ---
 
 ## Defining Mutations

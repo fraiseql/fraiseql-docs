@@ -202,6 +202,7 @@ type Query {
 | `auto_params` | `bool \| dict` | inferred | `True` = all four params; `False` = none; dict for partial overrides (e.g. `{"limit": True, "offset": False}`). Partial dicts merge with `[query_defaults]` in `fraiseql.toml`. |
 | `inject` | `dict[str, str]` | — | Server-side JWT claim injection. Keys are SQL param names; values are `"jwt:<claim>"`. See [Server-Side Injection](/features/server-side-injection). |
 | `cache_ttl_seconds` | `int` | — | Cache duration in seconds. Set to `0` to disable caching for this query |
+| `additional_views` | `list[str]` | `None` | Additional SQL views this query reads from. Used for cache invalidation — mutations to these views will also evict this query's cache entries. |
 | `requires_role` | `str` | — | Required role |
 | `requires_scope` | `str` | — | Required scope |
 
