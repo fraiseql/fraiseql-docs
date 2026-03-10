@@ -59,11 +59,13 @@ curl http://localhost:8080/metrics
 
 #### Connection Pool Metrics
 
+FraiseQL monitors connection pool pressure and emits scaling recommendations. The pool does **not** resize itself at runtime (the underlying library has no resize API) — use these metrics to decide when to raise `pool_max` in `fraiseql.toml` and restart.
+
 | Metric | Type | Description |
 |--------|------|-------------|
-| `fraiseql_pool_tuning_size` | Gauge | Current connection pool size (adaptive auto-tuning) |
+| `fraiseql_pool_tuning_size` | Gauge | Current configured pool size |
 | `fraiseql_pool_tuning_queue_depth` | Gauge | Pending connection requests in the pool queue |
-| `fraiseql_pool_tuning_adjustments_total` | Counter | Number of pool size adjustments made by auto-tuner |
+| `fraiseql_pool_tuning_adjustments_total` | Counter | Scaling recommendations emitted (not actual resizes) |
 
 #### Cache Metrics
 
@@ -130,7 +132,7 @@ fraiseql_cache_hit_ratio
 # 5xx server error rate
 rate(fraiseql_http_responses_5xx[5m])
 
-# Connection pool auto-tuning queue depth
+# Connection pool queue depth (alert when sustained > 0 → increase pool_max)
 fraiseql_pool_tuning_queue_depth
 ```
 
