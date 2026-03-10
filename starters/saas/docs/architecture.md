@@ -48,33 +48,26 @@ Every API client authenticates with a JWT signed using `JWT_SECRET`. The token p
 }
 ```
 
-### Step 2 — Middleware sets the session variable
+### Step 2 — The Rust runtime sets the session variable
 
-FraiseQL middleware runs before every GraphQL operation. It verifies the token and writes the `tenant_id` into the PostgreSQL session using `SET LOCAL`:
+The FraiseQL Rust runtime verifies the JWT and writes the `tenant_id` claim into the PostgreSQL session using `SET LOCAL` before executing any query. No Python code is required — the mapping is declared in the schema definition:
 
 ```python
-import os
-import fraiseql
-import jwt  # PyJWT
-
-JWT_SECRET = os.environ["JWT_SECRET"]
-
-
-def verify_jwt(token: str) -> dict:
-    return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-
-
-@fraiseql.middleware
-async def tenant_middleware(request, next):
-    authorization = request.headers.get("Authorization", "")
-    token = authorization.removeprefix("Bearer ")
-    claims = verify_jwt(token)
-    tenant_id = claims["tenant_id"]
-    await request.db.execute(
-        "SET LOCAL app.tenant_id = $1", tenant_id
-    )
-    return await next(request)
+# FraiseQL Python handles tenant isolation via JWT claim injection.
+# No @fraiseql.middleware or async request handlers needed.
+@fraiseql.query(
+    sql_source="v_tenant_user",
+    inject={"tenant_id": "jwt:tenant_id"},  # "jwt:<claim_name>" syntax
+)
+def tenant_users(role: str | None = None) -> list[TenantUser]:
+    pass
 ```
+
+At runtime the Rust server:
+1. Verifies the JWT signature using `JWT_SECRET`
+2. Extracts the `tenant_id` claim
+3. Executes `SET LOCAL app.tenant_id = '<tenant_uuid>'` as the first statement in the transaction
+4. Runs the query — RLS policies see the session variable and filter rows automatically
 
 `SET LOCAL` scopes the variable to the current transaction. When the transaction ends — whether it commits, rolls back, or the connection is returned to a pool — the variable is automatically cleared. There is no possibility of a stale tenant ID leaking to the next request.
 
@@ -186,4 +179,4 @@ Call `fn_create_tenant` from a mutation secured by an internal service token (no
 
 - [Multi-tenancy guide](/guides/multi-tenancy) — advanced patterns, cross-tenant admin, and provisioning workflows
 - [PostgreSQL RLS documentation](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)
-- [FraiseQL JWT middleware reference](/reference/decorators)
+- [FraiseQL inject= reference](/reference/decorators)

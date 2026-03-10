@@ -519,6 +519,10 @@ class User:
 
 Every entity has three identifiers. Only expose two:
 
+:::note[identifier is an application convention]
+The `identifier` column (a human-readable slug like a username or URL slug) is an **application convention**, not enforced by FraiseQL. The Rust runtime has no special handling for columns named `identifier`. You can omit it, rename it, or use a different field for human-readable references — it is your application's choice. The minimal starter omits it intentionally; the blog and SaaS starters include it to demonstrate slug-based routing.
+:::
+
 <Tabs syncKey="language">
   <TabItem label="Python">
     ```python

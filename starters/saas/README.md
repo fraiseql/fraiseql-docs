@@ -16,7 +16,7 @@ Your GraphQL API is live at http://localhost:8080/graphql.
 
 Every tenant's data is isolated at the database level using PostgreSQL Row-Level Security policies. No tenant can ever read or write another tenant's rows — not through a bug, not through a misconfigured query, not through any application-layer failure.
 
-Each request carries a JWT containing a `tenant_id` claim. The FraiseQL middleware verifies the token and then executes a single session-level statement before running any query:
+Each request carries a JWT containing a `tenant_id` claim. The FraiseQL Rust runtime extracts this claim and sets a PostgreSQL session variable before running any query:
 
 ```sql
 SET LOCAL app.tenant_id = '<tenant_uuid>';
@@ -36,34 +36,23 @@ USING (
 
 Because `SET LOCAL` is scoped to the current transaction, the variable is automatically cleared when the transaction ends. There is no risk of a tenant ID leaking across connections in a pool.
 
-### Setting app.tenant_id from JWT Middleware
+### Wiring tenant_id from the JWT
 
-FraiseQL middleware runs before every request. Here is how to wire the JWT claim into the PostgreSQL session:
+No application code is required. The FraiseQL schema definition uses `inject=` to tell the runtime which JWT claim maps to which SQL parameter:
 
 ```python
-import fraiseql
-import jwt  # PyJWT
-
-JWT_SECRET = os.environ["JWT_SECRET"]
-
-
-def verify_jwt(token: str) -> dict:
-    return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-
-
-@fraiseql.middleware
-async def tenant_middleware(request, next):
-    authorization = request.headers.get("Authorization", "")
-    token = authorization.removeprefix("Bearer ")
-    claims = verify_jwt(token)
-    tenant_id = claims["tenant_id"]
-    await request.db.execute(
-        "SET LOCAL app.tenant_id = $1", tenant_id
-    )
-    return await next(request)
+# FraiseQL Python handles tenant isolation automatically via JWT claims and
+# PostgreSQL RLS — no middleware required.
+@fraiseql.query(
+    sql_source="v_tenant_user",
+    inject={"tenant_id": "jwt:tenant_id"},  # "jwt:<claim_name>" syntax
+)
+def tenant_users(role: str | None = None) -> list[TenantUser]:
+    """Return users scoped to the authenticated tenant."""
+    pass
 ```
 
-The middleware is applied globally. Every GraphQL operation — query, mutation, or subscription — is automatically scoped to the authenticated tenant.
+The Rust runtime verifies the JWT, injects `tenant_id` as a SQL parameter, and your RLS policies do the rest. Every GraphQL operation — query, mutation, or subscription — is automatically scoped to the authenticated tenant.
 
 ## What's Included
 

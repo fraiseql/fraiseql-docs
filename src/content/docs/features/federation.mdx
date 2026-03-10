@@ -5,6 +5,12 @@ description: Use FraiseQL as an Apollo Federation v2 subgraph to compose multipl
 
 import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
+:::caution[Beta feature]
+Apollo Federation support is available in v2.0.1 as a beta feature.
+Core federation queries (`_service`, `_entities`) work in production today.
+Full compatibility with Apollo Router, federated query planning, and multi-service tracing are planned for v2.2.0 (Q1 2027). Advanced features (saga execution, `@requires` across services) should be evaluated in a staging environment before production use.
+:::
+
 FraiseQL supports **Apollo Federation v2**. Each FraiseQL service operates as a standalone GraphQL subgraph — its own Python schema, its own compiled Rust runtime, and its own PostgreSQL database. An Apollo Router composes the subgraphs into a single entry point for clients.
 
 <Aside type="note">

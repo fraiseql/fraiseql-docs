@@ -5,6 +5,12 @@ description: Cross-service event routing between FraiseQL subgraphs using NATS a
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
+:::caution[Beta feature]
+Apollo Federation support is available in v2.0.1 as a beta feature.
+Core federation queries (`_service`, `_entities`) work in production today.
+Full compatibility with Apollo Router, federated query planning, and multi-service tracing are planned for v2.2.0 (Q1 2027).
+:::
+
 In a FraiseQL federation, NATS is the **infrastructure layer** that carries events between services. When a mutation in Service A completes, the FraiseQL Rust runtime publishes an event to a NATS subject. Service B's Rust runtime subscribes to that subject and triggers its observers.
 
 There is no Python NATS API. Python appears only at **compile time** (schema definition). Event routing at runtime is pure infrastructure: TOML configuration tells the Rust runtime which topics to publish to and which to subscribe to.
