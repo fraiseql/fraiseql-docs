@@ -301,6 +301,7 @@ Apollo Federation with FraiseQL has these limitations:
 1. **No cross-service transactions**: Each service operation is independent. There is no two-phase commit or distributed transaction coordinator.
 2. **No cross-service SQL joins**: Each service queries its own database only. Field resolution across services happens at the Apollo Router level.
 3. **Each service has one database**: FraiseQL does not support connecting a single service to multiple databases simultaneously. Split data ownership across services instead.
+4. **`@requires` is a no-op**: The Apollo Federation `@requires` directive (which pre-fetches fields from another subgraph before resolving a local field) is not implemented. FraiseQL operates as a pure subgraph — it owns its own data and resolves `_entities` queries independently. If your supergraph composition depends on `@requires`, route that resolution through the Apollo Router's query planner or restructure the field ownership so each service resolves from its own database.
 
 ---
 

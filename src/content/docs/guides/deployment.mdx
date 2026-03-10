@@ -451,6 +451,23 @@ curl http://localhost:8815/health
 # {"status": "healthy", "database": "connected", "version": "1.0.0"}
 ```
 
+In federation deployments, `/health` includes a `federation` field with per-subgraph circuit breaker state:
+
+```json
+{
+  "status": "healthy",
+  "database": "connected",
+  "federation": {
+    "subgraphs": [
+      { "name": "Order", "state": "closed" },
+      { "name": "Product", "state": "open" }
+    ]
+  }
+}
+```
+
+`"closed"` = healthy, `"open"` = tripped (requests rejected), `"half_open"` = in recovery. Alert when any subgraph enters the `"open"` state.
+
 ## Scaling
 
 ### Horizontal Scaling

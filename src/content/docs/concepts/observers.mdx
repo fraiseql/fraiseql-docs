@@ -205,6 +205,25 @@ The observer system uses **at-least-once delivery**. When a webhook action fails
 
 Because delivery is at-least-once, your webhook endpoints should be **idempotent** — the same event may arrive more than once after a crash or network partition. Use the event's unique ID from the payload for deduplication.
 
+### Dead-Letter Queue (DLQ) cap
+
+Events that exhaust all retry attempts are moved to the dead-letter queue for manual inspection. By default the DLQ is unbounded. In long-running deployments where failures are sustained (e.g. a downstream webhook is down for hours), the DLQ can grow large.
+
+Set `max_dlq_size` in `[observers]` to cap it:
+
+```toml
+[observers]
+backend      = "redis"
+redis_url    = "${REDIS_URL}"
+max_dlq_size = 1000   # drop newest entry + emit metric when cap reached
+```
+
+When the cap is reached, the **newest** incoming DLQ entry is dropped (the oldest entries are preserved for inspection) and the `fraiseql_observer_dlq_overflow_total` counter increments. Alert on that counter to detect sustained downstream failures.
+
+<Aside type="caution">
+`max_dlq_size = 0` is rejected at startup — use `null` / omit the field to keep the DLQ unbounded.
+</Aside>
+
 ## Complete Example
 
 Here is an e-commerce observer setup showing the TOML configuration and corresponding Python schema types:

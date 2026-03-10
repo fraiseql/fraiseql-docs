@@ -57,6 +57,14 @@ curl http://localhost:8080/metrics
 | `fraiseql_database_queries_total` | Counter | Total database queries executed |
 | `fraiseql_database_query_duration_ms` | Gauge | Average database query time in milliseconds |
 
+#### Connection Pool Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `fraiseql_pool_tuning_size` | Gauge | Current connection pool size (adaptive auto-tuning) |
+| `fraiseql_pool_tuning_queue_depth` | Gauge | Pending connection requests in the pool queue |
+| `fraiseql_pool_tuning_adjustments_total` | Counter | Number of pool size adjustments made by auto-tuner |
+
 #### Cache Metrics
 
 | Metric | Type | Description |
@@ -80,6 +88,8 @@ curl http://localhost:8080/metrics
 | `fraiseql_trusted_documents_rejected_total` | Counter | Rejected untrusted documents |
 | `fraiseql_pkce_redis_errors_total` | Counter | Redis errors in PKCE state store (fail-open; only present with `redis-pkce` feature) |
 | `fraiseql_rate_limit_redis_errors_total` | Counter | Redis errors in rate limiter (fail-open; only present with `redis-rate-limiting` feature) |
+| `fraiseql_multi_root_queries_total` | Counter | Multi-root GraphQL queries executed in parallel |
+| `fraiseql_observer_dlq_overflow_total` | Counter | Observer DLQ entries dropped due to `max_dlq_size` cap |
 
 ### Metric Labels
 
@@ -94,7 +104,15 @@ Common labels across metrics:
 
 ### Grafana Dashboard
 
-Example queries for dashboards:
+FraiseQL ships a pre-built 12-panel Grafana 10+ dashboard covering latency percentiles, connection pool health, cache stats, and error rates. Fetch it at runtime:
+
+```bash
+curl http://localhost:8080/api/v1/admin/grafana-dashboard > fraiseql-dashboard.json
+```
+
+Import the JSON into Grafana (**Dashboards → Import**). The dashboard wires directly to your Prometheus datasource with no manual panel configuration.
+
+Example PromQL queries for custom panels:
 
 ```
 # Request rate
@@ -111,7 +129,45 @@ fraiseql_cache_hit_ratio
 
 # 5xx server error rate
 rate(fraiseql_http_responses_5xx[5m])
+
+# Connection pool auto-tuning queue depth
+fraiseql_pool_tuning_queue_depth
 ```
+
+## Admin Endpoints
+
+FraiseQL exposes admin endpoints under `/api/v1/admin/` for operational tooling. These require an authenticated request (admin role or equivalent policy configured via `[security]`).
+
+### EXPLAIN Introspection
+
+`POST /api/v1/admin/explain` — runs `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` for a named query against the connected database and returns the full plan alongside the generated SQL.
+
+Request body:
+
+```json
+{
+  "query_name": "posts",
+  "parameters": { "limit": 10, "status": "published" }
+}
+```
+
+Response:
+
+```json
+{
+  "query_name": "posts",
+  "sql_source": "v_post",
+  "generated_sql": "SELECT data FROM v_post WHERE ...",
+  "parameters": ["published", 10],
+  "explain_output": [ ... ]
+}
+```
+
+Use this endpoint to understand query plans, verify index usage, and diagnose slow queries without needing direct database access.
+
+### Grafana Dashboard
+
+`GET /api/v1/admin/grafana-dashboard` — returns the pre-built Grafana dashboard JSON described above.
 
 ## OpenTelemetry Tracing
 

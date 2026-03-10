@@ -6,10 +6,10 @@ description: Token bucket rate limiting for FraiseQL APIs
 import { Aside, Tabs, TabItem, CardGrid, Card } from '@astrojs/starlight/components';
 
 <Aside type="note">
-Rate limiting applies a global token bucket to all requests, per-endpoint limits to auth routes, and a per-authenticated-user limit (default: 10× the global rate). The in-memory backend is the default. A Redis backend is available for multi-replica deployments — enable it with the `redis-rate-limiting` Cargo feature and `redis_url` in `[fraiseql.security.rate_limiting]`.
+Rate limiting applies a global token bucket to all requests, per-endpoint limits to auth routes, and a per-authenticated-user limit (default: 10× the global rate). The in-memory backend is the default. A Redis backend is available for multi-replica deployments — enable it with the `redis-rate-limiting` Cargo feature and `redis_url` in `[security.rate_limiting]`.
 </Aside>
 
-FraiseQL includes built-in rate limiting via a **token bucket** algorithm, configured under `[fraiseql.security.rate_limiting]`.
+FraiseQL includes built-in rate limiting via a **token bucket** algorithm, configured under `[security.rate_limiting]`.
 
 ## Overview
 
@@ -25,7 +25,7 @@ Rate limiting is **disabled by default**. Enable it explicitly in production.
 ### Basic setup
 
 ```toml
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled                      = true
 requests_per_second          = 100
 requests_per_second_per_user = 500   # default: 10× requests_per_second
@@ -38,7 +38,7 @@ trust_proxy_headers          = false # set true only when behind a trusted rever
 ### Auth endpoint limits
 
 ```toml
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled                    = true
 requests_per_second        = 100
 burst_size                 = 200
@@ -63,7 +63,7 @@ auth_logout_window_secs    = 60
 ### Failed login protection
 
 ```toml
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled                  = true
 failed_login_max_requests = 5
 failed_login_window_secs  = 3600  # 1-hour lockout window
@@ -100,7 +100,7 @@ By default FraiseQL uses the **TCP peer address** for IP-based rate limiting. Be
 Set `trust_proxy_headers = true` to read the real client IP from `X-Real-IP` (preferred) or the first address in `X-Forwarded-For`:
 
 ```toml
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled             = true
 trust_proxy_headers = true   # only when sitting behind a trusted proxy
 ```
@@ -117,7 +117,7 @@ By default the rate limiter is **in-memory per process**. When running multiple 
 For multi-replica deployments (Kubernetes, ECS, fly.io with multiple instances), configure the Redis backend. It requires the `redis-rate-limiting` Cargo feature in your deployment image:
 
 ```toml
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled    = true
 redis_url  = "${REDIS_URL}"
 requests_per_second = 100
@@ -324,7 +324,7 @@ rate(fraiseql_rate_limit_redis_errors_total[5m])
 - If running behind a reverse proxy, set `trust_proxy_headers = true` — without it, all clients share the proxy's IP bucket and limits appear not to fire per-client
 
 **Legitimate users being limited in multi-instance deployments**
-- Configure `redis_url` in `[fraiseql.security.rate_limiting]` to share limits across replicas (requires `redis-rate-limiting` feature)
+- Configure `redis_url` in `[security.rate_limiting]` to share limits across replicas (requires `redis-rate-limiting` feature)
 
 ## Next Steps
 
