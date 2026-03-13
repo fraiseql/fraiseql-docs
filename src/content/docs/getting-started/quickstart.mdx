@@ -432,6 +432,18 @@ Query the same schema — users, posts, comments, tags — against a live Fraise
 }`}
 />
 
+:::note[Before going to production]
+The `fraiseql.toml` in this guide is a minimal development configuration. Before deploying:
+
+- Enable TLS (`[server.tls]`) or terminate at your load balancer
+- Configure authentication (`[auth]`) and set `JWT_SECRET`
+- Set `admin_token` (or `FRAISEQL_ADMIN_TOKEN`) to enable and protect the RBAC management API
+- Review the [production checklist](/guides/deployment#production-checklist)
+
+`ServerConfig::default()` (used in unit tests and local dev) disables TLS, authentication,
+and rate limiting. Always use `ServerConfig::from_file("fraiseql.toml")` in production.
+:::
+
 ## Next Steps
 
 - [Your First API](/getting-started/first-api) — Build a complete blog API with 🍯 Confiture

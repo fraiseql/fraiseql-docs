@@ -1407,6 +1407,16 @@ This is the power of the database-first approach: shape data for the UI entirely
 
 For business logic and side effects, use **observers** to trigger actions automatically.
 
+## Before Deploying to Production
+
+Your API is running locally. Before deploying:
+
+- [ ] Create a `fraiseql.toml` with TLS and auth configuration (replace the dev config)
+- [ ] Replace any `ServerConfig::default()` usage with `ServerConfig::from_file("fraiseql.toml")`
+- [ ] Set `admin_token` (or `FRAISEQL_ADMIN_TOKEN`) to protect the RBAC management API
+- [ ] Configure `JWT_SECRET` and the `[auth]` OIDC section for user authentication
+- [ ] Review the [production checklist](/guides/deployment#production-checklist)
+
 ## Next Steps
 
 - [Developer-Owned SQL](/concepts/developer-owned-sql) — Why SQL ownership is a strength
