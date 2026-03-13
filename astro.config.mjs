@@ -144,6 +144,7 @@ export default defineConfig({
                 { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
                 { label: 'FAQ', slug: 'guides/faq' },
                 { label: 'Observer Idempotency', slug: 'operations/observer-idempotency' },
+                { label: 'Observer Operations Runbook', slug: 'operations/observer-runbook' },
               ],
             },
           ],

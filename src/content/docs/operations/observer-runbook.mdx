@@ -1,0 +1,295 @@
+---
+title: Observer Operations Runbook
+description: How to operate, size, monitor, and recover the FraiseQL observer runtime in production.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The FraiseQL observer runtime runs **inside the server process** as an embedded subsystem. It has its own transport layer (Redis, NATS, PostgreSQL, or in-memory), a configurable thread pool, a dead letter queue, and a high-availability lease coordinator. This runbook covers what to do when things go wrong.
+
+## Health Signals
+
+The observer runtime exposes Prometheus metrics at the same `/metrics` endpoint as the rest of the server.
+
+### Key Metrics
+
+| Metric | Labels | Meaning |
+|--------|--------|---------|
+| `fraiseql_observer_events_processed_total` | `status` (success/failure) | Total events handled |
+| `fraiseql_observer_events_failed_total` | — | Events that failed all retry attempts |
+| `fraiseql_observer_action_executed_total` | — | Individual action invocations |
+| `fraiseql_observer_action_errors_total` | — | Action invocations that returned an error |
+| `fraiseql_observer_action_duration_seconds` | — | Action execution latency histogram |
+| `fraiseql_observer_backlog_size` | — | In-process channel fill level |
+| `fraiseql_observer_dlq_items` | — | Current DLQ depth |
+| `fraiseql_observer_dlq_overflow_total` | — | Drops due to `max_dlq_size` cap |
+| `fraiseql_observer_job_queue_depth` | — | Async job queue depth |
+| `fraiseql_observer_job_duration_seconds` | — | Async job execution latency |
+
+### Alert Rules (Prometheus)
+
+```yaml
+- alert: ObserverDLQGrowing
+  expr: fraiseql_observer_dlq_items > 100
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Observer DLQ growing — action failures may need investigation"
+
+- alert: ObserverChannelNearCapacity
+  expr: fraiseql_observer_backlog_size / <channel_capacity> > 0.9
+  for: 2m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Observer channel near capacity — increase channel_capacity or max_concurrency"
+
+- alert: ObserverDLQOverflowing
+  expr: increase(fraiseql_observer_dlq_overflow_total[5m]) > 0
+  labels:
+    severity: critical
+  annotations:
+    summary: "Observer DLQ at max_dlq_size cap — events are being dropped"
+
+- alert: ObserverActionErrorRate
+  expr: rate(fraiseql_observer_action_errors_total[5m]) / rate(fraiseql_observer_action_executed_total[5m]) > 0.1
+  for: 10m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Observer action error rate exceeds 10% over 10 minutes"
+```
+
+### Observer Status
+
+```bash
+fraiseql-cli observer status
+fraiseql-cli observer status --detailed
+```
+
+The status command shows the current HA leader, listener health, last checkpoint, and uptime for each instance.
+
+---
+
+## Sizing the Observer Runtime
+
+See [TOML Configuration: \[observers\]](/reference/toml-config#observers) for the full parameter reference and sizing table.
+
+### Decision Guide
+
+**`max_concurrency`** — thread pool size for concurrent action execution.
+
+Set it to: `expected peak events/s × average action latency (s)`, then add 50% headroom.
+
+Example: 100 events/s, each action takes 200 ms → `100 × 0.2 = 20` workers minimum → set `max_concurrency = 30`.
+
+- Too low: backpressure builds, channel fills, events start dropping.
+- Too high: each concurrent action may open a database connection — check `pool_max` on the observer pool.
+
+**`channel_capacity`** — in-process event buffer before backpressure.
+
+Rule of thumb: `channel_capacity ≥ max_concurrency × 10`. If events arrive in batches (e.g. bulk inserts trigger many NOTIFY calls simultaneously), size up to absorb the largest expected burst.
+
+**`max_dlq_size`** — hard cap on failed event accumulation.
+
+<Aside type="caution">
+Always set `max_dlq_size` in production. The default is unbounded. On persistent action failures (e.g. a downstream webhook is down for hours), the DLQ grows without limit until OOM.
+
+`max_dlq_size = 0` is rejected at startup — use `null` or omit the field to keep unbounded (not recommended in production).
+</Aside>
+
+Memory estimate: ~500 bytes per DLQ entry (event payload + metadata). `max_dlq_size = 10000` ≈ 5 MB at peak.
+
+**Observer PostgreSQL pool sizing**:
+
+The observer pool is separate from the main request pool. Minimum needed:
+- 1 connection for `LISTEN/NOTIFY`
+- 1 per concurrent action that queries the database
+
+Safe default: set the observer pool's `pool_max` = `max_concurrency + 5`. If actions do not hit the database, `pool_max = 2` is sufficient.
+
+---
+
+## Dead Letter Queue (DLQ) Management
+
+Events that exhaust all retry attempts are moved to the DLQ instead of being silently dropped. This preserves observability and enables manual replay.
+
+### Viewing DLQ Contents
+
+```bash
+# List recent DLQ items
+fraiseql-cli observer dlq list
+
+# Limit and filter
+fraiseql-cli observer dlq list --limit 50 --observer notify-new-user
+
+# Inspect a specific item
+fraiseql-cli observer dlq show <dlq-entry-id>
+
+# Statistics by observer and error type
+fraiseql-cli observer dlq stats --by-observer --by-error
+```
+
+### Replaying Failed Events
+
+<Aside type="caution">
+Before replaying, confirm the action is idempotent. If the action is not idempotent (e.g. it sends a payment), replaying may cause duplicate operations.
+</Aside>
+
+**Root cause checklist before replaying:**
+- [ ] Is the action endpoint (webhook URL, email provider, etc.) healthy?
+- [ ] Are the DLQ events still relevant (not stale after a deployment)?
+- [ ] Is the action idempotent?
+- [ ] Is `max_concurrency` sufficient to drain the DLQ without overwhelming the target?
+
+```bash
+# Retry a specific entry
+fraiseql-cli observer dlq retry <dlq-entry-id>
+
+# Force retry beyond max_retries
+fraiseql-cli observer dlq retry <dlq-entry-id> --force
+
+# Retry all entries for an observer (dry-run first)
+fraiseql-cli observer dlq retry-all --observer notify-new-user --dry-run
+fraiseql-cli observer dlq retry-all --observer notify-new-user
+
+# Retry all DLQ entries after a timestamp
+fraiseql-cli observer dlq retry-all --after 2026-03-01T00:00:00Z
+```
+
+### Removing DLQ Entries
+
+After the root cause is fixed and the events are no longer actionable (e.g. they are too stale to process):
+
+```bash
+# Remove a specific entry
+fraiseql-cli observer dlq remove <dlq-entry-id>
+
+# Remove with --force to skip confirmation
+fraiseql-cli observer dlq remove <dlq-entry-id> --force
+```
+
+---
+
+## NATS Connection Loss
+
+When the NATS backend loses its connection, the observer runtime:
+
+1. Buffers events in the `channel_capacity` in-process buffer.
+2. Retries the NATS connection with exponential backoff.
+3. If the buffer fills before reconnection, new events are **dropped** and `fraiseql_observer_dlq_overflow_total` increments.
+
+**What to watch:**
+- `fraiseql_observer_backlog_size` approaching `channel_capacity`.
+- Tracing logs at `WARN` level: `observer: NATS connection lost, buffering events`.
+
+**Recovery:** No manual action needed — the runtime auto-reconnects. After reconnection, check the DLQ (`fraiseql-cli observer dlq list`) for any events that overflowed the buffer.
+
+**Prevention:**
+- Increase `channel_capacity` if NATS is frequently unreliable.
+- Consider `backend = "postgresql"` for higher durability (events survive restarts).
+
+---
+
+## High-Availability Lease Management
+
+When multiple server instances run concurrently, only one instance processes events per handler to prevent duplicate delivery. FraiseQL implements this via **lease-based leader election** stored in PostgreSQL.
+
+### How It Works
+
+1. Each instance attempts to acquire the leader lease at startup.
+2. The current leader renews the lease on a configurable interval.
+3. When the leader fails, the lease expires after `lease_ttl_secs` and a follower takes over.
+4. Events that were in-flight when the leader failed may be replayed (at-least-once delivery).
+
+### Monitoring Lease Health
+
+```bash
+fraiseql-cli observer status --detailed
+```
+
+The detailed status output shows the current leader ID, lease expiry time, and follower count.
+
+### When a Stale Lease Blocks a New Leader
+
+If a crashed instance left a stale lease that has not yet expired, a new leader cannot be elected until `lease_ttl_secs` passes. Set `lease_ttl_secs` conservatively (default: 30 s) to balance availability against false-positive failovers.
+
+---
+
+## Debugging: Enabling Observer Trace Logs
+
+```bash
+RUST_LOG=fraiseql_observers=trace ./fraiseql-server --config fraiseql.toml
+```
+
+### Useful Log Patterns
+
+```
+# Event lifecycle
+observer: received event
+observer: dispatching to handler
+observer: action succeeded
+observer: action failed, retrying
+observer: max retries exceeded, moving to DLQ
+
+# HA coordination
+observer: acquired lease
+observer: lease renewal
+observer: lost lease
+```
+
+### Verifying Configuration
+
+```bash
+fraiseql-cli observer validate-config --file fraiseql.toml
+fraiseql-cli observer validate-config --file fraiseql.toml --detailed
+```
+
+This validates all observer configuration fields and reports sizing warnings (e.g. `max_dlq_size` not set, `channel_capacity` below recommended minimum).
+
+---
+
+## Graceful Shutdown
+
+On `SIGTERM`, the server performs an ordered shutdown:
+
+1. Stops accepting new events from the LISTEN/NOTIFY connection.
+2. Drains the in-process channel (processes all buffered events).
+3. Waits for all in-flight action executions to complete.
+4. Releases the HA lease.
+
+The drain timeout is controlled by `shutdown_timeout_secs` in `[server]`. If the timeout is too short, in-flight actions are interrupted and their events move to the DLQ.
+
+**Recommendation:** Set `shutdown_timeout_secs ≥ (average action latency) × 2`.
+
+---
+
+## Migrating Backends
+
+### in-memory → Redis
+
+Drop-in replacement. Change `backend = "redis"` and add `redis_url`. There are no in-flight events in the in-memory backend between restarts.
+
+### Redis → NATS
+
+Change `backend = "nats"` and add `nats_url`. Drain any pending Redis items before switching, or accept that items in the Redis queue will not be delivered after migration.
+
+### Redis / NATS → PostgreSQL
+
+Use PostgreSQL for maximum durability — events are stored in a PostgreSQL table and survive server restarts. The schema is created automatically by the observer runtime on first startup.
+
+```toml
+[observers]
+enabled  = true
+backend  = "postgresql"
+# uses the same database URL as [database] by default
+```
+
+---
+
+## See Also
+
+- [Observer Concepts](/concepts/observers) — how the observer runtime works
+- [TOML Configuration: \[observers\]](/reference/toml-config#observers) — full parameter reference
+- [Observer Idempotency](/operations/observer-idempotency) — preventing duplicate action execution
