@@ -151,10 +151,11 @@ HTTP server binding and request handling.
 
 ```toml
 [server]
-host = "0.0.0.0"
-port = 8080
+host        = "0.0.0.0"
+port        = 8080
 request_timeout_ms = 30000
-keep_alive_secs = 75
+keep_alive_secs    = 75
+admin_token = "${FRAISEQL_ADMIN_TOKEN}"  # required to enable the RBAC management API
 ```
 
 | Field | Type | Default | Description |
@@ -163,6 +164,7 @@ keep_alive_secs = 75
 | `port` | integer | `8080` | Listen port |
 | `request_timeout_ms` | integer | `30000` | Request timeout in ms |
 | `keep_alive_secs` | integer | `75` | TCP keep-alive in seconds |
+| `admin_token` | string | — | Bearer token protecting `/api/rbac/*` endpoints. If not set, the RBAC management API is disabled entirely (endpoints return 404). Use `FRAISEQL_ADMIN_TOKEN` env var. Set to a strong random value (≥ 32 characters) in production. |
 
 ### [server.cors]
 

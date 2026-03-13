@@ -143,6 +143,35 @@ field_name = "email"
 policy     = "admin_only"
 ```
 
+### RBAC Management API
+
+Roles, permissions, and assignments can be managed at runtime via the built-in REST API:
+
+```
+POST   /api/rbac/roles
+GET    /api/rbac/roles
+POST   /api/rbac/permissions
+GET    /api/rbac/permissions
+POST   /api/rbac/assignments
+GET    /api/rbac/assignments
+```
+
+<Aside type="caution" title="RBAC endpoints require admin_token">
+The RBAC management endpoints are protected by a bearer token — not OIDC. You must set
+`admin_token` in `fraiseql.toml` (or the `FRAISEQL_ADMIN_TOKEN` environment variable).
+
+**If `admin_token` is not configured, the RBAC management API is disabled entirely** —
+the endpoints are not registered and return 404. This is an all-or-nothing guard: either
+the endpoints exist and are protected, or they do not exist.
+
+Always set `admin_token` to a strong random value (≥ 32 characters) in production.
+
+```toml
+[server]
+admin_token = "${FRAISEQL_ADMIN_TOKEN}"
+```
+</Aside>
+
 ---
 
 ## Row-Level Filtering
