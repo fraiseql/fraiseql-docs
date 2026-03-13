@@ -736,12 +736,25 @@ Prometheus gauge: `fraiseql_federation_circuit_breaker_state{entity="..."}` (0 =
 
 Event observer system. Supports in-memory, Redis, NATS, and PostgreSQL backends.
 
+When enabled, the observer runtime runs inside the server process and adds:
+- 1 PostgreSQL connection (for `LISTEN/NOTIFY`)
+- 1 thread pool (`max_concurrency` workers)
+- Memory: `channel_capacity` × average event size + up to `max_dlq_size` × average DLQ entry
+
+:::caution[Production sizing]
+Always set `max_dlq_size` in production. The default is unbounded — persistent action
+failures will grow the DLQ without limit until OOM. A value of 10,000 is a safe starting point.
+:::
+
 ```toml
 [observers]
-enabled  = true
-backend  = "redis"            # "redis" | "nats" | "postgresql" | "in-memory"
-nats_url = "${FRAISEQL_NATS_URL}"  # required when backend = "nats"
-# redis_url = "${REDIS_URL}"       # required when backend = "redis"
+enabled           = true
+backend           = "redis"            # "redis" | "nats" | "postgresql" | "in-memory"
+max_concurrency   = 50                 # thread pool for concurrent action execution
+channel_capacity  = 1000              # in-process event buffer size
+max_dlq_size      = 10000             # dead letter queue cap; set this in production
+nats_url          = "${FRAISEQL_NATS_URL}"  # required when backend = "nats"
+# redis_url       = "${REDIS_URL}"    # required when backend = "redis"
 
 [[observers.handlers]]
 name   = "notify-new-user"
@@ -754,8 +767,21 @@ webhook_url = "https://api.example.com/notify"
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable the observer system |
 | `backend` | string | `"redis"` | Event backend: `redis`, `nats`, `postgresql`, `in-memory` |
-| `nats_url` | string | — | NATS server URL (required when `backend = "nats"`). Overridable via `FRAISEQL_NATS_URL` env var |
-| `redis_url` | string | — | Redis connection URL (required when `backend = "redis"`) |
+| `max_concurrency` | integer | `50` | Maximum concurrent action executions (thread pool size). Size to match your expected peak event rate and action latency. |
+| `channel_capacity` | integer | `1000` | In-process event buffer. Events exceeding capacity trigger backpressure. |
+| `max_dlq_size` | integer | unbounded | Dead letter queue maximum entries. **Always set in production** to prevent unbounded memory growth on persistent action failures. Use `null` to keep unbounded (not recommended). |
+| `nats_url` | string | — | NATS server URL (required when `backend = "nats"`). Override via `FRAISEQL_NATS_URL`. |
+| `redis_url` | string | — | Redis connection URL (required when `backend = "redis"`). |
+
+#### Sizing Guidelines
+
+| Workload | `max_concurrency` | `channel_capacity` | `max_dlq_size` |
+|---------|------------------|-------------------|----------------|
+| Low volume (< 100 events/s) | 10 | 500 | 1,000 |
+| Medium (100–1,000 events/s) | 50 (default) | 2,000 | 10,000 |
+| High (> 1,000 events/s) | 100–200 | 5,000 | 50,000 |
+
+See [Observer Operations Runbook](/operations/observer-runbook) for DLQ recovery procedures.
 
 ---
 
