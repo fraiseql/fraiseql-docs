@@ -1,0 +1,211 @@
+---
+title: gRPC Transport
+description: Transport-aware database views skip JSON serialization for binary-efficient gRPC — auto-generated .proto from compiled schema
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+FraiseQL's gRPC transport generates a Protobuf API from your compiled schema. The compiler produces transport-aware database views that skip JSON serialization entirely — typed columns map directly to protobuf fields with no JSON intermediate.
+
+Requires the `grpc-transport` Cargo feature.
+
+<Aside type="caution">
+The `grpc-transport` Cargo feature is not included in the default `ghcr.io/fraiseql/server:latest` Docker image. To use gRPC, either use the full image (`ghcr.io/fraiseql/server-full:latest` which includes all optional features), or build from source with `cargo build --release --features grpc-transport`. See [GitHub issue #80](https://github.com/fraiseql/fraiseql/issues/80) for tracking.
+</Aside>
+
+## The Performance Story
+
+The GraphQL and REST paths ask PostgreSQL to produce JSON:
+
+```
+GraphQL/REST path:
+  DB → json_agg → JSON text → server pass-through → JSON response
+  (JSON serialization happens in PostgreSQL)
+```
+
+The gRPC path uses typed rows instead:
+
+```
+gRPC path:
+  DB → typed rows → server column mapping → protobuf → binary response
+  (No JSON intermediate — DB does less work, wire is smaller)
+```
+
+This is the concrete architectural difference. The compiler generates two view shapes from the same SDK annotation: a JSON-shaped view for GraphQL/REST, and a row-shaped view for gRPC.
+
+Honest framing: gRPC performance is competitive with hand-written tonic, not faster — FraiseQL's gRPC transport is built on tonic. The real win is zero handler code with near-native performance.
+
+## SDK Annotations
+
+Add `grpc_service` and `grpc_method` parameters to any decorator to expose it as a gRPC method.
+
+<Tabs>
+<TabItem label="Python">
+```python
+@fraiseql.query(
+    sql_source="v_user",
+    grpc_service="UserService",
+    grpc_method="GetUser",
+)
+def get_user(id: UUID) -> User: ...
+
+@fraiseql.query(
+    sql_source="v_post",
+    grpc_service="BlogService",
+    grpc_method="ListPosts",
+)
+def posts(limit: int = 10) -> list[Post]: ...
+```
+</TabItem>
+<TabItem label="TypeScript">
+```typescript
+import { query } from '@fraiseql/sdk';
+
+@query({ sqlSource: 'v_user', grpcService: 'UserService', grpcMethod: 'GetUser' })
+async function getUser(id: string): Promise<User> {}
+```
+</TabItem>
+<TabItem label="Go">
+```go
+fraiseql.NewQuery("getUser").
+    SQLSource("v_user").
+    GRPCService("UserService").
+    GRPCMethod("GetUser").
+    Build()
+```
+</TabItem>
+</Tabs>
+
+The compiler groups methods by `grpc_service` name into a single protobuf `service` block.
+
+## Proto Generation
+
+The `.proto` file is auto-generated from your compiled schema. Retrieve it with:
+
+```bash
+fraiseql compile --output-proto schema.proto
+```
+
+Use the generated `.proto` to generate client code in any gRPC-supported language:
+
+```bash
+# Go
+protoc --go_out=. --go-grpc_out=. schema.proto
+
+# Python
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. schema.proto
+
+# TypeScript
+grpc_tools_node_protoc --ts_out=. schema.proto
+```
+
+## Type Mapping
+
+| GraphQL | Protobuf |
+|---------|----------|
+| `Int` | `int32` |
+| `Float` | `double` |
+| `String` | `string` |
+| `Boolean` | `bool` |
+| `ID` / `UUID` | `string` |
+| `[T]` | `repeated T` |
+| nullable `T` | `optional T` |
+| Enum | `enum` |
+| Object type | `message` |
+
+Custom scalars not in this table are serialized as `string`.
+
+## Server Streaming
+
+`@fraiseql.subscription` decorators generate gRPC server-streaming methods alongside WebSocket subscriptions. The same subscription logic powers both transports:
+
+```python
+@fraiseql.subscription(
+    sql_source="v_order_updates",
+    grpc_service="OrderService",
+    grpc_method="WatchOrder",
+)
+def order_updated(customer_id: UUID) -> Order: ...
+```
+
+This produces both a WebSocket subscription and a `WatchOrder` server-streaming RPC in `OrderService`.
+
+## Configuration
+
+<Aside type="note">
+The `[fraiseql.grpc]` TOML section is available since **rc.15**.
+</Aside>
+
+```toml
+[fraiseql.grpc]
+enabled = true
+# gRPC shares the same port via HTTP/2 content-type negotiation
+```
+
+gRPC uses the same port as GraphQL and REST. HTTP/2 content-type negotiation distinguishes gRPC requests (`application/grpc`) from HTTP/1.1 traffic. No separate port configuration is needed.
+
+## Feature Flag
+
+gRPC transport requires the `grpc-transport` Cargo feature at compile time. The default `ghcr.io/fraiseql/server:latest` image does **not** include this feature — use `ghcr.io/fraiseql/server-full:latest` (all features), or build from source (see [GitHub issue #80](https://github.com/fraiseql/fraiseql/issues/80)):
+
+```bash
+cargo build --release --features grpc-transport
+```
+
+## Client Examples
+
+After generating client code from the `.proto`:
+
+<Tabs>
+<TabItem label="grpcurl">
+```bash
+grpcurl -plaintext \
+  -d '{"id": "123"}' \
+  localhost:8080 \
+  UserService/GetUser
+```
+</TabItem>
+<TabItem label="Go">
+```go
+conn, err := grpc.Dial("localhost:8080", grpc.WithInsecure())
+if err != nil {
+    log.Fatal(err)
+}
+client := pb.NewUserServiceClient(conn)
+user, err := client.GetUser(ctx, &pb.GetUserRequest{Id: "123"})
+```
+</TabItem>
+<TabItem label="Python">
+```python
+channel = grpc.insecure_channel('localhost:8080')
+stub = user_pb2_grpc.UserServiceStub(channel)
+user = stub.GetUser(user_pb2.GetUserRequest(id='123'))
+```
+</TabItem>
+</Tabs>
+
+## gRPC Reflection
+
+The reflection service is enabled by default when `grpc-transport` is active. Tools like grpcurl and gRPC UI can discover services without a `.proto` file:
+
+```bash
+# List all services
+grpcurl -plaintext localhost:8080 list
+
+# Describe a specific service
+grpcurl -plaintext localhost:8080 describe UserService
+```
+
+## Authentication
+
+gRPC auth follows standard gRPC conventions — pass credentials in metadata headers:
+
+```bash
+grpcurl -plaintext \
+  -H "authorization: Bearer $TOKEN" \
+  -d '{"id": "123"}' \
+  localhost:8080 \
+  UserService/GetUser
+```
+
+The same JWT, OIDC, and API key auth configured for GraphQL and REST applies to gRPC with no additional setup.

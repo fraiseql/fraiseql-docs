@@ -45,6 +45,22 @@ FraiseQL's p99 barely moves between query depths: 5.6 ms → 5.9 ms. This matter
 
 FraiseQL: **16 MB RSS** after a full load test. go-gqlgen: 41 MB. strawberry: 52 MB.
 
+### Sequential Isolation (40 workers)
+
+Source: VelocityBench 2026-02-22, sequential run to isolate per-framework throughput (40 workers, localhost).
+
+| Framework | Q1 RPS |
+|-----------|-------:|
+| gin-rest | 5,850 |
+| fraiseql (cache off) | 5,545 |
+| actix-web-rest | 5,501 |
+| go-gqlgen | 5,019 |
+| fraiseql (cache on, rc.3) | 2,258 |
+| strawberry | 906 |
+
+<Aside type="note">
+The `fraiseql (cache on, rc.3)` figure reflects a regression introduced in rc.3 where the result cache engaged on simple queries, adding overhead instead of saving it. This was resolved in rc.12: the cache is now disabled by default and only engages for complex filtered queries. The cache-on figures from rc.12 onward are expected to match or exceed the cache-off baseline for eligible queries.
+</Aside>
 
 ---
 
@@ -153,6 +169,16 @@ func NewLoaders(db *sql.DB) *Loaders {
 </Tabs>
 
 Both approaches work. Both are fast. The question is where you want the complexity: in a SQL file that the database can explain, or in application code that only your compiler can verify.
+
+---
+
+## Transport Comparison
+
+REST uses the same JSON-shaped views as GraphQL — expect comparable throughput (same DB work, thin HTTP translation layer).
+
+gRPC uses row-shaped views that skip PostgreSQL's `json_agg` serialization. In synthetic benchmarks this yields measurably lower DB CPU. In production the difference depends on query complexity and DB load.
+
+_Full transport suite benchmarks will be added to VelocityBench when available. Numbers here will be updated._
 
 ---
 

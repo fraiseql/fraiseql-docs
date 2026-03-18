@@ -1,0 +1,242 @@
+---
+title: REST Transport
+description: Annotation-driven REST endpoints from your compiled schema — OpenAPI, HTTP status codes, and same auth as GraphQL
+---
+
+import { Aside, Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+FraiseQL's REST transport exposes HTTP endpoints from your compiled schema. Endpoints are annotation-driven — you control which operations get REST routes. Nothing is auto-wired from the schema automatically.
+
+REST shares the same compiled schema, Executor, connection pool, auth middleware, and rate limiting as GraphQL. There is no separate service to run.
+
+## SDK Annotations
+
+Add `rest_path` and `rest_method` parameters to any `@fraiseql.query` or `@fraiseql.mutation` decorator to expose it as a REST endpoint.
+
+<Aside type="note">
+REST annotation parity: annotations are available in the **Python** SDK in v2.1.0. Go, Java, and C# support is in unreleased commits. TypeScript, PHP, Rust, Elixir, and F# support has not started yet.
+</Aside>
+
+<Tabs>
+<TabItem label="Python">
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    rest_path="/posts",
+    rest_method="GET",
+)
+def posts(limit: int = 10) -> list[Post]: ...
+
+@fraiseql.query(
+    sql_source="v_post",
+    rest_path="/posts/{id}",
+    rest_method="GET",
+)
+def post(id: UUID) -> Post: ...
+
+@fraiseql.mutation(
+    sql_source="create_post",
+    operation="CREATE",
+    rest_path="/posts",
+    rest_method="POST",
+)
+def create_post(title: str, author_id: UUID) -> Post: ...
+```
+</TabItem>
+<TabItem label="TypeScript">
+```typescript
+import { query, mutation } from '@fraiseql/sdk';
+
+@query({ sqlSource: 'v_post', restPath: '/posts', restMethod: 'GET' })
+async function posts(limit: number = 10): Promise<Post[]> {}
+
+@mutation({ sqlSource: 'create_post', operation: 'CREATE', restPath: '/posts', restMethod: 'POST' })
+async function createPost(title: string, authorId: string): Promise<Post> {}
+```
+</TabItem>
+<TabItem label="Go">
+```go
+fraiseql.NewQuery("posts").
+    SQLSource("v_post").
+    RESTPath("/posts").
+    RESTMethod("GET").
+    Build()
+```
+</TabItem>
+</Tabs>
+
+Operations without `rest_path` are not exposed as REST endpoints. GraphQL-only operations remain GraphQL-only.
+
+## Path Parameters
+
+Curly-brace placeholders in `rest_path` extract path parameters:
+
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    rest_path="/posts/{id}",
+    rest_method="GET",
+)
+def post(id: UUID) -> Post: ...
+```
+
+`GET /rest/posts/abc-123` extracts `id = "abc-123"` and coerces it to `UUID` automatically. Type coercion follows GraphQL scalar rules — invalid values return 400.
+
+Two compile-time constraints apply:
+- Duplicate `(method, path)` pairs are rejected at compile time.
+- Path parameter names must match function argument names exactly.
+
+## Query Parameters
+
+`GET` requests map query string parameters to function arguments:
+
+```
+GET /rest/posts?limit=10&offset=0
+```
+
+maps to `posts(limit: 10, offset: 0)`. Rich filter arguments work the same way:
+
+```
+GET /rest/posts?name_contains=graphql&published=true
+```
+
+maps to `posts(name_contains: "graphql", published: true)`. All filter operators from [Rich Filters](/features/rich-filters/) are available via query parameters.
+
+## Request Body
+
+`POST`, `PUT`, and `PATCH` requests accept a JSON body. Body fields map to GraphQL variables by name:
+
+```bash
+curl -X POST https://api.example.com/rest/posts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Hello World", "authorId": "550e8400-e29b-41d4-a716-446655440000"}'
+```
+
+Field names use camelCase in JSON and map to snake_case function arguments (`authorId` → `author_id`).
+
+## Response Format
+
+REST responses are direct JSON — no GraphQL `data` wrapper.
+
+```
+GET /rest/posts
+→ [{"id": "...", "title": "..."}, ...]
+
+GraphQL equivalent
+→ {"data": {"posts": [{"id": "...", "title": "..."}, ...]}}
+```
+
+Single-object endpoints return a JSON object. List endpoints return a JSON array. Null results for single-object endpoints return `404`.
+
+## Error-to-Status-Code Mapping
+
+| Error | HTTP Status |
+|-------|-------------|
+| Validation error | 400 |
+| Authentication failure | 401 |
+| Permission denied | 403 |
+| Not found | 404 |
+| Rate limited | 429 |
+| Server error | 500 |
+
+All error responses use a consistent body:
+
+```json
+{"message": "Post not found", "code": "NOT_FOUND"}
+```
+
+## OpenAPI Spec
+
+The compiler generates an OpenAPI 3.1 spec from your annotated schema. No manual YAML required — annotations become the spec.
+
+Available at `GET /rest/openapi.json` (the default `openapi_path`) when `openapi_enabled = true` in `[fraiseql.rest]`.
+
+Returns the full OpenAPI 3.1 document. Import it into Swagger UI, Postman, or any OpenAPI-compatible tool.
+
+## Configuration
+
+<Aside type="note">
+The `[fraiseql.rest]` TOML section is available since **rc.15**.
+</Aside>
+
+```toml
+[fraiseql.rest]
+prefix = "/rest"           # URL prefix for all REST routes (default: "/rest")
+auth = "none"              # "none" | "optional" | "required" (default: "none")
+openapi_enabled = true     # serve OpenAPI spec (default: false)
+openapi_path = "/rest/openapi.json"  # path for OpenAPI spec endpoint
+title = "My API"           # optional: OpenAPI info.title
+api_version = "1.0.0"     # optional: OpenAPI info.version
+```
+
+Environment variable overrides:
+
+| Variable | Overrides |
+|----------|-----------|
+| `FRAISEQL_REST_PREFIX` | `prefix` |
+
+## Feature Flag
+
+REST transport requires the `rest-transport` Cargo feature at compile time. The published Docker image from `ghcr.io/fraiseql/server:latest` includes it. When building from source:
+
+```bash
+cargo build --features rest-transport
+```
+
+## Full Blog API Example
+
+<Steps>
+
+1. **List all posts**
+
+   ```bash
+   curl https://api.example.com/rest/posts?limit=20
+   ```
+
+   Returns an array of post objects.
+
+2. **Get a post by ID**
+
+   ```bash
+   curl https://api.example.com/rest/posts/550e8400-e29b-41d4-a716-446655440000
+   ```
+
+   Returns a single post object, or `404` if not found.
+
+3. **Create a post**
+
+   ```bash
+   curl -X POST https://api.example.com/rest/posts \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"title": "My First Post", "authorId": "user-uuid-here"}'
+   ```
+
+   Returns the created post with its assigned `id`.
+
+4. **Update a post**
+
+   ```bash
+   curl -X PATCH https://api.example.com/rest/posts/550e8400-e29b-41d4-a716-446655440000 \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"title": "Updated Title"}'
+   ```
+
+   Returns the updated post.
+
+5. **Delete a post**
+
+   ```bash
+   curl -X DELETE https://api.example.com/rest/posts/550e8400-e29b-41d4-a716-446655440000 \
+     -H "Authorization: Bearer $TOKEN"
+   ```
+
+   Returns `204 No Content` on success.
+
+</Steps>
+
+REST endpoints share the same Executor, auth, and rate limiting as GraphQL. No new SQL is generated — REST uses the same JSON-shaped views that serve GraphQL queries.
+
+See [REST vs GraphQL](/guides/rest-vs-graphql) for guidance on when to expose operations via REST, GraphQL, or both. See [REST API Reference](/reference/rest-api) for the full endpoint list, OpenAPI fields, and error response format.

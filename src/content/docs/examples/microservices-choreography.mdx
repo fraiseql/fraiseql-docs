@@ -245,16 +245,16 @@ class CreateOrderInput:
     total: Decimal
 
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def order(id: ID) -> Order | None:
     """Get a single order by UUID."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def orders(limit: int = 20, offset: int = 0) -> list[Order]:
     """List orders. RLS ensures users see only their own."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 
 
 @fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
@@ -280,16 +280,14 @@ name = "order-service"
 version = "1.0.0"
 
 [database]
-type = "postgresql"
 url = "${DATABASE_URL}"
 
 [fraiseql]
 schema_file = "schema.json"
 output_file = "schema.compiled.json"
 
-[auth]
-issuer_url = "${OIDC_ISSUER_URL}"
-client_id  = "${OIDC_CLIENT_ID}"
+# JWT/OIDC config via environment variables (no [auth] TOML section):
+# OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET
 
 # NATS observer: when tb_order changes, publish to events.order.created
 # The Rust runtime receives pg_notify from PostgreSQL and forwards to NATS.
@@ -307,7 +305,7 @@ subject = "events.order.status_updated"
 backend  = "nats"
 nats_url = "${NATS_URL}"
 
-[fraiseql.security.audit_logging]
+[security.enterprise]
 enabled   = true
 log_level = "info"
 ```

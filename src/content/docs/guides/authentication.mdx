@@ -26,22 +26,43 @@ Your Python schema declares **what** requires authentication. The compiled schem
 
 ---
 
+## Authentication Across Transports
+
+Authentication applies identically across all transports. The same JWT or API key that works for GraphQL works for REST and gRPC.
+
+**REST** — Bearer token in Authorization header (the default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix`):
+```bash
+curl https://api.example.com/rest/posts \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**gRPC** — Authorization metadata:
+```bash
+grpcurl -plaintext \
+  -H "authorization: Bearer $TOKEN" \
+  localhost:8080 BlogService/ListPosts
+```
+
+**API key** (REST and GraphQL):
+```bash
+curl https://api.example.com/rest/posts \
+  -H "X-API-Key: $API_KEY"
+```
+
+---
+
 ## OIDC / JWT Configuration
 
-Configure your OIDC provider in `fraiseql.toml`. The Rust runtime uses these settings to validate JWTs on every request.
-
-```toml title="fraiseql.toml"
-[auth]
-client_id   = "your-client-id"
-issuer_url  = "https://your-idp.example.com/"
-redirect_uri = "https://your-app.example.com/auth/callback"
-```
-
-The `client_secret` is **never** placed in `fraiseql.toml`. Supply it at runtime via the `OIDC_CLIENT_SECRET` environment variable.
+OIDC/JWT configuration is supplied via environment variables. FraiseQL does not have an `[auth]` TOML section — all provider credentials and endpoints are runtime configuration:
 
 ```bash
-export OIDC_CLIENT_SECRET=your-client-secret
+export OIDC_ISSUER_URL="https://your-idp.example.com/"
+export OIDC_CLIENT_ID="your-client-id"
+export OIDC_CLIENT_SECRET="your-client-secret"
+export OIDC_REDIRECT_URI="https://your-app.example.com/auth/callback"
 ```
+
+FraiseQL fetches the provider's JWKS from `${OIDC_ISSUER_URL}/.well-known/openid-configuration` and validates every incoming JWT against it. No middleware code required.
 
 FraiseQL fetches the provider's JWKS from `{issuer_url}/.well-known/openid-configuration` and validates every incoming JWT against it. No middleware code required.
 
@@ -172,12 +193,12 @@ Any query returning `AuditLog` will be rejected unless the JWT contains the requ
 
 ## Server-Level Security Configuration
 
-Security behaviour is configured in `fraiseql.toml` under `[fraiseql.security.*]`. These settings are baked into the compiled schema and enforced by the Rust runtime.
+Security behaviour is configured in `fraiseql.toml` under `[security.*]`. These settings are baked into the compiled schema and enforced by the Rust runtime.
 
 ### Audit Logging
 
 ```toml title="fraiseql.toml"
-[fraiseql.security.audit_logging]
+[security.enterprise]
 enabled               = true
 log_level             = "info"        # "debug" | "info" | "warn"
 include_sensitive_data = false        # Never true in production
@@ -191,7 +212,7 @@ flush_interval_secs   = 5
 Prevents internal details from leaking to clients:
 
 ```toml title="fraiseql.toml"
-[fraiseql.security.error_sanitization]
+[security.error_sanitization]
 enabled              = true
 generic_messages     = true           # Always true in production
 internal_logging     = true
@@ -204,7 +225,7 @@ user_facing_format   = "generic"      # "generic" | "simple" | "detailed"
 Protects authentication endpoints from brute-force attacks:
 
 ```toml title="fraiseql.toml"
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled = true
 
 # Per-IP limits on public auth endpoints
@@ -227,7 +248,7 @@ failed_login_window_secs   = 3600    # 1 hour lockout
 ### State Encryption (PKCE)
 
 ```toml title="fraiseql.toml"
-[fraiseql.security.state_encryption]
+[security.state_encryption]
 enabled   = true
 algorithm = "chacha20-poly1305"
 ```
@@ -236,19 +257,6 @@ The encryption key is **never** stored in `fraiseql.toml`. Provide it at runtime
 
 ```bash
 export STATE_ENCRYPTION_KEY=$(openssl rand -base64 32)
-```
-
-### Constant-Time Comparisons
-
-Prevents timing attacks on token validation:
-
-```toml title="fraiseql.toml"
-[fraiseql.security.constant_time]
-enabled                  = true
-apply_to_jwt             = true
-apply_to_session_tokens  = true
-apply_to_csrf_tokens     = true
-apply_to_refresh_tokens  = true
 ```
 
 ---
@@ -261,7 +269,7 @@ FraiseQL does not implement a SAML Service Provider natively. The standard patte
 Browser → SAML IdP → Identity Proxy (Keycloak / Dex / Auth0 / Okta) → JWT → FraiseQL
 ```
 
-Configure the `[auth]` section to point at the proxy's OIDC endpoint. The proxy handles SAML assertion validation and attribute mapping — no changes to FraiseQL are needed.
+Point FraiseQL at the proxy's OIDC endpoint via environment variables. The proxy handles SAML assertion validation and attribute mapping — no changes to FraiseQL are needed.
 
 **Recommended proxies:**
 - **Keycloak** — self-hosted, open source, full SAML federation
@@ -271,15 +279,11 @@ Configure the `[auth]` section to point at the proxy's OIDC endpoint. The proxy 
 
 ### Auth0 Example
 
-```toml title="fraiseql.toml"
-[auth]
-issuer_url   = "https://your-tenant.auth0.com/"
-client_id    = "your-auth0-client-id"
-redirect_uri = "https://your-app.example.com/auth/callback"
-```
-
 ```bash
-export OIDC_CLIENT_SECRET=your-auth0-client-secret
+export OIDC_ISSUER_URL="https://your-tenant.auth0.com/"
+export OIDC_CLIENT_ID="your-auth0-client-id"
+export OIDC_CLIENT_SECRET="your-auth0-client-secret"
+export OIDC_REDIRECT_URI="https://your-app.example.com/auth/callback"
 ```
 
 Custom claims added via Auth0 Rules or Actions (e.g. roles, `org_id`) are available as `jwt:<claim_name>` in `inject=` parameters.
@@ -291,15 +295,15 @@ Custom claims added via Auth0 Rules or Actions (e.g. roles, `org_id`) are availa
 ### Development
 
 ```toml title="fraiseql.toml (development)"
-[fraiseql.security.audit_logging]
+[security.enterprise]
 log_level             = "debug"
 include_sensitive_data = true
 async_logging         = false
 
-[fraiseql.security.error_sanitization]
+[security.error_sanitization]
 user_facing_format = "detailed"
 
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 auth_start_max_requests   = 10000
 failed_login_max_requests = 10000
 ```
@@ -307,15 +311,15 @@ failed_login_max_requests = 10000
 ### Production
 
 ```toml title="fraiseql.toml (production)"
-[fraiseql.security.audit_logging]
+[security.enterprise]
 log_level             = "info"
 include_sensitive_data = false
 
-[fraiseql.security.error_sanitization]
+[security.error_sanitization]
 generic_messages       = true
 leak_sensitive_details = false
 
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 auth_start_max_requests   = 100
 failed_login_max_requests = 5
 ```
@@ -338,6 +342,9 @@ failed_login_max_requests = 5
 <CardGrid>
   <Card title="Security & RBAC" icon="approve-check-circle">
     [Role-based access control and input validation](/features/security)
+  </Card>
+  <Card title="Rate Limiting" icon="shield">
+    [Rate Limiting](/features/rate-limiting) — Token bucket configuration and failed login protection
   </Card>
   <Card title="Multi-Tenancy" icon="setting">
     [Tenant-scoped authentication](/guides/multi-tenancy)

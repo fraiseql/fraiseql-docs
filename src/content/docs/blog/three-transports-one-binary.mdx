@@ -1,0 +1,105 @@
+---
+title: "Three Transports, One Binary"
+description: How FraiseQL serves GraphQL, REST, and gRPC simultaneously from a single compiled schema — one binary, one port, zero duplication.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+If you're building an API that serves more than one client type, you've probably faced this problem: your mobile app wants REST, your frontend uses GraphQL, and your internal services call gRPC. Traditionally that's three separate services: three codebases, three deployments, three auth configurations, three sets of metrics, three things that can drift out of sync.
+
+FraiseQL's answer is a single compiled binary that speaks all three.
+
+## The problem with three services
+
+The obvious solution to "we need three transports" is "run three servers." This works, but the surface area multiplies fast:
+
+- Auth logic implemented three times — or delegated to a gateway that becomes its own dependency
+- Rate limits that count per-transport, so a client can hammer REST unaffected by their GraphQL quota
+- Three deployment units, three health checks, three upgrade windows
+- Schema drift: your REST API diverges from your GraphQL schema because they're maintained separately
+
+The gateway approach solves some of this but adds latency, a new failure point, and typically requires you to maintain the gateway configuration in addition to the services.
+
+## FraiseQL's answer
+
+One compiled schema. One Rust binary. Three transports on one port.
+
+```
+SDK decorators (Python, TypeScript, Go, +8 more)
+        ↓
+  fraiseql compile
+        ↓
+ schema.compiled.json
+        ↓
+   fraiseql run (single Rust binary, port 8080)
+     ╱         |          ╲
+GraphQL        REST        gRPC
+POST /graphql  GET /rest/..  BlogService/ListPosts
+  JSON          JSON          Protobuf
+     ╲         |          ╱
+  Transport-aware DB views
+        ↓
+   PostgreSQL (or MySQL, SQL Server, SQLite)
+```
+
+The binary is built on Axum (for GraphQL and REST) and tonic (for gRPC), both sitting on tokio. The same connection pool, the same auth middleware, the same rate limiting — all three transports share them.
+
+## How you author the schema
+
+You write your schema in whatever language your team uses. The SDK annotations control which transports each operation is available on:
+
+```python
+@fraiseql.query(
+    rest_path="/posts",
+    rest_method="GET",
+    grpc_service="BlogService",
+    grpc_method="ListPosts",
+)
+def posts(limit: int = 10) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+```
+
+An operation with no `rest_path` is GraphQL-only. Add `rest_path` and `rest_method` and it's also available as a REST endpoint. Add `grpc_service` and `grpc_method` and gRPC too.
+
+`fraiseql compile` reads the annotations and generates transport-aware database views. `fraiseql run` serves all three transports simultaneously from the compiled schema — no SDK code runs at request time.
+
+## What's shared across transports
+
+Everything related to access control and observability is transport-agnostic:
+
+**Auth**: JWT validation, OIDC token introspection, and API key lookup all run in the same middleware layer. A token is valid or invalid regardless of how the request arrived.
+
+**Rate limiting**: Quotas are tracked per-identity, not per-transport. A client consuming their rate limit on REST is consuming the same quota they'd hit on GraphQL.
+
+**RBAC**: Role checks happen before query execution, after auth. The same role that grants access to `posts` on GraphQL grants access to `GET /rest/posts` and `BlogService/ListPosts`.
+
+**Error sanitization**: Internal error details are stripped before any response leaves the server, regardless of transport.
+
+**Metrics and tracing**: All requests produce OpenTelemetry spans with transport tagged as an attribute. You can filter your trace view to gRPC calls without any extra instrumentation.
+
+## What differs between transports
+
+The wire format is the significant difference. GraphQL and REST return JSON. gRPC returns protobuf binary. This is not just an encoding detail — it affects how the database view is shaped.
+
+For GraphQL and REST, the view uses `json_agg(row_to_json(t))` to produce a JSON payload that PostgreSQL serializes and the server passes through. For gRPC, the view returns typed columns that the server maps directly to protobuf fields — no `json_agg`, less DB work, smaller wire payload.
+
+The endpoint style also differs — a query body for GraphQL, a URL path and method for REST, a service/method pair for gRPC — but these are all generated from the same SDK annotations. You don't maintain three separate endpoint definitions.
+
+<Aside type="note">
+The gRPC transport is built on tonic. Performance is competitive with hand-written tonic services; it is not a separate fast-path that outperforms tonic. The DB query itself — joins, indexes, row-level security — dominates latency in practice.
+</Aside>
+
+## What you don't get
+
+This architecture is not a universal fit:
+
+- If you need transport-specific business logic (different behavior for the same operation depending on whether it came in as REST or gRPC), you'll need to structure that at the database view level or add a layer in front.
+- If you need fine-grained per-transport rate limits (different quotas for REST vs GraphQL), the current shared-quota model doesn't support that.
+- If you need REST endpoints that aren't backed by SQL views — custom handlers, file uploads, webhooks — those are outside the FraiseQL model.
+
+## Try it
+
+- [Quick Start](/getting-started/quickstart) — get a GraphQL + REST server running in under 5 minutes
+- [Transport Overview](/transports) — full reference for all three transports
+- [REST Transport](/features/rest-transport) — REST annotation reference
+- [gRPC Transport](/features/grpc-transport) — gRPC transport reference and protobuf generation

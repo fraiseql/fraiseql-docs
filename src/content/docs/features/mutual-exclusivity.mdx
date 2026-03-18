@@ -21,6 +21,10 @@ Three of these patterns are not part of the GraphQL specification — they enabl
 These validators are implemented in the FraiseQL Rust engine (`fraiseql-core::validation`). They operate on request inputs before SQL is generated. There is no Python or TOML configuration for them — they are an internal engine capability. Application-level mutual exclusivity constraints belong in SQL CHECK constraints or in separate mutation operations (see below).
 </Aside>
 
+## Transport Agnosticism
+
+Mutual exclusivity validation is transport-agnostic — it runs in the Executor before the response is serialized for any transport.
+
 ## Validation Benefits
 
 Because these validators run before SQL execution, you get:

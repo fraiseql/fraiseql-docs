@@ -375,6 +375,47 @@ $$;
 
 ---
 
+## Transport Annotations
+
+<Aside type="caution">
+REST annotation support is not yet available in this SDK. Follow the SDK repository for updates.
+</Aside>
+
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Use the `#[Query]` and `#[Mutation]` function-level attributes from `FraiseQL\SDK\Attributes` with `restPath`, `restMethod`, `grpcService`, and `grpcMethod` named arguments.
+
+```php
+use FraiseQL\SDK\Attributes\Query;
+use FraiseQL\SDK\Attributes\Mutation;
+
+#[Query(
+    sqlSource: 'v_post',
+    restPath: '/posts',
+    restMethod: 'GET',
+    grpcService: 'BlogService',
+    grpcMethod: 'ListPosts',
+)]
+function posts(int $limit = 10): array { return []; }
+
+#[Query(
+    sqlSource: 'v_post',
+    restPath: '/posts/{id}',
+    restMethod: 'GET',
+)]
+function post(string $id): Post { return new Post(); }
+
+#[Mutation(
+    sqlSource: 'create_post',
+    operation: 'CREATE',
+    restPath: '/posts',
+    restMethod: 'POST',
+)]
+function createPost(string $title, string $authorId): Post { return new Post(); }
+```
+
+Path parameters in `restPath` (e.g., `{id}`) must match function parameter names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
+
+---
+
 ## Authorization
 
 Use `.requiresRole(role)` on any query or mutation builder to restrict access to callers who hold the specified role:

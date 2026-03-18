@@ -28,6 +28,8 @@ This guide walks through migrating a Prisma-based application to FraiseQL, inclu
 | **Caching**           | Manual or plugins          | Built-in federation-aware caching            |
 | **Multi-database**    | Via relationships only     | Native federation support                    |
 
+Prisma generates a client library. FraiseQL serves a multi-transport API server — REST, GraphQL, and gRPC clients connect directly without a client library.
+
 ## What changes
 
 FraiseQL asks you to write views. In exchange:
@@ -448,14 +450,14 @@ The relationship (`posts`, `author`) is backed by a SQL JOIN inside your `v_user
      </TabItem>
      <TabItem label="FraiseQL (Python)">
        ```python
-       @fraiseql.query(sql_source="v_users_with_posts")
+       @fraiseql.query
        def users(
            limit: int = 10,
            offset: int = 0,
            has_posts: bool = False
        ) -> list[User]:
            """Get users, optionally with posts."""
-           pass
+           return fraiseql.config(sql_source="v_users_with_posts")
        ```
 
        ```sql
@@ -894,10 +896,10 @@ In FraiseQL, aggregate queries are expressed as dedicated SQL views with pre-com
         total_count: int
         avg_rating: float | None
 
-    @fraiseql.query(sql_source="v_post_stats")
+    @fraiseql.query
     def post_stats() -> PostStats | None:
         """Get aggregate post statistics."""
-        pass
+        return fraiseql.config(sql_source="v_post_stats")
     ```
   </TabItem>
 </Tabs>
@@ -926,7 +928,7 @@ query {
     }
   }
 }
-# 2 queries total: users + posts (batched by user_id)
+# 1 pre-compiled view query (posts JOIN users — no separate queries)
 ```
 
 <Aside type="note">
@@ -1035,6 +1037,11 @@ This hybrid approach is a low-risk way to begin the migration: keep Prisma for e
 6. **Federation** - Native multi-database support
 
 <CardGrid>
+  <Card title="FraiseQL vs Prisma" icon="open-book">
+    Side-by-side feature and architecture comparison.
+
+    [Read comparison](/vs/prisma)
+  </Card>
   <Card title="Apollo Server Migration" icon="rocket">
     Migrate from another popular GraphQL option.
 

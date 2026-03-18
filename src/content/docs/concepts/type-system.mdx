@@ -31,6 +31,24 @@ Each layer has its own type representation:
 | `Date` | `DateTime` | `TIMESTAMPTZ` | `DATETIME` | `TEXT` |
 | `string[]` | `[String!]!` | `TEXT[]` | `JSON` | `TEXT` (JSON) |
 
+### Protobuf Type Mapping (gRPC Transport)
+
+When using the gRPC transport, FraiseQL maps Python types to Protobuf types for the generated `.proto` schema:
+
+| Python | GraphQL | Protobuf | Wire Type |
+|--------|---------|----------|-----------|
+| `str` | `String!` | `string` | Length-delimited |
+| `int` | `Int!` | `int32` | Varint |
+| `float` | `Float!` | `double` | 64-bit |
+| `bool` | `Boolean!` | `bool` | Varint |
+| `str \| None` | `String` | `optional string` | Length-delimited |
+| `list[str]` | `[String!]!` | `repeated string` | Length-delimited |
+| `ID` | `ID!` | `string` | Length-delimited (UUID as string) |
+| `DateTime` | `DateTime!` | `google.protobuf.Timestamp` | Message |
+| `Decimal` | `Decimal!` | `string` | Length-delimited (decimal as string) |
+
+For a complete reference of scalar-to-Protobuf mappings, see [Scalars](/reference/scalars).
+
 ## Defining Types
 
 ### Basic Types

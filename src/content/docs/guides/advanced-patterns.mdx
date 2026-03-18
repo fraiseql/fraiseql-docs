@@ -34,15 +34,15 @@ class Post:
     created_at: DateTime
     deleted_at: DateTime | None  # NULL = not deleted
 
-@fraiseql.query(sql_source="v_post_active")
+@fraiseql.query
 def posts() -> list[Post]:
     """Get all non-deleted posts. The v_post_active view filters deleted_at IS NULL."""
-    pass
+    return fraiseql.config(sql_source="v_post_active")
 
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts_including_deleted() -> list[Post]:
     """Get all posts including deleted ones (admin only)."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 
 @fraiseql.mutation(sql_source="fn_delete_post", operation="DELETE")
 def delete_post(id: ID) -> Post:
@@ -184,10 +184,10 @@ class AuditLog:
     changed_by: ID        # UUID of the acting user
     changed_at: DateTime
 
-@fraiseql.query(sql_source="v_audit_log")
+@fraiseql.query
 def audit_logs(entity_type: str, entity_id: ID) -> list[AuditLog]:
     """Get audit trail for entity."""
-    pass
+    return fraiseql.config(sql_source="v_audit_log")
 ```
 
 ### Database Implementation
@@ -327,10 +327,10 @@ class Post:
     created_at: DateTime
     updated_at: DateTime
 
-@fraiseql.query(sql_source="v_post_version")
+@fraiseql.query
 def post_versions(post_id: ID) -> list[PostVersion]:
     """Get all versions of a post."""
-    pass
+    return fraiseql.config(sql_source="v_post_version")
 
 @fraiseql.mutation(sql_source="fn_update_post_versioned", operation="UPDATE")
 def update_post(id: ID, title: str, content: str) -> Post:
@@ -413,10 +413,10 @@ class Post:
 
 # relay=True wraps the result in a Relay Connection automatically.
 # The view must include pk_post in the JSONB for cursor generation.
-@fraiseql.query(sql_source="v_post_relay", relay=True)
+@fraiseql.query
 def posts(first: int = 10, after: str | None = None) -> list[Post]:
     """Cursor-based pagination via Relay connection."""
-    pass
+    return fraiseql.config(sql_source="v_post_relay", relay=True)
 ```
 
 ```sql
@@ -483,10 +483,10 @@ class Post:
     tenant_id: str
 
 # tenant_id is extracted from the JWT and passed to the view/RLS policy
-@fraiseql.query(sql_source="v_post", inject={"tenant_id": "jwt:tenant_id"})
+@fraiseql.query(inject={"tenant_id": "jwt:tenant_id"})
 def posts() -> list[Post]:
     """Get posts for the current tenant only (enforced by RLS)."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 ```
 
 ```sql
@@ -502,7 +502,7 @@ ALTER TABLE tb_post ENABLE ROW LEVEL SECURITY;
 
 ## Caching Expensive Queries
 
-Use `cache_ttl_seconds=` on `@fraiseql.query` to cache results in the Rust runtime. No Python decorator or library needed — this is a compile-time instruction to the Rust cache layer.
+Use `cache_ttl_seconds` in `fraiseql.config()` to cache results in the Rust runtime. No Python decorator or library needed — this is a compile-time instruction to the Rust cache layer.
 
 ```python
 import fraiseql
@@ -516,10 +516,10 @@ class UserStats:
     follower_count: int
 
 # Cache this expensive aggregation for 1 hour per user_id argument
-@fraiseql.query(sql_source="v_user_stats", cache_ttl_seconds=3600)
+@fraiseql.query
 def user_stats(user_id: ID) -> UserStats | None:
     """Cache expensive aggregation for one hour."""
-    pass
+    return fraiseql.config(sql_source="v_user_stats", cache_ttl_seconds=3600)
 ```
 
 ---

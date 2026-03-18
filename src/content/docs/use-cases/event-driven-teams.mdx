@@ -1,0 +1,149 @@
+---
+title: FraiseQL for Event-Driven Architectures
+description: Emit domain events on database writes without application code changes. FraiseQL's observer system turns every mutation into a NATS or webhook event — configured in TOML.
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+Teams building event-driven microservices typically need to instrument every write path — adding publish calls, handling failures, and managing retries in application code. FraiseQL's observer system moves this to infrastructure: a TOML config tells the Rust runtime which database writes to publish as events and where to send them.
+
+## The Observer Mental Model
+
+FraiseQL fires observers **after** a mutation commits to the database. No Python code is involved at runtime:
+
+```
+Client mutation
+  → Rust runtime executes SQL function (transaction commits)
+    → Rust runtime evaluates [[observers]] config
+      → Matching events published to NATS / Redis / webhook
+        → Subscriber services react
+```
+
+Your Python schema defines **what** mutations exist. The `fraiseql.toml` defines **what events those mutations emit**. No `@observer` decorator, no Python publish calls.
+
+## Configuration
+
+### NATS Backend
+
+```toml
+[observers]
+backend  = "nats"
+nats_url = "${NATS_URL}"
+
+[[observers]]
+table   = "tb_order"
+event   = "INSERT"
+subject = "fraiseql.order.created"
+
+[[observers]]
+table   = "tb_order"
+event   = "UPDATE"
+subject = "fraiseql.order.updated"
+```
+
+`[observers]` (singleton) configures the backend. `[[observers]]` (array) declares individual rules. Multiple rules can share the same backend.
+
+### Webhook Backend
+
+For teams without a message bus, publish events as outbound HTTP webhooks:
+
+```toml
+[observers]
+backend = "webhook"
+
+[[observers]]
+table = "tb_user"
+event = "INSERT"
+
+[[observers.actions]]
+type    = "webhook"
+url_env = "USER_CREATED_WEBHOOK_URL"
+```
+
+The `url_env` key names an environment variable — secrets stay out of config files.
+
+## Cross-Service Events with NATS
+
+In a federated deployment, each FraiseQL service publishes events to NATS independently. Downstream services subscribe:
+
+```toml
+# inventory-service/fraiseql.toml
+[observers]
+backend  = "nats"
+nats_url = "${NATS_URL}"
+
+# Subscribe to events from order-service
+[[observers.subscribe]]
+subject = "fraiseql.order.created"
+handler = "fn_reserve_inventory"
+```
+
+`fn_reserve_inventory` is a SQL function in the inventory service's own database. It receives the event payload as a single `JSONB` argument. No application-layer event bus wrapper required.
+
+<Aside type="note">
+The `handler` field in `[[observers.subscribe]]` must be a SQL function in the subscribing service's own database. FraiseQL does not support Python-based subscription handlers at runtime.
+</Aside>
+
+## Real-Time Push to Clients
+
+Observers move events between **services**. To deliver real-time updates to **browser clients**, use GraphQL subscriptions:
+
+```python
+@fraiseql.subscription(
+    entity_type="Order",
+    operation="UPDATE"
+)
+def order_updated(customer_id: fraiseql.ID | None = None) -> Order:
+    """Subscribe to order updates, optionally filtered by customer."""
+    pass
+```
+
+Clients connect via WebSocket. FraiseQL delivers events over `graphql-ws` protocol. NATS and subscriptions are complementary: NATS moves events between services; subscriptions push them to end users.
+
+## Example: Microservices Choreography
+
+The [Microservices Choreography example](/examples/microservices-choreography) shows a complete event-driven architecture:
+
+- **Order Service** publishes `fraiseql.order.created` on every new order
+- **Inventory Service** subscribes and runs `fn_reserve_inventory`
+- **Notification Service** subscribes and sends confirmation emails
+- No direct service-to-service API calls — all coordination through NATS
+
+## Key Benefits
+
+- **Zero application code** — observers run at the infrastructure layer, not in Python
+- **Guaranteed ordering** — events are published after the transaction commits, never before
+- **Durable delivery** — NATS JetStream provides at-least-once delivery with acknowledgements
+- **Same security model** — observer events carry the same mutation context (user ID, tenant ID) as the originating request
+- **Transport-agnostic** — observers fire on mutations from GraphQL, REST, or gRPC calls
+
+## Getting Started
+
+Start with the [Microservices Choreography example](/examples/microservices-choreography) or the [NATS Event Pipeline example](/examples/nats-event-pipeline) for a working multi-service setup.
+
+For a single-service starting point with webhook observers, use the [fraiseql-starter-saas](/getting-started/starters#saas) template and add `[[observers]]` config to `fraiseql.toml`.
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Observers Guide" icon="setting">
+    Configure post-mutation side effects, retries, and dead letter queues.
+    [Observers](/guides/observers)
+  </Card>
+  <Card title="Observer-Webhook Patterns" icon="puzzle">
+    Event-driven architecture patterns with observers and outbound webhooks.
+    [Observer-Webhook Patterns](/guides/observer-webhook-patterns)
+  </Card>
+  <Card title="Federation + NATS" icon="random">
+    Cross-service event routing between FraiseQL subgraphs.
+    [Federation + NATS Integration](/guides/federation-nats-integration)
+  </Card>
+  <Card title="Subscriptions" icon="external">
+    Real-time push to clients via GraphQL WebSocket subscriptions.
+    [Subscriptions](/features/subscriptions)
+  </Card>
+  <Card title="Microservices Example" icon="rocket">
+    Complete working example of NATS-choreographed microservices.
+    [Microservices Choreography](/examples/microservices-choreography)
+  </Card>
+</CardGrid>

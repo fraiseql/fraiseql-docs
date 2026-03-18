@@ -1,0 +1,211 @@
+---
+title: Migrating from PostgREST
+description: Map PostgREST auto-wired endpoints to FraiseQL annotations — keep your PostgreSQL views, add GraphQL and gRPC
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+PostgREST automatically exposes PostgreSQL tables and views as REST endpoints. FraiseQL requires explicit annotations — you decide what is exposed, what parameters it accepts, and what it returns.
+
+Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL. The schema authoring step is new.
+
+## What Changes
+
+| PostgREST | FraiseQL |
+|-----------|----------|
+| Tables and views auto-exposed | Only annotated operations are exposed |
+| API surface defined in the database | API surface defined in schema code |
+| PostgreSQL RLS as auth mechanism | `[security]` config with JWT claim injection |
+| REST only | REST + GraphQL + gRPC |
+| PostgreSQL only | PostgreSQL, MySQL, SQLite, SQL Server |
+
+## What You Gain
+
+- **GraphQL and gRPC alongside REST** — same compiled binary, same schema
+- **Multi-database support** — if you later need MySQL or SQL Server
+- **Field-level auth** via Python/TypeScript/Go SDK decorators
+- **OpenAPI 3.1 auto-generated** from annotations at compile time
+- **Explicit API surface** — the REST surface is version-controlled in your schema code
+
+## Migration Steps
+
+<Steps>
+
+1. **Install FraiseQL**
+
+   ```bash
+   curl -fsSL https://fraiseql.com/install.sh | sh
+   ```
+
+   Verify:
+
+   ```bash
+   fraiseql --version
+   ```
+
+2. **Keep your existing PostgreSQL views**
+
+   PostgREST exposes tables and views directly. FraiseQL uses views as `sql_source` values. Your existing views do not need to change.
+
+   ```sql
+   -- Existing view (unchanged from your PostgREST setup)
+   CREATE OR REPLACE VIEW v_user AS
+   SELECT id, email, name, created_at FROM users;
+   ```
+
+   For tables that PostgREST exposed directly (without a view), create views that select the columns you want to expose:
+
+   ```sql
+   -- New view wrapping a table PostgREST exposed directly
+   CREATE OR REPLACE VIEW v_post AS
+   SELECT id, title, body, author_id, created_at FROM posts;
+   ```
+
+3. **Write SDK annotations for each endpoint**
+
+   For each PostgREST endpoint you want to keep, create a corresponding annotated query in your schema file.
+
+   ```python
+   # schema.py
+   import fraiseql
+   from uuid import UUID
+
+   @fraiseql.type
+   class User:
+       id: UUID
+       email: str
+       name: str
+       created_at: str
+
+   @fraiseql.type
+   class Post:
+       id: UUID
+       title: str
+       body: str
+       author_id: UUID
+       created_at: str
+
+   # PostgREST: GET /users  →  FraiseQL: GET /rest/users
+   @fraiseql.query(
+       sql_source="v_user",
+       rest_path="/users",
+       rest_method="GET",
+   )
+   def users(limit: int = 100, offset: int = 0) -> list[User]: ...
+
+   # PostgREST: GET /users?id=eq.123  →  FraiseQL: GET /rest/users/{id}
+   @fraiseql.query(
+       sql_source="v_user",
+       rest_path="/users/{id}",
+       rest_method="GET",
+   )
+   def user(id: UUID) -> User: ...
+
+   # PostgREST: POST /posts  →  FraiseQL: POST /rest/posts
+   @fraiseql.mutation(
+       sql_source="fn_create_post",
+       rest_path="/posts",
+       rest_method="POST",
+   )
+   def create_post(title: str, body: str, author_id: UUID) -> Post: ...
+
+   # PostgREST: PATCH /posts?id=eq.123  →  FraiseQL: PATCH /rest/posts/{id}
+   @fraiseql.mutation(
+       sql_source="fn_update_post",
+       rest_path="/posts/{id}",
+       rest_method="PATCH",
+   )
+   def update_post(id: UUID, title: str | None = None, body: str | None = None) -> Post: ...
+
+   # PostgREST: DELETE /posts?id=eq.123  →  FraiseQL: DELETE /rest/posts/{id}
+   @fraiseql.mutation(
+       sql_source="fn_delete_post",
+       rest_path="/posts/{id}",
+       rest_method="DELETE",
+   )
+   def delete_post(id: UUID) -> bool: ...
+   ```
+
+4. **Create `fraiseql.toml`**
+
+   ```toml
+   [project]
+   name = "my-api"
+
+   [database]
+   url = "${DATABASE_URL}"
+
+   [server]
+   port = 8080
+   ```
+
+   <Aside type="note">
+   The `[fraiseql.rest]` configuration section (enabling and configuring the REST transport, including the endpoint prefix and other REST-specific options) is available since rc.15. If you are using an earlier version, REST transport is not available.
+   </Aside>
+
+5. **Compile and run**
+
+   ```bash
+   fraiseql compile
+   fraiseql run --database "$DATABASE_URL"
+   ```
+
+6. **Verify your endpoints**
+
+   ```bash
+   # Same path as PostgREST (with /rest prefix instead of /)
+   curl http://localhost:8080/rest/users
+
+   # Now also available via GraphQL — zero additional work
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ users { id email name } }"}'
+
+   # OpenAPI spec auto-generated from your annotations
+   curl http://localhost:8080/rest/openapi.json
+   ```
+
+</Steps>
+
+## PostgREST to FraiseQL Endpoint Mapping
+
+| PostgREST | FraiseQL annotation |
+|-----------|---------------------|
+| `GET /users` (auto from table/view) | `rest_path="/users", rest_method="GET"` |
+| `GET /users?id=eq.123` | `rest_path="/users/{id}", rest_method="GET"` |
+| `POST /users` | `rest_path="/users", rest_method="POST"` |
+| `PATCH /users?id=eq.123` | `rest_path="/users/{id}", rest_method="PATCH"` |
+| `DELETE /users?id=eq.123` | `rest_path="/users/{id}", rest_method="DELETE"` |
+| `GET /users?select=*,orders(*)` | Use a SQL view that joins users and orders |
+
+## Known Differences and Gotchas
+
+**Auto-embedding does not translate directly.**
+PostgREST's `?select=*,orders(*)` syntax performs automatic relationship embedding. FraiseQL does not have an equivalent. Create a SQL view that joins the tables and expose that view as a separate endpoint:
+
+```sql
+CREATE OR REPLACE VIEW v_user_with_orders AS
+SELECT
+    u.id,
+    u.email,
+    jsonb_agg(
+        jsonb_build_object('id', o.id, 'total', o.total)
+        ORDER BY o.created_at DESC
+    ) AS orders
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+GROUP BY u.id, u.email;
+```
+
+**Query operator syntax differs.**
+PostgREST uses operators like `?name=eq.foo&age=gt.18` in query strings. FraiseQL maps query string parameters directly to function arguments — filtering logic lives in the SQL view or function, not in the framework.
+
+**Authentication model changes.**
+PostgREST uses PostgreSQL RLS directly, injecting JWT claims as GUC settings that RLS policies read. FraiseQL uses the `[security]` configuration with JWT claim injection — claims are available in your SQL views and functions via the same GUC mechanism, but configured via `fraiseql.toml` rather than PostgREST config.
+
+<Aside type="tip">
+If you rely heavily on PostgREST's RLS integration, review the [Authentication guide](/guides/authentication/) before migrating. The JWT claim injection approach is similar but configured differently.
+</Aside>
+
+**The endpoint prefix changes.**
+PostgREST serves at `/` by default (or a configured prefix). FraiseQL serves REST at `/rest` by default. Update your clients accordingly, or configure a custom prefix via `[fraiseql.rest]` in `fraiseql.toml` (available since rc.15).

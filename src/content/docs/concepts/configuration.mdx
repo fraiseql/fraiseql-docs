@@ -131,6 +131,23 @@ recovery_timeout_secs    = 30
 For the full engine-verified reference, see [TOML Configuration Reference](/reference/toml-config).
 </Aside>
 
+<Aside type="note">
+**Available since rc.15**
+
+Multi-transport configuration sections:
+
+```toml
+[fraiseql.rest]
+prefix = "/rest"
+auth = "none"
+openapi_enabled = true
+openapi_path = "/rest/openapi.json"
+
+[fraiseql.grpc]
+enabled = true
+```
+</Aside>
+
 ## Environment Variables
 
 Use `${VAR_NAME}` syntax in `fraiseql.toml` to reference environment variables:
@@ -258,6 +275,36 @@ JWT_SECRET=your-256-bit-secret
 ```
 
 See [Multi-Tenancy Guide](/guides/multi-tenancy) for RLS and schema-per-tenant patterns.
+
+### Multi-Transport
+
+<Aside type="note">
+**Available since rc.15**
+
+Enable REST and gRPC alongside GraphQL. All three transports are served from the same port (default: 8080).
+
+```toml
+[project]
+name = "my-api"
+
+[database]
+url = "${DATABASE_URL}"
+
+[server]
+port = 8080
+
+[fraiseql.rest]
+prefix = "/rest"
+auth = "none"
+openapi_enabled = true
+openapi_path = "/rest/openapi.json"
+
+[fraiseql.grpc]
+enabled = true
+```
+
+REST endpoints are only created for operations that include `rest_path`/`rest_method` annotations. gRPC methods are only created for operations that include `grpc_service`/`grpc_method` annotations. Operations without transport annotations remain GraphQL-only.
+</Aside>
 
 ## Next Steps
 

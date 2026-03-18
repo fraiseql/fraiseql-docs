@@ -19,6 +19,12 @@ graph TD
   end
 
   subgraph FRAISEQL
+    subgraph TransportHandlers["Transport Handlers (port 8080)"]
+      gql["GraphQL\n(HTTP/1.1 or HTTP/2)"]
+      rest["REST\n(HTTP/1.1 or HTTP/2)"]
+      grpc["gRPC\n(HTTP/2 required)"]
+    end
+
     subgraph RequestHandler["Request Handler"]
       auth["Auth"]
       cache["Cache"]
@@ -47,11 +53,14 @@ graph TD
     indexes["Indexes"]
   end
 
-  web -- "GraphQL" --> auth
-  mobile -- "GraphQL" --> auth
-  cli -- "GraphQL" --> auth
-  analytics -- "Arrow Flight" --> auth
+  web -- "GraphQL / REST" --> gql
+  mobile -- "GraphQL / REST" --> rest
+  cli -- "GraphQL / REST / gRPC" --> gql
+  analytics -- "gRPC (HTTP/2)" --> grpc
 
+  gql --> auth
+  rest --> auth
+  grpc --> auth
   auth --> cache --> ratelimit --> metrics --> parser
   parser --> planner --> exec
 

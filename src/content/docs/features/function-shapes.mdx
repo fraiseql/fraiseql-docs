@@ -732,13 +732,13 @@ class SearchResult:
     total_count: int
     has_more: bool
 
-@fraiseql.query(sql_source="fn_search_products")
+@fraiseql.query
 def search_products(
     query: str,
     limit: int = 20,
     offset: int = 0
 ) -> SearchResult:
-    pass
+    return fraiseql.config(sql_source="fn_search_products")
 ```
 
 ## Best Practices
@@ -839,7 +839,7 @@ fraiseql validate schema.json
 fraiseql compile fraiseql.toml --check
 
 # 3. Apply migrations
-fraiseql migrate up
+confiture migrate up
 
 # 4. Start server and test mutations manually
 fraiseql run --watch
@@ -847,6 +847,10 @@ fraiseql run --watch
 # 5. Check projections synced (run in psql)
 SELECT COUNT(*) FROM v_user;  -- Should equal tb_user count
 ```
+
+## Transport Behaviour
+
+The `mutation_response` pattern works across all transports. REST translates the response to appropriate HTTP status codes (200 for updates, 201 for creates). gRPC maps the response fields to a protobuf message with the same structure.
 
 ## Next Steps
 

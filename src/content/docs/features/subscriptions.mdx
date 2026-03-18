@@ -7,6 +7,8 @@ import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/
 
 FraiseQL supports GraphQL subscriptions for real-time updates, with multiple transport options optimized for different use cases.
 
+Subscriptions sit within FraiseQL's broader transport model. WebSocket is a transport; subscriptions are the GraphQL operation type that uses it. gRPC server streaming also maps to subscriptions — operations declared with `@fraiseql.subscription` generate both WebSocket handlers and gRPC server-streaming methods when both transports are enabled. See [Transport Overview](/transports/) for the full picture.
+
 ## Overview
 
 Subscriptions push data to clients when events occur:
@@ -620,6 +622,12 @@ Always clean up subscriptions when components unmount or when they are no longer
 <CardGrid>
   <Card title="Observers" icon="document">
     [Observers](/concepts/observers) — Server-side event reactions
+  </Card>
+  <Card title="Observers Guide" icon="setting">
+    [Observers Guide](/guides/observers) — Configure post-mutation side effects
+  </Card>
+  <Card title="Observer-Webhook Patterns" icon="random">
+    [Observer-Webhook Patterns](/guides/observer-webhook-patterns) — Event-driven architecture patterns
   </Card>
   <Card title="NATS" icon="random">
     [NATS](/features/nats) — Distributed event streaming

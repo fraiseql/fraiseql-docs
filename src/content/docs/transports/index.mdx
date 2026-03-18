@@ -1,0 +1,112 @@
+---
+title: Transport Overview
+description: GraphQL, REST, and gRPC from a single compiled schema — one binary, one port, three wire formats
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+`fraiseql run` serves GraphQL and REST simultaneously on a single port. gRPC is also available when FraiseQL is built with the `grpc-transport` Cargo feature. HTTP/2 content-type negotiation distinguishes gRPC (`application/grpc`) from HTTP/1.1 REST and GraphQL traffic. No proxy layer, no separate services.
+
+<Aside type="caution">
+**gRPC requires a custom build.** The `grpc-transport` feature is not included in the official `ghcr.io/fraiseql/server:latest` Docker image. See [gRPC Transport](/features/grpc-transport) for details.
+</Aside>
+
+<Aside type="note">
+**REST annotation parity:** REST annotations (`rest_path`, `rest_method`) are available in the Python SDK in v2.1.0. Go, Java, and C# support is in unreleased commits. TypeScript, PHP, Rust, Elixir, and F# support has not started yet.
+</Aside>
+
+## Three Transports, One Binary
+
+```
+SDK decorators (Python, TypeScript, Go, +7 more)
+        ↓
+  fraiseql compile
+        ↓
+ schema.compiled.json
+        ↓
+   fraiseql run (single Rust binary, port 8080)
+     ╱         |          ╲
+GraphQL       REST        gRPC
+POST /graphql  GET /rest/..  UserService/GetUser
+  JSON          JSON          Protobuf
+     ╲         |          ╱
+  Transport-aware DB views
+        ↓
+PostgreSQL · MySQL · SQL Server · SQLite
+```
+
+The compiled schema is the single source of truth. Each transport reads from it; none requires separate schema definitions or mapping layers.
+
+## When to Use Which Transport
+
+| Use case | Transport | Why |
+|----------|-----------|-----|
+| Public API, third-party integrations | REST | Universal, cacheable, OpenAPI spec |
+| Frontend with complex data needs | GraphQL | Field selection, nested queries, subscriptions |
+| Service-to-service in gRPC mesh | gRPC | Binary wire, no JSON overhead, strong typing |
+| Real-time updates | WebSocket | Push-based, persistent connection |
+| Mobile clients | REST or GraphQL | HTTP/1.1 compatible |
+
+Nothing stops you from enabling all three simultaneously. Clients use whichever transport fits their context.
+
+## Feature Matrix
+
+| Feature | GraphQL | REST | gRPC |
+|---------|:-------:|:----:|:----:|
+| Authentication | ✅ | ✅ | ✅ |
+| Rate limiting | ✅ | ✅ | ✅ |
+| RBAC | ✅ | ✅ | ✅ |
+| APQ / Persisted queries | ✅ | ❌ (path-based) | ❌ (method-based) |
+| OpenAPI spec | ❌ | ✅ | ❌ |
+| .proto generation | ❌ | ❌ | ✅ |
+| Introspection | ✅ | ❌ | ✅ (reflection) |
+| Subscriptions | ✅ | ❌ | ✅ (server streaming) |
+| Response caching | ✅ | ✅ | ❌ |
+| HTTP/1.1 compatible | ✅ | ✅ | ❌ (requires HTTP/2) |
+
+## Transport-Aware Views
+
+The compiler generates different database view shapes depending on transport:
+
+**GraphQL and REST** use JSON-shaped views. PostgreSQL produces JSON directly via `json_agg` and `row_to_json`. The server passes the JSON text through without re-serializing.
+
+**gRPC** uses row-shaped views. PostgreSQL returns typed columns. The server maps those columns to protobuf fields. No JSON is produced or parsed anywhere in the path.
+
+This distinction is why the gRPC path has lower per-request overhead — the database does less work and the wire payload is smaller. Both view shapes are generated from the same SDK annotations at compile time.
+
+## All Transports Share
+
+Enabling REST or gRPC does not introduce new infrastructure. All three transports run through the same stack:
+
+- Single Executor and connection pool
+- Same auth middleware (JWT, OIDC, API keys)
+- Same rate limiting rules
+- Same RBAC enforcement
+- Same error sanitization
+
+Configure once in `fraiseql.toml` or via environment variables — it applies to every transport.
+
+## Learn More
+
+<CardGrid>
+  <Card title="REST Transport" icon="document">
+    Annotation-driven REST endpoints, OpenAPI spec, HTTP status codes.
+
+    [REST Transport →](/features/rest-transport/)
+  </Card>
+  <Card title="gRPC Transport" icon="rocket">
+    Binary wire format, auto-generated .proto, server streaming.
+
+    [gRPC Transport →](/features/grpc-transport/)
+  </Card>
+  <Card title="Subscriptions" icon="seti:connection">
+    Real-time WebSocket subscriptions and gRPC server streaming.
+
+    [Subscriptions →](/features/subscriptions/)
+  </Card>
+  <Card title="GraphQL API Reference" icon="open-book">
+    Full GraphQL API reference, introspection, and persisted queries.
+
+    [GraphQL API →](/reference/graphql-api/)
+  </Card>
+</CardGrid>

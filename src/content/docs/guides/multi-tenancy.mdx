@@ -39,6 +39,8 @@ JWT (tenant_id claim) → Rust runtime → SET app.tenant_id = '...' → Postgre
 
 The Rust runtime reads the `tenant_id` claim from the verified JWT, sets `app.tenant_id` as a PostgreSQL session variable before each query, and your RLS policies filter rows to the current tenant automatically.
 
+This mechanism is transport-agnostic. Whether the request arrives as a GraphQL query, a REST call, or a gRPC RPC, the Rust runtime performs the same JWT extraction and `SET app.tenant_id` injection before the SQL executes. Tenant isolation is enforced at the PostgreSQL layer, not at the transport layer.
+
 ### 1. Database Schema
 
 Use the trinity pattern: every base table has `pk_` (BIGINT identity), `id` (UUID), and `identifier` (TEXT). Add a `tenant_id` column to tenant-scoped tables.
@@ -155,15 +157,15 @@ class User:
 
 # Queries are scoped to the current tenant via RLS automatically.
 # No inject= needed here — RLS handles tenant filtering.
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts(limit: int = 20, offset: int = 0) -> list[Post]:
     """Returns posts for the current tenant (enforced by RLS)."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def post(id: ID) -> Post | None:
     """Look up a post by UUID. RLS ensures it belongs to the current tenant."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 
 @fraiseql.mutation(
     sql_source="fn_create_post",
@@ -315,9 +317,9 @@ The anti-pattern to avoid:
 
 ```python title="schema.py — WRONG: never do this"
 # Do not accept tenant_id as a GraphQL argument. Any client can supply any value.
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts(tenant_id: str, limit: int = 20) -> list[Post]:   # WRONG
-    pass
+    return fraiseql.config(sql_source="v_post")
 ```
 
 ---
@@ -415,6 +417,9 @@ CREATE INDEX idx_tb_post_tenant_published
 <CardGrid>
   <Card title="Authentication" icon="approve-check-circle">
     [JWT, OIDC, and field-level scopes](/guides/authentication)
+  </Card>
+  <Card title="Multi-Database Support" icon="open-book">
+    [Multi-Database](/features/multi-database) — PostgreSQL, MySQL, SQLite, and SQL Server support
   </Card>
   <Card title="Custom Business Logic" icon="setting">
     [SQL functions as resolvers](/guides/custom-resolvers)

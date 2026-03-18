@@ -327,6 +327,14 @@ SELECT sqlite_version();
 - Create indexes on frequently-filtered columns
 - Use `tv_*` (materialized views) for frequently-accessed complex objects
 
+## Multi-Transport Support
+
+FraiseQL generates transport-aware views for SQLite:
+- JSON-shaped views (GraphQL + REST) use `json_group_array(...)`
+- Row-shaped views (gRPC) use standard `SELECT` with typed columns
+
+All three transports are supported on SQLite.
+
 ## See Also
 
 <CardGrid>

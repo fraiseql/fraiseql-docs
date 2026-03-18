@@ -41,7 +41,7 @@ psql $INVENTORY_DATABASE_URL -c "SELECT 1"
 
 ```toml
 # 4. Enable connection debug logging — set environment variable:
-# FRAISEQL_LOG=debug
+# RUST_LOG=debug
 #
 # Or configure the database in fraiseql.toml:
 [database]
@@ -64,9 +64,10 @@ pool_max = 10
 ```toml
 # 1. Increase pool size
 [database]
-pool_size = 50  # Was 10, now 50
-pool_timeout = 30000  # Timeout waiting for connection
-pool_idle_max_age = 3600000  # Close idle connections after 1 hour
+pool_min = 2
+pool_max = 50  # Increased from default 20
+connect_timeout_ms = 30000  # Timeout waiting for connection
+idle_timeout_ms = 3600000  # Close idle connections after 1 hour
 ```
 
 ```bash
@@ -76,7 +77,7 @@ pool_idle_max_age = 3600000  # Close idle connections after 1 hour
 # 3. Identify slow queries — set slow query threshold in fraiseql.toml:
 # [database]
 # log_slow_queries_ms = 1000  # Log queries slower than 1 second
-# Or use FRAISEQL_LOG=debug for full query logging.
+# Or use RUST_LOG=debug for full query logging.
 ```
 
 ### Query Issues
@@ -258,7 +259,7 @@ nats_url = "nats://localhost:4222"
 
 ```bash
 # 1. Monitor saga/mutation progress via structured logs.
-# Set FRAISEQL_LOG=debug to see each request with its requestId.
+# Set RUST_LOG=debug to see each request with its requestId.
 # Use pg_notify observers in fraiseql.toml to track step completions:
 # [observers]
 # backend = "nats"
@@ -304,14 +305,14 @@ def cleanup_stuck_saga(saga_id: ID) -> bool:
 
 ```python
 # 1. Check if federation is batching correctly
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def orders_with_items(limit: int = 100) -> list[Order]:
     """
     With batching: Should be 2 queries total
     - 1 query: SELECT id, data FROM v_order LIMIT 100
     - 1 query: SELECT id, data FROM v_order_item WHERE fk_order IN (...)
     """
-    pass
+    return fraiseql.config(sql_source="v_order")
 
 # 2. Denormalize to reduce federated queries
 @fraiseql.type
@@ -323,18 +324,18 @@ class Order:
     items: list[OrderItem]
 
 # 3. Use selective queries to avoid full federation
-@fraiseql.query(sql_source="v_order_summary")
+@fraiseql.query
 def order_summary(id: ID) -> OrderSummary | None:
     """
     Query a summary view instead of the full federated type
     when only aggregate fields are needed.
     """
-    pass
+    return fraiseql.config(sql_source="v_order_summary")
 ```
 
 ```bash
 # Enable query logging to verify batching — set via environment variable:
-# FRAISEQL_LOG=debug fraiseql run
+# RUST_LOG=debug fraiseql run
 ```
 
 ```sql
@@ -511,7 +512,7 @@ nats consumer info orders order-processor
 
 ```bash
 # 3. Verify FraiseQL is running and observers are configured in fraiseql.toml.
-# FRAISEQL_LOG=debug will log received NATS events.
+# RUST_LOG=debug will log received NATS events.
 # Look for "nats: received message on subject fraiseql.order.created" in the output.
 ```
 
@@ -726,11 +727,11 @@ SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
 
 ```python
 # Use cursor-based (Relay) pagination to avoid loading large result sets at once.
-# Define the query with relay=True in the Python schema:
-@fraiseql.query(sql_source="v_order", relay=True)
+# Define the query with relay=True in fraiseql.config():
+@fraiseql.query
 def orders(limit: int = 100) -> list[Order]:
     """Use cursor pagination — configured in fraiseql.toml federation section."""
-    pass
+    return fraiseql.config(sql_source="v_order", relay=True)
 ```
 
 ```graphql

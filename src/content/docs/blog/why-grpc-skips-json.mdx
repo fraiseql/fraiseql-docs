@@ -1,0 +1,115 @@
+---
+title: "Why Our gRPC Skips JSON Entirely"
+description: FraiseQL's gRPC transport uses row-shaped database views that bypass PostgreSQL's json_agg serialization — less DB work, smaller wire payload.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Most API servers follow the same serialization chain: data comes out of the database as rows, the application assembles those rows into objects, the objects are serialized to JSON (or protobuf, or whatever wire format you need), and that goes out over the network.
+
+If you're adding gRPC to an existing JSON API, the chain often looks like this:
+
+```
+DB rows → application objects → JSON string → parse → protobuf → binary response
+```
+
+Two serialization steps. The application serializes to JSON, then parses that JSON to build protobuf. Or it skips JSON but still assembles the full object graph before serializing to protobuf.
+
+FraiseQL's transport-aware compilation avoids both.
+
+## How FraiseQL's GraphQL/REST path works
+
+For GraphQL and REST, FraiseQL leans into what PostgreSQL does well — building JSON:
+
+```
+GraphQL/REST path:
+  DB → json_agg(row_to_json(t)) → JSON text → server pass-through → JSON response
+```
+
+The view uses `json_agg(row_to_json(t))` to produce a JSON payload. PostgreSQL does the serialization; the server receives a JSON string and passes it through to the client with minimal processing. There's no object deserialization and re-serialization in the application layer.
+
+## How the gRPC path is different
+
+For gRPC, the view is shaped differently:
+
+```
+gRPC path:
+  DB → SELECT col1, col2, col3 → typed rows → server column mapping → protobuf → binary response
+```
+
+No `json_agg`. The view returns typed columns — integers, text, UUIDs, timestamps — as standard PostgreSQL rows. The server reads those typed values and maps them directly to protobuf fields.
+
+`fraiseql compile` generates both view shapes from the same SDK annotations. You write one query definition; the compiler produces the appropriate view for each transport.
+
+## Why json_agg has overhead
+
+`json_agg` is string concatenation under the hood. PostgreSQL builds the JSON result character by character, escaping strings, formatting numbers, inserting commas and brackets. For small result sets this is fast. For large result sets — hundreds or thousands of rows, deeply nested objects — the CPU time is measurable.
+
+Standard `SELECT` with typed columns is PostgreSQL's native fast path. No string building; the query engine just materializes the values it already has in memory. The savings scale with result set size and nesting depth.
+
+This is not a dramatic performance claim. For most queries the difference is single-digit milliseconds. But it's overhead that the gRPC path avoids by design.
+
+## Why protobuf serialization from typed values is fast
+
+Protobuf's encoding for scalar values is straightforward:
+
+- Integer → varint (variable-length integer encoding, 1-10 bytes)
+- String → length prefix + UTF-8 bytes
+- Boolean → a single byte
+- Floating point → fixed 4 or 8 bytes
+
+Mapping a PostgreSQL typed column to a protobuf field is a direct value operation: read the integer from the row, write it as a varint. No parsing, no schema validation, no intermediate representation. Nanoseconds per field.
+
+Compare this to the JSON→protobuf path: parse a JSON string (tokenize, validate, convert text representations of numbers to actual numbers), then encode to protobuf. The parsing step is non-trivial for complex result sets.
+
+## The wire size difference
+
+Beyond serialization speed, protobuf's wire format is more compact than JSON for structured data.
+
+JSON includes key names for every object in an array:
+
+```json
+[
+  {"id": 1, "title": "Post A", "author": "alice", "published": true, "view_count": 42},
+  {"id": 2, "title": "Post B", "author": "bob",   "published": false, "view_count": 7}
+]
+```
+
+Protobuf uses field numbers (1, 2, 3...) instead of key names:
+
+```
+field 1: 1, field 2: "Post A", field 3: "alice", field 4: true, field 5: 42
+field 1: 2, field 2: "Post B", field 3: "bob",   field 4: false, field 5: 7
+```
+
+For a result set with 5 fields and average key name length of 10 characters, 1000 rows saves roughly 50KB of key names alone — before accounting for more compact integer encoding.
+
+The actual savings depend on your schema. Fields with short names and long string values compress less. Fields with long names and short integer values compress more. In practice, protobuf payloads for structured data are typically 30-60% smaller than equivalent JSON.
+
+## What we're not claiming
+
+<Aside type="caution">
+This section matters. We've been deliberate about what we're not saying.
+</Aside>
+
+**Not faster than hand-written tonic.** FraiseQL's gRPC transport is built on tonic. It uses tonic internally. The performance ceiling is tonic's ceiling. If you write a gRPC service directly in tonic with a hand-tuned handler, you're not adding overhead that FraiseQL avoids.
+
+**Not the "fastest gRPC framework."** There are Rust gRPC benchmarks that compare raw request processing overhead. We don't claim to top those charts. The DB query — joins, indexes, row-level security, network round-trip — dominates latency in any real application. Optimizing the serialization step while leaving a full-table scan in the query is misallocated effort.
+
+**Not zero overhead.** The column mapping from PostgreSQL row to protobuf field is fast but not free. There's a thin server-side layer reading the row and writing the protobuf message. It's measurably faster than a JSON round-trip, but we're talking about microseconds to low milliseconds, not orders-of-magnitude differences.
+
+The real win is not raw throughput. It's zero handler code with near-native serialization performance. You write no gRPC service implementation. The compiler generates the view; the server handles the encoding.
+
+## The architectural insight
+
+The database view is the API contract. Different transports need different view shapes. The compiler generates both from the same SDK annotations.
+
+This is what "transport-aware compilation" means in practice: `fraiseql compile` reads your query annotations, generates a `json_agg`-based view for GraphQL/REST, and a typed-column view for gRPC. `fraiseql run` picks the right view per transport at request time.
+
+You don't write two views. You don't maintain two schema definitions. You write one query with transport annotations; the compiler handles the rest.
+
+## Benchmarks
+
+For GraphQL performance data, see the [VelocityBench results](/guides/performance-benchmarks). Those benchmarks cover the GraphQL transport under concurrent load.
+
+Transport-specific benchmarks (gRPC vs REST vs GraphQL on the same query) will be published when the transport suite is stable. We'll link them here.

@@ -21,7 +21,7 @@ uv add fraiseql
 pip install fraiseql
 ```
 
-**Requirements:** Python 3.10+, version 2.0.0
+**Requirements:** Python 3.10+, version 2.1.0
 
 ## Core Concepts
 
@@ -139,14 +139,14 @@ class UpdatePostInput:
 
 ## Defining Queries
 
-Use `@fraiseql.query(sql_source=...)` to wire queries to SQL views. The `sql_source` argument names the `v_` view that backs the query:
+Use `@fraiseql.query` with `fraiseql.config(sql_source=...)` in the function body to wire queries to SQL views. The `sql_source` argument names the `v_` view that backs the query:
 
 ```python title="schema.py"
 import fraiseql
 from fraiseql.scalars import ID
 
 # List query — maps to SELECT data FROM v_post WHERE <args>
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts(
     is_published: bool | None = None,
     author_id: ID | None = None,
@@ -154,22 +154,19 @@ def posts(
     offset: int = 0,
 ) -> list[Post]:
     """Fetch posts, optionally filtered by published status or author."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 
 # Single-item query — nullable return type signals a possible empty result
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def post(id: ID) -> Post | None:
     """Fetch a single post by ID."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 
 # User-scoped query using JWT claim injection
-@fraiseql.query(
-    sql_source="v_post",
-    inject={"author_id": "jwt:sub"},  # inject JWT `sub` claim as author_id filter
-)
+@fraiseql.query(inject={"author_id": "jwt:sub"})  # inject JWT `sub` claim as author_id filter
 def my_posts(limit: int = 20) -> list[Post]:
     """Fetch the authenticated user's posts."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 ```
 
 ### How Arguments Become WHERE Clauses
@@ -198,13 +195,10 @@ No resolver code required.
 Use `inject=` to pull values from the JWT into SQL parameters without exposing them as GraphQL arguments:
 
 ```python
-@fraiseql.query(
-    sql_source="v_post",
-    inject={"org_id": "jwt:org_id"},  # "jwt:<claim_name>" format
-)
+@fraiseql.query(inject={"org_id": "jwt:org_id"})  # "jwt:<claim_name>" format
 def org_posts(limit: int = 20) -> list[Post]:
     """Return posts belonging to the caller's organization."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 ```
 
 The `org_id` parameter is injected from the JWT claim `org_id` and never appears in the GraphQL schema.
@@ -214,13 +208,13 @@ The `org_id` parameter is injected from the JWT claim `org_id` and never appears
 Use `additional_views=` when a query reads from multiple SQL views. FraiseQL uses this list to evict the query's cache entries when any of those views change:
 
 ```python
-@fraiseql.query(
-    sql_source="v_post",
-    additional_views=["v_user", "v_tag"],  # also read from these views
-)
+@fraiseql.query
 def posts_with_authors(limit: int = 20) -> list[Post]:
     """Fetch posts including denormalized author and tag data."""
-    pass
+    return fraiseql.config(
+        sql_source="v_post",
+        additional_views=["v_user", "v_tag"],  # also read from these views
+    )
 ```
 
 Without `additional_views`, only mutations targeting `v_post` would evict this query's cache. With it, mutations to `v_user` or `v_tag` also trigger eviction.
@@ -367,10 +361,10 @@ class AdminDashboard:
 ### Query-Level Role Restriction
 
 ```python
-@fraiseql.query(sql_source="v_admin_log", requires_role="admin")
+@fraiseql.query(requires_role="admin")
 def admin_logs(limit: int = 100) -> list[AdminLog]:
     """Only admin-role users can execute this query."""
-    pass
+    return fraiseql.config(sql_source="v_admin_log")
 ```
 
 ---
@@ -504,21 +498,18 @@ class CreateCommentInput:
 
 # --- Queries ---
 
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts(is_published: bool | None = None, limit: int = 20) -> list[Post]:
-    pass
+    return fraiseql.config(sql_source="v_post")
 
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def post(id: ID) -> Post | None:
-    pass
+    return fraiseql.config(sql_source="v_post")
 
-@fraiseql.query(
-    sql_source="v_post",
-    inject={"author_id": "jwt:sub"},
-)
+@fraiseql.query(inject={"author_id": "jwt:sub"})
 def my_posts(limit: int = 20) -> list[Post]:
     """Returns only posts authored by the requesting user."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 
 # --- Mutations ---
 
@@ -541,6 +532,65 @@ def publish_post(id: ID) -> Post:
 
 fraiseql.export_schema("schema.json")
 ```
+
+---
+
+## Transport Annotations
+
+<Aside type="note">
+REST annotations (`rest_path`, `rest_method`) are available in the Python SDK as of v2.1.0.
+</Aside>
+
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Add `rest_path`/`rest_method` to also expose it as a REST endpoint. Add `grpc_service`/`grpc_method` to also expose it via gRPC. Annotations can be combined freely.
+
+```python
+import fraiseql
+from uuid import UUID
+
+@fraiseql.type
+class Post:
+    id: UUID
+    title: str
+    author_id: UUID
+
+# GraphQL only
+@fraiseql.query
+def posts_graphql(limit: int = 10) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+
+# REST + GraphQL
+@fraiseql.query(rest_path="/posts", rest_method="GET")
+def posts(limit: int = 10) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+
+# REST with path parameter
+@fraiseql.query(rest_path="/posts/{id}", rest_method="GET")  # {id} must match function arg name
+def post(id: UUID) -> Post:
+    return fraiseql.config(sql_source="v_post")
+
+# gRPC + GraphQL
+@fraiseql.query(grpc_service="BlogService", grpc_method="ListPosts")
+def posts_grpc(limit: int = 10) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+
+# All three transports
+@fraiseql.query(rest_path="/posts", rest_method="GET", grpc_service="BlogService", grpc_method="ListPosts")
+def posts_all(limit: int = 10) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+
+# REST mutation
+@fraiseql.mutation(
+    sql_source="create_post",
+    operation="CREATE",
+    rest_path="/posts",
+    rest_method="POST",
+    grpc_service="BlogService",
+    grpc_method="CreatePost",
+)
+def create_post(title: str, author_id: UUID) -> Post: ...
+```
+
+Path parameters in `rest_path` (e.g., `{id}`) must match function argument names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
 
 ---
 
@@ -579,7 +629,7 @@ fraiseql.export_schema("schema.json")
    Expected output:
 
    ```
-   ✓ FraiseQL 2.0.0 running on http://localhost:8080/graphql
+   ✓ FraiseQL 2.1.0 running on http://localhost:8080/graphql
    ```
 
 </Steps>
@@ -591,6 +641,9 @@ fraiseql.export_schema("schema.json")
 <CardGrid>
   <Card title="Full Tutorial" icon="open-book">
     [Build a complete blog API from scratch](/getting-started/first-api)
+  </Card>
+  <Card title="Python Teams Use Case" icon="document">
+    [FraiseQL for Python Teams](/use-cases/python-teams) — Decorator patterns, REST annotations, and SpecQL
   </Card>
   <Card title="Custom Queries" icon="magnifier">
     [Filtering, pagination, and full-text search](/guides/custom-queries)

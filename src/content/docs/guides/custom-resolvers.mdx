@@ -45,15 +45,15 @@ class User:
 # The function body is ignored at runtime.
 # Only the signature matters: it tells the compiler the query name,
 # its arguments, return type, and which SQL view to read from.
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def user(id: ID) -> User | None:
     """Look up a single user by UUID."""
-    pass
+    return fraiseql.config(sql_source="v_user")
 
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def users(limit: int = 20, offset: int = 0) -> list[User]:
     """List users with pagination."""
-    pass
+    return fraiseql.config(sql_source="v_user")
 ```
 
 The Rust runtime reads `sql_source="v_user"` from the compiled schema and queries that view directly. No Python is involved at request time.
@@ -351,16 +351,17 @@ Add `cache_ttl_seconds=` to `@fraiseql.query` to cache results in the Rust runti
 import fraiseql
 from fraiseql.scalars import ID
 
-@fraiseql.query(
-    sql_source="v_post",
-    cache_ttl_seconds=60,     # cache results for 60 seconds
-)
+@fraiseql.query
 def posts(limit: int = 20, offset: int = 0) -> list[Post]:
     """List posts. Results are cached for 60 seconds."""
-    pass
+    return fraiseql.config(sql_source="v_post", cache_ttl_seconds=60)  # cache results for 60 seconds
 ```
 
 The caching backend is configured in `fraiseql.toml`:
+
+<Aside type="caution">
+The `[caching]` TOML section is unverified and may cause a hard parse error at startup. Treat this example as aspirational until the section is confirmed stable.
+</Aside>
 
 ```toml title="fraiseql.toml"
 [caching]
@@ -369,6 +370,10 @@ backend = "redis"    # or "memory"
 ```
 
 ---
+
+## Transport Compatibility
+
+Custom SQL functions work as resolvers for all transports. A custom function exposed via `@fraiseql.query` is available via GraphQL, REST (if annotated with `rest_path`), and gRPC (if annotated with `grpc_service`).
 
 ## When SQL Is Not Enough
 

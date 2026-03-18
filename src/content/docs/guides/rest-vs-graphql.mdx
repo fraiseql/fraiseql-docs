@@ -1,0 +1,211 @@
+---
+title: REST vs GraphQL with FraiseQL
+description: You don't have to choose — FraiseQL serves REST and GraphQL from the same binary. Here's when to use each.
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+This is not a generic REST vs GraphQL article. Both transports are served from the same FraiseQL binary, compiled from the same schema. The choice is per-operation, not per-project.
+
+## You Don't Have to Choose
+
+FraiseQL compiles your schema into a single Rust binary that serves REST and GraphQL simultaneously. You can expose some operations only via GraphQL, others via REST and GraphQL, and others via all three transports (REST, GraphQL, gRPC).
+
+Auth, rate limiting, and RBAC are shared across transports. There is no separate REST service to run or maintain.
+
+<Aside type="note">
+REST transport requires the `rest-transport` Cargo feature and is available in the published Docker image at `ghcr.io/fraiseql/server:latest`. Configuration via `[fraiseql.rest]` in `fraiseql.toml` is available since rc.15.
+</Aside>
+
+## When REST Wins
+
+<CardGrid>
+  <Card title="Public APIs for third-party developers">
+    REST is universal. Developers can consume it with any HTTP client, without GraphQL knowledge or tooling.
+  </Card>
+  <Card title="CDN caching">
+    GET endpoints are cacheable by default. GraphQL POST requests are not, without extra infrastructure.
+  </Card>
+  <Card title="OpenAPI tooling">
+    The OpenAPI 3.1 spec is auto-generated from your annotations at compile time — no manual YAML, works with any OpenAPI-compatible tool.
+  </Card>
+  <Card title="Mobile clients">
+    HTTP/1.1 compatible, simpler caching model, no GraphQL client library required.
+  </Card>
+  <Card title="Third-party integrations">
+    Webhooks, SaaS integrations, and automation tools expect REST. The auto-generated spec lets them discover your API without documentation.
+  </Card>
+  <Card title="Teams already using OpenAPI">
+    If your team generates SDKs from OpenAPI specs or uses tools like Swagger UI, the auto-generated spec slots in without process changes.
+  </Card>
+</CardGrid>
+
+## When GraphQL Wins
+
+<CardGrid>
+  <Card title="Complex nested data needs">
+    Field selection avoids over-fetching. Clients request exactly the fields they need, reducing payload size.
+  </Card>
+  <Card title="Multiple clients, different requirements">
+    One GraphQL endpoint serves mobile, web, and internal tools — each with a different query shape.
+  </Card>
+  <Card title="Real-time with subscriptions">
+    Native GraphQL subscription protocol (graphql-transport-ws and graphql-ws). REST has no equivalent.
+  </Card>
+  <Card title="Rapid iteration">
+    Add fields to a type without versioning the API. Existing clients are unaffected.
+  </Card>
+</CardGrid>
+
+## Running Both from the Same Schema
+
+Add `rest_path` and `rest_method` annotations to expose any operation via REST alongside GraphQL.
+
+```python
+# schema.py
+import fraiseql
+from uuid import UUID
+
+@fraiseql.type
+class Post:
+    id: UUID
+    title: str
+    body: str
+    published_at: str
+
+@fraiseql.query(
+    sql_source="v_post",
+    rest_path="/posts",       # REST: GET /rest/posts
+    rest_method="GET",
+)
+def posts(limit: int = 10) -> list[Post]: ...
+```
+
+REST clients hit `GET /rest/posts`. GraphQL clients send `query { posts { ... } }`. Both execute against the same SQL view `v_post`. Auth, rate limiting, and RBAC are shared.
+
+### Side-by-Side: Same Data, Two Transports
+
+```bash
+# REST
+curl https://api.example.com/rest/posts?limit=5 \
+  -H "Authorization: Bearer $TOKEN"
+
+# GraphQL (same data)
+curl -X POST https://api.example.com/graphql \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ posts(limit: 5) { id title } }"}'
+```
+
+The REST response is an unwrapped JSON array. The GraphQL response wraps the data in `{"data": {"posts": [...]}}`. Both are backed by the same compiled SQL view.
+
+## Migration Path: Add REST to an Existing GraphQL Schema
+
+If you already have a GraphQL schema, adding REST annotations is incremental. You do not need to restructure your schema or recompile everything from scratch.
+
+1. Add `rest_path` and `rest_method` to the operations you want to expose via REST.
+2. Run `fraiseql compile`.
+3. Restart `fraiseql run`.
+
+Existing GraphQL clients are unaffected. REST annotations only add new routes — they do not change GraphQL behavior.
+
+<Aside type="tip">
+The incremental approach works well when onboarding third-party developers who prefer REST. Your internal GraphQL clients continue working unchanged while the new REST surface is gradually expanded.
+</Aside>
+
+The reverse works too: if you have REST annotations and want to add GraphQL later, existing REST routes are unaffected when GraphQL is enabled.
+
+## Full Example: Blog API via REST and GraphQL
+
+### Schema
+
+```python
+# schema.py
+import fraiseql
+from uuid import UUID
+
+@fraiseql.type
+class Post:
+    id: UUID
+    title: str
+    body: str
+    author_id: UUID
+    published_at: str
+
+# List posts
+@fraiseql.query(
+    sql_source="v_post",
+    rest_path="/posts",
+    rest_method="GET",
+)
+def posts(limit: int = 10, offset: int = 0) -> list[Post]: ...
+
+# Get post by ID
+@fraiseql.query(
+    sql_source="v_post",
+    rest_path="/posts/{id}",
+    rest_method="GET",
+)
+def post(id: UUID) -> Post: ...
+
+# Create post (mutation)
+@fraiseql.mutation(
+    sql_source="fn_create_post",
+    rest_path="/posts",
+    rest_method="POST",
+)
+def create_post(title: str, body: str) -> Post: ...
+```
+
+### REST Clients
+
+```bash
+# List posts
+curl https://api.example.com/rest/posts?limit=10 \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get post by ID
+curl https://api.example.com/rest/posts/a1b2c3d4-... \
+  -H "Authorization: Bearer $TOKEN"
+
+# Create post
+curl -X POST https://api.example.com/rest/posts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Hello", "body": "World"}'
+```
+
+### GraphQL Clients
+
+```graphql
+# List posts
+query {
+  posts(limit: 10) {
+    id
+    title
+    publishedAt
+  }
+}
+
+# Get post by ID
+query {
+  post(id: "a1b2c3d4-...") {
+    id
+    title
+    body
+    authorId
+  }
+}
+
+# Create post
+mutation {
+  createPost(title: "Hello", body: "World") {
+    id
+    title
+  }
+}
+```
+
+All six operations above resolve against the same compiled schema. There is one binary to deploy and one `fraiseql.toml` to configure.
+
+See [REST Transport](/features/rest-transport) for the full annotation reference, OpenAPI spec generation, and configuration options.

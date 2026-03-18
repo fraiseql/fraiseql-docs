@@ -148,26 +148,26 @@ class PageViewAggregate:
     computed_at: DateTime
 
 
-@fraiseql.query(sql_source="v_pageview_event")
+@fraiseql.query
 def pageview_events(
     page_url: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[PageViewEvent]:
     """List raw page view events. Supports filtering by page_url."""
-    pass
+    return fraiseql.config(sql_source="v_pageview_event")
 
 
-@fraiseql.query(sql_source="v_pageview_aggregate", cache_ttl_seconds=60)
+@fraiseql.query
 def page_analytics(page_url: str, date: str) -> PageViewAggregate | None:
     """Get pre-computed analytics for a specific page on a given date."""
-    pass
+    return fraiseql.config(sql_source="v_pageview_aggregate", cache_ttl_seconds=60)
 
 
-@fraiseql.query(sql_source="v_pageview_aggregate", cache_ttl_seconds=300)
+@fraiseql.query
 def top_pages(limit: int = 50) -> list[PageViewAggregate]:
     """Get top pages by view count (all dates, ordered by view_count DESC)."""
-    pass
+    return fraiseql.config(sql_source="v_pageview_aggregate", cache_ttl_seconds=300)
 
 
 @fraiseql.subscription(
@@ -190,16 +190,14 @@ name = "analytics-platform"
 version = "1.0.0"
 
 [database]
-type = "postgresql"
 url  = "${DATABASE_URL}"
 
 [fraiseql]
 schema_file = "schema.json"
 output_file = "schema.compiled.json"
 
-[auth]
-issuer_url = "${OIDC_ISSUER_URL}"
-client_id  = "${OIDC_CLIENT_ID}"
+# JWT/OIDC config via environment variables (no [auth] TOML section):
+# OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET
 
 # When tb_pageview_aggregate is updated, push live subscription events via NATS.
 # The Rust runtime receives pg_notify from PostgreSQL and forwards to subscribers.
@@ -217,14 +215,20 @@ subject = "analytics.aggregate.updated"
 backend  = "nats"
 nats_url = "${NATS_URL}"
 
+# [caching] is aspirational — this TOML section is unverified and may cause parse errors.
+# Remove this block until [caching] support is confirmed stable.
 [caching]
 enabled = true
 backend = "redis"
 
-[fraiseql.security.audit_logging]
+[security.enterprise]
 enabled   = true
 log_level = "info"
 ```
+
+<Aside type="caution">
+The `[caching]` block in the config above is unverified and may cause a hard parse error at startup. Remove it until `[caching]` support is confirmed stable in the engine.
+</Aside>
 
 ## Real-Time Event Ingestion — External Worker
 

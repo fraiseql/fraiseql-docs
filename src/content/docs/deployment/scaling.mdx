@@ -26,6 +26,8 @@ Simplest production setup: 3+ stateless FraiseQL instances behind a load balance
 
 All major platforms support load balancing to multiple FraiseQL instances. Each instance is stateless and connects to the same shared database.
 
+All three transports — GraphQL, REST, and gRPC — scale identically because they are served by the same binary on port 8080. Adding a replica adds capacity for all transports simultaneously. The only infrastructure difference is that gRPC requires HTTP/2 between the client and the load balancer; see the [Kubernetes](/deployment/kubernetes#grpc-and-http2), [AWS](/deployment/aws#grpc-and-the-application-load-balancer), [GCP](/deployment/gcp#grpc-on-cloud-run), and [Azure](/deployment/azure#grpc-and-application-gateway-v2) deployment guides for load-balancer-specific configuration.
+
 **Health check configuration** (all platforms):
 
 ```
@@ -282,6 +284,10 @@ etag: "user-123-v1"
 
 FraiseQL's caching is configured via `fraiseql.toml` — FraiseQL is a Rust binary, and Python is only used at compile time to define the schema. There is no Python runtime to write cache logic in. Enable the Redis backend in your TOML:
 
+<Aside type="caution">
+The `[caching]` TOML section name shown below is **not yet verified against the FraiseQL source**. The caching backend and its exact TOML namespace are subject to change across releases. Treat this as illustrative and confirm against your installed version's documentation or `fraiseql.toml.example` before using in production.
+</Aside>
+
 ```toml
 [caching]
 enabled = true
@@ -292,8 +298,9 @@ redis_url = "redis://cache.example.com:6379"
 Cache TTL is specified at the query level in your Python schema file (compile-time only):
 
 ```python
-@fraiseql.query(sql_source="v_user", cache_ttl_seconds=3600)
-def get_user(id: ID) -> User | None: ...
+@fraiseql.query
+def get_user(id: ID) -> User | None:
+    return fraiseql.config(sql_source="v_user", cache_ttl_seconds=3600)
 ```
 
 ### Cache Invalidation

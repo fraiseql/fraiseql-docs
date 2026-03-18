@@ -367,28 +367,28 @@ class Refund:
 
 # ==================== QUERIES ====================
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def order(id: ID) -> Order:
     """Get order by ID with all federated relations."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def orders(customer_id: ID | None = None, limit: int = 20) -> list[Order]:
     """Get orders, optionally filtered by customer."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 
 
-@fraiseql.query(sql_source="v_customer")
+@fraiseql.query
 def customer(id: ID) -> Customer:
     """Get customer with payment methods."""
-    pass
+    return fraiseql.config(sql_source="v_customer")
 
 
-@fraiseql.query(sql_source="v_inventory_status")
+@fraiseql.query
 def inventory_status(product_id: ID | None = None) -> list[InventoryStatus]:
     """Get current inventory status across warehouses."""
-    pass
+    return fraiseql.config(sql_source="v_inventory_status")
 
 
 # ==================== MUTATIONS ====================
@@ -581,18 +581,21 @@ Configure separate connection pools for each database:
 ```toml
 [databases.primary]
 url = "${PRIMARY_DB}"
-pool_size = 50
-pool_timeout = 30000
+pool_min = 2
+pool_max = 50
+connect_timeout_ms = 30000
 
 [databases.inventory]
 url = "${INVENTORY_DB}"
-pool_size = 30
-pool_timeout = 30000
+pool_min = 2
+pool_max = 30
+connect_timeout_ms = 30000
 
 [databases.payments]
 url = "${PAYMENTS_DB}"
-pool_size = 20
-pool_timeout = 30000
+pool_min = 2
+pool_max = 20
+connect_timeout_ms = 30000
 ```
 
 ### Timeout Configuration

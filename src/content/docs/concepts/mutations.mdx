@@ -23,6 +23,8 @@ graph LR
 
 The SQL function does everything: validates input, writes data, optionally syncs projection tables, and returns shaped JSONB from a `v_*` view. FraiseQL never assembles the response in application code.
 
+Mutations are transport-agnostic at the database level. Whether the client sends a GraphQL mutation, a REST POST, or a gRPC unary call, FraiseQL routes the write to the same `fn_*` PostgreSQL function. The observer system fires on the database commit — it does not distinguish which transport initiated the mutation.
+
 ---
 
 ## Defining Mutations

@@ -14,7 +14,7 @@ Deploy FraiseQL in Docker containers for development and production use.
 ### 1. Create `Dockerfile`
 
 ```dockerfile
-FROM ghcr.io/fraiseql/fraiseql:latest
+FROM ghcr.io/fraiseql/server:latest
 
 WORKDIR /app
 
@@ -57,10 +57,10 @@ services:
 
   # Apply database schema migrations before starting the API
   migrate:
-    image: ghcr.io/fraiseql/confiture:latest
+    image: python:3.13-slim
     environment:
       DATABASE_URL: postgresql://fraiseql:dev-password@postgres:5432/fraiseql_dev
-    command: ["confiture", "migrate", "up", "--env", "local"]
+    entrypoint: ["sh", "-c", "pip install -q fraiseql-confiture && confiture migrate up --env local"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,7 +73,7 @@ services:
       DATABASE_URL: postgresql://fraiseql:dev-password@postgres:5432/fraiseql_dev
       JWT_SECRET: dev-secret-key-change-in-production
       FRAISEQL_ENV: development
-      FRAISEQL_LOG: debug
+      RUST_LOG: debug
     ports:
       - "8080:8080"
     depends_on:
@@ -123,7 +123,7 @@ For production deployments, use a multi-stage build for smaller image size:
 
 ```dockerfile
 # Stage 1: Compile schema
-FROM ghcr.io/fraiseql/fraiseql:latest AS builder
+FROM ghcr.io/fraiseql/server:latest AS builder
 
 WORKDIR /app
 COPY schema.py fraiseql.toml ./
@@ -131,7 +131,7 @@ COPY schema.py fraiseql.toml ./
 RUN python schema.py && fraiseql compile fraiseql.toml
 
 # Stage 2: Runtime — minimal image with compiled schema only
-FROM ghcr.io/fraiseql/fraiseql:latest
+FROM ghcr.io/fraiseql/server:latest
 
 WORKDIR /app
 
@@ -344,7 +344,7 @@ Example `scripts/init-db.sh`:
 set -e
 
 echo "Running database migrations..."
-fraiseql migrate
+confiture migrate
 
 echo "Seeding database (optional)..."
 psql "$DATABASE_URL" -f seeds/initial-data.sql
@@ -607,6 +607,25 @@ Never hardcode secrets. Use `.env` files (added to `.gitignore`) or a dedicated 
      secrets:
        - jwt_secret
    ```
+
+## Multi-Transport in Docker
+
+A single FraiseQL container serves GraphQL and REST on port 8080. gRPC is also available when FraiseQL is built with the `grpc-transport` Cargo feature.
+
+```
+Client → port 8080 → FraiseQL container
+                       ├── /graphql        (GraphQL, HTTP/1.1 or HTTP/2)
+                       ├── /rest/*         (REST, HTTP/1.1 or HTTP/2)
+                       └── /grpc/*         (gRPC, HTTP/2 only — requires grpc-transport feature)
+```
+
+<Aside type="caution">
+**gRPC is not in the official Docker image.** The `ghcr.io/fraiseql/server:latest` image does not include the `grpc-transport` Cargo feature. To use gRPC, build from source with `cargo build --release --features grpc-transport`. See [gRPC Transport](/features/grpc-transport).
+</Aside>
+
+<Aside type="note">
+gRPC requires HTTP/2. If you place nginx in front of FraiseQL and want to pass gRPC traffic through, configure nginx with `grpc_pass` rather than `proxy_pass`, or use a proxy that supports HTTP/2 backend connections. GraphQL and REST work with HTTP/1.1 or HTTP/2.
+</Aside>
 
 ## Performance Tuning
 

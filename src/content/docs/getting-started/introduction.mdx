@@ -3,9 +3,26 @@ title: Introduction
 description: What is FraiseQL and why should you use it?
 ---
 
-import { CardGrid, Card, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import { CardGrid, Card, Steps, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
 FraiseQL is a **database-first GraphQL framework**. You write SQL views, FraiseQL maps them to GraphQL types, and every query resolves to a single SQL statement. No resolvers. No N+1. No magic.
+
+FraiseQL serves three API transports from a single compiled schema: GraphQL, REST, and gRPC. You author the schema once in your preferred language, compile it, and run a single Rust binary that handles all three simultaneously.
+
+### One schema, three transports
+
+Traditional approach:
+- GraphQL service (Node.js/Go)
+- REST API service (separate codebase)
+- gRPC service (separate codebase)
+- Three deployment units, three maintenance burdens
+
+FraiseQL:
+- One schema definition (Python, TypeScript, Go, or 6 other languages)
+- One `fraiseql compile` step
+- One Rust binary serving GraphQL + REST + gRPC
+
+The Python API is the primary schema authoring layer. For teams that prefer a TOML-first workflow, [SpecQL](https://github.com/fraiseql/specql) is an optional companion tool that compiles TOML schema definitions to FraiseQL Python decorators, with 56 built-in semantic scalar types (Email, IBAN, Money, and more).
 
 ## The Problem with Traditional GraphQL
 
@@ -121,7 +138,7 @@ FraiseQL compiles the relationship between GraphQL types and SQL views at build 
     PostgreSQL, MySQL, SQLite, and SQL Server. Full multi-database support with database-specific optimizations.
   </Card>
   <Card title="Any Language" icon="pencil">
-    Define schemas in Python, TypeScript, Go, Java, Rust, Kotlin, C#, Swift, and Scala. All compile to the same output.
+    Define schemas in Python, TypeScript, Go, Java, Rust, PHP, C#, Elixir, and F#. All compile to the same output.
   </Card>
   <Card title="No N+1 by Design" icon="rocket">
     SQL views pre-join relationships. FraiseQL never issues N+1 queries — it's architecturally impossible.

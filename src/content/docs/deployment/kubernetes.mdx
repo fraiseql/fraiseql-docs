@@ -107,7 +107,7 @@ Deploy FraiseQL to Kubernetes for enterprise-grade scalability and reliability.
 
          initContainers:
            - name: migrate
-             image: ghcr.io/fraiseql/confiture:latest
+             image: python:3.13-slim
              imagePullPolicy: IfNotPresent
              env:
                - name: DATABASE_URL
@@ -116,10 +116,9 @@ Deploy FraiseQL to Kubernetes for enterprise-grade scalability and reliability.
                      name: fraiseql-secrets
                      key: database-url
              command:
-               - confiture
-               - migrate
-               - up
-               - --env
+               - sh
+               - -c
+               - pip install -q fraiseql-confiture && confiture migrate up --env
                - production
 
          containers:
@@ -300,6 +299,48 @@ Deploy FraiseQL to Kubernetes for enterprise-grade scalability and reliability.
    ```
 
 </Steps>
+
+## gRPC and HTTP/2
+
+<Aside type="caution">
+**gRPC is not in the official Docker image.** The `ghcr.io/fraiseql/server:latest` image does not include the `grpc-transport` Cargo feature. The configuration below applies only if you have built FraiseQL from source with `--features grpc-transport`. See [gRPC Transport](/features/grpc-transport).
+</Aside>
+
+FraiseQL serves GraphQL, REST, and gRPC on the same port 8080 when gRPC is enabled. gRPC requires HTTP/2. The Ingress configuration above works for GraphQL and REST (HTTP/1.1 or HTTP/2). To also expose gRPC:
+
+```yaml
+# fraiseql-ingress-grpc.yaml — separate Ingress for gRPC traffic
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fraiseql-grpc
+  namespace: fraiseql
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - grpc.example.com
+      secretName: fraiseql-grpc-tls
+  rules:
+    - host: grpc.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fraiseql
+                port:
+                  number: 8080
+```
+
+The `nginx.ingress.kubernetes.io/backend-protocol: "GRPC"` annotation tells nginx-ingress to use HTTP/2 for the backend connection. Without it, nginx will terminate HTTP/2 at the ingress and speak HTTP/1.1 to FraiseQL, which breaks gRPC.
+
+If you use Envoy or Linkerd as a service mesh, HTTP/2 pass-through is configured at the mesh level instead. Both support gRPC natively when the backend port is annotated as `h2c` (HTTP/2 cleartext) or when TLS is enabled end-to-end.
 
 ## Auto-Scaling
 

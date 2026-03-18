@@ -601,13 +601,12 @@ In `fraiseql.toml`, tune MySQL-specific settings:
 ```toml
 [database]
 url = "mysql://user:password@localhost:3306/mydb"
-pool_size = 10
-pool_timeout = 30
-statement_timeout = "5000ms"
+pool_min = 2
+pool_max = 20
+connect_timeout_ms = 30000
 
-[database.mysql]
-charset = "utf8mb4"
-collation = "utf8mb4_unicode_ci"
+
+# MySQL charset/collation is set in the DATABASE_URL connection string
 ```
 
 <CardGrid>

@@ -134,15 +134,15 @@ class User:
     email: str
     created_at: DateTime
 
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def user(id: ID) -> User | None:
     """Fetch a user by ID."""
-    pass
+    return fraiseql.config(sql_source="v_user")
 
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def users(limit: int = 20, offset: int = 0) -> list[User]:
     """List users."""
-    pass
+    return fraiseql.config(sql_source="v_user")
 ```
 </TabItem>
 <TabItem label="Order Service">
@@ -158,15 +158,15 @@ class Order:
     status: str
     created_at: DateTime
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def order(id: ID) -> Order | None:
     """Fetch an order by ID."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def orders(limit: int = 20, offset: int = 0) -> list[Order]:
     """List orders."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 ```
 </TabItem>
 </Tabs>
@@ -300,6 +300,17 @@ NATS integration is optional — federation works without it. NATS is only requi
 
 ---
 
+## REST and gRPC Alongside GraphQL Federation
+
+Each FraiseQL federation subgraph also serves REST on the same port 8080. gRPC is available when FraiseQL is built with the `grpc-transport` Cargo feature (not included in the official Docker image — see [gRPC Transport](/features/grpc-transport)). These transports are independent of the Apollo Federation protocol — they expose the same data and mutations through different wire formats. The Apollo Router only federates GraphQL traffic; REST and gRPC requests go directly to individual subgraph URLs.
+
+This means a single subgraph can simultaneously:
+- Participate in GraphQL federation (Apollo Router routes `_entities` queries)
+- Serve a REST API at `/rest/*` for services that prefer REST
+- Serve a gRPC API (HTTP/2) for high-throughput batch consumers (requires `grpc-transport` feature)
+
+REST is enabled by default on every FraiseQL service, including those with `[federation] enabled = true`. gRPC requires building from source with `--features grpc-transport`.
+
 ## Limitations
 
 Apollo Federation with FraiseQL has these limitations:
@@ -324,6 +335,12 @@ Apollo Federation with FraiseQL has these limitations:
 <CardGrid>
   <Card title="Federation Configuration" icon="setting">
     [Federation Configuration](/guides/federation-configuration) — Full per-service TOML reference and Docker Compose example
+  </Card>
+  <Card title="Advanced Federation" icon="puzzle">
+    [Advanced Federation Patterns](/guides/advanced-federation) — Apollo Federation v2 subgraph architecture
+  </Card>
+  <Card title="Federation + NATS" icon="random">
+    [Federation + NATS Integration](/guides/federation-nats-integration) — Cross-service event routing
   </Card>
   <Card title="NATS Integration" icon="random">
     [NATS Integration](/features/nats) — Durable cross-service event streaming

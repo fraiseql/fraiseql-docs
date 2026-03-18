@@ -113,14 +113,14 @@ Before deploying FraiseQL, apply pending schema migrations using Confiture:
 # Run as a one-off ECS task (or locally with production DATABASE_URL)
 docker run --rm \
   -e DATABASE_URL="$DATABASE_URL" \
-  ghcr.io/fraiseql/confiture:latest \
-  confiture migrate up --env production
+  python:3.13-slim \
+  sh -c "pip install -q fraiseql-confiture && confiture migrate up --env production"
 
 # Check migration status
 docker run --rm \
   -e DATABASE_URL="$DATABASE_URL" \
-  ghcr.io/fraiseql/confiture:latest \
-  confiture migrate status --env production
+  python:3.13-slim \
+  sh -c "pip install -q fraiseql-confiture && confiture migrate status --env production"
 ```
 
 For automated pipelines, add a migration step to your CI/CD workflow that runs before updating the ECS service. See the [Confiture documentation](/confiture/migrate) for more details.
@@ -269,6 +269,30 @@ aws ecs create-service \
   --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100" \
   --region us-east-1
 ```
+
+### gRPC and the Application Load Balancer
+
+AWS ALB supports gRPC natively via HTTP/2. When the ALB listener uses HTTPS and the target group protocol version is set to `GRPC`, the ALB routes gRPC traffic (including server streaming) to the Fargate task on port 8080. No separate listener or target group is required for GraphQL and REST — all three transports share the same port:
+
+```bash
+# Set the target group protocol version to GRPC for the gRPC listener
+aws elbv2 modify-target-group-attributes \
+  --target-group-arn arn:aws:elasticloadbalancing:... \
+  --attributes Key=deregistration_delay.timeout_seconds,Value=30
+
+# Create a second target group with GRPC protocol version
+aws elbv2 create-target-group \
+  --name fraiseql-grpc-tg \
+  --protocol HTTP \
+  --protocol-version GRPC \
+  --port 8080 \
+  --vpc-id vpc-xxxxx \
+  --health-check-protocol HTTP \
+  --health-check-path /health \
+  --region us-east-1
+```
+
+Route gRPC clients to the `fraiseql-grpc-tg` target group (same backend instances) and GraphQL/REST clients to the standard target group. Both point to the same Fargate tasks — FraiseQL handles protocol selection per request.
 
 ### 8. Configure Auto Scaling
 

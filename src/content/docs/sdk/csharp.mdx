@@ -8,6 +8,10 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 The FraiseQL C# SDK is a **schema authoring SDK**: you define GraphQL types using .NET attributes and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
 
 <Aside type="note">
+The C# SDK v2.1.0 is currently in the `[Unreleased]` section of the changelog — available on the main branch but not yet formally tagged. Check the [FraiseQL releases](https://github.com/fraiseql/fraiseql/releases) page for the stable release.
+</Aside>
+
+<Aside type="note">
 This is not a GraphQL client library. FraiseQL C# lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client (e.g. StrawberryShake, Banana Cake Pop).
 </Aside>
 
@@ -225,6 +229,44 @@ Field-level scope restrictions use `[GraphQLField(Scope = "...")]`:
 [GraphQLField(Type = "Email", Nullable = false, Scope = "user:read:email")]
 public string Email { get; set; } = "";
 ```
+
+---
+
+## Transport Annotations
+
+<Aside type="note">
+REST annotation support (`RestPath`, `RestMethod`) is in active development for this SDK. Available in the main branch; check the SDK changelog for the release version.
+</Aside>
+
+<Aside type="caution">
+gRPC annotations (`GrpcService`, `GrpcMethod`) require building FraiseQL with the `grpc-transport` feature — not included in the official `ghcr.io/fraiseql/server:latest` Docker image. See [gRPC Transport](/features/grpc-transport).
+</Aside>
+
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Extend `[FraiseQLQuery]` and `[FraiseQLMutation]` with `RestPath`, `RestMethod`, `GrpcService`, and `GrpcMethod` named parameters.
+
+```csharp
+using FraiseQL.SDK;
+
+// REST + GraphQL
+[FraiseQLQuery(SqlSource = "v_post", RestPath = "/posts", RestMethod = "GET")]
+public List<Post> Posts(int limit = 10) => null;
+
+// With path parameter
+[FraiseQLQuery(SqlSource = "v_post", RestPath = "/posts/{id}", RestMethod = "GET")]
+public Post Post(Guid id) => null;
+
+// gRPC
+[FraiseQLQuery(SqlSource = "v_post", GrpcService = "BlogService", GrpcMethod = "ListPosts")]
+public List<Post> PostsGrpc(int limit = 10) => null;
+
+// REST mutation
+[FraiseQLMutation(SqlSource = "create_post", Operation = "CREATE",
+                  RestPath = "/posts", RestMethod = "POST",
+                  GrpcService = "BlogService", GrpcMethod = "CreatePost")]
+public Post CreatePost(string title, Guid authorId) => null;
+```
+
+Path parameters in `RestPath` (e.g., `{id}`) must match method parameter names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
 
 ---
 

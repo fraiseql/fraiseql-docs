@@ -1,0 +1,31 @@
+---
+title: Blog
+description: Technical posts from the FraiseQL team — architecture decisions, performance analysis, and design philosophy
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Technical writing from the FraiseQL team. Architecture decisions, performance analysis, honest tradeoffs.
+
+<CardGrid>
+  <Card title="Three Transports, One Binary" icon="document">
+    How FraiseQL serves GraphQL, REST, and gRPC simultaneously from a single compiled schema. One binary, one port, zero duplication — and what that means for auth, rate limiting, and observability.
+
+    [Read post](/blog/three-transports-one-binary)
+  </Card>
+  <Card title="Why Our gRPC Skips JSON Entirely" icon="document">
+    FraiseQL's gRPC transport uses row-shaped database views that bypass PostgreSQL's `json_agg` serialization. Less DB work, smaller wire payload — and why we're not claiming to beat hand-written tonic.
+
+    [Read post](/blog/why-grpc-skips-json)
+  </Card>
+  <Card title="REST Transport: Annotation-Driven, Not Auto-Wired" icon="document">
+    Why FraiseQL requires explicit `rest_path` and `rest_method` annotations rather than auto-exposing schema operations as REST endpoints. A design decision with real tradeoffs.
+
+    [Read post](/blog/rest-annotation-driven)
+  </Card>
+  <Card title="11 Languages, One Server" icon="document">
+    "FraiseQL supports 11 languages" sounds like server generation in 11 languages. It doesn't work that way. The server is always a compiled Rust binary. Here's what the SDKs actually do.
+
+    [Read post](/blog/eleven-languages-one-server)
+  </Card>
+</CardGrid>

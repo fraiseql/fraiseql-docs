@@ -23,7 +23,13 @@ Before searching this guide or opening an issue, gather the following informatio
 
 ## Quick Diagnostic Checklist
 
-If FraiseQL isn't working, run through this checklist first:
+If FraiseQL isn't working, start with `fraiseql doctor` — it runs 11 checks covering schema, config, database, secrets, and feature coherence in a single command:
+
+```bash
+fraiseql doctor
+```
+
+If `doctor` passes but the issue persists, continue with the manual checklist below. To update the schema without restarting, use `kill -USR1` or the [admin reload endpoint](/reference/admin-api#schema-reload).
 
 <Steps>
 
@@ -223,13 +229,13 @@ Error: Migration failed
 1. Check migration status to understand what has already been applied:
 
    ```bash
-   fraiseql migrate status
+   confiture migrate status
    ```
 
 2. If the state is inconsistent, reset the migration history (CAUTION: drops data in development only):
 
    ```bash
-   fraiseql migrate reset
+   confiture migrate reset
    ```
 
 3. Alternatively, remove the conflicting object manually:
@@ -420,6 +426,29 @@ mutation { createUser(email: "...", name: "...") { id } }
 mutation { createPost(authorId: "valid-user-id", ...) { id } }
 ```
 
+### Request Rejected: Too Many Variables
+
+**Error:**
+```json
+{
+    "errors": [{
+        "message": "Too many variables: request contains more than 1000 variables"
+    }]
+}
+```
+
+**Cause:** The `variables` JSON object has more than 1,000 top-level keys. This is a hard security limit that cannot be configured.
+
+**Fix:** Restructure your query to pass bulk data as arrays instead of individual variables:
+```graphql
+# Instead of $id1, $id2, ... $id1500
+query GetUsers($ids: [ID!]!) {
+    users(ids: $ids) { id name }
+}
+```
+
+---
+
 ## Performance Issues
 
 ### Slow Queries
@@ -556,7 +585,7 @@ echo $TOKEN | cut -d. -f2 | base64 -d | jq
 
 **Fix:**
 ```bash
-curl -X POST http://localhost:8815/graphql \
+curl -X POST http://localhost:8080/graphql \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"query": "{ users { id } }"}'
@@ -620,13 +649,13 @@ SELECT pg_reload_conf();
 
 ```bash
 # Test endpoint
-curl -v http://localhost:8815/graphql
+curl -v http://localhost:8080/graphql
 
 # Check headers
-curl -I http://localhost:8815/health
+curl -I http://localhost:8080/health
 
 # Test with specific request
-curl -X POST http://localhost:8815/graphql \
+curl -X POST http://localhost:8080/graphql \
     -H "Content-Type: application/json" \
     -d '{"query": "{ __schema { types { name } } }"}'
 ```
@@ -669,3 +698,34 @@ If you can't resolve an issue:
     [Common Issues](/guides/faq)
   </Card>
 </CardGrid>
+
+## Transport-Specific Issues
+
+### REST Transport
+
+**REST endpoint returns 404**
+- Verify the `rest_path` annotation is present on the query or mutation
+- Check the URL prefix — default is `/rest/`; configurable via `[fraiseql.rest]` `prefix` or `FRAISEQL_REST_PREFIX`
+- Confirm `[fraiseql.rest]` is enabled in `fraiseql.toml` (rc.15+)
+
+**REST response is wrapped in `{"data": ...}`**
+- You may be hitting the GraphQL endpoint (`/graphql`) rather than the REST endpoint (`/rest/...`). FraiseQL's REST transport returns unwrapped JSON directly.
+
+**REST auth failing but GraphQL auth works**
+- REST uses the same auth mechanism as GraphQL. Check that the `Authorization: Bearer <token>` or `X-API-Key: <key>` header is present.
+- Verify `auth` in `[fraiseql.rest]` is not set to `"none"` when you expect auth enforcement.
+
+### gRPC Transport
+
+**gRPC connection refused or receives an HTTP/1.1 response**
+- gRPC requires HTTP/2. Verify your load balancer or reverse proxy supports HTTP/2 pass-through.
+- Confirm the binary was built with the `grpc-transport` Cargo feature enabled.
+- On nginx: use `listen 443 ssl http2;` and `grpc_pass` directive instead of `proxy_pass`.
+
+**gRPC method not found**
+- `grpc_service` and `grpc_method` values are case-sensitive. Verify they match the service and method name exactly as declared in your SDK annotations.
+- Use `grpcurl -plaintext localhost:8080 list` to see available services.
+
+---
+
+See [Observability](/features/observability) for Prometheus metrics, OpenTelemetry tracing, and structured logging — these are the primary tools for diagnosing production issues.

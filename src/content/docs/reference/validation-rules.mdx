@@ -68,7 +68,7 @@ Learn more about mutual exclusivity validators in the [Mutual Exclusivity guide]
 Field must be present and non-null.
 
 ```toml
-[fraiseql.validation]
+[validation]
 user_name = "required"
 ```
 
@@ -85,7 +85,7 @@ user_name = "required"
 Field value must match a regular expression pattern.
 
 ```toml
-[fraiseql.validation]
+[validation]
 user_email = {
     pattern = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
     message = "Invalid email format"
@@ -113,7 +113,7 @@ user_email = {
 String field length must be within specified bounds.
 
 ```toml
-[fraiseql.validation]
+[validation]
 password = { length = { min = 8, max = 128 } }
 username = { length = { min = 3 } }
 code = { length = { max = 10 } }
@@ -143,7 +143,7 @@ code = { length = { max = 10 } }
 Numeric field value must be within specified bounds.
 
 ```toml
-[fraiseql.validation]
+[validation]
 age = { range = { min = 0, max = 150 } }
 price = { range = { min = 0 } }
 quantity = { range = { max = 1000 } }
@@ -173,7 +173,7 @@ quantity = { range = { max = 1000 } }
 Field value must be one of allowed values.
 
 ```toml
-[fraiseql.validation]
+[validation]
 status = {
     enum = ["draft", "published", "archived"]
 }
@@ -198,7 +198,7 @@ status = {
 Field value must pass checksum validation (e.g., Luhn for credit cards, Mod-97 for IBANs).
 
 ```toml
-[fraiseql.validation]
+[validation]
 credit_card = { checksum = "luhn" }
 iban = { checksum = "mod97" }
 ```
@@ -227,7 +227,7 @@ iban = { checksum = "mod97" }
 Compare a field against another field in the same input.
 
 ```toml
-[fraiseql.validation]
+[validation]
 end_date = { cross_field = { field = "start_date", operator = "gt" } }
 ```
 
@@ -259,7 +259,7 @@ end_date = { cross_field = { field = "start_date", operator = "gt" } }
 Apply rules only if a condition is met.
 
 ```toml
-[fraiseql.validation]
+[validation]
 payment_method = {
     conditional = {
         condition = "isPremium == true",
@@ -297,7 +297,7 @@ payment_method = {
 Exactly one field from a set must be provided. See [Mutual Exclusivity Validation](/features/mutual-exclusivity#one-of).
 
 ```toml
-[fraiseql.validation]
+[validation]
 create_post_input = {
     one_of = ["authorId", "authorPayload"]
 }
@@ -319,7 +319,7 @@ create_post_input = {
 At least one field from a set must be provided. See [Mutual Exclusivity Validation](/features/mutual-exclusivity#any-of).
 
 ```toml
-[fraiseql.validation]
+[validation]
 contact_input = {
     any_of = ["email", "phone", "address"]
 }
@@ -341,7 +341,7 @@ contact_input = {
 If one field is present, others must be too. See [Mutual Exclusivity Validation](/features/mutual-exclusivity#conditional-required).
 
 ```toml
-[fraiseql.validation]
+[validation]
 checkout_input = {
     conditional_required = {
         if_field_present = "isPremium",
@@ -367,7 +367,7 @@ checkout_input = {
 If one field is absent, others must be provided. See [Mutual Exclusivity Validation](/features/mutual-exclusivity#required-if-absent).
 
 ```toml
-[fraiseql.validation]
+[validation]
 create_order_input = {
     required_if_absent = {
         absent_field = "addressId",
@@ -397,7 +397,7 @@ create_order_input = {
 All rules in the set must pass (AND logic).
 
 ```toml
-[fraiseql.validation]
+[validation]
 complex_field = {
     all = [
         { length = { min = 5, max = 50 } },
@@ -429,7 +429,7 @@ complex_field = {
 At least one rule must pass (OR logic).
 
 ```toml
-[fraiseql.validation]
+[validation]
 flexible_field = {
     any = [
         { pattern = "^\\d+$" },         # numeric
@@ -463,7 +463,7 @@ flexible_field = {
 ### Complete Input Type
 
 ```toml
-[fraiseql.validation]
+[validation]
 
 # Basic field validation
 user_email = {
@@ -514,7 +514,7 @@ order_location = {
 ### Complex Validation
 
 ```toml
-[fraiseql.validation]
+[validation]
 
 # Multiple validators on one field
 ssn = {

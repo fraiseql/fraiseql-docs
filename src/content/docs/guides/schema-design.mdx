@@ -209,11 +209,12 @@ class Membership:
 **Always paginate collections:**
 
 ```python
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts(
     limit: int = 20,    # Default limit
     offset: int = 0
-) -> list[Post]: ...
+) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
 ```
 
 **Connection pattern for cursor pagination:**
@@ -454,11 +455,13 @@ FraiseQL separates reads and writes. Design your schema accordingly:
 <Tabs syncKey="language">
   <TabItem label="Python">
     ```python
-    @fraiseql.query(sql_source="v_user")   # Reads from view
-    def user(id: ID) -> User: ...
+    @fraiseql.query   # Reads from view
+    def user(id: ID) -> User:
+        return fraiseql.config(sql_source="v_user")
 
-    @fraiseql.query(sql_source="tv_user")  # Reads from materialized table
-    def users(limit: int = 20) -> list[User]: ...
+    @fraiseql.query   # Reads from materialized table
+    def users(limit: int = 20) -> list[User]:
+        return fraiseql.config(sql_source="tv_user")
     ```
   </TabItem>
   <TabItem label="TypeScript">
@@ -538,10 +541,10 @@ The `identifier` column (a human-readable slug like a username or URL slug) is a
     Design queries to support both:
 
     ```python
-    @fraiseql.query(sql_source="v_user")
+    @fraiseql.query
     def user(id: ID | None = None, identifier: Slug | None = None) -> User | None:
         """Fetch by UUID or human-readable identifier."""
-        pass
+        return fraiseql.config(sql_source="v_user")
     ```
   </TabItem>
   <TabItem label="TypeScript">
@@ -612,12 +615,14 @@ Some views should be materialized to `tv_` tables. Design for this:
 
 ```python
 # Hot path - use tv_
-@fraiseql.query(sql_source="tv_post")
-def featured_posts() -> list[Post]: ...
+@fraiseql.query
+def featured_posts() -> list[Post]:
+    return fraiseql.config(sql_source="tv_post")
 
 # Rare access - use v_
-@fraiseql.query(sql_source="v_audit_log")
-def audit_logs(user_id: ID) -> list[AuditLog]: ...
+@fraiseql.query
+def audit_logs(user_id: ID) -> list[AuditLog]:
+    return fraiseql.config(sql_source="v_audit_log")
 ```
 
 ### Side Effects in Observers
@@ -631,6 +636,10 @@ def create_order(input: CreateOrderInput) -> Order:
     """Creates order. Notification handled by observer."""
     pass
 ```
+
+<Aside type="caution">
+The `[[observers.handlers]]` fields below (`entity_type`, `on`, `actions`) are not confirmed in the TOML configuration reference. The confirmed fields for `[[observers.handlers]]` are `name`, `event`, `action`, `webhook_url`. See [TOML Configuration](/reference/toml-config#observers) for the verified observer syntax.
+</Aside>
 
 ```toml
 # fraiseql.toml — observers are configured in TOML, not Python
@@ -856,13 +865,16 @@ For small projects or prototypes, you can point `sql_source` at a table directly
 
 ```python
 # Direct table reference — no v_ view needed for simple cases
-@fraiseql.query(sql_source="posts")  # points at the posts table
-def posts() -> list[Post]: ...
+@fraiseql.query
+def posts() -> list[Post]:
+    return fraiseql.config(sql_source="posts")  # points at the posts table
 ```
 
 FraiseQL treats a table and a view identically at compile time. The compile step will warn if the source doesn't return JSONB-shaped data, but for simple flat tables this works immediately.
 
 You can also mix conventions — use `v_*` views for complex queries and point directly at tables for admin-only or internal endpoints.
+
+Transport annotations are optional per operation. You can expose some operations via GraphQL only, others via REST + GraphQL, and others via all three transports. Design your schema with the consumer in mind — not every operation needs every transport.
 
 ## Checklist
 

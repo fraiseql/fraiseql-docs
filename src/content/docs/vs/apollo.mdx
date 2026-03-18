@@ -447,6 +447,10 @@ class CreateUserInput:
 Performance comparisons in this page reflect architectural differences — FraiseQL executes pre-built SQL views while Apollo resolvers generate queries at runtime. Actual numbers depend on hardware, database size, query complexity, and resolver implementation. See [Performance Benchmarks](/guides/performance-benchmarks) for controlled benchmark results.
 </Aside>
 
+## Multi-Transport Support
+
+FraiseQL serves REST and gRPC alongside GraphQL from the same compiled schema. If you're running Apollo Router as a gateway to serve non-GraphQL clients, FraiseQL eliminates that layer — REST and gRPC endpoints are served directly from the same binary.
+
 ## When to Use Apollo
 
 Apollo is a better choice when:
@@ -634,6 +638,10 @@ Mutation: {
 ```
 
 FraiseQL observer (the framework handles CRUD, you react to events via TOML configuration):
+
+<Aside type="caution">
+The snippet below uses `[[observers.rules]]` as illustrative syntax. The verified production handler syntax is `[[observers.handlers]]` — see the [TOML configuration reference](/reference/toml-config#observers).
+</Aside>
 
 ```toml title="fraiseql.toml"
 [observers]

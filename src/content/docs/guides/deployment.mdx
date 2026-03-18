@@ -18,7 +18,7 @@ version = "1.0.0"
 
 [server]
 host = "0.0.0.0"
-port = 8815
+port = 8080
 
 [server.cors]
 origins = ["https://app.example.com"]
@@ -32,12 +32,12 @@ connect_timeout_ms = 5000
 idle_timeout_ms = 600000
 ssl_mode = "require"
 
-[fraiseql.security.error_sanitization]
+[security.error_sanitization]
 enabled = true
 generic_messages = true
 leak_sensitive_details = false
 
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled = true
 auth_start_max_requests = 100
 auth_start_window_secs = 60
@@ -45,7 +45,7 @@ failed_login_max_requests = 5
 failed_login_window_secs = 3600
 ```
 
-For JWT token validation, configure `JWT_SECRET` and `JWT_ALGORITHM` environment variables (see [Environment Variables](#environment-variables) below). For OIDC/OAuth2 flows, use the `[auth]` TOML section with `client_id`, `issuer_url`, and `redirect_uri`.
+For JWT token validation, configure `JWT_SECRET` and `JWT_ALGORITHM` environment variables (see [Environment Variables](#environment-variables) below). For OIDC/OAuth2 flows, use the `[security.pkce]` TOML section with `client_id`, `issuer_url`, and `redirect_uri`.
 
 ### Environment Variables
 
@@ -67,14 +67,22 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.example.com:4317
 OTEL_SERVICE_NAME=fraiseql-api
 ```
 
+## Multi-Transport Deployment
+
+All three transports — GraphQL, REST, and gRPC — are served from the same port in the same binary. There is no separate deployment for each transport, and no additional process to manage.
+
+<Aside type="note">
+gRPC requires HTTP/2. Ensure your load balancer or reverse proxy supports HTTP/2 pass-through or termination. In nginx, add `listen 443 ssl http2;` to your server block. Most managed load balancers (AWS ALB, GCP Cloud Load Balancing, Azure Application Gateway) support HTTP/2 by default.
+</Aside>
+
 ## Docker Deployment
 
 ### Dockerfile
 
-FraiseQL is distributed as a pre-built Docker image — no Rust toolchain required. Use the official image as your base and copy in your schema:
+FraiseQL is distributed as a pre-built Docker image — no Rust toolchain required. Use the official image as your base and copy in your schema. One container serves all transports (GraphQL, REST, and gRPC):
 
 ```dockerfile
-FROM ghcr.io/fraiseql/fraiseql:latest
+FROM ghcr.io/fraiseql/server:latest
 
 WORKDIR /app
 
@@ -84,9 +92,9 @@ COPY schema.py .
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
-    CMD wget -qO- http://localhost:8815/health || exit 1
+    CMD wget -qO- http://localhost:8080/health || exit 1
 
-EXPOSE 8815
+EXPOSE 8080
 CMD ["fraiseql", "run"]
 ```
 
@@ -94,22 +102,22 @@ For CI/CD pipelines where you want to pre-compile the schema to a static artifac
 
 ```dockerfile
 # Stage 1: compile schema to schema.compiled.json
-FROM ghcr.io/fraiseql/fraiseql:latest AS builder
+FROM ghcr.io/fraiseql/server:latest AS builder
 WORKDIR /app
 COPY fraiseql.toml .
 COPY schema.py .
 RUN fraiseql compile
 
 # Stage 2: minimal runtime image with compiled schema
-FROM ghcr.io/fraiseql/fraiseql:latest
+FROM ghcr.io/fraiseql/server:latest
 WORKDIR /app
 COPY --from=builder /app/schema.compiled.json .
 COPY fraiseql.toml .
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
-    CMD wget -qO- http://localhost:8815/health || exit 1
+    CMD wget -qO- http://localhost:8080/health || exit 1
 
-EXPOSE 8815
+EXPOSE 8080
 CMD ["fraiseql", "run", "schema.compiled.json"]
 ```
 
@@ -122,7 +130,7 @@ services:
   api:
     build: .
     ports:
-      - "8815:8815"
+      - "8080:8080"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - JWT_SECRET=${JWT_SECRET}
@@ -139,7 +147,7 @@ services:
           cpus: "0.5"
           memory: 256M
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8815/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -187,7 +195,7 @@ spec:
         - name: api
           image: your-registry/fraiseql-api:latest
           ports:
-            - containerPort: 8815
+            - containerPort: 8080
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -209,13 +217,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 8815
+              port: 8080
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /health
-              port: 8815
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
 ---
@@ -228,7 +236,7 @@ spec:
     app: fraiseql-api
   ports:
     - port: 80
-      targetPort: 8815
+      targetPort: 8080
   type: ClusterIP
 ---
 apiVersion: networking.k8s.io/v1
@@ -292,7 +300,7 @@ stringData:
       "image": "your-ecr/fraiseql-api:latest",
       "portMappings": [
         {
-          "containerPort": 8815,
+          "containerPort": 8080,
           "protocol": "tcp"
         }
       ],
@@ -313,7 +321,7 @@ stringData:
         }
       ],
       "healthCheck": {
-        "command": ["CMD-SHELL", "wget -qO- http://localhost:8815/health || exit 1"],
+        "command": ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"],
         "interval": 30,
         "timeout": 5,
         "retries": 3
@@ -349,7 +357,7 @@ spec:
       containers:
         - image: gcr.io/your-project/fraiseql-api:latest
           ports:
-            - containerPort: 8815
+            - containerPort: 8080
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -378,7 +386,7 @@ primary_region = "iad"
 dockerfile = "Dockerfile"
 
 [http_service]
-internal_port = 8815
+internal_port = 8080
 force_https = true
 auto_stop_machines = false
 auto_start_machines = true
@@ -447,7 +455,7 @@ FraiseQL exposes health endpoints:
 | `/health/ready` | Readiness probe (can accept traffic) |
 
 ```bash
-curl http://localhost:8815/health
+curl http://localhost:8080/health
 # {"status": "healthy", "database": "connected", "version": "1.0.0"}
 ```
 
@@ -534,8 +542,8 @@ Review this checklist before every production deployment. Missing items in this 
 - [ ] **JWT secrets** are strong (`JWT_SECRET` env var, 256+ bits)
 - [ ] **Database credentials** use secrets management
 - [ ] **Network policies** restrict pod-to-pod traffic
-- [ ] **Rate limiting** enabled (`[fraiseql.security.rate_limiting]` in `fraiseql.toml`)
-- [ ] **Error sanitization** enabled (`[fraiseql.security.error_sanitization]` in `fraiseql.toml`)
+- [ ] **Rate limiting** enabled (`[security.rate_limiting]` in `fraiseql.toml`)
+- [ ] **Error sanitization** enabled (`[security.error_sanitization]` in `fraiseql.toml`)
 - [ ] **CORS origins** explicitly listed (`[server.cors]` in `fraiseql.toml`)
 - [ ] **SQL injection** prevented (parameterized queries — FraiseQL does this automatically)
 

@@ -60,21 +60,7 @@ confiture build --env ci
 
 # Dry run — show what would be executed
 confiture build --env local --dry-run
-
-# Rebuild only views (preserves table data)
-confiture build --env local --views-only
 ```
-
-### The `--views-only` Flag
-
-During development, you often modify views without changing tables. Instead of dropping and recreating the entire database:
-
-```bash
-# Only recreate views — table data is preserved
-confiture build --env local --views-only
-```
-
-This drops and recreates all `v_*` views and `tv_*` materialized tables, leaving `tb_*` tables (and their data) intact.
 
 ## Directory Structure
 
@@ -114,8 +100,8 @@ The typical development loop:
 # Edit a SQL view
 vim db/schema/02_read/v_user.sql
 
-# Rebuild views only (fast, preserves data)
-confiture build --env local --views-only
+# Rebuild the database (drop and recreate)
+confiture build --env local
 
 # Recompile the GraphQL mapping
 fraiseql compile

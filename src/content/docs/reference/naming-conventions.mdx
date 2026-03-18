@@ -443,14 +443,17 @@ class User:
 snake_case, descriptive:
 
 ```python
-@fraiseql.query(sql_source="v_user")
-def user(id: ID) -> User | None: ...
+@fraiseql.query
+def user(id: ID) -> User | None:
+    return fraiseql.config(sql_source="v_user")
 
-@fraiseql.query(sql_source="v_user")
-def users(limit: int = 20) -> list[User]: ...
+@fraiseql.query
+def users(limit: int = 20) -> list[User]:
+    return fraiseql.config(sql_source="v_user")
 
-@fraiseql.query(sql_source="v_post")
-def posts_by_author(author_id: ID) -> list[Post]: ...
+@fraiseql.query
+def posts_by_author(author_id: ID) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
 ```
 
 ### Mutations
@@ -601,18 +604,22 @@ class User:
     created_at: DateTime
     updated_at: DateTime
 
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def user(id: ID) -> User | None:
-    pass
+    return fraiseql.config(sql_source="v_user")
 
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def users(limit: int = 20, offset: int = 0) -> list[User]:
-    pass
+    return fraiseql.config(sql_source="v_user")
 
 @fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
 def create_user(email: str, name: str) -> User:
     pass
 ```
+
+## REST Path Conventions
+
+REST path annotations (`rest_path`) follow standard REST URL conventions: lowercase, hyphens for spaces, plural nouns for collections (e.g., `/users`, `/blog-posts/{id}`).
 
 ## Quick Reference
 

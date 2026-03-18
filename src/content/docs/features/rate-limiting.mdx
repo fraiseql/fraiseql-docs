@@ -326,11 +326,18 @@ rate(fraiseql_rate_limit_redis_errors_total[5m])
 **Legitimate users being limited in multi-instance deployments**
 - Configure `redis_url` in `[security.rate_limiting]` to share limits across replicas (requires `redis-rate-limiting` feature)
 
+## Transport Behaviour
+
+Rate limiting applies per-transport. Metrics are tagged with the transport type (`graphql`, `rest`, `grpc`). By default, limits are shared across transports per client (same token bucket), so a client hitting rate limits on REST also counts toward their GraphQL quota. Per-transport limits can be configured if needed.
+
 ## Next Steps
 
 <CardGrid>
   <Card title="Security" icon="shield">
     [Security](/features/security) — Authentication and authorization
+  </Card>
+  <Card title="Authentication" icon="approve-check-circle">
+    [Authentication](/guides/authentication) — JWT, OIDC, and failed login protection
   </Card>
   <Card title="TOML Reference" icon="setting">
     [TOML Config](/reference/toml-config#securityrate_limiting) — Full field reference

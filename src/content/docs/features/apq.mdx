@@ -61,10 +61,10 @@ APQ is enabled by default with an in-memory LRU cache. No TOML configuration is 
 
 No configuration needed. The server caches up to 1,000 query strings in memory with a 1-hour TTL.
 
-To disable APQ (e.g., in testing), set the environment variable using the `FRAISEQL_` prefix with `__` for nesting:
+To disable APQ (e.g., in testing), set the environment variable:
 
 ```bash
-FRAISEQL_APQ__ENABLED=false fraiseql run
+FRAISEQL_APQ_ENABLED=false fraiseql run
 ```
 
 ### Multi-Instance (Redis required)
@@ -396,6 +396,10 @@ Ensure client and server use the same hashing:
 - Algorithm: SHA-256
 - Input: Query string with normalized whitespace
 - Output: Hex-encoded lowercase
+
+## GraphQL-Only Feature
+
+APQ (Automatic Persisted Queries) is GraphQL-only. REST endpoints are identified by path, gRPC endpoints by service/method name — neither uses query hashing. APQ configuration has no effect on REST or gRPC transports.
 
 ## Next Steps
 

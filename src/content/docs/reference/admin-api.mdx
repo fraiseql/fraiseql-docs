@@ -1,0 +1,208 @@
+---
+title: Admin API
+description: REST endpoints for schema reload, cache management, and server diagnostics
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+The admin API provides operational endpoints for managing a running FraiseQL server without restarting it. All endpoints are under `/api/v1/admin/` and require bearer token authentication.
+
+## Configuration
+
+Enable the admin API in `fraiseql.toml`:
+
+```toml
+[server]
+admin_api_enabled    = true
+admin_token          = "${FRAISEQL_ADMIN_TOKEN}"
+admin_readonly_token = "${FRAISEQL_ADMIN_READONLY_TOKEN}"  # optional
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `admin_api_enabled` | Yes | Set to `true` to register admin endpoints |
+| `admin_token` | Yes | Bearer token for write operations (min 32 chars) |
+| `admin_readonly_token` | No | Separate token for read-only operations. Falls back to `admin_token` if not set. |
+
+<Aside type="caution" title="Split-token mode recommended">
+When only `admin_token` is set, it grants access to **all** admin operations including destructive ones (cache clear, schema reload). Set `admin_readonly_token` to give monitoring tools read-only access without write privileges.
+</Aside>
+
+## Authentication
+
+All admin endpoints require an `Authorization: Bearer <token>` header. The token is compared using constant-time comparison to prevent timing attacks.
+
+```bash
+curl -s http://localhost:8080/api/v1/admin/config \
+  -H "Authorization: Bearer $FRAISEQL_ADMIN_TOKEN"
+```
+
+| Status | Meaning |
+|--------|---------|
+| 401 | Missing or malformed `Authorization` header |
+| 403 | Invalid bearer token |
+
+---
+
+## Schema Reload
+
+### `POST /api/v1/admin/reload-schema`
+
+Hot-reload a compiled schema without restarting the server. In-flight requests complete on the old schema; new requests use the new schema immediately.
+
+**Requires:** `admin_token`
+
+**Request:**
+
+```json
+{
+  "schema_path": "/app/schema.compiled.json",
+  "validate_only": false
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `schema_path` | string | required | Absolute path to the compiled schema file on disk |
+| `validate_only` | bool | `false` | If `true`, validate the schema without applying it |
+
+**Response (200):**
+
+```json
+{
+  "status": "success",
+  "data": {
+    "success": true,
+    "message": "Schema reloaded from /app/schema.compiled.json in 42ms"
+  }
+}
+```
+
+**Error responses:**
+
+| Status | Code | Cause |
+|--------|------|-------|
+| 400 | `VALIDATION_ERROR` | Empty `schema_path` |
+| 400 | `PARSE_ERROR` | File not found or invalid JSON |
+| 500 | `INTERNAL_ERROR` | Schema swap failed |
+
+**Behavior:**
+
+- **Atomic swap** — uses lock-free ArcSwap; in-flight requests are never interrupted
+- **No-op optimization** — if the content hash matches the current schema, no swap occurs
+- **Concurrent protection** — only one reload runs at a time; concurrent attempts return an error
+- **Cache invalidation** — query plan cache is cleared on reload
+- **Connection pool reuse** — the database connection pool is not recreated
+
+### SIGUSR1 (Unix alternative)
+
+On Unix systems, you can also trigger a schema reload by sending `SIGUSR1` to the FraiseQL process. It reloads from the schema path configured at startup.
+
+```bash
+kill -USR1 $(pidof fraiseql)
+```
+
+The same atomic swap and validation guarantees apply. If the new schema is invalid, the old schema remains active and an error is logged.
+
+**Metrics:**
+- `fraiseql_schema_reloads_total` — successful reloads (counter)
+- `fraiseql_schema_reload_errors_total` — failed reload attempts (counter)
+
+### Verifying a reload
+
+`GET /health` includes a `schema_hash` field — the SHA-256 content hash of the currently loaded schema. Compare across replicas to confirm all instances are running the same version.
+
+```bash
+curl -s http://localhost:8080/health | jq .schema_hash
+# "a1b2c3d4e5f67890..."
+```
+
+---
+
+## Cache Management
+
+### `POST /api/v1/admin/cache/clear`
+
+Clear the query plan cache. Use after schema changes or when cache entries become stale.
+
+**Requires:** `admin_token`
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/admin/cache/clear \
+  -H "Authorization: Bearer $FRAISEQL_ADMIN_TOKEN"
+```
+
+### `GET /api/v1/admin/cache/stats`
+
+Return cache hit/miss statistics.
+
+**Requires:** `admin_readonly_token` (or `admin_token`)
+
+```bash
+curl -s http://localhost:8080/api/v1/admin/cache/stats \
+  -H "Authorization: Bearer $FRAISEQL_ADMIN_READONLY_TOKEN"
+```
+
+---
+
+## Diagnostics
+
+### `GET /api/v1/admin/config`
+
+Return the current server configuration (sanitized — secrets are redacted).
+
+**Requires:** `admin_readonly_token` (or `admin_token`)
+
+```bash
+curl -s http://localhost:8080/api/v1/admin/config \
+  -H "Authorization: Bearer $FRAISEQL_ADMIN_READONLY_TOKEN"
+```
+
+### `POST /api/v1/admin/explain`
+
+Explain a GraphQL query — returns the generated SQL and execution plan without executing it.
+
+**Requires:** `admin_readonly_token` (or `admin_token`)
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/admin/explain \
+  -H "Authorization: Bearer $FRAISEQL_ADMIN_READONLY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ users { id name } }"}'
+```
+
+An alias is available at `POST /api/v1/query/explain`.
+
+### `GET /api/v1/admin/grafana-dashboard`
+
+Export a pre-built Grafana dashboard JSON for FraiseQL metrics. Import this directly into Grafana.
+
+**Requires:** `admin_readonly_token` (or `admin_token`)
+
+```bash
+curl -s http://localhost:8080/api/v1/admin/grafana-dashboard \
+  -H "Authorization: Bearer $FRAISEQL_ADMIN_READONLY_TOKEN" \
+  -o fraiseql-dashboard.json
+```
+
+---
+
+## Kubernetes Usage
+
+In Kubernetes, use `kubectl exec` to interact with the admin API:
+
+```bash
+# Reload schema on a running pod
+kubectl exec deploy/fraiseql -- \
+  curl -s -X POST http://localhost:8080/api/v1/admin/reload-schema \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"schema_path": "/app/schema.compiled.json"}'
+
+# Or use SIGUSR1 (signal approach)
+kubectl exec deploy/fraiseql -- kill -USR1 1
+
+# Verify schema hash across all pods
+kubectl get pods -l app=fraiseql -o name | xargs -I{} \
+  kubectl exec {} -- curl -s http://localhost:8080/health | jq .schema_hash
+```

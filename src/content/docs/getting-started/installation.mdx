@@ -114,7 +114,7 @@ fraiseql --version
 Expected output:
 
 ```
-fraiseql 2.0.0
+fraiseql 2.1.0
 ```
 
 ## Set Up Your Database
@@ -239,6 +239,12 @@ CMD ["fraiseql", "run", "--bind", "0.0.0.0"]
 
   </TabItem>
   <TabItem label="Alpine">
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution">
+The official FraiseQL binary is compiled for `x86_64-unknown-linux-gnu` (glibc). Alpine Linux uses musl libc — the `linux-gnu` binary will not run on Alpine without a compatibility layer. Either use a `debian`/`ubuntu`-based image, or use the official `ghcr.io/fraiseql/server:latest` image which is already compiled for the correct target.
+</Aside>
 
 ```dockerfile title="Dockerfile"
 FROM alpine:3.19

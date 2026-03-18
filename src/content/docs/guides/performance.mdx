@@ -180,6 +180,10 @@ jsonb_array_length(data->'items')  -- Not indexable
 
 ## Caching
 
+<Aside type="caution">
+The `[caching]` TOML section is unverified and may cause a hard parse error at startup. Treat examples in this section as aspirational until the section is confirmed stable. See the [Caching](/features/caching) reference for the latest status.
+</Aside>
+
 The `[caching]` section is available in `fraiseql.toml`. See [Caching](/features/caching) for full configuration reference.
 
 ### Response Caching
@@ -450,6 +454,22 @@ These are illustrative baselines. Actual performance depends on hardware specifi
 - [ ] Metrics collection enabled
 - [ ] Slow query logging enabled
 
+## Transport Performance Characteristics
+
+All three transports share the same connection pool and Executor. Transport choice is rarely the performance bottleneck — database query time dominates.
+
+| Transport | View shape | Wire format | Notes |
+|-----------|-----------|-------------|-------|
+| GraphQL | JSON-shaped (`json_agg`) | JSON text | DB produces JSON; server passes through |
+| REST | JSON-shaped (`json_agg`) | JSON text | Same as GraphQL — identical views |
+| gRPC | Row-shaped (`SELECT`) | Protobuf binary | DB skips JSON; server maps to protobuf |
+
+The gRPC path does less work at both the DB and server level, but for most workloads the difference is small because the DB query itself (joins, indexes, RLS) dominates latency.
+
+Optimize the DB query first. Transport choice is a secondary concern.
+
+---
+
 ## Next Steps
 
 <CardGrid>
@@ -461,6 +481,9 @@ These are illustrative baselines. Actual performance depends on hardware specifi
   </Card>
   <Card title="Caching" icon="star">
     Advanced caching strategies including edge caching and CDN integration. [Caching](/features/caching)
+  </Card>
+  <Card title="Observability" icon="setting">
+    Prometheus metrics, OpenTelemetry tracing, and structured logging. [Observability](/features/observability)
   </Card>
   <Card title="Scaling" icon="rocket">
     Horizontal scaling, load balancing, and deployment topologies. [Scaling](/deployment/scaling)

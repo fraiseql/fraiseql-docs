@@ -8,6 +8,10 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 The FraiseQL Elixir SDK is a **schema authoring SDK**: you define GraphQL types, queries, and mutations using compile-time Elixir macros, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
 
 <Aside type="note">
+The Elixir SDK v2.1.0 is currently in the `[Unreleased]` section of the changelog — available on the main branch but not yet formally tagged. Check the [FraiseQL releases](https://github.com/fraiseql/fraiseql/releases) page for the stable release.
+</Aside>
+
+<Aside type="note">
 This is not a GraphQL client library. FraiseQL Elixir lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client (e.g. Neuron, AbsintheClient).
 </Aside>
 
@@ -209,6 +213,54 @@ fraiseql_type "User", sql_source: "v_user" do
   field :email, :email, nullable: false, scope: "user:read:email"
 end
 ```
+
+---
+
+## Transport Annotations
+
+<Aside type="caution">
+REST annotation support is not yet available in this SDK. Follow the SDK repository for updates.
+</Aside>
+
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Pass `rest_path:`, `rest_method:`, `grpc_service:`, and `grpc_method:` as keyword options on `fraiseql_query` and `fraiseql_mutation`.
+
+```elixir
+defmodule MyApp.Schema do
+  use FraiseQL.SDK
+
+  query :posts,
+    sql_source: "v_post",
+    rest_path: "/posts",
+    rest_method: "GET",
+    grpc_service: "BlogService",
+    grpc_method: "ListPosts" do
+    arg :limit, :integer, default: 10
+    returns list_of(:post)
+  end
+
+  query :post,
+    sql_source: "v_post",
+    rest_path: "/posts/{id}",
+    rest_method: "GET" do
+    arg :id, :uuid
+    returns :post
+  end
+
+  mutation :create_post,
+    sql_source: "create_post",
+    operation: :create,
+    rest_path: "/posts",
+    rest_method: "POST",
+    grpc_service: "BlogService",
+    grpc_method: "CreatePost" do
+    arg :title, :string
+    arg :author_id, :uuid
+    returns :post
+  end
+end
+```
+
+Path parameters in `rest_path` (e.g., `{id}`) must match argument names declared in the block exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
 
 ---
 

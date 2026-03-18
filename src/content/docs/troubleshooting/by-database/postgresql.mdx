@@ -665,9 +665,10 @@ In `fraiseql.toml`, tune PostgreSQL-specific settings:
 ```toml
 [database]
 url = "${DATABASE_URL}"
-pool_size = 10
-pool_timeout = 30
-statement_timeout = "5000ms"
+pool_min = 2
+pool_max = 20
+connect_timeout_ms = 30000
+
 ssl_mode = "require"         # "disable", "allow", "prefer", "require", "verify-ca", "verify-full"
 
 [database.postgresql]

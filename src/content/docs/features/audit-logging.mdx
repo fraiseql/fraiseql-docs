@@ -172,6 +172,23 @@ Set `audit_log_backend` to `"syslog"` or `"file"` to forward audit events to tho
 | `graphql.subscription` | Subscription started |
 | `graphql.error` | Operation error |
 
+Every audit event includes a `transport` field in the `details JSONB` column indicating which transport handled the request: `"graphql"`, `"rest"`, or `"grpc"`. This lets you filter audit logs by transport:
+
+```sql
+-- Audit events from REST clients only
+SELECT * FROM tb_audit_log
+WHERE details->>'transport' = 'rest'
+  AND timestamp > NOW() - INTERVAL '1 hour'
+ORDER BY timestamp DESC;
+
+-- gRPC mutations in the last 24 hours
+SELECT event_type, user_id, details->>'transport' AS transport, timestamp
+FROM tb_audit_log
+WHERE details->>'transport' = 'grpc'
+  AND event_type = 'graphql.mutation'
+  AND timestamp > NOW() - INTERVAL '24 hours';
+```
+
 ### Administrative Events
 
 | Event | Description |

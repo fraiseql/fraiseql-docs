@@ -73,9 +73,9 @@ class User:
 **Usage:**
 
 ```python
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def user(id: ID) -> User | None:
-    pass
+    return fraiseql.config(sql_source="v_user")
 
 @fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
 def create_user(name: str) -> User:
@@ -1319,11 +1319,11 @@ class Product:
     metadata: Json | None
     embedding: Vector | None
 
-@fraiseql.query(sql_source="v_product")
+@fraiseql.query
 def product(id: ID) -> Product | None:
-    pass
+    return fraiseql.config(sql_source="v_product")
 
-@fraiseql.query(sql_source="v_product")
+@fraiseql.query
 def products(
     is_available: bool | None = None,
     min_price: Decimal | None = None,
@@ -1331,7 +1331,7 @@ def products(
     tags: list[str] | None = None,
     limit: int = 20
 ) -> list[Product]:
-    pass
+    return fraiseql.config(sql_source="v_product")
 ```
 
 ## Next Steps
@@ -1339,7 +1339,7 @@ def products(
 - [Semantic Scalars](/reference/semantic-scalars) — Advanced types with rich filtering operators
 - [Operators](/reference/operators) — Filter operators for queries
 - [Naming Conventions](/reference/naming-conventions) — Column and table naming
-- [Type System](/concepts/type-system) — Complete type reference
+- [Type System](/concepts/type-system) — Complete type reference, including Protobuf type mappings for gRPC
 
 <CardGrid>
   <Card title="Semantic Scalars" icon="list-format">

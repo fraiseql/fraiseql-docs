@@ -104,10 +104,10 @@ az containerapp job create \
   --name fraiseql-migrate \
   --resource-group fraiseql-rg \
   --environment fraiseql-env \
-  --image ghcr.io/fraiseql/confiture:latest \
+  --image python:3.13-slim \
   --replica-timeout 300 \
   --trigger-type Manual \
-  --args "confiture" "migrate" "up" "--env" "production" \
+  --args "sh" "-c" "pip install -q fraiseql-confiture && confiture migrate up --env production" \
   --env-vars "DATABASE_URL=secretref:database-url"
 
 # Execute the migration job
@@ -130,7 +130,7 @@ az containerapp create \
     --name fraiseql-app \
     --resource-group $RESOURCE_GROUP \
     --environment fraiseql-env \
-    --image ghcr.io/fraiseql/fraiseql:latest \
+    --image ghcr.io/fraiseql/server:latest \
     --env-vars \
         "DATABASE_URL=server=fraiseql-sql.database.windows.net;database=fraiseql_db;Authentication=ActiveDirectoryMsi" \
     --target-port 8080 \
@@ -526,6 +526,29 @@ az network application-gateway create \
   --http-settings-port 8080 \
   --http-settings-protocol Http
 ```
+
+## gRPC and Application Gateway v2
+
+Azure Application Gateway v2 (Standard_v2 and WAF_v2 SKUs) supports gRPC natively. To route gRPC traffic alongside GraphQL and REST traffic through the same Application Gateway to the same FraiseQL backend on port 8080, configure the backend settings to use HTTP/2:
+
+```bash
+# Enable HTTP/2 on the Application Gateway (required for gRPC)
+az network application-gateway http-settings update \
+  --resource-group $RESOURCE_GROUP \
+  --gateway-name fraiseql-gateway \
+  --name appGatewayBackendHttpSettings \
+  --protocol Https \
+  --port 8080 \
+  --enable-probe true \
+  --host-name-from-backend-pool true
+
+# Note: Application Gateway v2 terminates TLS and communicates with
+# the backend over HTTP/2 when the backend settings protocol is HTTPS.
+# FraiseQL does not need TLS enabled on port 8080 — TLS is terminated
+# at the gateway level.
+```
+
+For Azure Container Apps (which are used in the SQL Server deployment above), gRPC is supported natively — Container Apps automatically negotiate HTTP/2 with clients, and the traffic reaches FraiseQL's port 8080 over HTTP/2 without additional configuration.
 
 ## App Service Deployment Slots
 

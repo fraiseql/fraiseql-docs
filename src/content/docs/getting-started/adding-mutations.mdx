@@ -91,11 +91,33 @@ Create mutation functions in `db/schema/03_mutations/`. Each function validates 
   </TabItem>
 
   <TabItem label="MySQL">
-    <Aside type="caution">
-    **MySQL mutations are not supported in the current release.** The MySQL adapter's `execute_function_call` returns `Unsupported` — mutation functions are not executed. MySQL stored functions also cannot return the eight-column `mutation_response` composite type that the FraiseQL runtime expects (MySQL has no equivalent of PostgreSQL composite types).
 
-    Use MySQL for read queries only. Mutation support is planned for a future release. For write operations on MySQL, consider running a PostgreSQL instance alongside MySQL, or use PostgreSQL as your primary database.
-    </Aside>
+MySQL mutations use stored procedures with a JSON output convention instead of PostgreSQL composite types. Define your mutation function as a stored procedure that returns a single JSON column:
+
+```sql
+CREATE PROCEDURE fn_create_post(
+  IN p_title VARCHAR(255),
+  IN p_body TEXT
+)
+BEGIN
+  DECLARE v_id CHAR(36) DEFAULT (UUID());
+  INSERT INTO post (id, title, body, created_at)
+  VALUES (v_id, p_title, p_body, NOW());
+  SELECT JSON_OBJECT(
+    'id', v_id,
+    'title', p_title,
+    'body', p_body
+  ) AS result;
+END;
+```
+
+The Python mutation declaration is the same as PostgreSQL:
+
+```python
+@fraiseql.mutation(sql_source="fn_create_post", operation="CUSTOM")
+def create_post(title: str, body: str) -> Post: pass
+```
+
   </TabItem>
 
   <TabItem label="SQLite">
@@ -198,23 +220,41 @@ Add input types and mutation definitions to your schema file. For `"CUSTOM"` mut
   <TabItem label="TypeScript">
     ```typescript title="schema.ts"
     // Add to schema.ts — User and Post types are already defined
-    import { registerMutation } from 'fraiseql';
+    import { mutation, input } from 'fraiseql';
 
-    registerMutation('createUser', 'User', false, false, [
-      { name: 'username', type: 'String', nullable: false },
-      { name: 'email',    type: 'String', nullable: false },
-      { name: 'bio',      type: 'String', nullable: true  },
-    ], 'Create a new user', { sql_source: 'fn_create_user', operation: 'CUSTOM' });
+    @input()
+    class CreateUserInput {
+      username: string;
+      email: string;
+      bio?: string;
+    }
 
-    registerMutation('createPost', 'Post', false, false, [
-      { name: 'title',    type: 'String', nullable: false },
-      { name: 'content',  type: 'String', nullable: false },
-      { name: 'authorId', type: 'ID',     nullable: false },
-    ], 'Create a new post', { sql_source: 'fn_create_post', operation: 'CUSTOM' });
+    @input()
+    class CreatePostInput {
+      title: string;
+      content: string;
+      authorId: string;
+    }
 
-    registerMutation('publishPost', 'Post', false, false, [
-      { name: 'postId', type: 'ID', nullable: false },
-    ], 'Publish a post', { sql_source: 'fn_publish_post', operation: 'CUSTOM' });
+    @input()
+    class PublishPostInput {
+      postId: string;
+    }
+
+    @mutation()
+    function createUser(input: CreateUserInput): User {
+      /** Create a new user. */
+    }
+
+    @mutation()
+    function createPost(input: CreatePostInput): Post {
+      /** Create a new post. */
+    }
+
+    @mutation()
+    function publishPost(input: PublishPostInput): Post {
+      /** Publish a post. */
+    }
     ```
   </TabItem>
 
@@ -295,7 +335,7 @@ confiture build --env local
 Recompile and serve:
 
 ```bash
-fraiseql run
+fraiseql compile && fraiseql run
 ```
 
 Open the GraphQL Playground at `http://localhost:8080/graphql`.
@@ -354,6 +394,31 @@ mutation {
 ```
 
 The response data comes from the view — `v_post` is queried by the `id` the function returns. The same view that serves read queries also serves mutation responses.
+
+## REST Annotations on Mutations
+
+Transport annotations work on mutations the same way as queries. Add `rest_path` and `rest_method` to expose a mutation as a REST endpoint:
+
+```python
+@fraiseql.mutation(
+    sql_source="create_post",
+    operation="CREATE",
+    rest_path="/posts",
+    rest_method="POST",
+)
+def create_post(title: str, author_id: UUID) -> Post: ...
+```
+
+With that annotation, the mutation is reachable via REST alongside GraphQL. The default REST prefix is `/rest`. Configure with `[fraiseql.rest]` `prefix` to use `/api` or any other value:
+
+```bash
+curl -X POST http://localhost:8080/rest/posts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Hello World", "authorId": "..."}'
+```
+
+The GraphQL mutation continues to work unchanged — REST annotations are additive.
 
 ## What's Next
 

@@ -29,8 +29,8 @@ gcloud auth configure-docker $REGION-docker.pkg.dev
 # Build and push
 docker build -t fraiseql:latest .
 docker tag fraiseql:latest \
-  $REGION-docker.pkg.dev/$PROJECT_ID/fraiseql/fraiseql:latest
-docker push $REGION-docker.pkg.dev/$PROJECT_ID/fraiseql/fraiseql:latest
+  $REGION-docker.pkg.dev/$PROJECT_ID/fraiseql/server:latest
+docker push $REGION-docker.pkg.dev/$PROJECT_ID/fraiseql/server:latest
 ```
 
 ### 2. Create Cloud SQL PostgreSQL Instance
@@ -85,9 +85,9 @@ Apply pending schema migrations with Confiture before deploying:
 ```bash
 # Run Confiture as a Cloud Run Job (one-off)
 gcloud run jobs create fraiseql-migrate \
-  --image ghcr.io/fraiseql/confiture:latest \
+  --image python:3.13-slim \
   --set-secrets="DATABASE_URL=fraiseql-database-url:latest" \
-  --args="confiture,migrate,up,--env,production" \
+  --command="sh,-c,pip install -q fraiseql-confiture && confiture migrate up --env production" \
   --region us-central1
 
 # Execute the migration job
@@ -101,7 +101,7 @@ See [Confiture Migrate](/confiture/migrate) for rollback and status commands.
 ```bash
 # Deploy service
 gcloud run deploy fraiseql \
-  --image=$REGION-docker.pkg.dev/$PROJECT_ID/fraiseql/fraiseql:latest \
+  --image=$REGION-docker.pkg.dev/$PROJECT_ID/fraiseql/server:latest \
   --region=$REGION \
   --platform=managed \
   --memory=1Gi \
@@ -132,6 +132,19 @@ gcloud run domain-mappings create \
 # Update DNS records (output from above command)
 # Add CNAME record pointing to ghs.googleusercontent.com
 ```
+
+## gRPC on Cloud Run
+
+Cloud Run supports HTTP/2 natively, which means gRPC works without any additional configuration. FraiseQL serves GraphQL, REST, and gRPC from the same container on port 8080. When you deploy to Cloud Run with `--allow-unauthenticated`, all three transports are reachable at the same URL.
+
+For gRPC clients connecting to a Cloud Run service URL (e.g., `fraiseql-abc123-uc.a.run.app`), use `grpc.Dial` with TLS — Cloud Run terminates TLS and forwards HTTP/2 frames to the container:
+
+```bash
+# Verify gRPC connectivity (requires grpcurl)
+grpcurl fraiseql-abc123-uc.a.run.app:443 list
+```
+
+If you map a custom domain, the Cloud Run domain mapping also supports HTTP/2 and gRPC at the same custom domain. No separate load balancer rule is needed.
 
 ## Full GCP Setup with Cloud Run + Cloud SQL
 
@@ -223,7 +236,7 @@ spec:
     spec:
       containerConcurrency: 80
       containers:
-        - image: us-central1-docker.pkg.dev/PROJECT/fraiseql/fraiseql:latest
+        - image: us-central1-docker.pkg.dev/PROJECT/fraiseql/server:latest
 ```
 
 Apply:
@@ -276,7 +289,7 @@ spec:
       serviceAccountName: fraiseql
       containers:
         - name: fraiseql
-          image: us-central1-docker.pkg.dev/PROJECT/fraiseql/fraiseql:latest
+          image: us-central1-docker.pkg.dev/PROJECT/fraiseql/server:latest
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -454,7 +467,7 @@ steps:
       - '--image=$_IMAGE_NAME'
 
 substitutions:
-  _IMAGE_NAME: 'us-central1-docker.pkg.dev/$PROJECT_ID/fraiseql/fraiseql:$SHORT_SHA'
+  _IMAGE_NAME: 'us-central1-docker.pkg.dev/$PROJECT_ID/fraiseql/server:$SHORT_SHA'
   _REGION: 'us-central1'
 
 images:

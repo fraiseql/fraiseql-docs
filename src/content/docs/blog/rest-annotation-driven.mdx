@@ -1,0 +1,82 @@
+---
+title: "REST Transport: Annotation-Driven, Not Auto-Wired"
+description: Why FraiseQL requires explicit rest_path and rest_method annotations rather than auto-exposing schema operations as REST endpoints.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+There are broadly two schools of thought on REST API generation from a database schema: auto-wire everything, or annotate what you want exposed. FraiseQL chooses annotation. Here's why, and what that means in practice.
+
+## The auto-wiring approach
+
+PostgREST automatically exposes every PostgreSQL table and view as a REST endpoint. Point it at your database, and you have a fully functional REST API immediately — zero configuration, zero code.
+
+The tradeoff: you expose everything your database user can see, and the REST surface is defined by your database schema. Adding a view for an internal caching optimization makes it a REST endpoint. Renaming a view changes your API. Your API design is coupled to your storage design.
+
+PostgREST handles this with role-based permissions at the PostgreSQL level, which is a reasonable approach — but it means your API surface control is scattered across database permissions rather than visible in your schema definition.
+
+<Aside type="note">
+Hasura's approach is different: it auto-wires GraphQL, not REST. Hasura's RESTified Endpoints wrap a saved GraphQL query at a REST URL — a thin translation layer rather than a first-class REST transport. The underlying model is still GraphQL-first.
+</Aside>
+
+## FraiseQL's choice: explicit annotations
+
+FraiseQL requires explicit annotations. You decide which operations get REST endpoints, what paths they use, and what HTTP methods they respond to:
+
+```python
+@fraiseql.query(
+    rest_path="/users/{id}",
+    rest_method="GET",
+)
+def get_user(id: UUID) -> User:
+    return fraiseql.config(sql_source="v_user")
+```
+
+An operation without `rest_path` is GraphQL-only. Add `rest_path` and `rest_method` and it becomes available as a REST endpoint with the same auth, rate limiting, and RBAC as the GraphQL operation.
+
+You can expose the same underlying view at multiple REST paths with different constraints, or keep internal views entirely out of the REST surface.
+
+## Why explicit annotation works better for our use cases
+
+**Predictable API surface.** You know exactly what's exposed as REST because you annotated it. There are no surprise endpoints because someone added a convenience view to the database. The REST surface is defined in your schema files, not inferred from database permissions.
+
+**Reviewable in code.** When a new REST endpoint is added, it appears as a diff in your schema files. Code review catches it. The REST surface is version-controlled and auditable alongside the rest of your schema.
+
+**Versionable paths.** `rest_path` is a string you control. You can change the URL path — `/v2/users/{id}` — without touching the database view. The path is a schema concern, not a storage concern.
+
+**Safe internal views.** A view you add for debugging, reporting, or internal tooling is not automatically a REST endpoint. You have to explicitly annotate it. The default is private.
+
+**Secure by default.** If you add `rest_path` to an operation that also has `grpc_service`, both transports enforce the same RBAC. There's no risk of accidentally exposing a gRPC-only operation as a public REST endpoint — you'd have to annotate it.
+
+## OpenAPI generation
+
+Because annotations are explicit, the compiler can generate an accurate OpenAPI 3.1 specification from them. Every annotated operation becomes an OpenAPI path item. Parameters come from the query signature. Response schemas come from the return type.
+
+The spec is available at `GET /rest/openapi.json` at runtime (the default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix`). No manual YAML. No spec drift — the spec is generated from the same source as the endpoint.
+
+This is only possible because the REST surface is defined precisely. Auto-wired APIs can generate specs, but the spec becomes a reflection of whatever the database exposes at that moment — not a stable API contract.
+
+## Migrating from PostgREST
+
+If you're moving from PostgREST, the migration path is:
+
+1. Your existing PostgreSQL views work as `sql_source` values — no rewrite needed.
+2. For each PostgREST endpoint you want to keep, add `rest_path` and `rest_method` annotations to the corresponding query definition.
+3. The explicit annotation step forces a review of what you actually want public. Views that existed for internal reasons don't automatically become REST endpoints.
+
+See [Migrating from PostgREST](/migrations/from-postgrest) for a full walkthrough.
+
+## When auto-wiring makes sense
+
+Auto-wiring is not wrong. It's the right choice for a specific set of requirements.
+
+If you want every table and view exposed with zero configuration — for internal tooling, admin panels, rapid prototyping, or a project where the database schema is the API design — PostgREST is the right tool. The zero-config model is a feature, not a limitation.
+
+FraiseQL is for when you want control over your API surface. The explicit annotation step is overhead that pays off when you need:
+
+- A public API with a stable contract independent of storage changes
+- A multi-transport API (REST + GraphQL + gRPC) from the same schema
+- Fine-grained control over what's exposed without database-level permission management
+- OpenAPI generation from a single source of truth
+
+Neither approach is universally better. They reflect different philosophies about where API design belongs.

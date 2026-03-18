@@ -282,11 +282,13 @@ class CreateFileInput:
     url: str
     storage_backend: str
 
-@fraiseql.query(sql_source="v_file")
-def files(limit: int = 20, offset: int = 0) -> list[File]: ...
+@fraiseql.query
+def files(limit: int = 20, offset: int = 0) -> list[File]:
+    return fraiseql.config(sql_source="v_file")
 
-@fraiseql.query(sql_source="v_file")
-def file(id: ID) -> File | None: ...
+@fraiseql.query
+def file(id: ID) -> File | None:
+    return fraiseql.config(sql_source="v_file")
 
 @fraiseql.mutation(
     sql_source="fn_create_file",
@@ -470,6 +472,10 @@ The file extension or declared content type does not match the actual file conte
 1. Verify the environment variables referenced by `access_key_env` and `secret_key_env` are set
 2. Check the IAM policy grants `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` on the bucket
 3. Verify the bucket name is correct via the `bucket_env` variable
+
+## REST Transport and File Uploads
+
+File upload via REST is possible using `multipart/form-data` if the `rest-transport` feature includes multipart support. Otherwise, file operations remain GraphQL-only. Check release notes for current multipart status.
 
 ## Next Steps
 

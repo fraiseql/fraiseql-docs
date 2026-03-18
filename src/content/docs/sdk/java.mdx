@@ -19,7 +19,7 @@ This is not a GraphQL client library. FraiseQL Java lets you **define** APIs, no
 <dependency>
     <groupId>com.fraiseql</groupId>
     <artifactId>fraiseql-java</artifactId>
-    <version>2.0.0</version>
+    <version>2.1.0</version>
 </dependency>
 ```
 
@@ -27,7 +27,7 @@ This is not a GraphQL client library. FraiseQL Java lets you **define** APIs, no
 
 ```groovy
 dependencies {
-    implementation 'com.fraiseql:fraiseql-java:2.0.0'
+    implementation 'com.fraiseql:fraiseql-java:2.1.0'
 }
 ```
 
@@ -373,6 +373,52 @@ BEGIN
 END;
 $$;
 ```
+
+---
+
+## Transport Annotations
+
+<Aside type="note">
+REST annotation support (`restPath`, `restMethod`) is in active development for this SDK. Available in the main branch; check the SDK changelog for the release version.
+</Aside>
+
+<Aside type="caution">
+gRPC annotations (`grpcService`, `grpcMethod`) require building FraiseQL with the `grpc-transport` feature — not included in the official `ghcr.io/fraiseql/server:latest` Docker image. See [gRPC Transport](/features/grpc-transport).
+</Aside>
+
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Use `@FraiseQLQuery` and `@FraiseQLMutation` method-level annotations with `restPath`, `restMethod`, `grpcService`, and `grpcMethod` attributes.
+
+```java
+import io.fraiseql.sdk.*;
+
+@FraiseQLQuery(
+    sqlSource = "v_post",
+    restPath = "/posts",
+    restMethod = "GET",
+    grpcService = "BlogService",
+    grpcMethod = "ListPosts"
+)
+public List<Post> posts(@Default("10") int limit) { return null; }
+
+@FraiseQLQuery(
+    sqlSource = "v_post",
+    restPath = "/posts/{id}",
+    restMethod = "GET"
+)
+public Post post(UUID id) { return null; }
+
+@FraiseQLMutation(
+    sqlSource = "create_post",
+    operation = "CREATE",
+    restPath = "/posts",
+    restMethod = "POST",
+    grpcService = "BlogService",
+    grpcMethod = "CreatePost"
+)
+public Post createPost(String title, UUID authorId) { return null; }
+```
+
+Path parameters in `restPath` (e.g., `{id}`) must match method parameter names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
 
 ---
 

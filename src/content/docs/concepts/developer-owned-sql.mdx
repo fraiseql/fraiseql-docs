@@ -20,6 +20,8 @@ This gives you:
 - **No ORM impedance mismatch** — your data model is your data model, not a compromise
 - **Debuggable queries** — `EXPLAIN ANALYZE` on the exact SQL that serves your API
 
+The same principle applies across all transports. A `v_post` view backing a GraphQL query also backs the equivalent REST endpoint. For gRPC, a companion `rv_post` view returns typed columns rather than JSONB, compiled from the same base tables. You write the SQL for both shapes; FraiseQL compiles each to the correct wire format at compile time.
+
 ## The Pattern Is Simple
 
 Every SQL view in FraiseQL follows the same pattern: an `id` column and a `data` JSONB column.

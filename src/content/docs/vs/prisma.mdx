@@ -11,6 +11,8 @@ Prisma is a popular ORM. FraiseQL is a GraphQL framework backed by a Rust binary
 
 **Prisma** is an ORM that generates a type-safe database client. You still need to build your API layer (Express, Fastify, Apollo, etc.).
 
+Prisma generates a client library; FraiseQL serves a multi-transport API server. REST, GraphQL, and gRPC clients connect directly to FraiseQL — no client library needed on the server side.
+
 **FraiseQL** generates the entire GraphQL API, including the database access layer — backed by hand-written PostgreSQL views (`v_*`) for reads and PostgreSQL functions (`fn_*`) for writes.
 
 ```
@@ -106,9 +108,9 @@ With FraiseQL:
         author: User
 
     # 2. Declare queries (backed by PostgreSQL views)
-    @fraiseql.query(sql_source="v_user")
+    @fraiseql.query
     def users(limit: int = 50) -> list[User]:
-        pass
+        return fraiseql.config(sql_source="v_user")
 
     # 3. Build and serve
     # $ fraiseql run
@@ -591,6 +593,6 @@ Prisma is a database client. FraiseQL is a complete GraphQL API server.
   <Card title="All Comparisons" icon="list-format">
     See how FraiseQL compares to other tools.
 
-    [View comparisons](/vs)
+    [Compare vs Apollo](/vs/apollo)
   </Card>
 </CardGrid>

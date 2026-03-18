@@ -222,10 +222,10 @@ class InventoryItem:
     quantity_available: int
     quantity_reserved: int
 
-@fraiseql.query(sql_source="v_inventory_item")
+@fraiseql.query
 def inventory_item(sku: str) -> InventoryItem | None:
     """Look up inventory for a SKU."""
-    pass
+    return fraiseql.config(sql_source="v_inventory_item")
 
 fraiseql.export_schema("schema.json")
 ```
@@ -441,7 +441,7 @@ Because subscribing services update asynchronously, a client that reads from Ser
 Each FraiseQL Rust runtime logs NATS events it publishes and receives. Use structured logging and NATS monitoring together.
 
 ```toml title="any-service/fraiseql.toml"
-[fraiseql.security.audit_logging]
+[security.enterprise]
 enabled = true
 log_level = "info"
 async_logging = true
@@ -486,6 +486,9 @@ The `handler` value in `[[observers.subscribe]]` must be a SQL function that exi
 ## Next Steps
 
 <CardGrid>
+  <Card title="Federation Feature Reference" icon="open-book">
+    [Federation](/features/federation) — Full feature reference including circuit breaker and NATS
+  </Card>
   <Card title="Federation Configuration" icon="setting">
     [Per-Service TOML](/guides/federation-configuration) — Database and security configuration for each subgraph
   </Card>

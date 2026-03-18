@@ -328,9 +328,9 @@ graph LR
     B --> C[Type Graph]
 ```
 
-### Phase 2: Analysis & SQL Generation
+### Phase 2: Analysis & Query Path Compilation
 
-The type graph is analyzed to generate SQL views and optimize query paths:
+The type graph is analyzed against your existing SQL views to optimize query paths:
 
 ```mermaid
 graph LR
@@ -353,6 +353,24 @@ graph LR
 <Aside type="note">
 FraiseQL does **not** generate a per-project Rust binary. The `fraiseql run` server is a pre-built binary. `fraiseql compile` produces `schema.compiled.json` (view mapping and query paths), which the pre-built server reads at startup.
 </Aside>
+
+## Transport-Aware Compilation
+
+The compiler generates different database view shapes for different transports.
+
+**JSON-shaped views** (GraphQL and REST): The compiler generates views using `json_agg`/`row_to_json` — PostgreSQL produces JSON directly, and the server passes it through to the client. This is the fast path for GraphQL and REST.
+
+**Row-shaped views** (gRPC): For operations annotated with `grpc_service`/`grpc_method`, the compiler generates standard SELECT views with typed columns. The server maps columns to protobuf fields — no JSON intermediate. The database does less work, the server does less work, the wire payload is smaller.
+
+The same SDK annotations drive both shapes. The compiler determines the shape based on which transport annotations are present.
+
+```
+fraiseql compile
+    ↓
+schema.compiled.json
+    ├── JSON views (v_post, v_user, ...)   → GraphQL + REST handlers
+    └── Row views (rv_post, rv_user, ...)  → gRPC handler
+```
 
 ### Input: Schema in Any Language
 

@@ -17,12 +17,14 @@ With `inject`, the filter is invisible to GraphQL clients and cryptographically 
 
 ```python
 # Without inject — owner_id is a client argument (insecure without extra validation)
-@fraiseql.query(sql_source="v_documents")
-def documents(owner_id: str) -> list[Document]: ...
+@fraiseql.query
+def documents(owner_id: str) -> list[Document]:
+    return fraiseql.config(sql_source="v_documents")
 
 # With inject — owner_id comes from jwt.sub, clients cannot influence it
-@fraiseql.query(sql_source="v_documents", inject={"owner_id": "jwt:sub"})
-def my_documents() -> list[Document]: ...
+@fraiseql.query(inject={"owner_id": "jwt:sub"})
+def my_documents() -> list[Document]:
+    return fraiseql.config(sql_source="v_documents")
 ```
 
 ## Usage
@@ -30,11 +32,9 @@ def my_documents() -> list[Document]: ...
 ### Queries
 
 ```python
-@fraiseql.query(
-    sql_source="v_documents",
-    inject={"owner_id": "jwt:sub"}
-)
-def my_documents() -> list[Document]: ...
+@fraiseql.query(inject={"owner_id": "jwt:sub"})
+def my_documents() -> list[Document]:
+    return fraiseql.config(sql_source="v_documents")
 ```
 
 The compiled SQL will include `WHERE owner_id = <jwt.sub>` using the value from the verified token. The `owner_id` column must exist in the view.
@@ -74,11 +74,9 @@ The Python authoring layer validates inject key names and source syntax when the
 ### Multi-tenant queries
 
 ```python
-@fraiseql.query(
-    sql_source="v_orders",
-    inject={"tenant_id": "jwt:tenant_id"}
-)
-def orders() -> list[Order]: ...
+@fraiseql.query(inject={"tenant_id": "jwt:tenant_id"})
+def orders() -> list[Order]:
+    return fraiseql.config(sql_source="v_orders")
 ```
 
 ## Supported sources
@@ -114,11 +112,9 @@ Only `jwt:<claim_name>` is supported. The claim name must be a valid identifier 
 `inject` is an alternative to PostgreSQL `ROW LEVEL SECURITY` policies for simpler setups:
 
 ```python
-@fraiseql.query(
-    sql_source="v_post",
-    inject={"author_id": "jwt:sub"}
-)
-def my_posts() -> list[Post]: ...
+@fraiseql.query(inject={"author_id": "jwt:sub"})
+def my_posts() -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
 ```
 
 ```sql
@@ -135,6 +131,10 @@ The SQL layer receives `author_id = '<value from jwt.sub>'` appended to the quer
 <Aside type="note">
 `inject` works with PostgreSQL (primary), MySQL, and SQL Server. It is not supported on SQLite connections.
 </Aside>
+
+## Transport Behaviour
+
+JWT claim injection works identically across all transports. Whether the request arrives via GraphQL, REST Bearer token, or gRPC authorization metadata, the same claims are extracted and injected into the query context.
 
 ## Next Steps
 

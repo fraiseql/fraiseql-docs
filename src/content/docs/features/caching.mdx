@@ -21,7 +21,11 @@ The right choice depends on whether you are using standard views (`v_`) or proje
 | `fraiseql-tv` (projection tables) | **No** (or short write-off periods only) | TV tables pre-compute the JSONB at write time. The remaining cost per read (one indexed row fetch) is already very cheap, so cache hits add less than 3% throughput. Cache enabled on a TV-table deployment adds a full-flush overhead on every mutation, which can cost **3× the write throughput** under concurrent load. |
 
 <Aside type="caution">
-**Cache + TV tables is an antipattern.** Both solve the same problem — eliminating query-time JSONB construction — but the cache's current full-flush invalidation model makes it actively harmful under mutation load when TV tables are in use. See [Projection Tables](/concepts/projection-tables) for the recommended high-throughput pattern.
+**Cache + TV tables is an antipattern.** Both solve the same problem — eliminating query-time JSONB construction — but the cache's current full-flush invalidation model makes it actively harmful under mutation load when TV tables are in use. See [Projection Tables](/guides/projection-tables) for the recommended high-throughput pattern.
+</Aside>
+
+<Aside type="caution">
+**Cache performance numbers from rc.3 are outdated.** The rc.3 release had a cache regression where cache-enabled deployments performed significantly worse than cache-disabled ones (2,258 RPS with cache on vs 5,545 RPS without, on projection-table workloads). This regression was fixed in rc.12: the cache is now disabled by default, simple queries bypass it, and it only engages for complex filtered queries. Any benchmarks citing rc.3 cache figures should be disregarded.
 </Aside>
 
 ## Cache Backends
@@ -49,6 +53,10 @@ The `memory` backend is not shared between instances. If you run multiple Fraise
 
 2. **Configure the `[caching]` block**
 
+   <Aside type="caution">
+   The `[caching]` TOML section shown here is unverified — it is not in the confirmed section list from `reference/toml-config.mdx`. If this section does not exist, the configuration block will be silently ignored or cause a parse error. Consult the [TOML Configuration Reference](/reference/toml-config) for verified section names.
+   </Aside>
+
    ```toml
    [caching]
    enabled = true
@@ -67,6 +75,10 @@ The `memory` backend is not shared between instances. If you run multiple Fraise
 </Steps>
 
 ## In-Memory Cache Setup
+
+<Aside type="caution">
+The `[caching]` TOML namespace has not been verified against the compiled binary source. If `fraiseql run` rejects this config with an "unknown field" error, enable caching via the `FRAISEQL_CACHE_ENABLED=true` environment variable instead and file an issue.
+</Aside>
 
 For local development or single-instance deployments:
 
@@ -243,7 +255,7 @@ grep cache_ttl_seconds schema/*.py
 
 **"Out of memory with in-memory cache"**
 
-The in-memory backend has no automatic eviction. For production use cases, switch to Redis:
+The in-memory backend uses a 64-shard LRU cache with automatic least-recently-used eviction — it will not grow without bound. However, the default capacity may be too large for memory-constrained environments. Tune `max_capacity` to match your available memory, or switch to Redis for shared caching across replicas:
 
 ```toml
 [caching]
@@ -304,6 +316,10 @@ Current caching implementation has these limitations:
 2. **No cache key customization**: Cache keys are automatically derived from query name and arguments. You cannot customize the key pattern.
 3. **No per-query cache headers**: Unlike some GraphQL servers, FraiseQL does not add `X-Cache-Status` headers to responses.
 4. **No cache warming**: There is no built-in mechanism to pre-populate the cache on startup.
+
+## Transport Behaviour
+
+Response caching applies to GraphQL and REST transports (both return JSON from the same JSON-shaped views). gRPC responses are not cached by FraiseQL's internal cache layer — the cache serialization is JSON-based and doesn't match protobuf wire format. HTTP-level caching (CDN, reverse proxy) works with REST GET endpoints as standard HTTP cache semantics apply.
 
 ## Next Steps
 

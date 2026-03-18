@@ -121,7 +121,7 @@ Service-wide error conditions — rate limits, authentication requirements — a
 ### Rate limiting
 
 ```toml
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled = true
 auth_start_max_requests = 100
 auth_start_window_secs = 60
@@ -396,6 +396,35 @@ async function withRetry<T>(
 | `RATE_LIMITED` | 429 | Request rate exceeded |
 | `SERVICE_UNAVAILABLE` | 503 | Scheduled maintenance or overload |
 | `INTERNAL_ERROR` | 500 | Unhandled server error — report with `requestId` |
+
+---
+
+## Errors Across Transports
+
+GraphQL, REST, and gRPC each have their own error representation:
+
+**GraphQL**: Standard `errors` array in the response body per the GraphQL spec.
+
+**REST**: HTTP status code + JSON error body:
+```json
+{
+  "message": "User not found",
+  "code": "NOT_FOUND"
+}
+```
+
+**gRPC**: gRPC status codes in the response trailer.
+
+Cross-transport error mapping:
+
+| Error type | GraphQL | REST status | gRPC status |
+|-----------|---------|-------------|-------------|
+| Validation error | `errors` array | 400 | `INVALID_ARGUMENT` |
+| Authentication failure | `errors` array | 401 | `UNAUTHENTICATED` |
+| Permission denied | `errors` array | 403 | `PERMISSION_DENIED` |
+| Not found | `errors` array | 404 | `NOT_FOUND` |
+| Rate limited | `errors` array | 429 | `RESOURCE_EXHAUSTED` |
+| Server error | `errors` array | 500 | `INTERNAL` |
 
 ---
 

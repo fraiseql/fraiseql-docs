@@ -1,0 +1,116 @@
+---
+title: FraiseQL vs PostgREST
+description: How FraiseQL compares to PostgREST — multi-transport vs REST-only, annotation-driven vs auto-wired
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
+
+<Aside type="caution">
+Pricing and features accurate as of March 2026. Verify current information at [postgrest.org](https://postgrest.org).
+</Aside>
+
+Both FraiseQL and PostgREST turn a PostgreSQL database into an HTTP API. They reflect fundamentally different philosophies about how that API should be defined.
+
+## Summary Comparison
+
+| Feature | FraiseQL | PostgREST |
+|---------|----------|-----------|
+| REST | Annotation-driven | Auto-wired from schema |
+| GraphQL | Yes | No |
+| gRPC | Yes (requires `grpc-transport` feature flag) | No |
+| WebSocket subscriptions | Yes | No |
+| Schema authoring | 11 SDK languages | PostgreSQL schema |
+| Database support | PostgreSQL, MySQL, SQLite, SQL Server | PostgreSQL only |
+| Runtime | Compiled Rust binary | Haskell runtime |
+| REST endpoint control | Explicit annotations | Auto-expose all tables/views |
+| OpenAPI generation | Yes | Yes |
+| Authentication | JWT/OIDC/API keys | JWT via PostgreSQL RLS |
+| License | Apache 2.0 | MIT |
+
+## The Fundamental Difference
+
+**PostgREST** automatically exposes PostgreSQL tables and views as REST endpoints. Every table, every view is immediately accessible — zero annotation work required.
+
+**FraiseQL** requires explicit `rest_path` and `rest_method` annotations on each operation. You decide what is exposed, what parameters it accepts, and what it returns. Nothing is exposed implicitly.
+
+Neither approach is better universally. They reflect different philosophies about the contract between your database schema and your public API surface.
+
+## When to Choose PostgREST
+
+<CardGrid>
+  <Card title="PostgreSQL-only stack">
+    PostgREST is purpose-built for PostgreSQL. If you are not using other databases and do not need GraphQL or gRPC, it has less overhead.
+  </Card>
+  <Card title="Instant REST from existing tables">
+    Point PostgREST at an existing database and every table becomes a REST endpoint immediately. No annotation work, no schema authoring.
+  </Card>
+  <Card title="REST-only requirements">
+    If your API consumers only need REST and you have no plans to add GraphQL or gRPC, PostgREST's focus is an asset rather than a limitation.
+  </Card>
+  <Card title="Database schema as source of truth">
+    If your team prefers defining everything in PostgreSQL — types, constraints, RLS policies — and treating the database schema as the single source of truth, PostgREST aligns with that workflow.
+  </Card>
+</CardGrid>
+
+## When to Choose FraiseQL
+
+<CardGrid>
+  <Card title="REST + GraphQL + gRPC from one binary">
+    All three transports from a single compiled binary. No separate services to deploy, no duplicate auth configuration.
+  </Card>
+  <Card title="Explicit API surface control">
+    Only what you annotate is exposed. Adding a table to the database does not automatically create a public endpoint. The REST surface is visible in code review.
+  </Card>
+  <Card title="Multi-database support">
+    MySQL, SQL Server, and SQLite alongside PostgreSQL. PostgREST is PostgreSQL-only.
+  </Card>
+  <Card title="SDK-driven schema authoring">
+    Define your schema in Python, TypeScript, Go, or any of the other supported SDKs. Native type safety in the language your team already uses.
+  </Card>
+  <Card title="Auto-generated OpenAPI + introspection + .proto">
+    All three API contract formats generated from the same annotated schema. No manual YAML or .proto files.
+  </Card>
+</CardGrid>
+
+## Architectural Differences
+
+PostgREST's auto-exposure model means any table or view added to the database immediately has a REST endpoint (subject to PostgreSQL RLS). The API surface is defined in the database.
+
+FraiseQL's annotation model means the REST surface is defined in your schema code — versioned, visible in pull requests, auditable. Adding a table to the database does not change the API unless you also add an annotated query.
+
+Both approaches are valid. The question is where your team wants API surface decisions to live: in the database schema (PostgREST) or in application code (FraiseQL).
+
+### Auto-exposure vs annotation: a concrete example
+
+In PostgREST, creating a view exposes it immediately:
+
+```sql
+-- PostgREST: this view is now accessible at GET /users
+CREATE VIEW users AS SELECT id, email FROM accounts;
+```
+
+In FraiseQL, the view exists but is not exposed until annotated:
+
+```python
+# FraiseQL: view exists in the database, but nothing is exposed until this annotation
+@fraiseql.query(
+    sql_source="v_user",
+    rest_path="/users",
+    rest_method="GET",
+)
+def users(limit: int = 100) -> list[User]: ...
+```
+
+The extra step is intentional. The exposed API surface is auditable in version control.
+
+<Aside type="note">
+FraiseQL's REST transport arrived in rc.15. PostgREST has been production-ready for many years. If you need REST-only from PostgreSQL today, PostgREST is mature and battle-tested. FraiseQL's REST transport is newer and the annotation model requires more upfront work to define your API surface.
+</Aside>
+
+<CardGrid>
+  <Card title="Migrate from PostgREST" icon="rocket">
+    Step-by-step guide to adopting FraiseQL annotation-driven REST alongside GraphQL.
+
+    [Read guide](/migrations/from-postgrest)
+  </Card>
+</CardGrid>

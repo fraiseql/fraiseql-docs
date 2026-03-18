@@ -23,105 +23,92 @@ FraiseQL supports multiple OAuth2/OIDC providers for authentication, with built-
 
 ## Configuration
 
-OAuth provider credentials are configured in the `[auth]` section of `fraiseql.toml`. The client secret is never stored in TOML — reference it by environment variable name using `client_secret_env`.
+<Aside type="caution">
+FraiseQL does not have an `[auth]` TOML section — it causes a hard parse error. All OAuth/OIDC provider credentials and endpoints are configured via environment variables before starting `fraiseql run`.
+</Aside>
 
-```toml
-[auth]
-discovery_url       = "https://accounts.google.com"
-client_id           = "my-fraiseql-client"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
-```
-
-Set the referenced secret in your environment before starting the server:
+OAuth provider credentials are configured via environment variables. FraiseQL fetches the provider's `/.well-known/openid-configuration` endpoint at startup to discover authorization and token endpoints.
 
 ```bash
-export OIDC_CLIENT_SECRET=your-client-secret
+export OIDC_DISCOVERY_URL="https://your-provider.example.com"
+export OIDC_CLIENT_ID="your-client-id"
+export OIDC_CLIENT_SECRET="your-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
 ```
-
-The `discovery_url` is the OIDC provider's issuer URL. FraiseQL fetches the `/.well-known/openid-configuration` endpoint from this URL at startup to discover the authorization and token endpoints.
 
 <Tabs syncKey="provider">
 <TabItem label="Google">
-```toml
-[auth]
-discovery_url       = "https://accounts.google.com"
-client_id           = "your-client-id.apps.googleusercontent.com"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
+```bash
+export OIDC_DISCOVERY_URL="https://accounts.google.com"
+export OIDC_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+export OIDC_CLIENT_SECRET="your-google-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="GitHub">
-```toml
-[auth]
-discovery_url       = "https://token.actions.githubusercontent.com"
-client_id           = "your-github-app-client-id"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
+```bash
+export OIDC_DISCOVERY_URL="https://token.actions.githubusercontent.com"
+export OIDC_CLIENT_ID="your-github-app-client-id"
+export OIDC_CLIENT_SECRET="your-github-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Azure AD">
-```toml
-[auth]
-discovery_url       = "https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0"
-client_id           = "your-azure-client-id"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
+```bash
+export OIDC_DISCOVERY_URL="https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0"
+export OIDC_CLIENT_ID="your-azure-client-id"
+export OIDC_CLIENT_SECRET="your-azure-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Okta">
-```toml
-[auth]
-discovery_url       = "https://your-domain.okta.com"
-client_id           = "your-okta-client-id"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
+```bash
+export OIDC_DISCOVERY_URL="https://your-domain.okta.com"
+export OIDC_CLIENT_ID="your-okta-client-id"
+export OIDC_CLIENT_SECRET="your-okta-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Auth0">
-```toml
-[auth]
-discovery_url       = "https://your-tenant.auth0.com"
-client_id           = "your-auth0-client-id"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
+```bash
+export OIDC_DISCOVERY_URL="https://your-tenant.auth0.com"
+export OIDC_CLIENT_ID="your-auth0-client-id"
+export OIDC_CLIENT_SECRET="your-auth0-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Keycloak">
-```toml
-[auth]
-discovery_url       = "https://keycloak.example.com/realms/my-realm"
-client_id           = "your-keycloak-client-id"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
+```bash
+export OIDC_DISCOVERY_URL="https://keycloak.example.com/realms/my-realm"
+export OIDC_CLIENT_ID="your-keycloak-client-id"
+export OIDC_CLIENT_SECRET="your-keycloak-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Logto">
-```toml
-[auth]
-discovery_url       = "https://your-logto-endpoint/oidc"
-client_id           = "your-logto-client-id"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
+```bash
+export OIDC_DISCOVERY_URL="https://your-logto-endpoint/oidc"
+export OIDC_CLIENT_ID="your-logto-client-id"
+export OIDC_CLIENT_SECRET="your-logto-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Ory">
-```toml
-[auth]
-discovery_url       = "https://your-ory-issuer-url"
-client_id           = "your-ory-client-id"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
+```bash
+export OIDC_DISCOVERY_URL="https://your-ory-issuer-url"
+export OIDC_CLIENT_ID="your-ory-client-id"
+export OIDC_CLIENT_SECRET="your-ory-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
 ```
 </TabItem>
 <TabItem label="Generic OIDC">
-```toml
-[auth]
-discovery_url       = "https://identity.example.com"
-client_id           = "your-client-id"
-client_secret_env   = "OIDC_CLIENT_SECRET"
-server_redirect_uri = "https://api.example.com/auth/callback"
-# Discovery URL auto-detected from issuer (/.well-known/openid-configuration)
+```bash
+# Any OIDC-compliant provider
+export OIDC_DISCOVERY_URL="https://identity.example.com"
+export OIDC_CLIENT_ID="your-client-id"
+export OIDC_CLIENT_SECRET="your-client-secret"
+export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
+# FraiseQL auto-discovers endpoints from /.well-known/openid-configuration
 ```
 </TabItem>
 </Tabs>
@@ -281,7 +268,7 @@ After configuring a provider, verify the full authorization code exchange manual
 
 | HTTP Status | Error | Cause | Fix |
 |-------------|-------|-------|-----|
-| `400 Bad Request` | `invalid_client` | Client ID or secret is wrong | Verify `client_id` in `[auth]` and the secret in the env var named by `client_secret_env` match the provider app settings |
+| `400 Bad Request` | `invalid_client` | Client ID or secret is wrong | Verify `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` env vars match the provider app settings |
 | `400 Bad Request` | `redirect_uri_mismatch` | Callback URL not registered | Add `server_redirect_uri` exactly as configured to the provider's allowed redirect list |
 | `400 Bad Request` | `invalid_grant` | Authorization code already used or expired | Codes are single-use and expire quickly (usually 60 seconds); do not reuse or delay exchange |
 | `401 Unauthorized` | `invalid_token` | Access token expired or revoked | Use `/auth/refresh` with the refresh token to obtain a new access token |
@@ -308,7 +295,7 @@ All OAuth errors are logged at `WARN` level. Run `RUST_LOG=debug fraiseql run` t
 ### Redirect URI Mismatch
 
 Ensure redirect URI matches exactly in:
-1. `server_redirect_uri` in the `[auth]` section of `fraiseql.toml`
+1. `OIDC_REDIRECT_URI` environment variable
 2. Provider app settings
 3. Actual callback URL
 
@@ -323,6 +310,15 @@ Ensure redirect URI matches exactly in:
 1. Verify scopes include required claims
 2. Check provider-specific claim names
 3. Review claim mapping configuration
+
+## OAuth Across Transports
+
+OAuth/OIDC authentication protects all three FraiseQL transports equally. The Rust runtime validates the JWT before routing the request to its transport handler, regardless of whether the request arrived as GraphQL, REST, or gRPC.
+
+- **GraphQL and REST**: send `Authorization: Bearer <token>` as an HTTP header.
+- **gRPC**: send `authorization: Bearer <token>` as gRPC call metadata (lowercase key, same value format).
+
+The OAuth flow itself (authorization code exchange, token issuance, refresh) always goes through the `/auth/*` HTTP endpoints — there is no gRPC-native OAuth flow.
 
 ## Next Steps
 

@@ -276,9 +276,9 @@ class Book:
     isbn: ISBN
     author: str
 
-@fraiseql.query(sql_source="v_book_by_isbn")
+@fraiseql.query
 def book_by_isbn(isbn: ISBN) -> Book | None:
-    pass
+    return fraiseql.config(sql_source="v_book_by_isbn")
 ```
 
 #### 2. Compile Schema

@@ -1,0 +1,190 @@
+---
+title: FraiseQL for Python Teams
+description: Python is FraiseQL's primary SDK. Define your GraphQL schema with native Python types and decorators, compile once, and serve from a high-performance Rust binary.
+---
+
+import { Aside, Steps, CardGrid, Card, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Python teams get the richest FraiseQL authoring experience. The Python SDK is the only one where every decorator argument is fully supported in the released version — and the only one with REST annotation support (v2.1.0).
+
+## How It Works
+
+The Python SDK is **compile-time only**. You write your schema in Python using decorators, run `fraiseql compile` to produce `schema.compiled.json`, and the Rust runtime executes every query and mutation. No Python runs at request time.
+
+```
+schema.py → fraiseql compile → schema.compiled.json → Rust runtime → GraphQL + REST
+```
+
+This means:
+- No GIL, no async overhead, no Python memory pressure at query time
+- All auth, rate limiting, and RBAC enforced in Rust
+- Python types map directly to GraphQL types — no separate SDL to maintain
+
+## Defining Your Schema
+
+### Types
+
+```python
+import fraiseql
+from fraiseql.scalars import ID, DateTime
+from uuid import UUID
+
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    body: str
+    published_at: DateTime | None
+    author_id: ID
+```
+
+### Queries
+
+```python
+@fraiseql.query
+def posts(
+    limit: int = 20,
+    offset: int = 0,
+    is_published: bool | None = None,
+) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+
+@fraiseql.query
+def post(id: UUID) -> Post | None:
+    return fraiseql.config(sql_source="v_post")
+```
+
+`sql_source` goes inside `fraiseql.config()` in the function body — it names the PostgreSQL view that backs the query.
+
+### Mutations
+
+```python
+@fraiseql.mutation
+def create_post(title: str, body: str) -> Post:
+    return fraiseql.config(
+        sql_source="fn_create_post",
+        operation="CREATE",
+    )
+
+@fraiseql.error
+class CreatePostError:
+    code: str
+    message: str
+```
+
+### Server-Side Injection
+
+Use `inject=` to pass verified JWT claims to SQL without exposing them as GraphQL arguments:
+
+```python
+@fraiseql.query(
+    inject={"author_id": "jwt:sub"}
+)
+def my_posts(limit: int = 20) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+```
+
+`author_id` is not in the GraphQL schema — clients cannot supply or override it. The Rust runtime injects it from the verified JWT on every request.
+
+## REST Annotations (Python-only, v2.1.0)
+
+<Aside type="note">
+REST annotations (`rest_path`, `rest_method`) are available in the Python SDK in v2.1.0. Go, Java, and C# support is in unreleased commits. Other SDKs have not started yet.
+</Aside>
+
+Expose any query or mutation as a REST endpoint by adding `rest_path` and `rest_method`:
+
+```python
+@fraiseql.query(
+    rest_path="/posts",
+    rest_method="GET",
+)
+def posts(limit: int = 20, offset: int = 0) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+
+@fraiseql.mutation(
+    rest_path="/posts",
+    rest_method="POST",
+)
+def create_post(title: str, body: str) -> Post:
+    return fraiseql.config(
+        sql_source="fn_create_post",
+        operation="CREATE",
+    )
+```
+
+FraiseQL compiles these annotations into REST routes alongside GraphQL. The same auth, rate limiting, and RBAC apply to both transports.
+
+## SpecQL: TOML-First Schema Authoring
+
+For teams that prefer TOML over Python decorators, [SpecQL](https://github.com/fraiseql/specql) generates FraiseQL Python schemas from a TOML-first specification format.
+
+SpecQL includes 56 semantic scalar types (`Email`, `IBAN`, `Money`, `PhoneNumber`, etc.) and validation rules that map directly to FraiseQL's Elo validation language. You write the schema once in TOML — SpecQL generates the Python file.
+
+```toml
+# schema.toml (SpecQL format)
+[types.Post]
+fields.id = { type = "UUID", required = true }
+fields.title = { type = "ShortText", required = true }
+fields.body = { type = "LongText", required = true }
+fields.published_at = { type = "Timestamp" }
+```
+
+See the [SpecQL GitHub repository](https://github.com/fraiseql/specql) for details.
+
+## Getting Started
+
+<Steps>
+
+1. **Install FraiseQL**
+
+   ```bash
+   curl -fsSL https://install.fraiseql.dev | sh
+   fraiseql --version
+   ```
+
+2. **Clone the minimal starter**
+
+   ```bash
+   git clone https://github.com/fraiseql/fraiseql-starter-minimal
+   cd fraiseql-starter-minimal
+   cp .env.example .env
+   docker compose up
+   ```
+
+3. **Edit `schema.py`** to add your types and queries
+
+4. **Compile**
+
+   ```bash
+   fraiseql compile
+   ```
+
+5. **Run**
+
+   ```bash
+   fraiseql run
+   ```
+
+</Steps>
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Decorators Reference" icon="open-book">
+    Full reference for `@fraiseql.type`, `@fraiseql.query`, `@fraiseql.mutation`, and all decorator arguments.
+    [Decorators](/reference/decorators)
+  </Card>
+  <Card title="REST Transport" icon="rocket">
+    Configure `rest_path` annotations and the OpenAPI spec.
+    [REST Transport](/features/rest-transport)
+  </Card>
+  <Card title="Authentication" icon="shield">
+    JWT verification, OIDC, and the `inject=` pattern.
+    [Authentication](/guides/authentication)
+  </Card>
+  <Card title="Starter Templates" icon="puzzle">
+    Clone a working Python project and start from there.
+    [Starters](/getting-started/starters)
+  </Card>
+</CardGrid>

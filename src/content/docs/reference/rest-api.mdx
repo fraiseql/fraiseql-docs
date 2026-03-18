@@ -1,0 +1,208 @@
+---
+title: REST API Reference
+description: Complete reference for FraiseQL's REST transport — endpoints, request formats, response format, errors, authentication
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+See also: [GraphQL API Reference](/reference/graphql-api/) and [REST vs GraphQL](/guides/rest-vs-graphql/).
+
+<Aside type="note">
+REST transport requires the `rest-transport` Cargo feature. It is included in the published Docker image at `ghcr.io/fraiseql/server:latest`. Configuration via `[fraiseql.rest]` in `fraiseql.toml` is available since rc.15.
+</Aside>
+
+## Endpoint Convention
+
+REST endpoints follow the pattern `{prefix}/{rest_path}` where the prefix defaults to `/rest`. The prefix is configurable via the `[fraiseql.rest]` `prefix` field or the `FRAISEQL_REST_PREFIX` environment variable.
+
+| Annotation | Resolved endpoint |
+|------------|-------------------|
+| `rest_path="/posts"` | `GET /rest/posts` |
+| `rest_path="/posts/{id}"` | `GET /rest/posts/{id}` |
+| `rest_path="/users/{userId}/posts"` | `GET /rest/users/{userId}/posts` |
+
+Only operations with explicit `rest_path` and `rest_method` annotations are exposed via REST. No endpoints are auto-wired from the database schema.
+
+## Request Formats
+
+### GET requests
+
+Path parameters are extracted from `{param}` placeholders in the path. Query string parameters map to the operation's function arguments.
+
+```
+GET /rest/posts?limit=10&offset=0
+```
+
+Maps to `posts(limit: 10, offset: 0)`.
+
+```
+GET /rest/posts/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+Maps to `post(id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890")`.
+
+### POST, PUT, PATCH requests
+
+Path parameters are extracted from the URL. Additional parameters come from the JSON request body. `Content-Type: application/json` is required.
+
+```bash
+curl -X POST https://api.example.com/rest/posts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Hello", "body": "World"}'
+```
+
+### DELETE requests
+
+Path parameters only. No request body.
+
+```bash
+curl -X DELETE https://api.example.com/rest/posts/a1b2c3d4-... \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Response Format
+
+REST responses are unwrapped JSON — no GraphQL `data` wrapper.
+
+| Operation type | Response shape |
+|---------------|----------------|
+| Query returning list | `[{...}, {...}]` — JSON array |
+| Query returning single object | `{...}` — JSON object |
+| Mutation (create/update) | `{...}` — the created or updated object |
+| Mutation (delete) | `{"deleted": true}` or `204 No Content` |
+
+Example list response:
+
+```json
+[
+  {"id": "a1b2c3d4-...", "title": "Hello", "body": "World"},
+  {"id": "e5f6g7h8-...", "title": "Second post", "body": "Content"}
+]
+```
+
+Example single-object response:
+
+```json
+{"id": "a1b2c3d4-...", "title": "Hello", "body": "World"}
+```
+
+## Error Response Format
+
+Errors are returned as JSON with `message` and `code` fields.
+
+```json
+{
+  "message": "User not found",
+  "code": "NOT_FOUND"
+}
+```
+
+### HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| 200 | Success |
+| 201 | Created (POST mutations) |
+| 204 | No Content (DELETE) |
+| 400 | Validation error — malformed request or invalid parameter value |
+| 401 | Authentication required — missing or invalid token |
+| 403 | Permission denied — authenticated but not authorized |
+| 404 | Not found — resource does not exist |
+| 429 | Rate limited — see `Retry-After` header |
+| 500 | Internal server error |
+
+## Content-Type
+
+- Accepted: `application/json`
+- Returned: `application/json`
+- Required for: POST, PUT, PATCH requests (rejected with 400 if absent)
+
+## Authentication
+
+Authentication is shared with the GraphQL and gRPC transports. Pass credentials in the request header.
+
+**Bearer token (JWT/OIDC):**
+
+```
+Authorization: Bearer <jwt-token>
+```
+
+**API key:**
+
+```
+X-API-Key: <api-key>
+```
+
+See [Authentication](/guides/authentication/) for how to configure JWT validation and API keys.
+
+## Rate Limiting
+
+REST requests share rate limiting with the GraphQL transport. Per-transport metrics are tagged with `transport=rest`.
+
+When a request is rate limited, the response includes:
+
+| Header | Value |
+|--------|-------|
+| `X-RateLimit-Limit` | Configured requests per window |
+| `X-RateLimit-Remaining` | Remaining requests in the current window |
+| `Retry-After` | Seconds until the window resets |
+
+Rate limiting is configured via `[security.rate_limiting]` in `fraiseql.toml`. See [Rate Limiting](/features/rate-limiting/).
+
+## OpenAPI Specification
+
+`GET /rest/openapi.json` (the default `openapi_path`) returns the auto-generated OpenAPI 3.1 specification when `openapi_enabled = true` is set in `[fraiseql.rest]`. The spec is generated at compile time from your SDK annotations — no manual YAML required.
+
+```bash
+curl https://api.example.com/rest/openapi.json
+```
+
+Example spec structure:
+
+```yaml
+openapi: "3.1.0"
+info:
+  title: "FraiseQL API"
+  version: "1.0.0"
+paths:
+  /rest/posts:
+    get:
+      operationId: posts
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Post"
+```
+
+The spec reflects exactly what is annotated in your schema — no undocumented endpoints, no auto-wired routes.
+
+## Configuration Reference
+
+<Aside type="note">
+The `[fraiseql.rest]` TOML section is available since rc.15. It controls REST transport settings including the endpoint prefix, response format options, and transport-level toggles.
+</Aside>
+
+Key environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FRAISEQL_REST_PREFIX` | `/rest` | Prefix for all REST endpoints |
+
+For full configuration options, see [TOML Configuration Reference](/reference/toml-config/).

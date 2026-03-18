@@ -33,7 +33,7 @@ Observer actions (webhooks, Slack) are wired up in your schema configuration. Se
 ### Observer lifecycle
 
 <Aside type="note">
-Observers run **asynchronously by default** — the mutation returns to the client immediately and observer actions fire in the background (fire-and-forget). Add `sync=True` (Python) or `{ sync: true }` (TypeScript) to the observer declaration when you need the action to complete before the response is sent. Use synchronous observers sparingly; they add latency to every matching mutation.
+Observers run **asynchronously by default** — the mutation returns to the client immediately and observer actions fire in the background (fire-and-forget). Because observers are TOML-configured (not SDK-defined), synchronous observer behavior is not available as a decorator parameter. Use synchronous observers sparingly; they add latency to every matching mutation.
 </Aside>
 
 <Aside type="note">

@@ -11,6 +11,10 @@ FraiseQL uses decorators (Python) and decorator functions (TypeScript) to define
 This page documents Python decorators. TypeScript uses `@type()`, `@input()`, `@query()`, `@mutation()` from `import { type, input, query, mutation } from 'fraiseql'`. Go uses struct tags: `fraiseql:"fieldname"`. See [TypeScript SDK](/sdk/typescript) and [Go SDK](/sdk/go).
 </Aside>
 
+<Aside type="tip" title="Prefer TOML?">
+[SpecQL](https://github.com/fraiseql/specql) is a TOML-first schema authoring tool that generates these decorators from TOML definitions. It includes 56 semantic scalar types (Email, IBAN, Money, etc.) and is a good fit for teams that want to keep schema definitions in a data format rather than Python code.
+</Aside>
+
 ## Decorator Execution Order
 
 When a request arrives, FraiseQL processes it through a fixed pipeline:
@@ -167,10 +171,10 @@ Defines a GraphQL query.
 <Tabs syncKey="language">
   <TabItem label="Python">
     ```python
-    @fraiseql.query(sql_source="v_user")
+    @fraiseql.query
     def user(id: ID) -> User | None:
         """Get a user by ID."""
-        pass
+        return fraiseql.config(sql_source="v_user")
     ```
   </TabItem>
   <TabItem label="TypeScript">
@@ -205,6 +209,52 @@ type Query {
 | `additional_views` | `list[str]` | `None` | Additional SQL views this query reads from. Used for cache invalidation — mutations to these views will also evict this query's cache entries. |
 | `requires_role` | `str` | — | Required role |
 | `requires_scope` | `str` | — | Required scope |
+| `rest_path` | `str \| None` | `None` | REST endpoint path template (e.g. `"/users/{id}"`). Path parameter names must match function argument names. Defaults to `None` (no REST endpoint). |
+| `rest_method` | `str \| None` | `"GET"` | HTTP method for the REST endpoint. Defaults to `"GET"` for queries. |
+| `grpc_service` | `str \| None` | `None` | gRPC service name (e.g. `"UserService"`). Defaults to `None` (no gRPC endpoint). |
+| `grpc_method` | `str \| None` | `None` | gRPC method name (e.g. `"GetUser"`). Required if `grpc_service` is set. |
+
+**Transport validation rules:**
+- Path parameters in `rest_path` must match function argument names — mismatches are caught at compile time.
+- Duplicate `(method, path)` pairs are rejected at compile time.
+
+#### REST and gRPC annotation examples
+
+<Aside type="note">
+REST (`rest_path`, `rest_method`) and gRPC (`grpc_service`, `grpc_method`) transport annotations require the `rest-transport` and `grpc-transport` Cargo features respectively, and the corresponding `[fraiseql.rest]` / `[fraiseql.grpc]` TOML sections. Available since rc.15.
+</Aside>
+
+<Tabs syncKey="language">
+  <TabItem label="Python">
+    ```python
+    @fraiseql.query(rest_path="/users/{id}", rest_method="GET", grpc_service="UserService", grpc_method="GetUser")
+    def get_user(id: UUID) -> User:
+        return fraiseql.config(sql_source="v_user")
+
+    @fraiseql.mutation(
+        sql_source="create_user",
+        operation="CREATE",
+        rest_path="/users",
+        rest_method="POST",
+        grpc_service="UserService",
+        grpc_method="CreateUser",
+    )
+    def create_user(email: str, name: str) -> User: ...
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    @query({
+      sqlSource: 'v_user',
+      restPath: '/users/{id}',
+      restMethod: 'GET',
+      grpcService: 'UserService',
+      grpcMethod: 'GetUser',
+    })
+    async function getUser(id: string): Promise<User> {}
+    ```
+  </TabItem>
+</Tabs>
 
 ### Auto Params
 
@@ -219,14 +269,14 @@ For list queries (`-> list[T]`), all four params are enabled automatically. Pass
 
 ```python
 # All four auto-enabled (list return type)
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts() -> list[Post]:
-    pass
+    return fraiseql.config(sql_source="v_post")
 
 # Opt out entirely
-@fraiseql.query(sql_source="v_post", auto_params=False)
+@fraiseql.query(auto_params=False)
 def posts() -> list[Post]:
-    pass
+    return fraiseql.config(sql_source="v_post")
 ```
 
 ### Relay mode
@@ -239,9 +289,9 @@ class Post:
     id: ID
     title: str
 
-@fraiseql.query(sql_source="v_post", relay=True)
+@fraiseql.query
 def posts() -> list[Post]:
-    pass
+    return fraiseql.config(sql_source="v_post", relay=True)
 ```
 
 See [Relay Pagination](/features/pagination#relay-pagination) for full details.
@@ -281,15 +331,19 @@ type Mutation {
 
 ### Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `sql_source` | `str` | SQL function to call |
-| `operation` | `str` | `"CREATE"`, `"UPDATE"`, `"DELETE"`, `"CUSTOM"` |
-| `inject` | `dict[str, str]` | Server-side JWT claim injection. Keys are SQL param names; values are `"jwt:<claim>"`. Injected params are never exposed to clients. See [Server-Side Injection](/features/server-side-injection). |
-| `requires_role` | `str` | Required role |
-| `requires_scope` | `str` | Required scope |
-| `invalidates_views` | `list[str]` | View names to purge from response cache after the mutation runs (e.g. `["v_post", "v_comment"]`). |
-| `invalidates_fact_tables` | `list[str]` | Fact table names to invalidate after the mutation (e.g. `["tf_sales"]`). |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `sql_source` | `str` | — | SQL function to call |
+| `operation` | `str` | — | `"CREATE"`, `"UPDATE"`, `"DELETE"`, `"CUSTOM"` |
+| `inject` | `dict[str, str]` | — | Server-side JWT claim injection. Keys are SQL param names; values are `"jwt:<claim>"`. Injected params are never exposed to clients. See [Server-Side Injection](/features/server-side-injection). |
+| `requires_role` | `str` | — | Required role |
+| `requires_scope` | `str` | — | Required scope |
+| `invalidates_views` | `list[str]` | — | View names to purge from response cache after the mutation runs (e.g. `["v_post", "v_comment"]`). |
+| `invalidates_fact_tables` | `list[str]` | — | Fact table names to invalidate after the mutation (e.g. `["tf_sales"]`). |
+| `rest_path` | `str \| None` | `None` | REST endpoint path template (e.g. `"/users"`). Path parameter names must match function argument names. |
+| `rest_method` | `str \| None` | `"POST"` | HTTP method for the REST endpoint. Defaults to `"POST"` for mutations. |
+| `grpc_service` | `str \| None` | `None` | gRPC service name (e.g. `"UserService"`). Defaults to `None` (no gRPC endpoint). |
+| `grpc_method` | `str \| None` | `None` | gRPC method name (e.g. `"CreateUser"`). Required if `grpc_service` is set. |
 
 <Tabs syncKey="language">
   <TabItem label="Python">
@@ -541,9 +595,9 @@ class SearchResult:
 Usage:
 
 ```python
-@fraiseql.query(sql_source="fn_search")
+@fraiseql.query
 def search(query: str) -> list[SearchResult]:
-    pass
+    return fraiseql.config(sql_source="fn_search")
 ```
 
 ## @scalar
@@ -649,8 +703,8 @@ class User:
 |-----------|---------|-------------|
 | `@type` | Define object type | `implements`, `relay`, `requires_role` |
 | `@input` | Define input type | — |
-| `@query` | Define query | `sql_source`, `auto_params`, `cache_ttl_seconds` |
-| `@mutation` | Define mutation | `sql_source`, `operation`, `requires_scope` |
+| `@query` | Define query | `sql_source`, `auto_params`, `cache_ttl_seconds`, `rest_path`, `grpc_service` |
+| `@mutation` | Define mutation | `sql_source`, `operation`, `requires_scope`, `rest_path`, `grpc_service` |
 | `@subscription` | Define subscription | `entity_type`, `topic`, `operation` |
 | `@enum` | Define enum | — |
 | `@interface` | Define interface | — |
@@ -661,15 +715,9 @@ class User:
 ### Common Auto Params
 
 ```python
-@fraiseql.query(
-    sql_source="v_user",
-    auto_params={
-        "limit": True,        # Add limit: Int parameter
-        "offset": True,       # Add offset: Int parameter
-        "where": True,        # Add where: UserWhereInput
-        "order_by": True,     # Add orderBy: UserOrderByInput
-    }
-)
+@fraiseql.query(auto_params={"limit": True, "offset": True, "where": True, "order_by": True})
+def users() -> list[User]:
+    return fraiseql.config(sql_source="v_user")
 ```
 
 ### Field Options
@@ -706,9 +754,9 @@ class User:
 
 2. **Add a query decorator**:
    ```python
-   @fraiseql.query(sql_source="v_product")
+   @fraiseql.query
    def product(id: str) -> Product:
-       pass
+       return fraiseql.config(sql_source="v_product")
    ```
 
 3. **Compile the schema**:

@@ -89,3 +89,23 @@ except FraiseQLError as e:
 schema = await client.introspect()
 types = schema["data"]["__schema"]["types"]
 ```
+
+## REST Endpoints
+
+FraiseQL also exposes REST endpoints at `/rest/<resource>` (the default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix` to use `/rest/v1` or any other value). You can query these directly from Python scripts using `httpx` or `requests` without the `FraiseQLClient`:
+
+```python
+import httpx
+
+async def fetch_users(token: str) -> list[dict]:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "http://localhost:8080/rest/users",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"limit": 20},
+        )
+        response.raise_for_status()
+        return response.json()
+```
+
+REST endpoints follow the same resource naming as GraphQL queries and mutations. Mutations use POST; queries use GET with query string parameters.

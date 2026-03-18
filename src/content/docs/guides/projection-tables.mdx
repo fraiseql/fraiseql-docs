@@ -794,6 +794,10 @@ Avoid projection tables for:
 - **Rapidly changing data with low read volume.** The trigger overhead exceeds the read savings.
 - **Data that must be perfectly consistent with complex business rules.** Triggers are powerful but hard to test in isolation; complex logic belongs in application-layer observers instead.
 
+## Transport Compatibility
+
+Projection tables (`tv_*` views) are database-level constructs that work across all transports. They are not transport-specific — whether a query arrives via GraphQL, REST, or gRPC, it reads from the same projection table.
+
 ## What's Next
 
 - [Observers](/guides/observers) — Trigger side effects that update projections asynchronously

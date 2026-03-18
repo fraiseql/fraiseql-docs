@@ -9,32 +9,35 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 
 ## Config Stability
 
-| Section | Status |
-|---|---|
-| `[project]` | Stable |
-| `[database]` | Stable |
-| `[server]` | Stable |
-| `[server.cors]` | Stable |
-| `[server.tls]` | Stable |
-| `[fraiseql]` | Stable |
-| `[caching]` | Stable |
-| `[mcp]` | Stable |
-| `[query_defaults]` | Stable |
-| `[security]` | Stable |
-| `[security.enterprise]` | Stable |
-| `[security.error_sanitization]` | Stable |
-| `[security.constant_time]` | Stable |
-| `[security.rate_limiting]` | Stable |
-| `[security.state_encryption]` | Stable |
-| `[security.pkce]` | Stable |
-| `[security.api_keys]` | Stable |
-| `[security.token_revocation]` | Stable |
-| `[security.trusted_documents]` | Stable |
-| `[validation]` | Stable |
-| `[subscriptions]` | Stable |
-| `[debug]` | Stable |
-| `[federation]` | Stable |
-| `[observers]` | Stable |
+| Section | Since | Stability |
+|---|---|---|
+| `[project]` | — | Stable |
+| `[database]` | — | Stable |
+| `[server]` | — | Stable |
+| `[server.cors]` | — | Stable |
+| `[server.tls]` | — | Stable |
+| `[fraiseql]` | — | Stable |
+| `[caching]` | — | Unverified |
+| `[mcp]` | — | Stable |
+| `[query_defaults]` | — | Stable |
+| `[security]` | — | Stable |
+| `[security.enterprise]` | — | Stable |
+| `[security.error_sanitization]` | — | Stable |
+| `[security.constant_time]` | — | Stable |
+| `[security.rate_limiting]` | — | Stable |
+| `[security.state_encryption]` | — | Stable |
+| `[security.pkce]` | — | Stable |
+| `[security.api_keys]` | — | Stable |
+| `[security.token_revocation]` | — | Stable |
+| `[security.trusted_documents]` | — | Stable |
+| `[validation]` | — | Stable |
+| `[subscriptions]` | — | Stable |
+| `[analytics]` | — | Stable |
+| `[debug]` | — | Stable |
+| `[federation]` | — | Stable |
+| `[observers]` | — | Stable |
+| `[fraiseql.rest]` | rc.15 | Stable |
+| `[fraiseql.grpc]` | rc.15 | Stable |
 
 ## File Location
 
@@ -155,7 +158,9 @@ host        = "0.0.0.0"
 port        = 8080
 request_timeout_ms = 30000
 keep_alive_secs    = 75
-admin_token = "${FRAISEQL_ADMIN_TOKEN}"  # required to enable the RBAC management API
+admin_token = "${FRAISEQL_ADMIN_TOKEN}"  # protects RBAC management + admin API
+admin_api_enabled = true                 # enable /api/v1/admin/* endpoints
+admin_readonly_token = "${FRAISEQL_ADMIN_READONLY_TOKEN}"  # optional: read-only admin access
 ```
 
 | Field | Type | Default | Description |
@@ -164,7 +169,9 @@ admin_token = "${FRAISEQL_ADMIN_TOKEN}"  # required to enable the RBAC managemen
 | `port` | integer | `8080` | Listen port |
 | `request_timeout_ms` | integer | `30000` | Request timeout in ms |
 | `keep_alive_secs` | integer | `75` | TCP keep-alive in seconds |
-| `admin_token` | string | — | Bearer token protecting `/api/rbac/*` endpoints. If not set, the RBAC management API is disabled entirely (endpoints return 404). Use `FRAISEQL_ADMIN_TOKEN` env var. Set to a strong random value (≥ 32 characters) in production. |
+| `admin_token` | string | — | Bearer token protecting `/api/rbac/*` and `/api/v1/admin/*` write endpoints. If not set, both the RBAC management API and admin API are disabled entirely (endpoints return 404). Use `FRAISEQL_ADMIN_TOKEN` env var. Minimum 32 characters. |
+| `admin_api_enabled` | bool | `false` | Enable admin API endpoints (`/api/v1/admin/*`) for schema reload, cache management, and diagnostics. Requires `admin_token` to be set. |
+| `admin_readonly_token` | string | — | Separate bearer token for admin read-only endpoints (cache stats, config, explain). Falls back to `admin_token` if not set. Use `FRAISEQL_ADMIN_READONLY_TOKEN` env var. Minimum 32 characters. |
 
 ### [server.cors]
 
@@ -217,9 +224,55 @@ output_file = "schema.compiled.json"
 | `schema_file` | string | `"schema.json"` | Path to the schema definition |
 | `output_file` | string | `"schema.compiled.json"` | Path for the compiled output |
 
+### [fraiseql.rest]
+
+<Aside type="note">
+Available since rc.15. Requires the `rest-transport` Cargo feature. REST endpoints are only created for queries and mutations that carry a `rest_path` annotation — REST is not auto-wired.
+</Aside>
+
+```toml
+[fraiseql.rest]
+prefix = "/rest"
+auth = "none"
+openapi_enabled = false
+openapi_path = "/rest/openapi.json"
+title = "My API"        # optional
+api_version = "1.0.0"  # optional
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `prefix` | `string` | `"/rest"` | URL prefix for all REST routes |
+| `auth` | `string` | `"none"` | Auth requirement: `"none"`, `"optional"`, `"required"` |
+| `openapi_enabled` | `bool` | `false` | Serve OpenAPI 3.1 spec |
+| `openapi_path` | `string` | `"/rest/openapi.json"` | Path for OpenAPI spec endpoint |
+| `title` | `string` | `"FraiseQL REST API"` | OpenAPI `info.title` |
+| `api_version` | `string` | `"1.0.0"` | OpenAPI `info.version` |
+
+### [fraiseql.grpc]
+
+<Aside type="note">
+Available since rc.15. Requires the `grpc-transport` Cargo feature. gRPC endpoints are only created for queries and mutations that carry a `grpc_service`/`grpc_method` annotation. Use `fraiseql compile --output-proto` to generate the `.proto` file for gRPC clients.
+</Aside>
+
+```toml
+[fraiseql.grpc]
+enabled = true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable/disable gRPC transport. Default: `true` when the `grpc-transport` Cargo feature is active. |
+
+gRPC uses the same port as GraphQL and REST via HTTP/2 content-type negotiation (`application/grpc`). No separate port configuration is needed.
+
 ---
 
 ### [caching]
+
+<Aside type="caution">
+The `[caching]` section has not been verified against the FraiseQL engine. It may cause a hard parse error at startup. Do not use it in production until this section is confirmed stable. Check the [changelog](/changelog) for updates.
+</Aside>
 
 Response caching for query results. Reduces database load for read-heavy workloads.
 
@@ -236,7 +289,7 @@ redis_url = "${REDIS_URL}"       # required when backend = "redis"
 | `backend` | string | `"redis"` | Cache backend: `"memory"` (single-instance) or `"redis"` (distributed) |
 | `redis_url` | string | — | Redis connection URL (required when `backend = "redis"`) |
 
-Per-query TTL is set via `cache_ttl_seconds=` in the `@fraiseql.query` decorator. See [Caching](/features/caching).
+Per-query TTL is set via `cache_ttl_seconds=` in `fraiseql.config()` in the function body. See [Caching](/features/caching).
 
 ---
 
@@ -303,8 +356,9 @@ offset = false
 
 ```python
 # Only this admin query re-enables limit/offset
-@fraiseql.query(sql_source="v_admin_log", auto_params={"limit": True, "offset": True})
-def admin_logs() -> list[AdminLog]: ...
+@fraiseql.query
+def admin_logs() -> list[AdminLog]:
+    return fraiseql.config(sql_source="v_admin_log", auto_params={"limit": True, "offset": True})
 ```
 
 **Compile-time warnings:**
@@ -319,7 +373,7 @@ Using `[queries.defaults]` (wrong key) produces a hard error with a hint to use 
 
 ### [security]
 
-Authorization policies enforced at runtime. JWT secret keys are never stored in TOML — only in environment variables. OIDC client configuration (client ID, issuer URL, redirect URI) is available via an `[auth]` section when using the TOML-schema workflow.
+Authorization policies enforced at runtime. JWT secret keys are never stored in TOML — only in environment variables. OIDC client configuration (issuer URL, client ID, redirect URI) is configured via environment variables (`OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`). There is no `[auth]` TOML section — it does not exist and causes a parse error.
 
 ```toml
 [security]
@@ -686,6 +740,21 @@ Response includes the generated SQL and (when `database_explain = true`) the Pos
 <Aside type="caution">
 `expose_sql = true` reveals your internal view and function names to anyone who can reach the endpoint. Protect `/api/v1/` behind a firewall or VPN in development environments.
 </Aside>
+
+---
+
+### [analytics]
+
+Analytics query cache and Arrow Flight columnar query definitions. Controls whether the analytics subsystem is active.
+
+```toml
+[analytics]
+enabled = false
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Controls the analytics query cache and Arrow Flight columnar query definitions. |
 
 ---
 

@@ -3,7 +3,7 @@ title: FraiseQL vs Hasura
 description: How FraiseQL compares to Hasura GraphQL Engine
 ---
 
-import { CardGrid, Card, Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+import { CardGrid, Card, Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components';
 
 Both FraiseQL and Hasura provide GraphQL APIs over databases. Here's how they differ.
 
@@ -27,8 +27,13 @@ Both FraiseQL and Hasura provide GraphQL APIs over databases. Here's how they di
 | **Performance** | Predictable, sub-ms | Variable, depends on query |
 | **Custom logic** | Observers (reactive events) | Actions (HTTP), Remote Schemas |
 | **Pricing** | Open source (Apache 2.0) | Open source core, paid cloud |
+| **REST transport** | ✅ Annotation-driven, OpenAPI 3.1, HTTP status codes | ⚠️ RESTified Endpoints (wraps a saved GraphQL query; no OpenAPI spec, no HTTP status-code mapping, no request-body parsing) |
+| **gRPC transport** | ✅ Transport-aware DB views, auto-generated .proto | ❌ Requires external gateway |
+| **OpenAPI generation** | ✅ Auto-generated from compiled schema | ❌ |
 
 > Pricing information accurate as of February 2026. Verify current pricing at [hasura.io/pricing](https://hasura.io/pricing).
+
+FraiseQL serves REST and gRPC alongside GraphQL from a single binary. Hasura's RESTified Endpoints let you expose a saved GraphQL query as a REST URL, but they are not a first-class REST transport: there is no HTTP status-code mapping, no OpenAPI spec, and no request-body parsing. For gRPC clients, Hasura requires an external gateway.
 
 ## Concept Mapping
 
@@ -175,6 +180,10 @@ Plus separate files for:
 
 FraiseQL uses **observers** for reactive business logic — you define conditions and actions that trigger on database changes:
 
+<Aside type="caution">
+The TOML examples below use `[[observers.rules]]`, `[[observers.rules.actions]]`, and `[observers.rules.retry]` as illustrative syntax for complex multi-action rules. The verified production syntax from the [TOML configuration reference](/reference/toml-config#observers) uses `[[observers.handlers]]` for individual handler entries. If you are configuring observers in production, use `[[observers.handlers]]` as documented in the reference — the `rules`/`actions` nesting shown here may not parse correctly.
+</Aside>
+
 <Tabs>
   <TabItem label="TOML">
     ```toml title="fraiseql.toml"
@@ -268,6 +277,10 @@ Plus a separate HTTP service to handle the logic. Hasura also has event triggers
 Hasura calls your external HTTP webhook. You own and deploy a separate service to handle the event.
 
 ### FraiseQL: Observer Rules
+
+<Aside type="caution">
+The TOML tab below uses `[[observers.rules]]` as illustrative syntax. The verified production handler syntax is `[[observers.handlers]]` — see the [TOML configuration reference](/reference/toml-config#observers).
+</Aside>
 
 <Tabs>
   <TabItem label="TOML">
@@ -586,6 +599,10 @@ Hasura Action:
 ```
 
 FraiseQL observer (TOML-based configuration):
+
+<Aside type="caution">
+The snippet below uses `[[observers.rules]]` as illustrative syntax. The verified production handler syntax is `[[observers.handlers]]` — see the [TOML configuration reference](/reference/toml-config#observers).
+</Aside>
 
 ```toml title="fraiseql.toml"
 [[observers.rules]]

@@ -365,6 +365,66 @@ func init() {
 
 ---
 
+## Transport Annotations
+
+<Aside type="note">
+REST annotation support (`RESTPath`, `RESTMethod`) is in active development for this SDK. Available in the main branch; check the SDK changelog for the release version.
+</Aside>
+
+<Aside type="caution">
+gRPC annotations (`GRPCService`, `GRPCMethod`) require building FraiseQL with the `grpc-transport` feature — not included in the official `ghcr.io/fraiseql/server:latest` Docker image. See [gRPC Transport](/features/grpc-transport).
+</Aside>
+
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Chain `.RESTPath()`, `.RESTMethod()`, `.GRPCService()`, and `.GRPCMethod()` on any query or mutation builder.
+
+```go
+import "github.com/fraiseql/fraiseql-go"
+
+// REST + GraphQL
+fraiseql.NewQuery("posts").
+    SqlSource("v_post").
+    RESTPath("/posts").
+    RESTMethod("GET").
+    Build()
+
+// With path parameter
+fraiseql.NewQuery("post").
+    SqlSource("v_post").
+    RESTPath("/posts/{id}"). // {id} matches the id parameter
+    RESTMethod("GET").
+    Build()
+
+// gRPC
+fraiseql.NewQuery("postsGRPC").
+    SqlSource("v_post").
+    GRPCService("BlogService").
+    GRPCMethod("ListPosts").
+    Build()
+
+// All three transports
+fraiseql.NewQuery("posts").
+    SqlSource("v_post").
+    RESTPath("/posts").
+    RESTMethod("GET").
+    GRPCService("BlogService").
+    GRPCMethod("ListPosts").
+    Build()
+
+// REST mutation
+fraiseql.NewMutation("createPost").
+    SqlSource("create_post").
+    Operation("CREATE").
+    RESTPath("/posts").
+    RESTMethod("POST").
+    GRPCService("BlogService").
+    GRPCMethod("CreatePost").
+    Build()
+```
+
+Path parameters in `RESTPath` (e.g., `{id}`) must match the corresponding argument name registered on the query. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
+
+---
+
 ## Build and Export
 
 <Steps>

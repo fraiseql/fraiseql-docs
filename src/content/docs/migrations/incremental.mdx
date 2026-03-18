@@ -97,7 +97,7 @@ Adding FraiseQL introduces a new connection pool to a database that may already 
 
     ```toml title="fraiseql.toml"
     [database]
-    pool_size = 5   # increase only after confirming headroom
+    pool_max = 20   # increase only after confirming headroom
     ```
   </TabItem>
   <TabItem label="SQL Server">
@@ -374,6 +374,12 @@ FraiseQL requires a JWT `Authorization: Bearer` header. Teams using cookie-based
 | 5     | Old system shut down                                   | Restart old system (if kept)    | None if infra is retained |
 
 Views are additive. At every phase before retirement, your existing system is still running and fully functional.
+
+---
+
+## Per-Transport Adoption
+
+Incremental adoption works per-transport too. Start with GraphQL (zero annotations needed), add `rest_path` annotations for operations that need REST exposure, then add `grpc_service`/`grpc_method` for service-to-service calls. Each transport layer is additive.
 
 ---
 

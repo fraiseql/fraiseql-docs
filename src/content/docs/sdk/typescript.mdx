@@ -27,7 +27,7 @@ yarn add fraiseql
 bun add fraiseql
 ```
 
-**Requirements:** Node.js 18+, TypeScript 5.0+, version 2.0.0
+**Requirements:** Node.js 18+, TypeScript 5.0+, version 2.1.0
 
 ### TypeScript Configuration
 
@@ -530,6 +530,71 @@ exportSchema('schema.json');
 
 ---
 
+## Transport Annotations
+
+<Aside type="caution">
+REST annotation support is not yet available in this SDK. Follow the SDK repository for updates.
+</Aside>
+
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. The TypeScript SDK uses camelCase for annotation keys (`restPath`, `restMethod`, `grpcService`, `grpcMethod`).
+
+```typescript
+import { Query, Mutation } from 'fraiseql';
+
+// REST + GraphQL
+class Queries {
+  @Query({
+    sqlSource: 'v_post',
+    restPath: '/posts',       // camelCase in TypeScript
+    restMethod: 'GET',
+  })
+  async posts(limit: number = 10): Promise<Post[]> { return []; }
+
+  // With path parameter
+  @Query({
+    sqlSource: 'v_post',
+    restPath: '/posts/{id}',  // {id} must match function param name
+    restMethod: 'GET',
+  })
+  async post(id: string): Promise<Post | null> { return null; }
+
+  // gRPC
+  @Query({
+    sqlSource: 'v_post',
+    grpcService: 'BlogService',
+    grpcMethod: 'ListPosts',
+  })
+  async postsGrpc(limit: number = 10): Promise<Post[]> { return []; }
+
+  // All three transports
+  @Query({
+    sqlSource: 'v_post',
+    restPath: '/posts',
+    restMethod: 'GET',
+    grpcService: 'BlogService',
+    grpcMethod: 'ListPosts',
+  })
+  async postsAll(limit: number = 10): Promise<Post[]> { return []; }
+}
+
+class Mutations {
+  // REST mutation
+  @Mutation({
+    sqlSource: 'create_post',
+    operation: 'CREATE',
+    restPath: '/posts',
+    restMethod: 'POST',
+    grpcService: 'BlogService',
+    grpcMethod: 'CreatePost',
+  })
+  async createPost(title: string, authorId: string): Promise<Post> { return {} as Post; }
+}
+```
+
+Path parameters in `restPath` (e.g., `{id}`) must match function parameter names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
+
+---
+
 ## Build and Serve
 
 <Steps>
@@ -565,7 +630,7 @@ exportSchema('schema.json');
    Expected output:
 
    ```
-   ✓ FraiseQL 2.0.0 running on http://localhost:8080/graphql
+   ✓ FraiseQL 2.1.0 running on http://localhost:8080/graphql
    ```
 
 </Steps>

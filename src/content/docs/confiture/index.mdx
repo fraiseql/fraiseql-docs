@@ -52,13 +52,13 @@ vim db/schema/01_write/tb_user.sql  # Add new column
 confiture migrate generate add_avatar_url
 
 # 3. Apply migration
-confiture migrate up --env local
+confiture migrate up
 
 # 4. Update view to include new field
 vim db/schema/02_read/v_user.sql
 
-# 5. Rebuild views (or apply view migration)
-confiture build --env local --views-only
+# 5. Rebuild schema (includes updated views)
+confiture build --env local
 
 # 6. Recompile and serve
 fraiseql run

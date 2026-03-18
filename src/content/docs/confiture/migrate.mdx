@@ -30,25 +30,25 @@ ALTER TABLE tb_user DROP COLUMN bio;
 
 ```bash
 # Apply all pending migrations
-confiture migrate up --env production
+confiture migrate up -c db/environments/production.yaml
 
 # Rollback the last migration
-confiture migrate down --env production
+confiture migrate down -c db/environments/production.yaml
 
 # Check migration status
-confiture migrate status --env production
+confiture migrate status -c db/environments/production.yaml
 
 # Dry run — show what would be applied
-confiture migrate up --env production --dry-run
+confiture migrate up -c db/environments/production.yaml --dry-run
 
-# Apply a specific number of migrations
-confiture migrate up --env production --steps 3
+# Roll back a specific number of migrations
+confiture migrate down -c db/environments/production.yaml --steps 3
 ```
 
 ## Migration Status
 
 ```bash
-confiture migrate status --env production
+confiture migrate status -c db/environments/production.yaml
 ```
 
 ```
@@ -62,7 +62,7 @@ Migration                        Status      Applied At
 Add `--format json` for machine-readable output:
 
 ```bash
-confiture migrate status --env production --format json
+confiture migrate status -c db/environments/production.yaml --format json
 ```
 
 ```json

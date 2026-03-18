@@ -1047,10 +1047,10 @@ python -m cProfile -s cumtime app.py
 # Python: Add workers
 # Docker: Add instances
 
-# 5. Cache expensive computations using cache_ttl_seconds= on @fraiseql.query
-@fraiseql.query(sql_source="v_expensive", cache_ttl_seconds=3600)
+# 5. Cache expensive computations using cache_ttl_seconds in fraiseql.config()
+@fraiseql.query
 def expensive_query() -> list[Result]:
-    pass
+    return fraiseql.config(sql_source="v_expensive", cache_ttl_seconds=3600)
 ```
 
 ### Database Connection Pool Exhaustion
@@ -1068,10 +1068,10 @@ def expensive_query() -> list[Result]:
 
 **Solutions**:
 ```python
-# 1. Increase TTL using cache_ttl_seconds= on @fraiseql.query
-@fraiseql.query(sql_source="v_my_query", cache_ttl_seconds=86400)  # 24 hours instead of 1 hour
+# 1. Increase TTL using cache_ttl_seconds in fraiseql.config()
+@fraiseql.query
 def my_cached_query() -> list[Result]:
-    pass
+    return fraiseql.config(sql_source="v_my_query", cache_ttl_seconds=86400)  # 24 hours instead of 1 hour
 
 # 2. Check cache is enabled
 # Redis connection working?
@@ -1443,6 +1443,74 @@ COPY . /app
 | Performance | N+1 queries | 10 min |
 | Schema | Invalid schema | 10 min |
 | Deployment | Container won't start | 5 min |
+
+---
+
+---
+
+## REST Transport Issues
+
+### REST Endpoint Returns 404
+**Problem**: `GET /rest/users` returns 404 (the default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix`)
+
+**Solutions**:
+```bash
+# 1. Check resource name matches schema query/mutation name
+# Schema: def users(...) -> list[User]
+# REST path: /rest/users (matches)
+
+# 2. Verify fraiseql started without errors
+fraiseql run  # Check startup logs
+
+# 3. Confirm REST is enabled (it is by default in v2.0.1+)
+
+# 4. Test GraphQL endpoint to confirm API is running
+curl http://localhost:8080/graphql -d '{"query":"{ __typename }"}'
+```
+
+### REST Request Body Not Accepted
+**Problem**: POST to REST mutation fails with 400 or 415
+
+**Solutions**:
+```bash
+# Send Content-Type: application/json header
+curl -X POST http://localhost:8080/rest/createUser \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice", "email": "alice@example.com"}'
+```
+
+---
+
+## gRPC Transport Issues
+
+### gRPC Connection Fails (UNAVAILABLE)
+**Problem**: gRPC client gets `Status.UNAVAILABLE`
+
+**Causes**:
+- Proxy or load balancer does not support HTTP/2
+- TLS mismatch between client and server
+- FraiseQL not started
+
+**Solutions**:
+```bash
+# 1. Check FraiseQL is running
+curl http://localhost:8080/health
+
+# 2. Verify with grpcurl (no TLS, local)
+grpcurl -plaintext localhost:8080 list
+
+# 3. Check load balancer HTTP/2 configuration
+# nginx: use grpc_pass not proxy_pass
+# AWS ALB: set protocol version to GRPC
+# Kubernetes nginx-ingress: set backend-protocol: "GRPC"
+```
+
+### gRPC Returns Wrong HTTP Version
+**Problem**: gRPC client logs "received trailing metadata size exceeds limit" or "RST_STREAM"
+
+**Cause**: Proxy is speaking HTTP/1.1 to FraiseQL instead of HTTP/2. gRPC is incompatible with HTTP/1.1.
+
+**Solution**: Configure the upstream proxy for HTTP/2 backend connections. See the [Kubernetes](/deployment/kubernetes#grpc-and-http2) and [Docker](/deployment/docker#multi-transport-in-docker) deployment guides.
 
 ---
 

@@ -1,11 +1,13 @@
 ---
 title: Schema Authoring SDKs
-description: Define GraphQL schemas in Python, TypeScript, Go, Java, or PHP using FraiseQL's schema authoring SDKs
+description: Define API schemas in Python, TypeScript, Go, Java, PHP, C#, Elixir, F#, Ruby, Dart, or Rust using FraiseQL's 11 official schema authoring SDKs
 ---
 
 import { CardGrid, Card, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-FraiseQL provides **schema authoring SDKs** across different programming languages, plus a Rust authorization library. The schema authoring SDKs (Python, TypeScript, Go, Java, PHP) let you define your GraphQL schema using native language constructs — type annotations, decorators, and attributes — which the FraiseQL CLI compiles into an optimized Rust-powered GraphQL API backed by SQL views.
+FraiseQL provides **11 official SDKs** across different programming languages, plus a Rust authorization library. The schema authoring SDKs (Python, TypeScript, Go, Java, PHP, C#, Elixir, F#, Ruby, Dart, and Rust for authorization) let you define your API schemas using native language constructs — type annotations, decorators, and attributes — which the FraiseQL CLI compiles into an optimized Rust-powered GraphQL API backed by SQL views. Ruby and Dart also include production-ready HTTP clients for consuming FraiseQL APIs.
+
+Transport annotations (`rest_path`/`rest_method` for REST, `grpc_service`/`grpc_method` for gRPC) are available across all SDKs. REST annotation support is confirmed in the Python SDK as of v2.1.0; Go, Java, and C# have REST annotations in unreleased commits on `main`; TypeScript, PHP, Rust, Elixir, F#, Ruby, and Dart support is in progress. gRPC annotations require the `grpc-transport` Cargo feature.
 
 <Aside type="note">
 These are **schema authoring** SDKs, not GraphQL client libraries. You use them to define your API. The FraiseQL Rust binary serves that API. For consuming a FraiseQL GraphQL API, use any standard GraphQL client.
@@ -27,7 +29,7 @@ Your schema (Python/TS/Go/Java/PHP)
 
 ## Available SDKs
 
-_Last verified: 2026-03-10 against v2.0.1_
+_Last verified: 2026-03-10 against v2.1.0_
 
 | Language | Type System | Package Manager | Status |
 |----------|-------------|-----------------|--------|
@@ -37,14 +39,17 @@ _Last verified: 2026-03-10 against v2.0.1_
 | **Java** | Annotations + builders | Maven, Gradle | Stable |
 | **Rust** | Authorization library (RBAC) | Cargo | Stable |
 | **PHP** | Attributes (PHP 8.2+) | Composer | Beta |
-| **C#** | Attributes (.NET 8+) | NuGet | Beta |
-| **Elixir** | Compile-time macros (Elixir 1.14+) | Hex | Beta |
-| **F#** | Computation expressions (.NET 8+) | NuGet | Beta |
+| **C#** | Attributes (.NET 8+) | NuGet | Unreleased |
+| **Elixir** | Compile-time macros (Elixir 1.14+) | Hex | Unreleased |
+| **F#** | Computation expressions (.NET 8+) | NuGet | Unreleased |
+| **Ruby** | Type mixin + HTTP client | RubyGems | Alpha |
+| **Dart** | Annotations + HTTP client | pub.dev | Alpha |
 
 **Status definitions:**
 - **Stable** — Tested, versioned, published to package registry. API is stable.
 - **Beta** — Working implementation; API may have minor breaking changes before 1.0.
 - **Alpha** — Functional but incomplete; breaking changes likely.
+- **Unreleased** — Available on the `main` branch but not yet formally tagged in a release.
 
 <Aside type="tip">
 Kotlin, Scala, Groovy, and Clojure projects can use the **Java SDK** directly via JVM interop. Annotations work seamlessly across JVM languages.
@@ -68,9 +73,9 @@ C# and F# projects use the same `FraiseQL` NuGet package. The F# SDK provides id
         email: Email
         created_at: DateTime
 
-    @fraiseql.query(sql_source="v_user")
+    @fraiseql.query
     def users(limit: int = 20) -> list[User]:
-        pass
+        return fraiseql.config(sql_source="v_user")
 
     @fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
     def create_user(input: CreateUserInput) -> User:
@@ -262,6 +267,16 @@ Each SDK provides:
     Best for: .NET functional programming teams, domain-driven design projects.
 
     [F# SDK docs](/sdk/fsharp)
+  </Card>
+  <Card title="Ruby SDK" icon="seti:ruby">
+    Best for: Rails teams, scripting, rapid prototyping. Includes HTTP client with retry and OpenAI integration.
+
+    [Ruby SDK docs](/sdk/ruby)
+  </Card>
+  <Card title="Dart SDK" icon="seti:dart">
+    Best for: Flutter mobile/web apps, Dart CLI tools. Includes async HTTP client with Gemini integration.
+
+    [Dart SDK docs](/sdk/dart)
   </Card>
 </CardGrid>
 

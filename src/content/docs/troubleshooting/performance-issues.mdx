@@ -368,10 +368,10 @@ CREATE INDEX idx_posts_published ON posts(id) WHERE published = true;
 
 **Cache Expensive Queries**:
 ```python
-@fraiseql.query(sql_source="v_user_stats", cache_ttl_seconds=3600)
+@fraiseql.query
 def user_stats(user_id: ID) -> UserStats:
     # Expensive aggregation computed once per hour
-    pass
+    return fraiseql.config(sql_source="v_user_stats", cache_ttl_seconds=3600)
 ```
 
 ---
@@ -439,10 +439,10 @@ query {
 
 **Fix Unbounded Cache**:
 ```python
-# Set TTL to prevent indefinite growth — use cache_ttl_seconds on @fraiseql.query
-@fraiseql.query(sql_source="v_expensive_query", cache_ttl_seconds=3600)
+# Set TTL to prevent indefinite growth — use cache_ttl_seconds in fraiseql.config()
+@fraiseql.query
 def expensive_query() -> ExpensiveResult:
-    pass
+    return fraiseql.config(sql_source="v_expensive_query", cache_ttl_seconds=3600)
 
 # Or use LRU cache with max size for non-FraiseQL computations
 from functools import lru_cache
@@ -709,9 +709,9 @@ docker-compose logs redis
 **Increase TTL**:
 ```python
 # From 1 hour to 24 hours
-@fraiseql.query(sql_source="v_stable_data", cache_ttl_seconds=86400)
+@fraiseql.query
 def stable_data() -> StableData:
-    pass
+    return fraiseql.config(sql_source="v_stable_data", cache_ttl_seconds=86400)
 ```
 
 **Check Cache Hit Rate**:
@@ -877,6 +877,23 @@ k6 run benchmark.js
 ```
 
 ---
+
+## gRPC Transport Performance
+
+For high-throughput data export or analytics workloads using the gRPC transport, use row-shaped views (`rv_*`) instead of the JSONB-shaped `v_*` views. Row-shaped views return typed columns directly, avoiding JSON serialization overhead:
+
+```sql
+-- Row-shaped view for gRPC (typed columns, no JSONB)
+CREATE VIEW rv_user AS
+SELECT
+    u.id::text        AS id,
+    u.email           AS email,
+    u.name            AS name,
+    u.created_at      AS created_at
+FROM tb_user u;
+```
+
+FraiseQL maps `rv_*` views to Protobuf messages at compile time. For large result sets returned over gRPC server streaming, the row-shaped approach reduces per-row serialization cost compared to parsing JSONB.
 
 ## See Also
 

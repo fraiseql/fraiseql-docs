@@ -215,15 +215,15 @@ def order_shipped() -> Order:
 
 # ==================== QUERIES ====================
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def order(id: ID) -> Order | None:
     """Get order by ID."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def orders_by_status(status: str, limit: int = 100) -> list[Order]:
     """Get orders by status."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 ```
 
 <Aside type="note">

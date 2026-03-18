@@ -215,6 +215,8 @@ mutation {
 
 No T-SQL rewriting. Your existing stored procedures work as-is.
 
+FraiseQL also exposes a gRPC endpoint on the same port 8080. .NET applications can consume it using the official `Grpc.Net.Client` package — the generated Protobuf types map directly to the fields defined in your FraiseQL schema, giving strongly-typed access from C# without any REST serialization overhead.
+
 ## Deployment Options
 
 <Tabs>
@@ -223,7 +225,7 @@ No T-SQL rewriting. Your existing stored procedures work as-is.
     # docker-compose.yml
     services:
       fraiseql:
-        image: ghcr.io/fraiseql/fraiseql:latest
+        image: ghcr.io/fraiseql/server:latest
         ports:
           - "8080:8080"
         environment:
@@ -242,7 +244,7 @@ No T-SQL rewriting. Your existing stored procedures work as-is.
         --name fraiseql \
         --resource-group myapp-rg \
         --environment myapp-env \
-        --image ghcr.io/fraiseql/fraiseql:latest \
+        --image ghcr.io/fraiseql/server:latest \
         --env-vars \
             "DATABASE_URL=server=myapp-sql.database.windows.net;database=myapp;Authentication=ActiveDirectoryMsi" \
         --target-port 8080 \
@@ -255,7 +257,7 @@ No T-SQL rewriting. Your existing stored procedures work as-is.
         --resource-group myapp-rg \
         --plan myapp-plan \
         --name fraiseql-api \
-        --deployment-container-image-name ghcr.io/fraiseql/fraiseql:latest
+        --deployment-container-image-name ghcr.io/fraiseql/server:latest
 
     az webapp config appsettings set \
         --resource-group myapp-rg \
@@ -273,7 +275,7 @@ capture generated statements:
 
 ```bash
 # Enable query logging via environment variable
-FRAISEQL_LOG=debug fraiseql run schema.compiled.json
+RUST_LOG=debug fraiseql run schema.compiled.json
 ```
 
 A GraphQL query like:

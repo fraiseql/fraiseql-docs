@@ -13,6 +13,8 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 
 This guide walks through migrating from manually-built Apollo Server GraphQL backends to FraiseQL's database-first approach.
 
+FraiseQL serves REST and gRPC alongside GraphQL from the same compiled schema. If you're running Apollo Router as a gateway to serve non-GraphQL clients, FraiseQL eliminates that layer.
+
 ## Architecture Comparison
 
 <Tabs>
@@ -238,25 +240,25 @@ This guide walks through migrating from manually-built Apollo Server GraphQL bac
        author: User
 
    # Queries map to SQL views
-   @fraiseql.query(sql_source="v_user")
+   @fraiseql.query
    def user(id: ID) -> User | None:
        """Get single user."""
-       pass
+       return fraiseql.config(sql_source="v_user")
 
-   @fraiseql.query(sql_source="v_user")
+   @fraiseql.query
    def users(limit: int = 50) -> list[User]:
        """Get multiple users."""
-       pass
+       return fraiseql.config(sql_source="v_user")
 
-   @fraiseql.query(sql_source="v_post")
+   @fraiseql.query
    def post(id: ID) -> Post | None:
        """Get single post."""
-       pass
+       return fraiseql.config(sql_source="v_post")
 
-   @fraiseql.query(sql_source="v_post")
+   @fraiseql.query
    def posts(limit: int = 50) -> list[Post]:
        """Get multiple posts."""
-       pass
+       return fraiseql.config(sql_source="v_post")
 
    # Mutations map to PostgreSQL functions
    @fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
@@ -352,7 +354,7 @@ This guide walks through migrating from manually-built Apollo Server GraphQL bac
 
 7. **Performance Test and Decommission**
 
-   Run performance tests to validate the improvement. Apollo with DataLoader typically runs 10-20 queries per request; FraiseQL uses pre-compiled SQL views, reducing this to 1-2 queries.
+   Run performance tests to validate the improvement. Apollo with DataLoader typically runs 10-20 queries per request; FraiseQL uses pre-compiled SQL views, reducing this to 1-2 queries. (These figures are architectural estimates based on typical N+1 patterns. See [Performance Benchmarks](/guides/performance-benchmarks) for measured RPS data.)
 
    Once results are confirmed, decommission the Apollo Server and remove its dependencies.
 
@@ -417,6 +419,11 @@ That's **11x fewer queries** — and you cannot accidentally create N+1 because 
 - [ ] Decommission Apollo
 
 <CardGrid>
+  <Card title="FraiseQL vs Apollo" icon="open-book">
+    Side-by-side feature and performance comparison.
+
+    [Read comparison](/vs/apollo)
+  </Card>
   <Card title="Prisma Migration" icon="rocket">
     Also migrating from Prisma ORM.
 

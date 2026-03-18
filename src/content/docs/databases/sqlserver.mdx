@@ -485,6 +485,14 @@ ALTER INDEX ALL ON dbo.tv_user REBUILD;
 - Use columnstore indexes for analytics workloads
 - Always On read replicas for reporting queries
 
+## Multi-Transport Support
+
+FraiseQL generates transport-aware views for SQL Server:
+- JSON-shaped views (GraphQL + REST) use `FOR JSON PATH`
+- Row-shaped views (gRPC) use standard `SELECT` with typed columns
+
+All three transports (GraphQL, REST, gRPC) are supported on SQL Server.
+
 ## See Also
 
 <CardGrid>

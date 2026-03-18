@@ -25,14 +25,16 @@ Configure pool settings per database in `fraiseql.toml`:
 ```toml
 [database]
 url = "${DATABASE_URL}"
-pool_size = 10
-timeout_seconds = 30
+pool_min = 2
+pool_max = 20
+connect_timeout_ms = 5000
 ```
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `pool_size` | 10 | Maximum connections in the pool |
-| `timeout_seconds` | 30 | Connection and query timeout |
+| `pool_min` | 2 | Minimum connections to keep open |
+| `pool_max` | 20 | Maximum connections in the pool |
+| `connect_timeout_ms` | 30 | Connection and query timeout |
 
 ### Pool Size Guidelines
 
@@ -44,7 +46,7 @@ timeout_seconds = 30
 | Multi-database setup | 10-15 per database |
 
 <Aside type="tip">
-The optimal pool size depends on your database server's connection limit and the number of FraiseQL instances. If you run 5 FraiseQL replicas with `pool_size = 20`, you need 100 database connections available. Monitor your database's `max_connections` setting.
+The optimal pool size depends on your database server's connection limit and the number of FraiseQL instances. If you run 5 FraiseQL replicas with `pool_max = 20`, you need 100 database connections available. Monitor your database's `max_connections` setting.
 </Aside>
 
 ## Query Timeouts
@@ -53,7 +55,7 @@ FraiseQL enforces timeouts on database queries to prevent slow queries from cons
 
 ### Timeout Behavior
 
-When a query exceeds the configured `timeout_seconds`:
+When a query exceeds the configured `connect_timeout_ms`:
 
 1. FraiseQL cancels the database query
 2. Returns a structured error to the client
@@ -91,7 +93,7 @@ If you frequently hit timeout errors:
 
 2. Consider query optimization or materialized views for complex aggregations
 
-3. Increase `pool_size` if timeouts are caused by connection wait times
+3. Increase `pool_min` / `pool_max` if timeouts are caused by connection wait times
 
 ## Health Check Endpoints
 
@@ -185,7 +187,7 @@ spec:
       terminationGracePeriodSeconds: 60  # Must be > drain timeout
       containers:
         - name: fraiseql
-          image: fraiseql/fraiseql:latest
+          image: fraiseql/server:latest
 ```
 
 ## Error Handling
@@ -196,7 +198,7 @@ FraiseQL returns structured GraphQL errors with consistent extension codes:
 |------------|---------|---------------|
 | `QUERY_TIMEOUT` | Query exceeded timeout | Retry with smaller result set or optimize query |
 | `DATABASE_UNAVAILABLE` | Cannot connect to database | Retry with exponential backoff |
-| `POOL_EXHAUSTED` | All connections in use | Wait and retry, or increase pool_size |
+| `POOL_EXHAUSTED` | All connections in use | Wait and retry, or increase pool_max |
 | `RATE_LIMITED` | Request rate limit hit | Slow down request rate |
 | `INTERNAL_ERROR` | Unexpected server error | Report to operations team |
 
@@ -407,8 +409,8 @@ Example Prometheus alerting rules for FraiseQL:
 
 Before deploying FraiseQL to production:
 
-- [ ] Configure appropriate `pool_size` for your workload
-- [ ] Set `timeout_seconds` based on your slowest acceptable query
+- [ ] Configure appropriate `pool_min` / `pool_max` for your workload
+- [ ] Set `connect_timeout_ms` based on your slowest acceptable query
 - [ ] Enable health checks and configure Kubernetes probes
 - [ ] Enable `[federation.circuit_breaker]` for federated deployments
 - [ ] Set up Prometheus metrics collection and alert on `fraiseql_federation_circuit_breaker_state`
@@ -429,11 +431,11 @@ The following features are planned for future releases:
 
 **"Pool exhausted" errors**
 
-Increase `pool_size` or reduce query concurrency:
+Increase `pool_min` / `pool_max` or reduce query concurrency:
 
 ```toml
 [database]
-pool_size = 20  # Increase from default 10
+pool_max = 30  # increase from default 20
 ```
 
 **Frequent query timeouts**
@@ -451,7 +453,7 @@ pool_size = 20  # Increase from default 10
 3. Increase timeout for legitimate long-running queries:
    ```toml
    [database]
-   timeout_seconds = 120
+   connect_timeout_ms = 120000
    ```
 
 **Health check failures**
@@ -464,6 +466,10 @@ curl http://localhost:8080/health
 ```
 
 Verify `DATABASE_URL` is correct and the database is accessible from the FraiseQL pod.
+
+## Transport Coverage
+
+Health check endpoints (`/health`, `/ready`) serve all transports — they report the health of the FraiseQL binary regardless of which transports are active. Graceful shutdown drains all in-flight connections across all transports before exiting.
 
 ## Next Steps
 

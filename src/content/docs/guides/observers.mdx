@@ -21,6 +21,8 @@ When a `createUser` mutation runs:
 
 Observers are **configured in TOML**, not in Python. The Python SDK is compile-time only — it defines the GraphQL schema (types, queries, mutations) and exports it to JSON. Observer delivery, retry logic, and side-effect dispatch are handled entirely by the Rust runtime.
 
+Observers fire on the database commit that follows any successful mutation — regardless of which transport initiated it. A `createUser` mutation sent via GraphQL, REST POST, or gRPC unary call all trigger the same configured observer actions.
+
 <Aside type="note" title="Python SDK is schema-authoring only">
 The FraiseQL Python SDK has no runtime component. There is no `@fraiseql.observer` decorator in Python. Observer actions are wired up in `fraiseql.toml` — the Rust runtime handles delivery at request time.
 </Aside>
@@ -245,6 +247,10 @@ Observers are the natural place to keep projection tables in sync. The [Projecti
 
 **`fraiseql.toml`:**
 
+<Aside type="caution">
+The `condition` field shown below is not confirmed in the `toml-config.mdx` reference for `[[observers.handlers]]`. Treat it as unverified — check the release notes before relying on it. The confirmed fields are `name`, `event`, `action`, `webhook_url`.
+</Aside>
+
 ```toml
 [[observers.handlers]]
 name        = "update-post-stats"
@@ -383,6 +389,10 @@ router.post('/hooks/fraiseql', async (req, res) => {
 
 Register multiple handlers for the same event in `fraiseql.toml`. Each handler executes independently — a failure in one does not block the others.
 
+<Aside type="caution">
+The `max_attempts` and `backoff_strategy` fields shown below are not confirmed in the `toml-config.mdx` reference for `[[observers.handlers]]`. The confirmed fields are `name`, `event`, `action`, `webhook_url`. Check the release notes before relying on retry configuration fields.
+</Aside>
+
 ```toml title="fraiseql.toml"
 # Observer 1 — send welcome email
 [[observers.handlers]]
@@ -444,6 +454,12 @@ When FraiseQL dispatches a webhook observer action (no `body_template` specified
 
 For UPDATE events, `"old"` contains the previous field values. For DELETE events, `"new"` is `null` and `"old"` contains the deleted record. Use `event.timestamp` as a stable deduplication key.
 
+<Aside type="note" title="Webhook payload vs. NATS pub/sub payload">
+This is the **webhook delivery payload** — the shape sent to your HTTP endpoint when an `[[observers.handlers]]` entry uses `action = "webhook"`. It uses database-level fields (`event`, `table`, `data.new`, `data.old`).
+
+When using a NATS, Redis, or PostgreSQL backend, the event published to the message bus has a different shape derived from the `mutation_response` returned by the PostgreSQL function: `{ "event", "entity_type", "operation", "entity_id", "entity", "timestamp" }`. Subscriber services consuming events from the bus see this second shape, not the webhook shape. See the [Observer and Webhook Patterns](/guides/observer-webhook-patterns) guide for the NATS pub/sub payload format.
+</Aside>
+
 You can override the payload shape with a Mustache `body_template` in the handler config. See the [Observers concept](/concepts/observers) for the full webhook action configuration reference.
 
 ## Debugging Observers
@@ -476,3 +492,4 @@ RUST_LOG=debug fraiseql run 2>&1 | grep "req_01HV3KQBN7"
 - [Projection Tables](/guides/projection-tables) — Keep read models up to date
 - [Advanced Patterns](/guides/advanced-patterns) — Audit trails, versioning, soft deletes
 - [Webhooks](/features/webhooks) — Push events to external systems
+- [Subscriptions](/features/subscriptions) — Real-time push to clients via WebSocket

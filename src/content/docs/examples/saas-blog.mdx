@@ -73,6 +73,12 @@ CREATE TABLE tb_comment (
 );
 
 -- Views with JSONB data column
+--
+-- Note: v_post and v_comment expose extra columns (identifier, fk_tenant, fk_post,
+-- deleted_at) beyond the standard (id, data) pair. The extra columns are used for
+-- server-side RLS filtering and view composition — they are not returned to GraphQL
+-- clients. In a strict two-column view setup these extra columns would be moved to
+-- an inner subquery; the pattern here is a simplified example.
 CREATE VIEW v_post AS
 SELECT
     p.id,
@@ -157,15 +163,15 @@ class Comment:
     created_at: datetime
 
 
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts(first: int = 20, after: str | None = None) -> list[Post]:
     """Get tenant's published posts (filtered by RLS)."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 
-@fraiseql.query(sql_source="v_comment")
+@fraiseql.query
 def comments(post_id: ID, first: int = 20) -> list[Comment]:
     """Get comments for a post."""
-    pass
+    return fraiseql.config(sql_source="v_comment")
 ```
 
   </TabItem>
@@ -266,10 +272,10 @@ FraiseQL mutations are compile-time declarations backed by PostgreSQL functions.
 # RLS automatically filters to the current tenant's rows.
 # The SET ROLE and SET app.tenant_id are applied by the FraiseQL
 # runtime before executing any query, driven by the compiled schema.
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts(first: int = 20, after: str | None = None) -> list[Post]:
     """Automatically filters to current tenant via RLS."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 
 # The SQL function fn_create_post checks the caller's role.
 # The user_id is injected from the JWT claim 'sub' — not passed by the client.
@@ -354,10 +360,10 @@ FraiseQL sets the PostgreSQL session variable `app.tenant_id` from the JWT claim
 The soft-delete pattern is implemented entirely in SQL functions. FraiseQL mutations are compile-time declarations that map to these functions.
 
 ```python
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def post(id: ID) -> Post | None:
     """Get single post (v_post already excludes soft-deleted)."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 
 @fraiseql.mutation(
     sql_source="fn_delete_post",
@@ -450,13 +456,33 @@ AFTER INSERT OR UPDATE OR DELETE ON tb_post
 FOR EACH ROW EXECUTE FUNCTION fn_audit_post_changes();
 ```
 
+## REST Annotations
+
+Add `rest_path` and `rest_method` to expose blog operations as REST endpoints:
+
+```python
+@fraiseql.query(rest_path="/posts", rest_method="GET")
+def posts(limit: int = 10, offset: int = 0) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+
+@fraiseql.query(rest_path="/posts/{id}", rest_method="GET")
+def post(id: UUID) -> Post:
+    return fraiseql.config(sql_source="v_post")
+```
+
+```bash
+# REST clients (default prefix: /rest; configure via [fraiseql.rest] prefix)
+curl https://api.example.com/rest/posts?limit=10
+curl https://api.example.com/rest/posts/abc-123
+```
+
 ## Caching Strategy
 
 ```python
-@fraiseql.query(sql_source="v_post", cache_ttl_seconds=3600)  # Cache for 1 hour
+@fraiseql.query
 def popular_posts(first: int = 10) -> list[Post]:
     """Cache popular posts to reduce database load."""
-    pass
+    return fraiseql.config(sql_source="v_post", cache_ttl_seconds=3600)  # Cache for 1 hour
 
 @fraiseql.mutation(
     sql_source="fn_create_post",
@@ -470,6 +496,10 @@ def create_post(title: str, content: str) -> Post:
 ```
 
 Enable caching in your configuration:
+
+<Aside type="caution">
+The `[caching]` TOML section is unverified and may cause a hard parse error at startup. Treat this example as aspirational until the section is confirmed stable.
+</Aside>
 
 ```toml
 [caching]
@@ -668,7 +698,7 @@ If queries are slow:
    CREATE INDEX idx_post_published ON tb_post(published) WHERE published = true;
    ```
 
-2. Enable caching in fraiseql.toml:
+2. Enable caching in fraiseql.toml (note: `[caching]` is unverified — it may cause a parse error; remove if startup fails):
    ```toml
    [caching]
    enabled = true

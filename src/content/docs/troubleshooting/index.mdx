@@ -172,6 +172,31 @@ See [Azure Troubleshooting](/deployment/azure#troubleshooting) for App Service a
 
 ---
 
+## Transport Issues
+
+### gRPC Issues
+
+**"gRPC connection fails immediately"**
+- gRPC requires HTTP/2. Check that your load balancer or reverse proxy is configured for HTTP/2 pass-through or gRPC backend protocol. See the [Kubernetes gRPC guide](/deployment/kubernetes#grpc-and-http2), [AWS ALB guide](/deployment/aws#grpc-and-the-application-load-balancer), or [nginx gRPC config](/deployment/docker#multi-transport-in-docker).
+- Verify the client is connecting with TLS if the proxy terminates TLS (most cloud load balancers do).
+
+**"Received HTTP/1.1 response on gRPC connection"**
+- A proxy or load balancer is downgrading HTTP/2 to HTTP/1.1 before the request reaches FraiseQL. Configure the load balancer to use the `GRPC` or `HTTP2` backend protocol.
+
+**"gRPC server streaming stops after first message"**
+- Check that the proxy does not have request or response buffering enabled. gRPC server streaming requires streaming HTTP/2 frames without buffering.
+
+### REST Issues
+
+**"REST endpoint returns 404"**
+- REST routes follow the pattern `/rest/<resource>` (the default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix`). Check the resource name matches the query or mutation name in your schema.
+- Verify `fraiseql run` started without compile errors.
+
+**"REST POST body not accepted"**
+- REST mutations expect `Content-Type: application/json`. Check that the client sends the correct header.
+
+---
+
 ## Database-Specific Issues
 
 For database-specific troubleshooting, refer to the guides for your database engine. Common database issues include connection pool exhaustion, slow queries from missing indexes, and lock contention under high concurrency.

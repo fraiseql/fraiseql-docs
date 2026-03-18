@@ -39,7 +39,7 @@ backend = "nats"
 nats_url = "nats://localhost:4222"
 ```
 
-When `backend = "nats"`, the Rust runtime publishes a message to a NATS subject after each successful mutation. The subject follows the pattern `fraiseql.{entity_type}.{operation}` — for example, `fraiseql.Order.CREATE`.
+When `backend = "nats"`, the Rust runtime publishes a message to a NATS subject after each successful mutation. The subject follows the pattern `fraiseql.{entity_type}.{operation}` — for example, `fraiseql.order.created` (lowercase snake_case).
 
 ### Redis Pub/Sub
 
@@ -66,9 +66,9 @@ Regardless of backend, the event payload is a JSON object derived from the `muta
 
 ```json
 {
-  "event": "fraiseql.Order.CREATE",
-  "entity_type": "Order",
-  "operation": "CREATE",
+  "event": "fraiseql.order.created",
+  "entity_type": "order",
+  "operation": "created",
   "entity_id": "550e8400-e29b-41d4-a716-446655440000",
   "entity": { ... },
   "timestamp": "2026-03-02T14:00:00Z"
@@ -112,7 +112,7 @@ async def handle_order_created(msg):
 
 async def main():
     nc = await nats.connect("nats://localhost:4222")
-    await nc.subscribe("fraiseql.Order.CREATE", cb=handle_order_created)
+    await nc.subscribe("fraiseql.order.created", cb=handle_order_created)
     await asyncio.Event().wait()  # run forever
 
 asyncio.run(main())
@@ -322,13 +322,10 @@ output_file = "schema.compiled.json"
 backend = "nats"
 nats_url = "nats://localhost:4222"
 
-[fraiseql.security.audit_logging]
-enabled = true
-log_level = "info"
-include_sensitive_data = false
-async_logging = true
+[security.enterprise]
+audit_logging_enabled = true
 
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled = true
 auth_start_max_requests = 100
 auth_start_window_secs = 60
@@ -349,10 +346,16 @@ FraiseQL handles the left side of this table. Your subscriber services own the r
 ## Next Steps
 
 <CardGrid>
+  <Card title="Webhooks Feature" icon="external">
+    [Webhooks](/features/webhooks) — Outgoing webhooks and incoming webhook verification reference
+  </Card>
+  <Card title="Subscriptions Feature" icon="random">
+    [Subscriptions](/features/subscriptions) — Real-time push to clients via WebSocket
+  </Card>
   <Card title="TOML Configuration" icon="setting">
     [Configuration Reference](/reference/toml-config) — Full fraiseql.toml key reference
   </Card>
   <Card title="Mutations Guide" icon="pencil">
-    [Writing Mutations](/guides/mutations) — How to define mutations and SQL functions
+    [Writing Mutations](/concepts/mutations) — How to define mutations and SQL functions
   </Card>
 </CardGrid>

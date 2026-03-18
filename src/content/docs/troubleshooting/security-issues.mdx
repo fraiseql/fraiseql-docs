@@ -783,7 +783,7 @@ PER_USER_RATE_LIMIT_WINDOW_SECONDS=60
 ```toml
 # 1. Configure error sanitization in fraiseql.toml — FraiseQL redacts
 # sensitive fields from error responses and logs automatically.
-[fraiseql.security.error_sanitization]
+[security.error_sanitization]
 enabled = true
 generic_messages = true
 
@@ -847,6 +847,25 @@ curl -X POST http://localhost:8080/graphql -d '{"query":"..."}'
 | PII in logs | CRITICAL | 30 min |
 
 ---
+
+## Cross-Transport Authentication
+
+FraiseQL enforces authentication identically across all transports. The same JWT or API key that authenticates a GraphQL request authenticates a REST request or a gRPC call.
+
+- **GraphQL and REST**: pass the bearer token in the `Authorization: Bearer <token>` HTTP header.
+- **gRPC**: pass the token as gRPC metadata with key `authorization` and value `Bearer <token>`. Most gRPC client libraries support this via `CallCredentials` or per-call metadata.
+
+```python
+# Python gRPC client — attach bearer token as metadata
+import grpc
+
+channel = grpc.secure_channel("api.example.com:443", grpc.ssl_channel_credentials())
+metadata = [("authorization", f"Bearer {token}")]
+stub = MyServiceStub(channel)
+response = stub.ListUsers(ListUsersRequest(), metadata=metadata)
+```
+
+If authentication fails on gRPC, the response includes a gRPC status code `UNAUTHENTICATED` (code 16) with a descriptive message. This maps to the same underlying JWT validation that returns `401 Unauthorized` on GraphQL and REST.
 
 ## See Also
 

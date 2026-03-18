@@ -1,0 +1,111 @@
+---
+title: "11 Languages, One Server"
+description: FraiseQL SDKs are schema authoring tools, not server generators. The server is always a compiled Rust binary regardless of which SDK you use.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+"FraiseQL supports 11 languages" is one of those statements that sounds like something it isn't. It doesn't mean FraiseQL generates a server in 11 languages. It doesn't mean you can write request handlers in Python or TypeScript. It means you can define your schema in 11 languages.
+
+The server is always a compiled Rust binary.
+
+## What the SDKs actually do
+
+The SDK's job is schema authoring. You define your types, queries, and mutations using your language's idioms. When you run `fraiseql compile`, the SDK exports a `schema.json` describing the operations. `fraiseql compile` reads that JSON and produces a `schema.compiled.json`. `fraiseql run` reads the compiled schema and starts the server.
+
+The Python, TypeScript, or Go code you write never runs at request time. The decorators and type annotations are parsed once at compile time. After that, the compiled schema is what matters — and it's language-agnostic.
+
+<Aside type="note">
+This is the same pattern as most modern CLI frameworks: you describe what you want in a declarative format, and a separate runtime executes it. The description language is flexible; the runtime is fixed.
+</Aside>
+
+## The same API in three languages
+
+Here's a blog post query defined in Python, TypeScript, and Go. All three produce identical `schema.json` output and result in identical server behavior.
+
+**Python** — decorator syntax:
+
+```python
+@fraiseql.type
+class Post:
+    id: UUID
+    title: str
+
+@fraiseql.query(
+    rest_path="/posts",
+    rest_method="GET",
+)
+def posts(limit: int = 10) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+```
+
+**TypeScript** — class decorators:
+
+```typescript
+@type()
+class Post {
+  id: string;
+  title: string;
+}
+
+@query({ sqlSource: 'v_post', restPath: '/posts', restMethod: 'GET' })
+async function posts(limit: number = 10): Promise<Post[]> {}
+```
+
+**Go** — builder API:
+
+```go
+fraiseql.NewType("Post").
+    Field("id", fraiseql.UUID).
+    Field("title", fraiseql.String).
+    Build()
+
+fraiseql.NewQuery("posts").
+    SQLSource("v_post").
+    RESTPath("/posts").
+    RESTMethod("GET").
+    Returns(fraiseql.ListOf("Post")).
+    Build()
+```
+
+All three produce the same `schema.json`. The compiler sees no difference. The server sees no difference.
+
+## Why this matters
+
+**Your team uses the language they know.** A Python team doesn't need to learn Rust to define their API schema. A TypeScript frontend team can own the schema definition without changing their toolchain.
+
+**No SDK code in the hot path.** Request latency is not affected by which SDK you used to define the schema. The compiled schema is a data file; the server is compiled Rust. There's no Python interpreter involved when a request comes in.
+
+**SDK choice is reversible.** If you start with Python and later want to move to TypeScript, you rewrite the schema definitions in TypeScript and recompile. The server is unchanged. Your PostgreSQL views are unchanged. Only the schema authoring language changes.
+
+**Cross-SDK parity testing.** The test suite for each SDK includes parity tests that verify the generated `schema.json` matches a reference output. If a new SDK ships a behavior that differs from Python, the tests catch it. This is enforced by the compiler, not by convention.
+
+## The server is always Rust
+
+One binary. Built on Axum + tonic + tokio. Typically around 16 MB memory at idle.
+
+You don't need to know Rust to use FraiseQL. You don't need to compile Rust. The binary is distributed as a pre-built artifact — via `curl | sh`, Docker image at `ghcr.io/fraiseql/server:latest`, or your package manager.
+
+The Rust SDK exists for teams that want to write schema definitions in Rust for consistency with their existing Rust codebase. It works the same way as all other SDKs — schema authoring only, no request handling.
+
+The Ruby and Dart SDKs are unique in that they also include production-ready HTTP clients for consuming FraiseQL APIs, with error handling, retry logic, and AI integrations (OpenAI for Ruby, Gemini for Dart).
+
+## Transport annotations
+
+`rest_path` and `rest_method` are confirmed in the Python SDK (v2.1.0). Go, Java, and C# have these annotations in unreleased commits on main; TypeScript, PHP, Rust, Elixir, F#, Ruby, and Dart support is in progress. The compiled output and runtime behavior are identical regardless of which SDK authored the schema — transport is determined by the compiled schema, not the SDK.
+
+## The 11 SDKs
+
+- Python (stable, v2.1.0)
+- TypeScript
+- Go
+- Java
+- Rust
+- PHP
+- C#
+- Elixir
+- F#
+- Ruby (includes HTTP client + OpenAI integration)
+- Dart (includes HTTP client + Gemini integration)
+
+See the [SDK overview](/sdk) for language-specific documentation and examples.

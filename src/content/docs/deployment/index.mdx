@@ -34,7 +34,11 @@ FraiseQL is database-first — your SQL tables, views, and functions are the sou
 Every deployment platform below runs `confiture migrate up` as a pre-start step (initContainer in Kubernetes, a one-off task in ECS, a release command in Docker Compose) before FraiseQL starts serving traffic.
 
 <Aside type="tip">
-Confiture ships as a standalone binary — it does not need to run inside the FraiseQL container. Use `ghcr.io/fraiseql/confiture:latest` as the image for init containers and migration jobs.
+Confiture is a Python CLI tool — it does not need to run inside the FraiseQL container. Install it via `pip install fraiseql-confiture` (or `uv pip install fraiseql-confiture`) in a lightweight Python image for init containers and migration jobs. Example: `python:3.13-slim` with `pip install fraiseql-confiture` in the entrypoint.
+</Aside>
+
+<Aside type="tip" title="Zero-downtime schema updates">
+FraiseQL supports hot-reloading schemas via SIGUSR1 or the admin API — in-flight requests are not interrupted. See [Admin API — Schema Reload](/reference/admin-api#schema-reload).
 </Aside>
 
 ## Deployment Checklist (All Platforms)
@@ -197,7 +201,7 @@ FraiseQL outputs JSON logs (enabled by default in production):
 ```bash
 # Override via: AUDIT_LOG_LEVEL=debug (from fraiseql.toml.example)
 # Or configure in fraiseql.toml:
-# [fraiseql.security.audit_logging]
+# [security.enterprise]
 # log_level = "info"  # Options: "debug", "info", "warn"
 debug   # Verbose: all database queries, middleware decisions
 info    # Default: requests, errors, important events
@@ -322,7 +326,7 @@ CORS_ORIGINS=https://example.com,https://app.example.com
 Protect against abuse via `fraiseql.toml` or environment variable overrides:
 
 ```toml
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled = true
 
 # Per-IP limits on auth endpoints
@@ -454,6 +458,19 @@ Test restore procedures regularly. A backup that has never been tested is not a 
 **Solution**: Configure connection retry logic, check database availability, verify network connectivity
 
 See [Troubleshooting](/troubleshooting) for more common issues.
+
+## Multi-Transport Deployment
+
+`fraiseql run` serves GraphQL, REST, and gRPC from a **single binary on a single port** — no separate processes or containers per transport. **Note:** gRPC requires building FraiseQL with the `grpc-transport` Cargo feature — not included in the official Docker image. See [gRPC Transport](/features/grpc-transport).
+
+**gRPC requires HTTP/2.** Ensure your load balancer or reverse proxy supports HTTP/2 pass-through:
+- **nginx**: `listen 443 ssl http2;`
+- **Kubernetes**: annotate ingress with `nginx.ingress.kubernetes.io/backend-protocol: "GRPC"` or use an Envoy/Linkerd service mesh
+- **AWS ALB**: enable HTTP/2 on the target group
+- **GCP Cloud Run**: HTTP/2 supported natively
+- **Azure Application Gateway v2**: enable HTTP/2 on the listener
+
+REST and GraphQL work with any HTTP/1.1 or HTTP/2 configuration.
 
 <CardGrid>
   <Card title="Docker Deployment" icon="document">

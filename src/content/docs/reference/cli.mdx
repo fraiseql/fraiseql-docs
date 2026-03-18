@@ -60,6 +60,9 @@ fraiseql run [OPTIONS] [INPUT]
 | `--bind <HOST>` | `0.0.0.0` | Bind address |
 | `--watch` | off | Hot-reload when schema file changes |
 | `--introspection` | off | Enable GraphQL introspection endpoint |
+| `--rest-prefix <PREFIX>` | `"/rest"` | REST URL prefix. Overrides `[fraiseql.rest].prefix` in `fraiseql.toml`. Requires the `rest-transport` feature. |
+
+`fraiseql run` serves all enabled transports (GraphQL, REST, gRPC) on the same port. There is no separate process or port for each transport. gRPC is distinguished from HTTP by content-type negotiation (`application/grpc`).
 
 **Examples:**
 
@@ -81,7 +84,7 @@ fraiseql run schema.json --introspection
 
 ```
 $ fraiseql run
-🍓 FraiseQL v2.0.1
+🍓 FraiseQL v2.1.0
    GraphQL endpoint: http://localhost:8080/graphql
    Health check:     http://localhost:8080/health
    Schema:           3 types, 5 queries, 3 mutations
@@ -114,6 +117,8 @@ fraiseql compile [OPTIONS] [INPUT]
 | `-o, --output <FILE>` | `schema.compiled.json` | Output file path |
 | `--check` | off | Validate only; do not write output |
 | `--database <URL>` | `$DATABASE_URL` | Validate against live database schema |
+| `--output-proto <PATH>` | — | Write the auto-generated `.proto` file for gRPC clients. Requires the `grpc-transport` feature. |
+| `--features <LIST>` | — | Comma-separated compile-time feature flags. Use `rest-transport` and `grpc-transport` to control which transports are included in the compiled output. |
 
 **Examples:**
 
@@ -354,6 +359,67 @@ $ fraiseql validate
 
 ---
 
+### `fraiseql doctor`
+
+Run a comprehensive health check of your FraiseQL project. Validates configuration, schema, database connectivity, secrets, and coherence between features. Use this as the first diagnostic step when something isn't working.
+
+```bash
+fraiseql doctor [OPTIONS]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--config <PATH>` | `fraiseql.toml` | Path to configuration file |
+| `--schema <PATH>` | `schema.compiled.json` | Path to compiled schema |
+| `--database-url <URL>` | `$DATABASE_URL` | Override database connection string |
+| `--json` | off | Output results as JSON |
+
+**Checks performed (11 total):**
+
+| Check | Severity | Description |
+|-------|----------|-------------|
+| Schema file exists | Fail | Compiled schema file is present |
+| Schema parses | Fail | Schema JSON is valid with types/queries/mutations |
+| Schema format version | Fail | Schema version field is `v1` |
+| fraiseql.toml found | Warn | Configuration file exists |
+| TOML syntax valid | Fail | Configuration file parses without errors |
+| DATABASE_URL set | Fail | Database connection string is provided |
+| DATABASE_URL reachable | Fail | TCP connection to database succeeds (5s timeout) |
+| FRAISEQL_JWT_SECRET | Warn | JWT signing secret is set |
+| FRAISEQL_REDIS_URL | Pass/Skip | Redis connectivity (skipped if not configured) |
+| TLS certificate | Fail | Certificate file exists (if TLS enabled in config) |
+| Cache + auth coherence | Warn | Caching without authorization policies |
+
+**Exit codes:**
+- `0` — All checks passed (warnings do not cause failure)
+- `1` — One or more checks failed
+
+**Examples:**
+
+```bash
+# Run all checks with default paths
+fraiseql doctor
+
+# Check a specific config and schema
+fraiseql doctor --config deploy/fraiseql.toml --schema build/schema.compiled.json
+
+# JSON output for CI pipelines
+fraiseql doctor --json
+```
+
+**JSON output format** (with `--json`):
+
+```json
+[
+  { "name": "Schema file exists", "status": "pass", "detail": "schema.compiled.json found", "hint": null },
+  { "name": "FRAISEQL_JWT_SECRET", "status": "warn", "detail": "Not set", "hint": "Set FRAISEQL_JWT_SECRET for JWT authentication" }
+]
+```
+
+---
+
 ## Code Generation
 
 ### `fraiseql generate-views`
@@ -465,35 +531,18 @@ fraiseql init my-api --language python --database postgres
 
 ---
 
-### `fraiseql migrate`
+### Database Migrations
 
-Manage database migrations via the bundled `confiture` migration tool.
-
-```bash
-fraiseql migrate <SUBCOMMAND> [OPTIONS]
-```
-
-**Subcommands:**
-
-| Subcommand | Description |
-|------------|-------------|
-| `up` | Apply pending migrations |
-| `down` | Roll back the last migration |
-| `status` | Show applied and pending migrations |
-| `create <NAME>` | Create a new migration file |
-
-**Examples:**
+FraiseQL does not have a `fraiseql migrate` subcommand. Database migrations are managed by **Confiture**, the companion migration tool:
 
 ```bash
-# Apply all pending migrations
-fraiseql migrate up
-
-# Check migration status
-fraiseql migrate status
-
-# Create a new migration
-fraiseql migrate create add_user_table
+confiture migrate up                         # Apply pending migrations
+confiture migrate down                       # Roll back the last migration
+confiture migrate status                     # Show migration status
+confiture migrate create add_user_table      # Create a new migration file
 ```
+
+See the [Confiture documentation](/confiture/migrate) for full migration reference.
 
 ---
 
@@ -632,23 +681,24 @@ Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if 
 |------|---------|
 | Start development server | `fraiseql run --watch` |
 | Compile for production | `fraiseql compile --check` |
+| Health check project | `fraiseql doctor` |
 | Validate schema | `fraiseql validate --strict` |
 | Validate trusted documents | `fraiseql validate-documents trusted-documents.json` |
 | Check query cost | `fraiseql cost "{ users { id } }"` |
 | Analyze schema | `fraiseql analyze schema.compiled.json` |
 | Generate client types | `fraiseql generate --language typescript` |
 | Export federation graph | `fraiseql federation graph schema.compiled.json --format mermaid` |
-| Run migrations | `fraiseql migrate up` |
+| Run migrations | `confiture migrate up` |
 
 ### CI/CD Integration
 
 ```bash
 # Typical CI pipeline
-fraiseql validate schema.json     # Validate configuration
-fraiseql compile fraiseql.toml --check  # Compile and validate schema
-fraiseql lint --fail-on-warning   # Run all audits
-fraiseql migrate up               # Apply migrations
-fraiseql run                      # Start server
+fraiseql validate schema.json          # Validate configuration
+fraiseql compile fraiseql.toml --check # Compile and validate schema
+fraiseql lint --fail-on-warning        # Run all audits
+confiture migrate up                   # Apply migrations (Confiture, not fraiseql)
+fraiseql run                           # Start server
 ```
 
 ## Verify It Works
@@ -662,7 +712,7 @@ fraiseql run                      # Start server
    
    Expected output:
    ```
-   fraiseql 2.0.0
+   fraiseql 2.1.0
    ```
 
 2. **Validate a configuration file**:

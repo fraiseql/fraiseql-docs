@@ -264,26 +264,26 @@ Add `is_published`, `author_id`, and `search` to the `posts` query. FraiseQL mat
         author: User
         comments: list[Comment]
 
-    @fraiseql.query(sql_source="v_post")
+    @fraiseql.query
     def posts(
         is_published: bool | None = None,
         author_id: ID | None = None,
         search: str | None = None,
     ) -> list[Post]:
         """List posts. All arguments are optional and combinable."""
-        pass
+        return fraiseql.config(sql_source="v_post")
     ```
 
     `is_published` and `author_id` are matched verbatim to view columns — automatic-where handles them. `search` is a plain argument that maps to the `search_vector` column. FraiseQL rewrites the WHERE clause as `search_vector @@ plainto_tsquery('english', $1)` when the argument name matches the `tsvector` column:
 
     ```python title="schema.py"
-    @fraiseql.query(sql_source="v_post")
+    @fraiseql.query
     def posts(
         is_published: bool | None = None,
         author_id: ID | None = None,
         search: str | None = None,
     ) -> list[Post]:
-        pass
+        return fraiseql.config(sql_source="v_post")
     ```
   </TabItem>
 
@@ -524,7 +524,7 @@ The cursor encodes the `pk_post` value as a base64 string. The view must expose 
         edges: list[PostEdge]
         page_info: PageInfo
 
-    @fraiseql.query(sql_source="v_post", relay=True)
+    @fraiseql.query
     def posts(
         first: int = 20,
         after: str | None = None,
@@ -532,7 +532,7 @@ The cursor encodes the `pk_post` value as a base64 string. The view must expose 
         author_id: ID | None = None,
         search: str | None = None,
     ) -> PostConnection:
-        pass
+        return fraiseql.config(sql_source="v_post", relay=True)
     ```
 
     `relay=True` activates cursor-based pagination. FraiseQL uses the view's internal `pk_` column to generate opaque base64-encoded cursors. The view's JSONB must include `pk_post` for cursor generation (FraiseQL strips it before returning to the client).
@@ -686,7 +686,7 @@ Declare an `order_by` enum argument to control sort order. FraiseQL maps enum va
         CREATED_AT_DESC = "created_at DESC"
         TITLE_ASC       = "title ASC"
 
-    @fraiseql.query(sql_source="v_post", relay=True)
+    @fraiseql.query
     def posts(
         first: int = 20,
         after: str | None = None,
@@ -695,7 +695,7 @@ Declare an `order_by` enum argument to control sort order. FraiseQL maps enum va
         search: str | None = None,
         order_by: PostOrderBy = PostOrderBy.CREATED_AT_DESC,
     ) -> PostConnection:
-        pass
+        return fraiseql.config(sql_source="v_post", relay=True)
     ```
 
     The enum value string is used verbatim in the `ORDER BY` clause. FraiseQL validates that the value matches a declared enum member — arbitrary strings cannot be injected.
@@ -834,8 +834,15 @@ query {
 
 ---
 
+## REST Query Parameters
+
+Filtering, search, and pagination patterns apply to REST query parameters as well. The default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix` to use `/rest/v1` or any other value. For example, `GET /rest/posts?limit=10&offset=20` is equivalent to `posts(limit: 10, offset: 20)` in GraphQL.
+
+---
+
 ## What's Next
 
 - [Threaded Comments](/guides/threaded-comments) — Recursive CTEs for nested comment trees
 - [Projection Tables](/guides/projection-tables) — CQRS read models updated by triggers
 - [Observers](/guides/observers) — Trigger side effects after mutations
+- [Pagination](/features/pagination) — Full reference for offset and Relay-spec cursor pagination

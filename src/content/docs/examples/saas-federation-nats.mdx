@@ -41,16 +41,16 @@ name = "auth-service"
 version = "1.0.0"
 
 [database]
-type = "postgresql"
 url  = "${AUTH_DATABASE_URL}"
 
 [fraiseql]
 schema_file = "schema.json"
 output_file = "schema.compiled.json"
 
-[auth]
-issuer_url = "${OIDC_ISSUER_URL}"
-client_id  = "${OIDC_CLIENT_ID}"
+# OIDC config via environment variables — not in [security.pkce] TOML:
+# OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_REDIRECT_URI
+[security.pkce]
+enabled = true
 
 [federation]
 enabled       = true
@@ -66,7 +66,7 @@ table   = "tb_organization"
 event   = "INSERT"
 subject = "analytics.organization_created"
 
-[fraiseql.security.audit_logging]
+[security.enterprise]
 enabled   = true
 log_level = "info"
 ```
@@ -79,16 +79,16 @@ name = "content-service"
 version = "1.0.0"
 
 [database]
-type = "postgresql"
 url  = "${CONTENT_DATABASE_URL}"
 
 [fraiseql]
 schema_file = "schema.json"
 output_file = "schema.compiled.json"
 
-[auth]
-issuer_url = "${OIDC_ISSUER_URL}"
-client_id  = "${OIDC_CLIENT_ID}"
+# OIDC config via environment variables — not in [security.pkce] TOML:
+# OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_REDIRECT_URI
+[security.pkce]
+enabled = true
 
 [federation]
 enabled       = true
@@ -109,7 +109,7 @@ table   = "tb_task"
 event   = "INSERT"
 subject = "analytics.task_created"
 
-[fraiseql.security.audit_logging]
+[security.enterprise]
 enabled   = true
 log_level = "info"
 ```

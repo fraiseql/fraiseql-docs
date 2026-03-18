@@ -44,6 +44,8 @@ graph LR
 
 The cost: you write views. The payoff: the API is decoupled from the storage schema, and you can evolve both independently.
 
+This separation extends naturally to FraiseQL's multi-transport support. The `v_*` views produce JSON-shaped responses consumed by GraphQL and REST. For gRPC transport, FraiseQL reads row-shaped views (`rv_*`) that return typed columns rather than a JSONB blob — but they draw from the same underlying `tb_*` write tables. One set of normalized tables, two view shapes, three transport protocols.
+
 ## CQRS Separation
 
 Here is the full picture — normalized tables on the write side, denormalized JSONB views on the read side, connected by an auto-sync bridge:
@@ -911,10 +913,10 @@ class User:
     created_at: str
     updated_at: str
 
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def users(limit: int = 10, offset: int = 0) -> list[User]:
     """Read from v_user view"""
-    pass
+    return fraiseql.config(sql_source="v_user")
 
 @fraiseql.mutation(sql_source="fn_create_user", operation="CREATE")
 def create_user(name: str, email: str) -> User:

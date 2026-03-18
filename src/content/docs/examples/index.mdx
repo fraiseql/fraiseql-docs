@@ -35,25 +35,13 @@ Not sure where to begin? Clone a working starter and extend it:
 
 <CardGrid>
   <Card title="Minimal" icon="rocket">
-    SQLite, one table, no Docker. Boots in 10 seconds.
-    ```bash
-    git clone https://github.com/fraiseql/fraiseql-starter-minimal
-    cd fraiseql-starter-minimal && fraiseql run
-    ```
+    PostgreSQL, one table, no Docker. The fastest way to see FraiseQL running — clone `fraiseql-starter-minimal` and run `fraiseql run`.
   </Card>
   <Card title="Blog API" icon="document">
-    PostgreSQL — users, posts, comments, tags, mutations. The schema used throughout the docs.
-    ```bash
-    git clone https://github.com/fraiseql/fraiseql-starter-blog
-    cd fraiseql-starter-blog && docker compose up
-    ```
+    PostgreSQL — users, posts, comments, tags, mutations. The schema used throughout the docs. Clone `fraiseql-starter-blog` and run `docker compose up`.
   </Card>
   <Card title="SaaS Multi-Tenant" icon="shield">
-    PostgreSQL + RLS + JWT. Two isolated tenants out of the box.
-    ```bash
-    git clone https://github.com/fraiseql/fraiseql-starter-saas
-    cd fraiseql-starter-saas && docker compose up
-    ```
+    PostgreSQL + RLS + JWT. Two isolated tenants out of the box. Clone `fraiseql-starter-saas` and run `docker compose up`.
   </Card>
 </CardGrid>
 
@@ -365,7 +353,7 @@ New to FraiseQL? Start with the **[SaaS Blog](../saas-blog)** example — it cov
    Expected response:
 
    ```json
-   {"status": "healthy", "database": "connected", "version": "0.9.0"}
+   {"status": "healthy", "database": "connected", "version": "2.1.0"}
    ```
 
 8. **In another terminal, start frontend**
@@ -411,6 +399,21 @@ See each example's `README.md` for specific instructions.
 7. Real-Time Collaboration (WebSocket, CRDT, OT)
 8. Microservices Choreography (saga, compensation, distributed transactions)
 
+## REST and gRPC in Examples
+
+All FraiseQL starters and examples serve REST and gRPC alongside GraphQL on port 8080 — no extra configuration is needed. Each example's `README.md` notes which transport the example exercises. To test REST or gRPC endpoints in any example:
+
+```bash
+# REST — same resource names as GraphQL queries (default prefix: /rest; configure via [fraiseql.rest] prefix)
+curl http://localhost:8080/rest/users
+
+# gRPC — requires grpcurl and HTTP/2
+grpcurl -plaintext localhost:8080 list
+grpcurl -plaintext -d '{"limit": 10}' localhost:8080 fraiseql.BlogService/ListPosts
+```
+
+Schema annotations like `@fraiseql.query` (with `fraiseql.config(sql_source="v_post")` in the function body) automatically generate both the GraphQL resolver and the REST/gRPC endpoints. No separate REST or gRPC schema definition is needed.
+
 ## Common Patterns Across Examples
 
 ### Authentication & Authorization
@@ -435,10 +438,10 @@ class Post:
     title: str
     deleted_at: datetime | None  # NULL = not deleted
 
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def get_posts() -> list[Post]:
     """Get non-deleted posts."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 ```
 
 ### Pagination
@@ -446,13 +449,13 @@ def get_posts() -> list[Post]:
 Standard cursor-based pagination using relay:
 
 ```python
-@fraiseql.query(sql_source="v_post", relay=True)
+@fraiseql.query
 def get_posts(
     first: int = 10,
     after: str | None = None
 ) -> list[Post]:
     """Paginate through posts (relay connection returned automatically)."""
-    pass
+    return fraiseql.config(sql_source="v_post", relay=True)
 ```
 
 ### Error Handling

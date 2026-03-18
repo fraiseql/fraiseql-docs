@@ -361,6 +361,31 @@ You should see:
 → GraphQL API running at http://localhost:8080/graphql
 ```
 
+Your API is now also available via REST and gRPC alongside GraphQL. REST endpoints are served at `/rest/` by default when you add `rest_path`/`rest_method` annotations to your schema operations. The default prefix is `/rest`. Configure with `[fraiseql.rest]` `prefix` to use `/api` or any other value. gRPC is served on the same port via HTTP/2 content-type negotiation.
+
+To expose an operation via REST, add transport annotations to your query decorator:
+
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    rest_path="/posts",
+    rest_method="GET",
+)
+def posts(limit: int = 10) -> list[Post]: ...
+```
+
+With that annotation in place, both of the following work simultaneously:
+
+```bash
+# GraphQL (always available)
+curl -X POST http://localhost:8080/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ posts { id title } }"}'
+
+# REST (available when rest_path annotation is present)
+curl http://localhost:8080/rest/posts
+```
+
 ## Step 6: Query Your API
 
 Open your browser to `http://localhost:8080/graphql` or use curl:
@@ -432,11 +457,15 @@ Query the same schema — users, posts, comments, tags — against a live Fraise
 }`}
 />
 
+<Aside type="tip" title="Sanity check">
+If anything doesn't work, run `fraiseql doctor` to check your schema, config, database connection, and secrets in one step. See the [CLI reference](/reference/cli#fraiseql-doctor) for details.
+</Aside>
+
 :::note[Before going to production]
 The `fraiseql.toml` in this guide is a minimal development configuration. Before deploying:
 
 - Enable TLS (`[server.tls]`) or terminate at your load balancer
-- Configure authentication (`[auth]`) and set `JWT_SECRET`
+- Configure authentication: set `JWT_SECRET` environment variable
 - Set `admin_token` (or `FRAISEQL_ADMIN_TOKEN`) to enable and protect the RBAC management API
 - Review the [production checklist](/guides/deployment#production-checklist)
 

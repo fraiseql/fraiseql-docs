@@ -1,0 +1,207 @@
+---
+title: FraiseQL for SaaS Companies
+description: Multi-tenant SaaS APIs with PostgreSQL Row-Level Security, JWT isolation, PKCE OAuth flows, and per-tenant rate limiting — all wired up in TOML.
+---
+
+import { Aside, Steps, CardGrid, Card } from '@astrojs/starlight/components';
+
+SaaS companies need tenant isolation, OAuth flows, rate limiting, and audit logging — typically wired up separately across multiple libraries. FraiseQL provides all of this through configuration, backed by PostgreSQL's row-level security enforcement.
+
+## The Multi-Tenant Stack
+
+| Concern | How FraiseQL Handles It |
+|---------|------------------------|
+| **Tenant isolation** | PostgreSQL RLS policies + JWT `inject=` pattern |
+| **Authentication** | JWT verification in the Rust runtime on every request |
+| **OAuth / PKCE flows** | `[security.pkce]` — browser-safe PKCE code flow |
+| **Rate limiting** | `[security.rate_limiting]` — per-authenticated-user token bucket |
+| **Audit logging** | `[security.enterprise]` with `audit_log_backend = "postgresql"` |
+| **Error sanitization** | `[security.error_sanitization]` — hides internals from clients in production |
+
+## Tenant Isolation with Row-Level Security
+
+FraiseQL injects the verified `tenant_id` JWT claim into every SQL call. Your PostgreSQL RLS policies enforce that each tenant only sees their own rows.
+
+### 1. Schema
+
+```sql
+-- Tenant-isolated table
+CREATE TABLE tb_project (
+    pk_project  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id          UUID   DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    tenant_id   UUID   NOT NULL,
+    name        TEXT   NOT NULL
+);
+
+ALTER TABLE tb_project ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY project_tenant_isolation ON tb_project
+    USING (tenant_id = current_setting('app.tenant_id')::UUID);
+```
+
+### 2. Query Definition
+
+```python
+import fraiseql
+from fraiseql.scalars import ID
+
+@fraiseql.type
+class Project:
+    id: ID
+    name: str
+
+@fraiseql.query(
+    inject={"tenant_id": "jwt:tenant_id"}
+)
+def projects(limit: int = 20) -> list[Project]:
+    return fraiseql.config(sql_source="v_project")
+```
+
+`tenant_id` is never in the GraphQL schema. The Rust runtime injects it from the verified JWT. The RLS policy does the rest — even if application code is compromised, the database enforces isolation.
+
+### 3. Configuration
+
+```toml
+[security]
+default_policy = "authenticated"
+
+[security.pkce]
+enabled               = true
+code_challenge_method = "S256"
+state_ttl_secs        = 600
+```
+
+## OAuth with PKCE
+
+For browser-facing SaaS applications, configure PKCE to handle the OAuth code flow:
+
+```toml
+[security.pkce]
+enabled               = true
+code_challenge_method = "S256"
+state_ttl_secs        = 600
+issuer_url            = "https://accounts.google.com"
+client_id             = "my-fraiseql-client"
+redirect_uri          = "https://api.example.com/auth/callback"
+```
+
+The OIDC client secret is set via `OIDC_CLIENT_SECRET` — never in `fraiseql.toml`.
+
+<Aside type="caution">
+In multi-replica deployments, PKCE state is in-memory per process by default. Set `redis_url` in `[security.pkce]` and enable the `redis-pkce` Cargo feature to share state across replicas.
+</Aside>
+
+## Per-Tenant Rate Limiting
+
+```toml
+[security.rate_limiting]
+enabled                      = true
+requests_per_second          = 100
+requests_per_second_per_user = 500   # authenticated tenants get 5× the global rate
+burst_size                   = 200
+
+# Brute-force protection on auth endpoints
+failed_login_max_requests = 5
+failed_login_window_secs  = 3600
+```
+
+Authenticated users receive a higher per-user limit than the global rate. The global rate acts as a floor for unauthenticated traffic. Rate limits apply identically across GraphQL and REST transports.
+
+## Audit Logging
+
+```toml
+[security.enterprise]
+audit_logging_enabled = true
+audit_log_backend     = "postgresql"
+```
+
+Create the audit table. This example adds `tenant_id` for multi-tenant isolation — see [Security reference](/features/security#audit-logging) for the full canonical schema including `variables`, `user_agent`, and `error_message` columns.
+
+```sql
+CREATE TABLE ta_audit_log (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    timestamp   TIMESTAMPTZ DEFAULT NOW(),
+    user_id     UUID,
+    tenant_id   UUID,
+    operation   TEXT        NOT NULL,
+    query_name  TEXT,
+    ip_address  INET,
+    duration_ms INTEGER,
+    success     BOOLEAN
+);
+```
+
+FraiseQL writes one row per request to `ta_audit_log`. You own the table — query it directly for compliance reports or forward it to your SIEM.
+
+## Error Sanitization
+
+```toml
+[security.error_sanitization]
+enabled                     = true
+hide_implementation_details = true
+sanitize_database_errors    = true
+custom_error_message        = "An internal error occurred"
+```
+
+Without this, raw PostgreSQL error messages reach clients. Enable it in every production deployment.
+
+## Starting Point: fraiseql-starter-saas
+
+The `fraiseql-starter-saas` template includes the full multi-tenant data model — tenant table, user table, subscription table, PostgreSQL RLS policies on every table, JWT `tenant_id` claim enforcement, role-based access (admin/member), and an invite flow mutation.
+
+```bash
+git clone https://github.com/fraiseql/fraiseql-starter-saas
+cd fraiseql-starter-saas
+cp .env.example .env
+docker compose up
+```
+
+## Getting Started
+
+<Steps>
+
+1. **Clone the SaaS starter**
+
+   ```bash
+   git clone https://github.com/fraiseql/fraiseql-starter-saas
+   ```
+
+2. **Set up your environment**
+
+   ```bash
+   cp .env.example .env
+   # Edit .env: set DATABASE_URL, JWT_SECRET, OIDC_CLIENT_SECRET
+   ```
+
+3. **Start services**
+
+   ```bash
+   docker compose up
+   ```
+
+4. **Extend the schema** — add your domain entities following the existing RLS pattern
+
+5. **Enable production features** — add `[security.error_sanitization]`, `[security.enterprise]`, and `[security.rate_limiting]` to `fraiseql.toml`
+
+</Steps>
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Multi-Tenancy Guide" icon="setting">
+    Row-Level Security patterns, schema-per-tenant, and database-per-tenant strategies.
+    [Multi-Tenancy](/guides/multi-tenancy)
+  </Card>
+  <Card title="Authentication" icon="shield">
+    JWT verification, PKCE flows, API keys, and token revocation.
+    [Authentication](/guides/authentication)
+  </Card>
+  <Card title="Security Reference" icon="approve-check-circle">
+    Full reference for RBAC, error sanitization, rate limiting, and audit logging.
+    [Security](/features/security)
+  </Card>
+  <Card title="SaaS Starter" icon="rocket">
+    Working multi-tenant project with RLS, JWT, and role-based access.
+    [Starter Templates](/getting-started/starters)
+  </Card>
+</CardGrid>

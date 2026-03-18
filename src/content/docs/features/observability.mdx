@@ -93,6 +93,13 @@ FraiseQL monitors connection pool pressure and emits scaling recommendations. Th
 | `fraiseql_multi_root_queries_total` | Counter | Multi-root GraphQL queries executed in parallel |
 | `fraiseql_observer_dlq_overflow_total` | Counter | Observer DLQ entries dropped due to `max_dlq_size` cap |
 
+#### Transport Metrics
+
+Transport-level metrics are emitted alongside per-query metrics:
+- `fraiseql_rest_requests_total` — REST request count
+- `fraiseql_grpc_requests_total` — gRPC request count
+- All `fraiseql_query_*` metrics include a `transport` label (`graphql`, `rest`, `grpc`, `websocket`)
+
 ### Metric Labels
 
 Common labels across metrics:
@@ -103,6 +110,7 @@ Common labels across metrics:
 | `type` | query, mutation, subscription |
 | `status` | success, error |
 | `error_code` | Error code if failed |
+| `transport` | graphql, rest, grpc, websocket |
 
 ### Grafana Dashboard
 
@@ -199,6 +207,10 @@ FraiseQL creates spans for each request with attributes including:
 | `db.operation` | SELECT/INSERT/UPDATE/DELETE |
 | `user.id` | Authenticated user ID |
 | `tenant.id` | Tenant ID |
+
+### Transport Attribute
+
+Spans include a `transport` attribute (`graphql`, `rest`, `grpc`, `websocket`) to distinguish traffic sources in your tracing backend.
 
 ### Trace Context Propagation
 

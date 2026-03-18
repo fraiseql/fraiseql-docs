@@ -10,6 +10,8 @@ is not a supported data source. FraiseQL is designed from the ground up to treat
 as a first-class target — the same features that work on PostgreSQL work on SQL Server,
 with no separate product tier or connector required.
 
+FraiseQL also serves REST and gRPC alongside GraphQL on SQL Server — not just GraphQL. All three transports are available when using SQL Server as the backing database.
+
 ## The Core Difference
 
 | | Hasura | FraiseQL |
@@ -187,7 +189,7 @@ straightforward because you already have a SQL Server schema.
    | Object/array relationships | Nested JSON in view `SELECT` |
    | Permissions (YAML) | SQL Server RLS + FraiseQL `inject` |
    | Actions (HTTP webhook) | Mutations via stored procedures |
-   | Event triggers | Observers (`@observer` decorator) |
+   | Event triggers | Observers (TOML `[observers]` config) |
    | Computed fields | Expressions in view `SELECT` |
    | Remote schemas | Federation |
 

@@ -18,13 +18,10 @@ When you enable `auto_params`, FraiseQL generates:
 ## Enabling Auto-Params
 
 ```python
-@fraiseql.query(
-    sql_source="v_user",
-    auto_params={"where": True}
-)
+@fraiseql.query
 def users(where: UserWhereInput | None = None) -> list[User]:
     """Query users with automatic filtering."""
-    pass
+    return fraiseql.config(sql_source="v_user", auto_params={"where": True})
 ```
 
 ## Generated Filter Types
@@ -300,6 +297,15 @@ query {
 | `_nlike` | `NOT LIKE` | Not pattern |
 | `_regex` | `~` | Regex match |
 | `_iregex` | `~*` | Regex (case-insensitive) |
+| `_nilike` | `NOT ILIKE` | Not pattern (case-insensitive, PostgreSQL only) |
+| `_nregex` | `!~` | Not regex (PostgreSQL only) |
+| `_niregex` | `!~*` | Not regex, case-insensitive (PostgreSQL only) |
+| `_contains` | `LIKE '%…%'` | Contains substring |
+| `_icontains` | `ILIKE '%…%'` | Contains substring (case-insensitive, PostgreSQL only) |
+| `_startswith` | `LIKE '…%'` | Starts with |
+| `_istartswith` | `ILIKE '…%'` | Starts with (case-insensitive, PostgreSQL only) |
+| `_endswith` | `LIKE '%…'` | Ends with |
+| `_iendswith` | `ILIKE '%…'` | Ends with (case-insensitive, PostgreSQL only) |
 | `_is_null` | `IS NULL` | Null check |
 
 ### Numeric Fields
@@ -600,12 +606,9 @@ class Post:
     title: str
     author: User
 
-@fraiseql.query(
-    sql_source="v_post",
-    auto_params={"where": True}
-)
+@fraiseql.query
 def posts(where: PostWhereInput | None = None) -> list[Post]:
-    pass
+    return fraiseql.config(sql_source="v_post", auto_params={"where": True})
 ```
 
 ```graphql
@@ -665,22 +668,22 @@ CREATE INDEX idx_tv_user_active_email ON tv_user (
 ## Combining with Other Parameters
 
 ```python
-@fraiseql.query(
-    sql_source="v_post",
-    auto_params={
-        "where": True,
-        "limit": True,
-        "offset": True,
-        "order_by": True
-    }
-)
+@fraiseql.query
 def posts(
     where: PostWhereInput | None = None,
     limit: int = 20,
     offset: int = 0,
     order_by: PostOrderByInput | None = None
 ) -> list[Post]:
-    pass
+    return fraiseql.config(
+        sql_source="v_post",
+        auto_params={
+            "where": True,
+            "limit": True,
+            "offset": True,
+            "order_by": True
+        }
+    )
 ```
 
 ```graphql
@@ -747,18 +750,24 @@ You can control which auto-parameters are enabled on a per-query basis via the `
 
 ```python
 # Enable all auto-params (where, limit, offset, order_by)
-@fraiseql.query(sql_source="v_post", auto_params=True)
+@fraiseql.query
 def posts(
     where: PostWhereInput | None = None,
     limit: int = 20,
     offset: int = 0,
     order_by: PostOrderByInput | None = None
-) -> list[Post]: ...
+) -> list[Post]:
+    return fraiseql.config(sql_source="v_post", auto_params=True)
 
 # Enable only where filtering for this query
-@fraiseql.query(sql_source="v_user", auto_params={"where": True})
-def users(where: UserWhereInput | None = None) -> list[User]: ...
+@fraiseql.query
+def users(where: UserWhereInput | None = None) -> list[User]:
+    return fraiseql.config(sql_source="v_user", auto_params={"where": True})
 ```
+
+## REST Query Parameters
+
+Auto-generated WHERE filters are also available via REST query parameters. For example, if a field `name` has a `contains` filter, you can use `GET /rest/users?name_contains=alice` (the default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix`) — equivalent to `users(where: { name: { contains: "alice" } })` in GraphQL.
 
 ## Next Steps
 

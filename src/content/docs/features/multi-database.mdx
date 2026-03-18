@@ -334,8 +334,22 @@ mysql -u user -p -h localhost mydb -e "SELECT 1"
 2. Verify indexes on JSON fields
 3. Review query plans with `fraiseql-cli explain`
 
+## Transport Support Across Databases
+
+All four databases (PostgreSQL, MySQL, SQL Server, SQLite) support all three transports — GraphQL, REST, and gRPC. The compiler generates transport-aware views for each database dialect:
+
+| Database | JSON views (GraphQL + REST) | Row views (gRPC) |
+|----------|----------------------------|------------------|
+| PostgreSQL | `json_agg(row_to_json(t))` | Standard `SELECT` |
+| MySQL | `JSON_ARRAYAGG(...)` | Standard `SELECT` |
+| SQL Server | `FOR JSON PATH` | Standard `SELECT` |
+| SQLite | `json_group_array(...)` | Standard `SELECT` |
+
+Transport choice is independent of database choice.
+
 ## Next Steps
 
 - [Schema Design](/guides/schema-design) - Database-agnostic patterns
 - [Performance](/guides/performance) - Database optimization
 - [Deployment](/guides/deployment) - Production database setup
+- [Multi-Tenancy](/guides/multi-tenancy) - Tenant isolation with PostgreSQL RLS

@@ -80,15 +80,15 @@ class User:
     email: str
     created_at: DateTime
 
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def user(id: ID) -> User | None:
     """Look up a single user."""
-    pass
+    return fraiseql.config(sql_source="v_user")
 
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def users(limit: int = 20, offset: int = 0) -> list[User]:
     """List all users."""
-    pass
+    return fraiseql.config(sql_source="v_user")
 
 fraiseql.export_schema("schema.json")
 ```
@@ -146,15 +146,15 @@ class CreateOrderInput:
     user_id: ID
     items: list[str]
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def order(id: ID) -> Order | None:
     """Look up a single order."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 
-@fraiseql.query(sql_source="v_order")
+@fraiseql.query
 def orders(limit: int = 20, offset: int = 0) -> list[Order]:
     """List all orders."""
-    pass
+    return fraiseql.config(sql_source="v_order")
 
 @fraiseql.mutation(sql_source="fn_create_order", operation="CREATE")
 def create_order(input: CreateOrderInput) -> Order:
@@ -442,10 +442,10 @@ class Review:
     body: str
     created_at: DateTime
 
-@fraiseql.query(sql_source="v_review")
+@fraiseql.query
 def reviews(order_id: ID | None = None, limit: int = 20) -> list[Review]:
     """List reviews, optionally filtered by order."""
-    pass
+    return fraiseql.config(sql_source="v_review")
 
 @fraiseql.input
 class CreateReviewInput:
@@ -474,7 +474,7 @@ Add to `supergraph.yaml` and recompose — no changes needed to the existing Use
 Each FraiseQL Rust runtime exposes Prometheus metrics independently. The Apollo Router exposes additional federation-level metrics.
 
 ```toml title="any-service/fraiseql.toml"
-[fraiseql.security.audit_logging]
+[security.enterprise]
 enabled = true
 log_level = "info"
 ```
@@ -513,6 +513,9 @@ Apollo Router metrics to track:
 ## Next Steps
 
 <CardGrid>
+  <Card title="Federation Feature Reference" icon="open-book">
+    [Federation](/features/federation) — Full feature reference including circuit breaker and NATS
+  </Card>
   <Card title="Federation Configuration" icon="setting">
     [Per-Service Configuration](/guides/federation-configuration) — TOML configuration for each FraiseQL subgraph
   </Card>

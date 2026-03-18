@@ -26,6 +26,10 @@ Before enabling the Arrow Flight DataPlane:
 
 ## Configuration
 
+<Aside type="note">
+The `[analytics]` section configures analytics query definitions and the columnar query cache. It is distinct from the Arrow Flight binary streaming transport, which requires the `arrow` Cargo feature compiled into the binary. See [Arrow Flight Dataplane](/features/arrow-dataplane) for the low-level streaming transport. If you are using the official `ghcr.io/fraiseql/server:latest` image, check whether the `arrow` feature is compiled in before relying on Flight streaming — the `[analytics]` TOML section itself is always available.
+</Aside>
+
 Enable the DataPlane in `fraiseql.toml`:
 
 ```toml
@@ -112,10 +116,10 @@ The Flight DataPlane reads any `v_*` view exposed by FraiseQL. Define your aggre
        orders: int
        avg_order_value: Decimal
    
-   @fraiseql.query(sql_source="va_analytics_sales")
+   @fraiseql.query
    def analytics_sales() -> list[SalesAggregate]:
        """Sales aggregates — available via both GraphQL and Arrow Flight."""
-       pass
+       return fraiseql.config(sql_source="va_analytics_sales")
    ```
    
    </TabItem>
@@ -324,6 +328,10 @@ Includes Flight service status:
   }
 }
 ```
+
+## Arrow Flight and API Transports
+
+Arrow Flight is a separate analytics transport distinct from the API transports (GraphQL, REST, gRPC). It is designed for bulk data transfer, not request-response API patterns.
 
 ## Limitations
 

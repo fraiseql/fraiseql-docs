@@ -182,7 +182,7 @@ A: Write custom mutations/resolvers in Python. FraiseQL handles boilerplate; you
 A: Yes. FraiseQL can be a facade over multiple services. Implement custom resolvers that call services.
 
 **Q: How do I handle rate limiting?**
-A: FraiseQL supports per-endpoint rate limits configured in `fraiseql.toml` under `[fraiseql.security.rate_limiting]`. Override at runtime with environment variables such as `RATE_LIMIT_AUTH_START`.
+A: FraiseQL supports per-endpoint rate limits configured in `fraiseql.toml` under `[security.rate_limiting]`. Override at runtime with environment variables such as `RATE_LIMIT_AUTH_START`.
 
 ---
 
@@ -255,7 +255,7 @@ A: Yes. Convert YAML config to Python types. See [Hasura migration guide](/migra
 ## Advanced Questions (5)
 
 **Q: Can I use FraiseQL with REST APIs?**
-A: No, FraiseQL specifically generates GraphQL. If you need REST, use a different tool or add REST endpoints manually.
+A: Yes. FraiseQL serves REST, GraphQL, and gRPC from the same binary. Add `rest_path` and `rest_method` annotations to expose operations as REST endpoints alongside GraphQL.
 
 **Q: Can I customize the GraphQL schema?**
 A: Yes, FraiseQL allows schema customization via decorators and custom fields. Control exactly what's exposed.
@@ -287,6 +287,25 @@ A: Use auto-scaling based on RPS or CPU. For databases, use read replicas. Cache
 
 **Q: When should I optimize?**
 A: After profiling (measure first). Follow: 1) Add indexes, 2) Cache, 3) optimize queries, 4) auto-scale infrastructure.
+
+---
+
+## Transport FAQs
+
+**Can I serve REST and GraphQL from the same binary?**
+Yes. FraiseQL serves all three transports (GraphQL, REST, gRPC) simultaneously from the same binary on port 8080. No separate processes needed.
+
+**Do I need to choose between transports?**
+No. Add `rest_path`/`rest_method` annotations to expose operations as REST, `grpc_service`/`grpc_method` for gRPC, or both. Operations without annotations are GraphQL-only. Each operation can be on any combination of transports.
+
+**Does gRPC require a separate port?**
+No. gRPC runs on the same port as GraphQL and REST. HTTP/2 content-type negotiation distinguishes gRPC requests (`application/grpc`) from HTTP/1.1 REST and GraphQL.
+
+**Is REST auto-generated from my schema?**
+No. REST endpoints require explicit `rest_path` and `rest_method` annotations. This is intentional — you control which operations are exposed as REST and at what paths.
+
+**Can I use REST without GraphQL?**
+Yes, but GraphQL introspection remains available on all deployments (unless disabled with `fraiseql run --no-introspection`). REST and GraphQL are independent transports.
 
 ---
 

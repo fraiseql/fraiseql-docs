@@ -66,6 +66,10 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'ai' },
             { label: 'Generating Views', slug: 'ai/generating-views' },
+            { label: 'Python Client', slug: 'ai/python-client' },
+            { label: 'MCP Server', slug: 'ai/mcp-server' },
+            { label: 'LangChain Integration', slug: 'ai/langchain' },
+            { label: 'LlamaIndex Integration', slug: 'ai/llamaindex' },
           ],
         },
         {
@@ -103,6 +107,7 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Authentication', slug: 'guides/authentication' },
+                { label: 'REST vs GraphQL', slug: 'guides/rest-vs-graphql' },
                 { label: 'Schema Design', slug: 'guides/schema-design' },
                 { label: 'Error Handling', slug: 'guides/error-handling' },
                 { label: 'Custom Scalar Types', slug: 'guides/custom-scalars' },
@@ -200,6 +205,15 @@ export default defineConfig({
               ],
             },
             {
+              label: 'Transports',
+              collapsed: true,
+              items: [
+                { label: 'Transport Overview', slug: 'transports' },
+                { label: 'REST Transport', slug: 'features/rest-transport' },
+                { label: 'gRPC Transport', slug: 'features/grpc-transport' },
+              ],
+            },
+            {
               label: 'Integration',
               collapsed: true,
               items: [
@@ -227,8 +241,10 @@ export default defineConfig({
           collapsed: true,
           items: [
             { label: 'CLI', slug: 'reference/cli' },
+            { label: 'Admin API', slug: 'reference/admin-api' },
             { label: 'TOML Configuration', slug: 'reference/toml-config' },
             { label: 'GraphQL API', slug: 'reference/graphql-api' },
+            { label: 'REST API', slug: 'reference/rest-api' },
             { label: 'Decorators', slug: 'reference/decorators' },
             { label: 'Scalar Types', slug: 'reference/scalars' },
             { label: 'Semantic Scalars', slug: 'reference/semantic-scalars' },
@@ -265,6 +281,8 @@ export default defineConfig({
             { label: 'C#', slug: 'sdk/csharp' },
             { label: 'Elixir', slug: 'sdk/elixir' },
             { label: 'F#', slug: 'sdk/fsharp' },
+            { label: 'Ruby', slug: 'sdk/ruby' },
+            { label: 'Dart', slug: 'sdk/dart' },
           ],
         },
         {
@@ -304,6 +322,7 @@ export default defineConfig({
             { label: 'From Apollo', slug: 'migrations/from-apollo' },
             { label: 'From Hasura', slug: 'migrations/from-hasura' },
             { label: 'From REST API', slug: 'migrations/from-rest' },
+            { label: 'From PostgREST', slug: 'migrations/from-postgrest' },
           ],
         },
         {
@@ -326,6 +345,9 @@ export default defineConfig({
           collapsed: true,
           items: [
             { label: '.NET Teams on SQL Server', slug: 'use-cases/dotnet-teams' },
+            { label: 'Python Teams', slug: 'use-cases/python-teams' },
+            { label: 'SaaS Companies', slug: 'use-cases/saas-companies' },
+            { label: 'Event-Driven Architectures', slug: 'use-cases/event-driven-teams' },
           ],
         },
         {
@@ -336,6 +358,18 @@ export default defineConfig({
             { label: 'vs Hasura (SQL Server)', slug: 'vs/hasura-sqlserver' },
             { label: 'vs Apollo', slug: 'vs/apollo' },
             { label: 'vs Prisma', slug: 'vs/prisma' },
+            { label: 'vs PostgREST', slug: 'vs/postgrest' },
+          ],
+        },
+        {
+          label: 'Blog',
+          collapsed: true,
+          items: [
+            { label: 'Blog', slug: 'blog' },
+            { label: 'Three Transports, One Binary', slug: 'blog/three-transports-one-binary' },
+            { label: 'Why Our gRPC Skips JSON', slug: 'blog/why-grpc-skips-json' },
+            { label: 'REST: Annotation-Driven', slug: 'blog/rest-annotation-driven' },
+            { label: '11 Languages, One Server', slug: 'blog/eleven-languages-one-server' },
           ],
         },
         {

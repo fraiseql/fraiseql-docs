@@ -328,6 +328,164 @@ fn build_auth_config() {
 
 ---
 
+## Transport Annotations
+
+<Aside type="caution">
+REST annotation support is not yet available in this SDK. Follow the SDK repository for updates.
+</Aside>
+
+Transport annotations are **optional** on schema operations authored with other SDKs. When using `fraiseql-rust` for Rust-native schema authoring (separate from the authorization library), add `rest_path`, `rest_method`, `grpc_service`, and `grpc_method` to the `#[fraiseql::query]` and `#[fraiseql::mutation]` proc-macro attributes.
+
+```rust
+use fraiseql_sdk::prelude::*;
+
+// REST + GraphQL
+#[fraiseql::query(
+    sql_source = "v_post",
+    rest_path = "/posts",
+    rest_method = "GET",
+)]
+async fn posts(limit: Option<i32>) -> Vec<Post> { vec![] }
+
+// With path parameter
+#[fraiseql::query(
+    sql_source = "v_post",
+    rest_path = "/posts/{id}",
+    rest_method = "GET",
+)]
+async fn post(id: Uuid) -> Option<Post> { None }
+
+// gRPC
+#[fraiseql::query(
+    sql_source = "v_post",
+    grpc_service = "BlogService",
+    grpc_method = "ListPosts",
+)]
+async fn posts_grpc(limit: Option<i32>) -> Vec<Post> { vec![] }
+
+// REST mutation
+#[fraiseql::mutation(
+    sql_source = "create_post",
+    operation = "CREATE",
+    rest_path = "/posts",
+    rest_method = "POST",
+    grpc_service = "BlogService",
+    grpc_method = "CreatePost",
+)]
+async fn create_post(title: String, author_id: Uuid) -> Post { unimplemented!() }
+```
+
+Path parameters in `rest_path` (e.g., `{id}`) must match function argument names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
+
+---
+
+---
+
+## FraiseQL Client (`fraiseql-client`)
+
+The `fraiseql-client` crate is a separate async HTTP client for consuming FraiseQL GraphQL APIs from Rust applications. It is independent of the authorization library above.
+
+### Installation
+
+```toml title="Cargo.toml"
+[dependencies]
+fraiseql-client = "2.1.0"
+
+# Optional: Candle ML integration for embedding storage/retrieval
+fraiseql-client = { version = "2.1.0", features = ["candle"] }
+```
+
+### Usage
+
+```rust
+use fraiseql_client::FraiseQLClientBuilder;
+use serde::Deserialize;
+use serde_json::json;
+
+#[derive(Deserialize)]
+struct User {
+    id: String,
+    name: String,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), fraiseql_client::FraiseQLError> {
+    let client = FraiseQLClientBuilder::new("http://localhost:8080/graphql")
+        .authorization("Bearer eyJhbGciOiJIUzI1NiIs...")
+        .timeout(std::time::Duration::from_secs(30))
+        .build();
+
+    // Query
+    let users: Vec<User> = client.query(
+        "{ users { id name } }",
+        None,
+    ).await?;
+
+    // Mutation with variables
+    let new_user: User = client.mutate(
+        r#"mutation($name: String!, $email: String!) {
+            createUser(name: $name, email: $email) { id name }
+        }"#,
+        Some(&json!({ "name": "Alice", "email": "alice@example.com" })),
+    ).await?;
+
+    Ok(())
+}
+```
+
+### Retry configuration
+
+```rust
+use fraiseql_client::{FraiseQLClientBuilder, RetryConfig};
+use std::time::Duration;
+
+let client = FraiseQLClientBuilder::new("http://localhost:8080/graphql")
+    .retry(RetryConfig {
+        max_attempts: 3,
+        base_delay: Duration::from_secs(1),
+        max_delay: Duration::from_secs(30),
+        jitter: true,
+    })
+    .build();
+```
+
+### Error types
+
+| Variant | When returned |
+|---------|--------------|
+| `FraiseQLError::GraphQL` | Response contains `errors` array |
+| `FraiseQLError::Network` | Connection refused, DNS failure |
+| `FraiseQLError::Timeout` | Request exceeded timeout |
+| `FraiseQLError::Authentication` | HTTP 401 or 403 |
+| `FraiseQLError::RateLimit` | HTTP 429 (includes `retry_after` if present) |
+| `FraiseQLError::Serialization` | JSON deserialization failure |
+
+### Candle ML integration
+
+With the `candle` feature enabled, store and retrieve embeddings via FraiseQL mutations:
+
+```rust
+use candle_core::{Device, Tensor};
+use serde_json::json;
+
+// Store an embedding
+let embedding = Tensor::new(&[0.1f32, 0.2, 0.3], &Device::Cpu)?;
+let result = client.store_embedding(
+    "mutation($embedding: [Float!]!, $docId: ID!) { storeEmbedding(embedding: $embedding, docId: $docId) { id } }",
+    &embedding,
+    json!({ "docId": "doc-123" }),
+).await?;
+
+// Fetch embeddings
+let tensor = client.fetch_embeddings(
+    "{ embedding(docId: \"doc-123\") { values } }",
+    None,
+    &[3],  // shape: 1D tensor with 3 elements
+).await?;
+```
+
+---
+
 ## Next Steps
 
 <CardGrid>
@@ -335,7 +493,7 @@ fn build_auth_config() {
     [Authentication, RBAC, and field-level scopes](/features/security)
   </Card>
   <Card title="Other SDKs" icon="puzzle">
-    [Go, Java, PHP, Python](/sdk/)
+    [All SDKs](/sdk/)
   </Card>
   <Card title="Schema Reference" icon="open-book">
     [Naming conventions and schema structure](/reference/naming-conventions)

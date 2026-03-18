@@ -421,10 +421,10 @@ $$ LANGUAGE plpgsql;
 ## Edit History
 
 ```python
-@fraiseql.query(sql_source="v_document_edit")
+@fraiseql.query
 def document_history(document_id: ID, first: int = 50) -> list[DocumentEdit]:
     """Get edit history for a document in chronological order."""
-    pass
+    return fraiseql.config(sql_source="v_document_edit")
 ```
 
 ## Getting Started

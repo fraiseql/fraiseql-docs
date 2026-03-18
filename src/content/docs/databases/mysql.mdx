@@ -274,9 +274,9 @@ class Post:
     title: str
     created_at: DateTime
 
-@fraiseql.query(sql_source="v_post", relay=True)
+@fraiseql.query
 def posts() -> list[Post]:
-    pass
+    return fraiseql.config(sql_source="v_post", relay=True)
 ```
 
 This exposes `PostConnection` with `edges`, `node`, `cursor`, and `pageInfo` per the [Relay Cursor Connections spec](https://relay.dev/graphql/connections.htm).
@@ -395,6 +395,14 @@ COMMIT;
 - Use `tv_*` for frequently-accessed complex objects (more than 10 reads/sec)
 - Add generated columns for frequently-filtered JSON fields
 - InnoDB buffer pool size is critical; allocate 50-75% of RAM
+
+## Transport-Aware Views
+
+FraiseQL generates transport-aware views for MySQL:
+- JSON-shaped views (GraphQL + REST) use `JSON_ARRAYAGG(...)`
+- Row-shaped views (gRPC) use standard `SELECT` with typed columns
+
+Both view types work with all three transports. MySQL supports all three transports equally.
 
 ## See Also
 

@@ -37,20 +37,26 @@ Choose your migration path based on what you're currently using.
 
     [REST Migration Guide](/migrations/from-rest)
   </Card>
+  <Card title="From PostgREST" icon="rocket">
+    Keep your PostgreSQL views — add GraphQL, gRPC, and multi-database support without rewriting your schema.
+
+    [PostgREST Migration Guide](/migrations/from-postgrest)
+  </Card>
 </CardGrid>
 
 ## Comparison Table
 
-| Feature           | Prisma                 | Apollo              | Hasura             | REST           | FraiseQL                      |
-|-------------------|------------------------|---------------------|--------------------|----------------|-------------------------------|
-| **API Type**      | ORM                    | GraphQL             | GraphQL            | REST           | GraphQL                       |
-| **Runtime**       | Node.js                | Node.js             | Node.js / Haskell  | Any            | Rust binary                   |
-| **Schema source** | Prisma Schema Language | GraphQL SDL         | DB introspection   | Code           | Python/TS/Go decorators       |
-| **Reads**         | ORM `.findMany()`      | Resolver functions  | Auto-generated SQL | Route handlers | PostgreSQL views (`v_*`)      |
-| **Writes**        | ORM `.create()`        | Resolver functions  | Auto-generated SQL | Route handlers | PostgreSQL functions (`fn_*`) |
-| **N+1 handling**  | Manual `include`       | DataLoader (manual) | Auto (limited)     | N/A            | Eliminated by design          |
-| **Real-time**     | Polling                | Manual PubSub       | Event-based        | Polling        | NATS subscriptions            |
-| **Federation**    | No                     | Limited             | No                 | No             | Yes                           |
+| Feature           | Prisma                 | Apollo              | Hasura             | REST           | PostgREST              | FraiseQL                      |
+|-------------------|------------------------|---------------------|--------------------|----------------|------------------------|-------------------------------|
+| **API Type**      | ORM                    | GraphQL             | GraphQL            | REST           | REST                   | GraphQL + REST + gRPC         |
+| **Runtime**       | Node.js                | Node.js             | Node.js / Haskell  | Any            | Haskell binary         | Rust binary                   |
+| **Schema source** | Prisma Schema Language | GraphQL SDL         | DB introspection   | Code           | DB introspection       | Python/TS/Go decorators       |
+| **Reads**         | ORM `.findMany()`      | Resolver functions  | Auto-generated SQL | Route handlers | Auto from views        | SQL views (`v_*`)             |
+| **Writes**        | ORM `.create()`        | Resolver functions  | Auto-generated SQL | Route handlers | Auto from tables       | SQL functions (`fn_*`)        |
+| **N+1 handling**  | Manual `include`       | DataLoader (manual) | Auto (limited)     | N/A            | N/A                    | Eliminated by design          |
+| **Real-time**     | Polling                | Manual PubSub       | Event-based        | Polling        | No                     | NATS subscriptions            |
+| **Databases**     | Multiple               | Any                 | PostgreSQL         | Any            | PostgreSQL only        | PostgreSQL, MySQL, SQLite, SQL Server |
+| **Federation**    | No                     | Limited             | No                 | No             | No                     | Yes                           |
 
 ## Migration Benefits
 
@@ -159,6 +165,10 @@ Start with a single feature module rather than migrating the entire API at once.
 ## Cost Savings
 
 Most teams save 20-40% on infrastructure and development costs after migrating:
+
+<Aside type="note">
+Cost estimates are illustrative and will vary significantly by workload, infrastructure provider, and query patterns.
+</Aside>
 
 | Cost Area        | Before                              | After              | Savings    |
 |------------------|-------------------------------------|--------------------|------------|

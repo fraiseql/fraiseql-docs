@@ -1,0 +1,198 @@
+---
+title: Dart SDK
+description: HTTP client and schema authoring SDK for FraiseQL in Dart and Flutter
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+The FraiseQL Dart SDK provides an **async HTTP client** for querying FraiseQL GraphQL APIs and **schema annotations** for defining types. It works in Dart CLI applications and Flutter mobile/web apps.
+
+<Aside type="note">
+The Dart SDK serves two purposes: (1) an HTTP client for consuming FraiseQL APIs, and (2) schema annotations for defining types. The HTTP client is production-ready. Schema annotations provide metadata declarations — they do not compile schemas or generate code.
+</Aside>
+
+## Installation
+
+```yaml
+# pubspec.yaml
+dependencies:
+  fraiseql: ^2.1.0
+```
+
+```bash
+dart pub get
+```
+
+**Requirements:** Dart >= 3.0.0
+
+## Client
+
+### Creating a client
+
+```dart
+import 'package:fraiseql/fraiseql.dart';
+
+// Simple client
+final client = FraiseQLClient.simple('http://localhost:8080/graphql');
+
+// Full configuration
+final client = FraiseQLClient(FraiseQLClientConfig(
+  url: 'http://localhost:8080/graphql',
+  authorization: 'Bearer eyJhbGciOiJIUzI1NiIs...',
+  timeout: Duration(seconds: 30),
+));
+```
+
+### Async authorization factory
+
+For JWT refresh or OAuth token rotation, pass an async factory instead of a static token:
+
+```dart
+final client = FraiseQLClient(FraiseQLClientConfig(
+  url: 'http://localhost:8080/graphql',
+  authorizationFactory: () async {
+    final token = await refreshAccessToken();
+    return 'Bearer $token';
+  },
+));
+```
+
+The factory is called on every request, so you can return a fresh token each time.
+
+### Queries
+
+```dart
+final result = await client.query('{ users { id name email } }');
+print(result['data']['users']);
+
+// With variables
+final result = await client.query(
+  r'query($id: ID!) { user(id: $id) { name } }',
+  variables: {'id': 'user-123'},
+  operationName: 'GetUser',
+);
+```
+
+### Mutations
+
+```dart
+final result = await client.mutate(
+  r'mutation($input: CreateUserInput!) { createUser(input: $input) { id } }',
+  variables: {
+    'input': {'name': 'Alice', 'email': 'alice@example.com'},
+  },
+);
+```
+
+### Resource cleanup
+
+Always close the client when done to release HTTP connections:
+
+```dart
+await client.close();
+```
+
+If you inject your own `http.Client` via `FraiseQLClientConfig.httpClient`, the SDK will not close it — you manage its lifecycle.
+
+---
+
+## Error Handling
+
+All exceptions inherit from `FraiseQLException`:
+
+| Exception | When thrown | Key properties |
+|-----------|------------|---------------|
+| `GraphQLException` | Response contains `errors` array | `errors` (full list), `message` (first error) |
+| `NetworkException` | Connection refused, DNS failure | `message` |
+| `TimeoutException` | Request exceeded timeout | `duration` |
+| `AuthenticationException` | HTTP 401 or 403 | `statusCode` |
+| `RateLimitException` | HTTP 429 | `retryAfter` |
+
+```dart
+try {
+  final result = await client.query('{ users { id } }');
+} on AuthenticationException catch (e) {
+  print('Auth failed (${e.statusCode})');
+} on RateLimitException {
+  print('Rate limited — retry later');
+} on GraphQLException catch (e) {
+  print('GraphQL error: ${e.message}');
+  for (final err in e.errors) {
+    print(err['message']);
+  }
+} on NetworkException catch (e) {
+  print('Network error: ${e.message}');
+}
+```
+
+---
+
+## Gemini Integration
+
+Wrap FraiseQL queries as Google Gemini tool definitions for use with the Generative AI API:
+
+```dart
+final descriptor = FraiseQLGeminiToolDescriptor(
+  client: client,
+  name: 'get_users',
+  description: 'Fetch users by role',
+  query: r'query($role: String!) { users(role: $role) { id name } }',
+  parametersSchema: {
+    'type': 'object',
+    'properties': {
+      'role': {'type': 'string'},
+    },
+    'required': ['role'],
+  },
+);
+
+// Execute the query with arguments from the model
+final result = await descriptor.execute({'role': 'admin'});
+```
+
+Works with both `google_generative_ai` and `firebase_vertexai` packages.
+
+---
+
+## Schema Annotations
+
+Define GraphQL types using annotations:
+
+```dart
+@FraiseQLType(name: 'User', description: 'A registered user')
+class User {
+  @FraiseQLField(name: 'id', required: true, description: 'Unique identifier')
+  final String id;
+
+  @FraiseQLField(name: 'email', required: false)
+  final String? email;
+
+  @FraiseQLField(name: 'legacyField', deprecated: true)
+  final String? legacyField;
+
+  User({required this.id, this.email, this.legacyField});
+}
+```
+
+These are metadata annotations for reflection. They do not generate schema output or validate against compiled schemas.
+
+---
+
+## Transport Annotations
+
+<Aside type="caution">
+REST and gRPC annotation support is not yet available in the Dart SDK.
+</Aside>
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="SDK Overview" icon="puzzle">
+    [All SDKs](/sdk) — compare schema authoring across languages
+  </Card>
+  <Card title="Security" icon="shield">
+    [Authentication & RBAC](/features/security) — JWT, scopes, field-level auth
+  </Card>
+</CardGrid>

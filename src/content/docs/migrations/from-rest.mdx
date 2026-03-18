@@ -11,6 +11,10 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 
 # Migrating from REST API to GraphQL
 
+<Aside type="note">
+With FraiseQL, you don't have to abandon REST. FraiseQL serves REST and GraphQL (and gRPC) from the same compiled schema. You can keep your existing REST clients and add GraphQL for new consumers.
+</Aside>
+
 This guide shows how to migrate from traditional REST APIs to GraphQL using FraiseQL.
 
 ## Why Migrate?
@@ -130,15 +134,15 @@ This guide shows how to migrate from traditional REST APIs to GraphQL using Frai
            posts: list['Post']
 
        # Reads from SQL view v_user
-       @fraiseql.query(sql_source="v_user")
+       @fraiseql.query
        def users(limit: int = 50) -> list[User]:
            """GET /users -> query { users { ... } }"""
-           pass
+           return fraiseql.config(sql_source="v_user")
 
-       @fraiseql.query(sql_source="v_user")
+       @fraiseql.query
        def user(id: ID) -> User:
            """GET /users/:id -> query { user(id: ...) { ... } }"""
-           pass
+           return fraiseql.config(sql_source="v_user")
 
        # Calls database function fn_create_user
        @fraiseql.mutation(sql_source="fn_create_user")
@@ -477,6 +481,22 @@ Single endpoint
 4. **Subscriptions** - Real-time updates
 5. **Evolves Safely** - Add fields without breaking clients
 6. **Better Performance** - Pre-compiled SQL views, automatic optimization
+
+## Keeping Your REST Clients
+
+Map your existing REST endpoints to `rest_path` annotations — your REST clients continue working unchanged. Add GraphQL for frontends or internal services that benefit from field selection. Introduce gRPC for service-to-service calls when you need binary efficiency.
+
+```python
+# Existing GET /users → /rest/users  (default prefix; configure via [fraiseql.rest] prefix)
+@fraiseql.query(
+    rest_path="/users",
+    rest_method="GET",
+)
+def users(limit: int = 100) -> list[User]:
+    return fraiseql.config(sql_source="v_user")
+# REST clients call GET /rest/users (unchanged behavior)
+# GraphQL clients send query { users { ... } } (new option)
+```
 
 <CardGrid>
   <Card title="Prisma Migration" icon="rocket">

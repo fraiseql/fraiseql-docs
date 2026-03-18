@@ -1,0 +1,179 @@
+---
+title: Ruby SDK
+description: HTTP client and schema authoring SDK for FraiseQL in Ruby
+---
+
+import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+The FraiseQL Ruby SDK provides an **HTTP client** for querying FraiseQL GraphQL APIs and a **schema authoring mixin** for defining types. It uses only Ruby's standard library (`net/http`) with zero external dependencies.
+
+<Aside type="note">
+The Ruby SDK serves two purposes: (1) an HTTP client for consuming FraiseQL APIs, and (2) a schema authoring mixin for defining types. The HTTP client is production-ready. Schema authoring provides metadata reflection — it does not compile schemas or generate code.
+</Aside>
+
+## Installation
+
+```ruby
+# Gemfile
+gem 'fraiseql', '~> 2.1'
+```
+
+**Requirements:** Ruby >= 3.1
+
+## Client
+
+### Creating a client
+
+```ruby
+require 'fraiseql'
+
+client = FraiseQL::Client.new(
+  'http://localhost:8080/graphql',
+  authorization: 'Bearer eyJhbGciOiJIUzI1NiIs...',
+  timeout: 30,
+  retry_config: FraiseQL::RetryConfig.new(max_attempts: 3)
+)
+```
+
+If the URL does not end with `/graphql`, the client appends it automatically.
+
+### Queries
+
+```ruby
+result = client.query('{ users { id name email } }')
+puts result['data']['users']
+
+# With variables
+result = client.query(
+  'query($id: ID!) { user(id: $id) { name } }',
+  variables: { id: 'user-123' },
+  operation_name: 'GetUser'
+)
+```
+
+### Mutations
+
+```ruby
+result = client.mutate(
+  'mutation($input: CreateUserInput!) { createUser(input: $input) { id } }',
+  variables: { input: { name: 'Alice', email: 'alice@example.com' } }
+)
+```
+
+---
+
+## Error Handling
+
+All errors inherit from `FraiseQL::Error`:
+
+| Exception | When raised | Key attributes |
+|-----------|-------------|---------------|
+| `GraphQLError` | Response contains `errors` array | `errors` (full array), `message` (first error) |
+| `NetworkError` | Connection refused, DNS failure | `message` |
+| `TimeoutError` | Request exceeded timeout | Subclass of `NetworkError` |
+| `AuthenticationError` | HTTP 401 or 403 | `status_code` |
+| `RateLimitError` | HTTP 429 | `retry_after` |
+
+```ruby
+begin
+  client.query('{ users { id } }')
+rescue FraiseQL::AuthenticationError => e
+  puts "Auth failed (#{e.status_code})"
+rescue FraiseQL::RateLimitError
+  puts "Rate limited — retry later"
+rescue FraiseQL::GraphQLError => e
+  puts "GraphQL error: #{e.message}"
+  e.errors.each { |err| puts err['message'] }
+rescue FraiseQL::NetworkError => e
+  puts "Network error: #{e.message}"
+end
+```
+
+---
+
+## Retry Configuration
+
+The client supports exponential backoff with jitter for transient failures:
+
+```ruby
+retry_config = FraiseQL::RetryConfig.new(
+  max_attempts: 3,       # Total attempts (1 = no retry)
+  base_delay: 1.0,       # Initial delay in seconds
+  max_delay: 30.0,       # Maximum delay cap
+  jitter: true           # Add ±10% random variation
+)
+
+client = FraiseQL::Client.new(url, retry_config: retry_config)
+```
+
+By default, only `NetworkError` and `TimeoutError` are retried. `GraphQLError` and `AuthenticationError` are not retried.
+
+---
+
+## OpenAI Integration
+
+Wrap FraiseQL queries as OpenAI function tool definitions for use with the Chat Completions API:
+
+```ruby
+tool = FraiseQL::OpenAI::Tool.new(
+  client,
+  name: 'get_users',
+  description: 'Fetch users by role',
+  query: 'query($role: String!) { users(role: $role) { id name } }',
+  parameters_schema: {
+    type: 'object',
+    properties: { role: { type: 'string' } },
+    required: ['role']
+  }
+)
+
+# Generate the OpenAI tool definition
+tool.to_definition
+# => { type: "function", function: { name: "get_users", ... } }
+
+# Execute the query with arguments from the model
+tool.call(role: 'admin')
+# => '{"data": {"users": [...]}}'
+```
+
+---
+
+## Schema Authoring
+
+Define GraphQL types using the `FraiseQL::Type` mixin:
+
+```ruby
+class User
+  include FraiseQL::Type
+
+  fraiseql_type_name 'User'
+  fraiseql_field :id,    'ID!',      description: 'Unique identifier'
+  fraiseql_field :name,  'String!',  description: 'Display name'
+  fraiseql_field :email, 'String',   required: false
+  fraiseql_field :legacy_field, 'String', deprecated: true
+end
+
+User.to_fraiseql_schema
+# => { name: "User", fields: [{ name: "id", type: "ID!", ... }, ...] }
+```
+
+---
+
+## Transport Annotations
+
+<Aside type="caution">
+REST and gRPC annotation support is not yet available in the Ruby SDK.
+</Aside>
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="SDK Overview" icon="puzzle">
+    [All SDKs](/sdk) — compare schema authoring across languages
+  </Card>
+  <Card title="Security" icon="shield">
+    [Authentication & RBAC](/features/security) — JWT, scopes, field-level auth
+  </Card>
+</CardGrid>

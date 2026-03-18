@@ -36,7 +36,11 @@ Use this table to decide when to reach for Arrow Flight versus the standard Grap
 
 ## Enabling Arrow Flight
 
-Arrow Flight is a compile-time feature — there is no `[arrow]` TOML configuration section. Enable it by building FraiseQL with the `arrow` feature flag:
+<Aside type="note">
+This page describes the **binary Arrow Flight streaming transport** (the `arrow` Cargo feature). For analytics query definitions and the columnar query cache, see the [`[analytics]` TOML configuration](/features/analytics) — that is a distinct, always-available TOML feature.
+</Aside>
+
+Arrow Flight binary streaming is a compile-time feature — there is no `[arrow]` TOML configuration section. Enable it by building FraiseQL with the `arrow` feature flag:
 
 ```bash
 cargo build --release --features arrow
@@ -105,14 +109,14 @@ class OrdersDaily:
     revenue: Decimal
     avg_order_value: Decimal
 
-@fraiseql.query(sql_source="va_orders_daily")
+@fraiseql.query
 def orders_daily(
     start_date: DateTime,
     end_date: DateTime,
     regions: list[str] | None = None
 ) -> list[OrdersDaily]:
     """Query daily order aggregates."""
-    pass
+    return fraiseql.config(sql_source="va_orders_daily")
 ```
 
 ## Querying via Arrow Flight
@@ -447,13 +451,10 @@ curl http://localhost:8080/metrics | grep fraiseql_arrow
 ### Query Authorization
 
 ```python
-@fraiseql.query(
-    sql_source="va_sensitive_metrics",
-    requires_scope="analytics:read"
-)
+@fraiseql.query(requires_scope="analytics:read")
 def sensitive_metrics() -> list[Metric]:
     """Requires analytics:read scope."""
-    pass
+    return fraiseql.config(sql_source="va_sensitive_metrics")
 ```
 
 ## Best Practices

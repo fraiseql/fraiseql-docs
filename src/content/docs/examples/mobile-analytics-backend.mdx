@@ -143,15 +143,15 @@ class Cohort:
     created_at: datetime
 
 
-@fraiseql.query(sql_source="v_metric")
+@fraiseql.query
 def metrics(app_id: ID, date_from: str, date_to: str) -> list[Metric]:
     """Get metrics for date range."""
-    pass
+    return fraiseql.config(sql_source="v_metric")
 
-@fraiseql.query(sql_source="v_cohort_retention")
+@fraiseql.query
 def cohort_retention(app_id: ID, cohort_id: ID) -> list[Metric]:
     """Get retention data for a cohort."""
-    pass
+    return fraiseql.config(sql_source="v_cohort_retention")
 ```
 
   </TabItem>
@@ -345,10 +345,10 @@ def live_metrics(app_id: ID | None = None) -> Metric:
 Cohort retention is computed in a PostgreSQL view. The query declaration maps directly to that view — no runtime Python needed.
 
 ```python
-@fraiseql.query(sql_source="v_cohort_retention", cache_ttl_seconds=300)
+@fraiseql.query
 def cohort_retention(app_id: ID, cohort_id: ID) -> list[Metric]:
     """Get weekly retention data for a cohort (cached 5 minutes)."""
-    pass
+    return fraiseql.config(sql_source="v_cohort_retention", cache_ttl_seconds=300)
 ```
 
 ```sql

@@ -1,32 +1,70 @@
 ---
 title: FraiseQL
-description: Database-first GraphQL. Own your SQL. Serve at database speed.
+description: Compiled API Server. Author once in Python, TypeScript, Go, or 10 other languages. Serve GraphQL, REST, and gRPC simultaneously from one binary.
 template: splash
 hero:
-  title: Own Your SQL. Serve as GraphQL.
-  tagline: Write SQL views. Map them to GraphQL types. Serve at database speed. No resolvers. No N+1. No magic.
+  title: Compiled API Server.
+  tagline: Author once. Serve everywhere. Define your schema in Python, TypeScript, Go, or 10 other languages. Compile to a single binary that serves GraphQL, REST, and gRPC simultaneously. No resolvers. No N+1. No magic.
   actions:
     - text: Quick Start
       link: /getting-started/quickstart
       icon: right-arrow
       variant: primary
-    - text: How It Works
-      link: /concepts/how-it-works
+    - text: See Transports
+      link: /transports
       variant: secondary
-    - text: Try in browser
-      link: /playground
+    - text: View Benchmarks
+      link: /guides/performance-benchmarks
       variant: minimal
 ---
 
 import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
 
+## Three Transports, One Binary
+
+`fraiseql run` serves GraphQL, REST, and gRPC simultaneously on a single port. Same auth, same rate limiting, same database pool.
+
+<CardGrid>
+  <Card title="GraphQL" icon="document">
+    Full schema auto-generation. Queries, mutations, subscriptions. Introspection, APQ, trusted documents.
+
+    [GraphQL API Reference](/reference/graphql-api/)
+  </Card>
+  <Card title="REST" icon="rocket">
+    Annotation-driven endpoints. OpenAPI spec auto-generated. HTTP status code mapping.
+
+    [REST Transport](/features/rest-transport/)
+  </Card>
+  <Card title="gRPC" icon="approve-check">
+    Transport-aware DB views skip JSON. Auto-generated `.proto` files. Server streaming for subscriptions.
+
+    [gRPC Transport](/features/grpc-transport/)
+  </Card>
+</CardGrid>
+
+```
+SDK decorators (Python, TypeScript, Go, +10 more)
+        ↓
+  fraiseql compile
+        ↓
+ schema.compiled.json
+        ↓
+   fraiseql run (single Rust binary, port 8080)
+     ╱         |          ╲
+GraphQL        REST        gRPC
+POST /graphql  GET /rest/..  UserService/GetUser
+  JSON          JSON          Protobuf
+     ╲         |          ╱
+  Transport-aware DB views
+        ↓
+PostgreSQL · MySQL · SQL Server · SQLite
+```
+
 ## A Different Path
 
-Most GraphQL frameworks hide the database behind resolvers, ORMs, and abstraction layers. Then you spend your time fighting N+1 queries, tuning DataLoaders, and debugging generated SQL you never asked for.
+Most API servers require separate services for different API styles — a GraphQL service, a REST API, and a gRPC service. Three codebases, three deployments, three auth configurations.
 
-**FraiseQL flips this:** you write SQL views that compose into nested JSONB structures. FraiseQL maps them to GraphQL types. The database does the work — one query, every time.
-
-This is database-first. It's a shift. And we built the tooling to make it work.
+**FraiseQL collapses this into one.** You write SQL views that compose into your API shape. FraiseQL compiles them into transport-aware database views — JSON-shaped for GraphQL and REST, row-shaped for gRPC. The database does the work — one query, every time.
 
 <CardGrid>
   <Card title="You Own the SQL" icon="rocket">
@@ -47,14 +85,14 @@ This is database-first. It's a shift. And we built the tooling to make it work.
 
 ```mermaid
 graph LR
-    A[Write SQL Views<br/>v_* + fn_*] --> B[fraiseql compile<br/>GraphQL mapping]
-    B --> C[fraiseql run<br/>GraphQL API server]
-    C --> D[Single SQL query<br/>per GraphQL request]
+    A[Write SQL Views<br/>v_* + fn_*] --> B[fraiseql compile<br/>transport-aware views]
+    B --> C[fraiseql run<br/>GraphQL + REST + gRPC]
+    C --> D[Single SQL query<br/>per request]
 ```
 
 1. **Write** SQL views following the `.data` JSONB pattern (`v_user`, `v_post`, ...)
-2. **Compile** the mapping between your GraphQL types and SQL views
-3. **Serve** GraphQL queries — each resolves to a single SQL query
+2. **Compile** — generates JSON-shaped views for GraphQL/REST, row-shaped views for gRPC
+3. **Serve** — all three transports on port 8080
 
 The complexity lives in the database, where it belongs — not in runtime resolvers.
 
@@ -189,13 +227,28 @@ The complexity lives in the database, where it belongs — not in runtime resolv
   </TabItem>
 </Tabs>
 
+**Add transport annotations (optional):**
+
+```python title="schema.py"
+@fraiseql.query(
+    sql_source="v_user",
+    rest_path="/users/{id}",    # REST: GET /rest/users/{id}
+    rest_method="GET",
+    grpc_service="UserService",
+    grpc_method="GetUser",      # gRPC: UserService/GetUser
+)
+def get_user(id: UUID) -> User: ...
+```
+
 **Compile and serve:**
 
 ```bash
-$ fraiseql run
-✓ Compiled 2 types → mapped to SQL views
+$ fraiseql compile && fraiseql run --database $DATABASE_URL
+✓ Compiled 2 types → transport-aware SQL views
 ✓ Built query executor
-→ GraphQL API running at http://localhost:8080/graphql
+→ GraphQL  http://localhost:8080/graphql
+→ REST      http://localhost:8080/rest/  (default prefix; configure via [fraiseql.rest] prefix)
+→ gRPC      localhost:8080 (HTTP/2)
 ```
 
 ## Why Database-First?
@@ -206,7 +259,7 @@ FraiseQL is built on a bet: developers (and AI agents) are better off owning the
 
 <CardGrid>
   <Card title="For Developers" icon="laptop">
-    Write views you can read, debug, and explain. No resolver boilerplate. Predictable query plans. Type-safe SDKs in 6 languages.
+    Write views you can read, debug, and explain. No resolver boilerplate. Predictable query plans. Type-safe SDKs in 11 languages. Transport annotations optional — add REST or gRPC when you need them.
   </Card>
   <Card title="For Teams" icon="group">
     SQL views are reviewable in PRs. 🍯 Confiture handles migrations. TOML config is readable. The whole stack is auditable.
@@ -215,7 +268,7 @@ FraiseQL is built on a bet: developers (and AI agents) are better off owning the
 
 ## Enterprise Features
 
-FraiseQL v2.0.1 is production-ready with comprehensive security, scaling, and integration capabilities.
+FraiseQL v2.1.0 is production-ready with comprehensive security, scaling, and integration capabilities.
 
 <CardGrid>
   <Card title="Security & Access Control" icon="shield">
@@ -225,7 +278,7 @@ FraiseQL v2.0.1 is production-ready with comprehensive security, scaling, and in
     [49+ semantic scalar types](/reference/semantic-scalars) · [Custom scalar types with Elo validation](/concepts/elo-validation) · [Comprehensive validation rules](/reference/validation-rules)
   </Card>
   <Card title="Real-Time & Subscriptions" icon="rocket">
-    [GraphQL subscriptions](/features/subscriptions) — WebSocket, Webhook, Kafka, LISTEN/NOTIFY · [Observer pattern](/concepts/observers) for event-driven logic
+    [GraphQL subscriptions](/features/subscriptions) — WebSocket, Webhook, Kafka, LISTEN/NOTIFY · [gRPC server streaming](/features/grpc-transport/) · [Observer pattern](/concepts/observers) for event-driven logic
   </Card>
   <Card title="Performance & Caching" icon="approve-check">
     [Query result caching](/features/caching) · [Automatic Persisted Queries (APQ)](/features/apq) · [Apache Arrow dataplane](/features/arrow-dataplane) · [Wire protocol optimization](/features/wire-protocol)
@@ -234,7 +287,7 @@ FraiseQL v2.0.1 is production-ready with comprehensive security, scaling, and in
     [Webhooks](/features/webhooks) with retry & DLQ · [NATS JetStream](/features/nats) messaging · [Apollo Federation](/features/federation) · [Multi-database federation](/guides/federation-configuration)
   </Card>
   <Card title="Developer Experience" icon="laptop">
-    [🍯 Confiture](/confiture) — database generation & migrations · [Type-safe SDKs](/sdk) in 6 languages · [TOML configuration](/reference/toml-config) · [Comprehensive CLI](/reference/cli)
+    [🍯 Confiture](/confiture) — database generation & migrations · [Type-safe SDKs](/sdk) in 11 languages · [TOML configuration](/reference/toml-config) · [Comprehensive CLI](/reference/cli)
   </Card>
   <Card title="AI-Assisted Development" icon="star">
     [Generate SQL views](/ai/generating-views) with Claude, GPT-4o, or local Ollama models. Copy-paste prompts for every scenario. You review plain SQL in a PR — no black box.
@@ -251,6 +304,12 @@ FraiseQL v2.0.1 is production-ready with comprehensive security, scaling, and in
 - [Adding Mutations](/getting-started/adding-mutations) — Add the write path to your API
 - [How It Works](/concepts/how-it-works) — Deep dive into architecture
 - [AI-Assisted SQL Generation](/ai) — Generate views with Claude, GPT, or local models
+
+**Transports:**
+- [Transport Overview](/transports/) — GraphQL, REST, and gRPC from one binary
+- [REST Transport](/features/rest-transport/) — Annotation-driven REST, OpenAPI
+- [gRPC Transport](/features/grpc-transport/) — Transport-aware DB views, .proto generation
+- [REST vs GraphQL](/guides/rest-vs-graphql/) — When to use each (you don't have to choose)
 
 **Core Concepts:**
 - [Schema & Types](/concepts/schema) — Type system fundamentals

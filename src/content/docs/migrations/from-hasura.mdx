@@ -42,6 +42,8 @@ Use this table as a translation guide as you work through the migration:
 | Relationships (YAML) | Typed fields on `@fraiseql.type` backed by SQL JOIN       |
 | Hasura Console       | `fraiseql.toml` + SDK decorators                          |
 
+Unlike Hasura, FraiseQL also serves REST and gRPC alongside GraphQL. After migration, your API is accessible to non-GraphQL clients without a separate gateway.
+
 ## What changes
 
 FraiseQL asks you to write views. In exchange:
@@ -115,10 +117,10 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
            name: str
            posts: list['Post']  # Relationship via SQL view JOIN
 
-       @fraiseql.query(sql_source="v_user", requires_scope="read:User")
+       @fraiseql.query(requires_scope="read:User")
        def user(id: ID) -> User:
            """Get user (enforces RLS filter via SQL view)."""
-           pass
+           return fraiseql.config(sql_source="v_user")
        ```
      </TabItem>
      <TabItem label="FraiseQL (TypeScript)">
@@ -178,10 +180,10 @@ The key trade-off: Hasura is faster to prototype (zero SQL views to write) but h
      </TabItem>
      <TabItem label="FraiseQL (Python)">
        ```python
-       @fraiseql.query(sql_source="v_user_filtered", requires_scope="read:User")
+       @fraiseql.query(requires_scope="read:User")
        def my_profile() -> User:
            """User can only see their own profile."""
-           pass
+           return fraiseql.config(sql_source="v_user_filtered")
        ```
 
        ```sql
@@ -671,7 +673,7 @@ Users can see all data instead of just their own.
 
 2. Check that the JWT claim is being injected correctly via `fraiseql.toml`:
    ```toml
-   [auth]
+[security.pkce]
    issuer_url  = "https://auth.example.com"
    client_id   = "my-app"
    redirect_uri = "https://app.example.com/callback"
@@ -679,7 +681,7 @@ Users can see all data instead of just their own.
 
 3. Verify the session variable is set before queries run by checking the FraiseQL server logs at debug level:
    ```bash
-   FRAISEQL_LOG=debug fraiseql run
+   RUST_LOG=debug fraiseql run
    ```
 
 ### Issue: Event triggers not firing

@@ -3,7 +3,7 @@ title: Your First API
 description: Build a complete blog API with FraiseQL and Confiture
 ---
 
-import { Tabs, TabItem, Code } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Code, Aside } from '@astrojs/starlight/components';
 
 Build a complete blog API with users, posts, and comments. This guide shows the full workflow: write tables, write views, build the database with 🍯 Confiture, compile the GraphQL mapping, and serve.
 
@@ -53,7 +53,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 ```toml
 [database]
-type = "postgresql"
 url = "postgresql://user:password@localhost:5432/db_blog"
 ```
 
@@ -77,7 +76,6 @@ CREATE DATABASE db_blog;
 
 ```toml
 [database]
-type = "mysql"
 url = "mysql://user:password@localhost:3306/db_blog"
 ```
 
@@ -100,7 +98,6 @@ url = "mysql://user:password@localhost:3306/db_blog"
 
 ```toml
 [database]
-type = "sqlite"
 url = "sqlite://./db_blog.db"
 ```
 
@@ -133,7 +130,6 @@ CREATE DATABASE db_blog;
 
 ```toml
 [database]
-type = "sqlserver"
 url = "sqlserver://user:password@localhost:1433/db_blog"
 ```
 
@@ -1089,6 +1085,25 @@ fraiseql run
 
 Your API is now running at `http://localhost:8080/graphql`.
 
+### Adding REST Annotations
+
+Transport annotations are additive — they extend an operation to additional transports without changing GraphQL behavior. Add `rest_path` and `rest_method` to expose a query via REST:
+
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    rest_path="/posts",
+    rest_method="GET",
+)
+def posts(limit: int = 10) -> list[Post]: ...
+```
+
+Adding these annotations exposes the operation as `GET /rest/posts`. The default prefix is `/rest`. Configure with `[fraiseql.rest]` `prefix` to use `/api` or any other value. The GraphQL endpoint continues to work unchanged.
+
+```bash
+curl http://localhost:8080/rest/posts?limit=5
+```
+
 ## Step 8: Test the API
 
 Open the GraphQL Playground at `http://localhost:8080/graphql` and try these queries:
@@ -1254,10 +1269,10 @@ Define an `AuthorProfile` type and map it to a dedicated view:
         created_at: DateTime
         posts: list[Post]
 
-    @fraiseql.query(sql_source="v_author_profile")
+    @fraiseql.query
     def author_profile(id: ID) -> AuthorProfile | None:
         """Get an author with all their posts."""
-        pass
+        return fraiseql.config(sql_source="v_author_profile")
     ```
   </TabItem>
   <TabItem label="TypeScript">
@@ -1414,7 +1429,7 @@ Your API is running locally. Before deploying:
 - [ ] Create a `fraiseql.toml` with TLS and auth configuration (replace the dev config)
 - [ ] Replace any `ServerConfig::default()` usage with `ServerConfig::from_file("fraiseql.toml")`
 - [ ] Set `admin_token` (or `FRAISEQL_ADMIN_TOKEN`) to protect the RBAC management API
-- [ ] Configure `JWT_SECRET` and the `[auth]` OIDC section for user authentication
+- [ ] Configure `JWT_SECRET` environment variable for user authentication
 - [ ] Review the [production checklist](/guides/deployment#production-checklist)
 
 ## Next Steps

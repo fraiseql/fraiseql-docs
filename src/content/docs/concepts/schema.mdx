@@ -205,18 +205,52 @@ FraiseQL creates default query endpoints for each type, mapped to the correspond
 Map a query to any SQL view you own using `sql_source`:
 
 ```python
-@fraiseql.query(sql_source="v_user")
+@fraiseql.query
 def active_users(limit: int = 10) -> list[User]:
     """Get all users — FraiseQL adds WHERE filters from arguments automatically."""
-    pass
+    return fraiseql.config(sql_source="v_user")
 
-@fraiseql.query(sql_source="v_post")
+@fraiseql.query
 def posts_by_author(author_id: fraiseql.ID) -> list[Post]:
     """Get posts for a specific author."""
-    pass
+    return fraiseql.config(sql_source="v_post")
 ```
 
-FraiseQL compiles the `sql_source` view name into optimized SQL at build time. At runtime it executes `SELECT data FROM v_user WHERE ...` and maps the result to the return type. No resolver body is needed — `pass` is the correct body for compiled queries.
+FraiseQL compiles the `sql_source` (set via `fraiseql.config()` in the function body) into optimized SQL at build time. At runtime it executes `SELECT data FROM v_user WHERE ...` and maps the result to the return type.
+
+<Aside type="tip" title="Prefer TOML?">
+[SpecQL](https://github.com/fraiseql/specql) is a TOML-first schema authoring tool that compiles to FraiseQL Python decorators. It includes 56 semantic scalar types (Email, IBAN, Money, etc.) and is a good fit for teams that want to keep schema definitions separate from application code.
+</Aside>
+
+### Transport Annotations
+
+**Transport annotations** are optional parameters that extend operations to additional transports. Omit them to serve an operation via GraphQL only. Add `rest_path`/`rest_method` to expose via REST. Add `grpc_service`/`grpc_method` to expose via gRPC.
+
+```python
+@fraiseql.query(
+    rest_path="/posts",       # REST: GET /rest/posts  (default prefix; configure via [fraiseql.rest] prefix)
+    rest_method="GET",
+    grpc_service="BlogService",
+    grpc_method="ListPosts",   # gRPC: BlogService/ListPosts
+)
+def posts(limit: int = 10) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+```
+
+The same annotations are available in TypeScript:
+
+```typescript
+@query({
+  sqlSource: 'v_post',
+  restPath: '/posts',
+  restMethod: 'GET',
+  grpcService: 'BlogService',
+  grpcMethod: 'ListPosts',
+})
+async function posts(limit: number = 10): Promise<Post[]> {}
+```
+
+Transport annotations are additive — the GraphQL endpoint always remains available regardless of which other transports are configured.
 
 ## Mutations
 
