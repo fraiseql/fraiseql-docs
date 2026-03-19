@@ -27,7 +27,7 @@ REST transport requires the `rest-transport` Cargo feature and is available in t
     GET endpoints are cacheable by default. GraphQL POST requests are not, without extra infrastructure.
   </Card>
   <Card title="OpenAPI tooling">
-    The OpenAPI 3.1 spec is auto-generated from your annotations at compile time — no manual YAML, works with any OpenAPI-compatible tool.
+    The OpenAPI 3.0.3 spec is auto-generated from your schema at compile time — no manual YAML, works with any OpenAPI-compatible tool.
   </Card>
   <Card title="Mobile clients">
     HTTP/1.1 compatible, simpler caching model, no GraphQL client library required.
@@ -97,7 +97,7 @@ curl -X POST https://api.example.com/graphql \
   -d '{"query": "{ posts(limit: 5) { id title } }"}'
 ```
 
-The REST response is an unwrapped JSON array. The GraphQL response wraps the data in `{"data": {"posts": [...]}}`. Both are backed by the same compiled SQL view.
+The REST response uses a `{"data": [...], "meta": {...}, "links": {...}}` envelope. The GraphQL response wraps the data in `{"data": {"posts": [...]}}`. Both are backed by the same compiled SQL view.
 
 ## Migration Path: Add REST to an Existing GraphQL Schema
 

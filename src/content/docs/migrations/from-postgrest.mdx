@@ -24,8 +24,12 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
 - **GraphQL and gRPC alongside REST** — same compiled binary, same schema
 - **Multi-database support** — if you later need MySQL or SQL Server
 - **Field-level auth** via Python/TypeScript/Go SDK decorators
-- **OpenAPI 3.1 auto-generated** from annotations at compile time
+- **OpenAPI 3.0.3 auto-generated** from schema at compile time
 - **Explicit API surface** — the REST surface is version-controlled in your schema code
+- **JSON envelope responses** — consistent `data`/`meta`/`links` structure with pagination
+- **Bracket filter operators** — `?name[icontains]=Ali&age[gte]=18`
+- **ETag / conditional requests** — `If-None-Match` → 304 Not Modified
+- **`Prefer` header** — `count=exact`, `return=representation`/`minimal`
 
 ## Migration Steps
 
@@ -85,7 +89,7 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
        author_id: UUID
        created_at: str
 
-   # PostgREST: GET /users  →  FraiseQL: GET /rest/users
+   # PostgREST: GET /users  →  FraiseQL: GET /rest/v1/users
    @fraiseql.query(
        sql_source="v_user",
        rest_path="/users",
@@ -93,7 +97,7 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
    )
    def users(limit: int = 100, offset: int = 0) -> list[User]: ...
 
-   # PostgREST: GET /users?id=eq.123  →  FraiseQL: GET /rest/users/{id}
+   # PostgREST: GET /users?id=eq.123  →  FraiseQL: GET /rest/v1/users/{id}
    @fraiseql.query(
        sql_source="v_user",
        rest_path="/users/{id}",
@@ -101,7 +105,7 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
    )
    def user(id: UUID) -> User: ...
 
-   # PostgREST: POST /posts  →  FraiseQL: POST /rest/posts
+   # PostgREST: POST /posts  →  FraiseQL: POST /rest/v1/posts
    @fraiseql.mutation(
        sql_source="fn_create_post",
        rest_path="/posts",
@@ -109,7 +113,7 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
    )
    def create_post(title: str, body: str, author_id: UUID) -> Post: ...
 
-   # PostgREST: PATCH /posts?id=eq.123  →  FraiseQL: PATCH /rest/posts/{id}
+   # PostgREST: PATCH /posts?id=eq.123  →  FraiseQL: PATCH /rest/v1/posts/{id}
    @fraiseql.mutation(
        sql_source="fn_update_post",
        rest_path="/posts/{id}",
@@ -117,7 +121,7 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
    )
    def update_post(id: UUID, title: str | None = None, body: str | None = None) -> Post: ...
 
-   # PostgREST: DELETE /posts?id=eq.123  →  FraiseQL: DELETE /rest/posts/{id}
+   # PostgREST: DELETE /posts?id=eq.123  →  FraiseQL: DELETE /rest/v1/posts/{id}
    @fraiseql.mutation(
        sql_source="fn_delete_post",
        rest_path="/posts/{id}",
@@ -139,8 +143,18 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
    port = 8080
    ```
 
+   Add `[fraiseql.rest]` to configure the REST transport:
+
+   ```toml
+   [fraiseql.rest]
+   path = "/rest/v1"
+   openapi_enabled = true
+   default_page_size = 20
+   max_page_size = 100
+   ```
+
    <Aside type="note">
-   The `[fraiseql.rest]` configuration section (enabling and configuring the REST transport, including the endpoint prefix and other REST-specific options) is available since rc.15. If you are using an earlier version, REST transport is not available.
+   The `[fraiseql.rest]` configuration section is available since rc.15. See [TOML Configuration Reference](/reference/toml-config/#fraiseqlrest) for all fields.
    </Aside>
 
 5. **Compile and run**
@@ -153,30 +167,72 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
 6. **Verify your endpoints**
 
    ```bash
-   # Same path as PostgREST (with /rest prefix instead of /)
-   curl http://localhost:8080/rest/users
+   # REST endpoint (with /rest/v1 prefix instead of PostgREST's /)
+   curl http://localhost:8080/rest/v1/users
 
    # Now also available via GraphQL — zero additional work
    curl -X POST http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
      -d '{"query": "{ users { id email name } }"}'
 
-   # OpenAPI spec auto-generated from your annotations
-   curl http://localhost:8080/rest/openapi.json
+   # OpenAPI spec auto-generated from your schema
+   curl http://localhost:8080/rest/v1/openapi.json
    ```
 
 </Steps>
 
 ## PostgREST to FraiseQL Endpoint Mapping
 
-| PostgREST | FraiseQL annotation |
-|-----------|---------------------|
-| `GET /users` (auto from table/view) | `rest_path="/users", rest_method="GET"` |
-| `GET /users?id=eq.123` | `rest_path="/users/{id}", rest_method="GET"` |
-| `POST /users` | `rest_path="/users", rest_method="POST"` |
-| `PATCH /users?id=eq.123` | `rest_path="/users/{id}", rest_method="PATCH"` |
-| `DELETE /users?id=eq.123` | `rest_path="/users/{id}", rest_method="DELETE"` |
-| `GET /users?select=*,orders(*)` | Use a SQL view that joins users and orders |
+| PostgREST | FraiseQL |
+|-----------|----------|
+| `GET /users` (auto from table/view) | `GET /rest/v1/users` (CQRS-derived or `rest_path="/users"`) |
+| `GET /users?id=eq.123` | `GET /rest/v1/users/{id}` (path parameter) |
+| `POST /users` | `POST /rest/v1/users` |
+| `PATCH /users?id=eq.123` | `PATCH /rest/v1/users/{id}` |
+| `DELETE /users?id=eq.123` | `DELETE /rest/v1/users/{id}` |
+| `GET /users?select=*,orders(*)` | Use a SQL view that joins users and orders (embedding planned for Phase 2) |
+
+### Query Parameter Mapping
+
+| PostgREST | FraiseQL | Notes |
+|-----------|----------|-------|
+| `?name=eq.Alice` | `?name=Alice` or `?name[eq]=Alice` | Simple equality is the default |
+| `?age=gt.18` | `?age[gt]=18` | Bracket operator syntax |
+| `?name=ilike.*Ali*` | `?name[icontains]=Ali` | Case-insensitive contains |
+| `?status=in.(active,pending)` | `?status[in]=active,pending` | Comma-separated values |
+| `?deleted_at=is.null` | `?deleted_at[is_null]=true` | Null check |
+| `?select=id,name` | `?select=id,name` | Identical syntax |
+| `?order=name.asc,age.desc` | `?sort=name,-age` | Prefix with `-` for descending |
+| `?limit=10&offset=20` | `?limit=10&offset=20` | Identical syntax |
+| `Prefer: count=exact` | `Prefer: count=exact` | Identical header |
+| `Prefer: return=representation` | `Prefer: return=representation` | Identical header |
+| `Prefer: return=minimal` | `Prefer: return=minimal` | Identical header |
+
+### Response Format Differences
+
+PostgREST returns unwrapped JSON arrays for collections. FraiseQL wraps all responses in an envelope:
+
+```json
+// PostgREST
+[{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+
+// FraiseQL
+{
+  "data": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+  "meta": {"limit": 20, "offset": 0},
+  "links": {"self": "/rest/v1/users?limit=20&offset=0", "next": null, "prev": null, "first": "/rest/v1/users?limit=20&offset=0"}
+}
+```
+
+Error responses also differ:
+
+```json
+// PostgREST
+{"message": "...", "code": "PGRST..."}
+
+// FraiseQL
+{"error": {"code": "NOT_FOUND", "message": "...", "details": {}}}
+```
 
 ## Known Differences and Gotchas
 
@@ -198,7 +254,7 @@ GROUP BY u.id, u.email;
 ```
 
 **Query operator syntax differs.**
-PostgREST uses operators like `?name=eq.foo&age=gt.18` in query strings. FraiseQL maps query string parameters directly to function arguments — filtering logic lives in the SQL view or function, not in the framework.
+PostgREST uses dot-prefix operators (`?name=eq.foo&age=gt.18`). FraiseQL uses bracket notation (`?name[eq]=foo&age[gt]=18`) or simple equality (`?name=foo`). See the query parameter mapping table above for full translations.
 
 **Authentication model changes.**
 PostgREST uses PostgreSQL RLS directly, injecting JWT claims as GUC settings that RLS policies read. FraiseQL uses the `[security]` configuration with JWT claim injection — claims are available in your SQL views and functions via the same GUC mechanism, but configured via `fraiseql.toml` rather than PostgREST config.
@@ -208,4 +264,7 @@ If you rely heavily on PostgREST's RLS integration, review the [Authentication g
 </Aside>
 
 **The endpoint prefix changes.**
-PostgREST serves at `/` by default (or a configured prefix). FraiseQL serves REST at `/rest` by default. Update your clients accordingly, or configure a custom prefix via `[fraiseql.rest]` in `fraiseql.toml` (available since rc.15).
+PostgREST serves at `/` by default (or a configured prefix). FraiseQL serves REST at `/rest/v1` by default. Update your clients accordingly, or configure a custom path via `[fraiseql.rest]` `path` in `fraiseql.toml` (available since rc.15).
+
+**Embedding is not yet available.**
+PostgREST's `?select=*,orders(*)` syntax for automatic relationship embedding is planned for FraiseQL Phase 2. In the meantime, create SQL views that join the tables you need.

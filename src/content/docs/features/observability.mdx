@@ -7,13 +7,8 @@ import { Aside, Tabs, TabItem, CardGrid, Card, Steps } from '@astrojs/starlight/
 
 FraiseQL provides comprehensive observability through metrics, distributed tracing, and structured logging.
 
-<Aside type="caution">
-**TOML configuration on this page is unverified.** The `[metrics]`, `[tracing]`, `[logging]`, and `[health]` namespaces shown below are **not valid** `fraiseql.toml` sections. Observability is configured via environment variables:
-
-- **Logging level**: `RUST_LOG=info fraiseql run` (standard Rust env var; values: `error`, `warn`, `info`, `debug`, `trace`)
-- **OTLP tracing**: `OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317` and `OTEL_SERVICE_NAME=fraiseql-api` (standard OpenTelemetry env vars)
-
-The TOML configuration blocks are aspirational. **The metric names in the tables below reflect the actual implementation** — use these names in Grafana dashboards and Prometheus alerting rules.
+<Aside type="note">
+**Metrics** are always available at `/metrics` — no configuration needed. **Tracing** is configured via the `[tracing]` TOML section (since v2.1.0) or standard OpenTelemetry environment variables. **Logging** is controlled via `RUST_LOG` (standard Rust env var). See [TOML Configuration](/reference/toml-config#tracing) for the full `[tracing]` reference.
 </Aside>
 
 ## Prometheus Metrics
@@ -92,6 +87,8 @@ FraiseQL monitors connection pool pressure and emits scaling recommendations. Th
 | `fraiseql_rate_limit_redis_errors_total` | Counter | Redis errors in rate limiter (fail-open; only present with `redis-rate-limiting` feature) |
 | `fraiseql_multi_root_queries_total` | Counter | Multi-root GraphQL queries executed in parallel |
 | `fraiseql_observer_dlq_overflow_total` | Counter | Observer DLQ entries dropped due to `max_dlq_size` cap |
+| `fraiseql_schema_reloads_total` | Counter | Successful schema hot-reloads (via admin API or SIGUSR1) |
+| `fraiseql_schema_reload_errors_total` | Counter | Failed schema reload attempts |
 
 #### Transport Metrics
 
@@ -181,10 +178,22 @@ Use this endpoint to understand query plans, verify index usage, and diagnose sl
 
 ## OpenTelemetry Tracing
 
+OpenTelemetry tracing is compiled into the server by default. When no endpoint is configured, there is zero overhead — no gRPC connection attempt occurs.
+
 ### Enable Tracing
 
-FraiseQL exports traces via OpenTelemetry using standard env vars:
+Configure via `[tracing]` in `fraiseql.toml` or standard OpenTelemetry environment variables (env vars act as fallbacks when TOML fields are omitted):
 
+<Tabs syncKey="tracing-config">
+<TabItem label="TOML">
+```toml
+[tracing]
+service_name         = "fraiseql-api"
+otlp_endpoint        = "http://otel-collector:4317"
+otlp_export_timeout_secs = 10
+```
+</TabItem>
+<TabItem label="Environment variables">
 ```bash
 OTEL_SERVICE_NAME=fraiseql-api
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
@@ -192,6 +201,8 @@ OTEL_EXPORTER_OTLP_PROTOCOL=grpc   # or http/protobuf
 OTEL_TRACES_SAMPLER=traceidratio
 OTEL_TRACES_SAMPLER_ARG=0.1        # sample 10% of requests
 ```
+</TabItem>
+</Tabs>
 
 ### Trace Attributes
 

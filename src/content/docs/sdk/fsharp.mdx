@@ -12,7 +12,7 @@ The F# SDK v2.1.0 is currently in the `[Unreleased]` section of the changelog â€
 </Aside>
 
 <Aside type="note">
-This is not a GraphQL client library. FraiseQL F# lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client.
+The F# SDK is primarily a **schema authoring SDK** â€” you define APIs, not consume them. However, since v2.1.0 the SDK also includes `FraiseQLClient`, an async HTTP client for consuming FraiseQL APIs from .NET applications. See [HTTP Client](#http-client) below.
 </Aside>
 
 ## Installation
@@ -266,6 +266,39 @@ Path parameters in `RestPath` (e.g., `{id}`) must match function parameter names
    ```
 
 </Steps>
+
+---
+
+## HTTP Client
+
+<Aside type="note">
+Available since v2.1.0. The HTTP client is in the same `FraiseQL.FSharp` NuGet package. It shares the exception hierarchy with the C# SDK.
+</Aside>
+
+`FraiseQLClient` provides async GraphQL queries and mutations from F# applications:
+
+```fsharp
+open FraiseQL
+
+let options =
+    { Endpoint = System.Uri "https://api.example.com/graphql"
+      Authorization = Some "Bearer your-token"
+      Retry = Some { MaxAttempts = 3; BaseDelay = 200; MaxDelay = 5000; Jitter = true } }
+
+use client = new FraiseQLClient(options)
+
+// Query
+let! users = client.QueryAsync<User list> """
+    query { users { id username email } }
+    """
+
+// Mutation
+let! post = client.MutateAsync<Post>(
+    """mutation($input: CreatePostInput!) { createPost(input: $input) { id title } }""",
+    {| input = {| title = "Hello"; content = "World"; isPublished = true |} |})
+```
+
+The exception hierarchy (`FraiseQLException`, `GraphQLException`, `AuthenticationException`, `RateLimitException`, `FraiseQLTimeoutException`, `NetworkException`) is identical to the [C# SDK](/sdk/csharp#exception-hierarchy).
 
 ---
 

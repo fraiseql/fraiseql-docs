@@ -92,7 +92,7 @@ types = schema["data"]["__schema"]["types"]
 
 ## REST Endpoints
 
-FraiseQL also exposes REST endpoints at `/rest/<resource>` (the default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix` to use `/rest/v1` or any other value). You can query these directly from Python scripts using `httpx` or `requests` without the `FraiseQLClient`:
+FraiseQL also exposes REST endpoints at `/rest/v1/<resource>` (the default path is `/rest/v1`; configure with `[fraiseql.rest]` `path`). You can query these directly from Python scripts using `httpx` or `requests` without the `FraiseQLClient`:
 
 ```python
 import httpx
@@ -100,7 +100,7 @@ import httpx
 async def fetch_users(token: str) -> list[dict]:
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            "http://localhost:8080/rest/users",
+            "http://localhost:8080/rest/v1/users",
             headers={"Authorization": f"Bearer {token}"},
             params={"limit": 20},
         )

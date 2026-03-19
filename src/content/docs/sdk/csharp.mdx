@@ -12,7 +12,7 @@ The C# SDK v2.1.0 is currently in the `[Unreleased]` section of the changelog â€
 </Aside>
 
 <Aside type="note">
-This is not a GraphQL client library. FraiseQL C# lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client (e.g. StrawberryShake, Banana Cake Pop).
+The C# SDK is primarily a **schema authoring SDK** â€” you define APIs, not consume them. However, since v2.1.0 the SDK also includes `FraiseQLClient`, an async HTTP client for consuming FraiseQL APIs from .NET applications. See [HTTP Client](#http-client) below.
 </Aside>
 
 ## Installation
@@ -302,6 +302,79 @@ Path parameters in `RestPath` (e.g., `{id}`) must match method parameter names e
    ```
 
 </Steps>
+
+---
+
+## HTTP Client
+
+<Aside type="note">
+Available since v2.1.0. The HTTP client is in the same `FraiseQL` NuGet package.
+</Aside>
+
+`FraiseQLClient` is a sealed, `IDisposable` async HTTP client for consuming FraiseQL (or any GraphQL) APIs from .NET applications:
+
+```csharp
+using FraiseQL;
+
+var options = new FraiseQLClientOptions
+{
+    Endpoint = new Uri("https://api.example.com/graphql"),
+    Authorization = "Bearer your-token"
+};
+
+using var client = new FraiseQLClient(options);
+
+// Query
+var users = await client.QueryAsync<List<User>>("""
+    query { users { id username email } }
+    """);
+
+// Mutation
+var post = await client.MutateAsync<Post>("""
+    mutation($input: CreatePostInput!) {
+        createPost(input: $input) { id title }
+    }
+    """, new { input = new { title = "Hello", content = "World", isPublished = true } });
+```
+
+### Retry Configuration
+
+```csharp
+var options = new FraiseQLClientOptions
+{
+    Endpoint = new Uri("https://api.example.com/graphql"),
+    Retry = new RetryOptions
+    {
+        MaxAttempts = 3,
+        BaseDelay = TimeSpan.FromMilliseconds(200),
+        MaxDelay = TimeSpan.FromSeconds(5),
+        Jitter = true
+    }
+};
+```
+
+### Exception Hierarchy
+
+| Exception | Trigger |
+|-----------|---------|
+| `FraiseQLException` | Base class for all SDK exceptions |
+| `GraphQLException` | One or more GraphQL errors in the response (exposes `Errors` list) |
+| `AuthenticationException` | HTTP 401 or 403 |
+| `RateLimitException` | HTTP 429 |
+| `FraiseQLTimeoutException` | Request exceeded timeout |
+| `NetworkException` | Connection or DNS failure |
+
+### Factory-Based Authorization
+
+For dynamic tokens (e.g. refresh flows), pass a factory instead of a static string:
+
+```csharp
+var options = new FraiseQLClientOptions
+{
+    Endpoint = new Uri("https://api.example.com/graphql"),
+    AuthorizationFactory = async () => $"Bearer {await GetFreshTokenAsync()}"
+};
+```
 
 ---
 

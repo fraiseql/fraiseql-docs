@@ -1451,13 +1451,13 @@ COPY . /app
 ## REST Transport Issues
 
 ### REST Endpoint Returns 404
-**Problem**: `GET /rest/users` returns 404 (the default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix`)
+**Problem**: `GET /rest/v1/users` returns 404 (the default path is `/rest/v1`; configure with `[fraiseql.rest]` `path`)
 
 **Solutions**:
 ```bash
 # 1. Check resource name matches schema query/mutation name
 # Schema: def users(...) -> list[User]
-# REST path: /rest/users (matches)
+# REST path: /rest/v1/users (matches)
 
 # 2. Verify fraiseql started without errors
 fraiseql run  # Check startup logs
@@ -1474,7 +1474,7 @@ curl http://localhost:8080/graphql -d '{"query":"{ __typename }"}'
 **Solutions**:
 ```bash
 # Send Content-Type: application/json header
-curl -X POST http://localhost:8080/rest/createUser \
+curl -X POST http://localhost:8080/rest/v1/createUser \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice", "email": "alice@example.com"}'
 ```

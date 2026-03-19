@@ -1,6 +1,6 @@
 ---
 title: REST API Reference
-description: Complete reference for FraiseQL's REST transport — endpoints, request formats, response format, errors, authentication
+description: Complete reference for FraiseQL's REST transport — endpoints, request formats, response envelope, errors, headers, query parameters
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -13,15 +13,33 @@ REST transport requires the `rest-transport` Cargo feature. It is included in th
 
 ## Endpoint Convention
 
-REST endpoints follow the pattern `{prefix}/{rest_path}` where the prefix defaults to `/rest`. The prefix is configurable via the `[fraiseql.rest]` `prefix` field or the `FRAISEQL_REST_PREFIX` environment variable.
+REST endpoints follow the pattern `{path}/{resource}` where the path defaults to `/rest/v1`. The path is configurable via the `[fraiseql.rest]` `path` field.
+
+Resources are derived at compile time from your schema's CQRS naming conventions. Override auto-derived routes with explicit `rest_path` and `rest_method` annotations on any query or mutation.
 
 | Annotation | Resolved endpoint |
 |------------|-------------------|
-| `rest_path="/posts"` | `GET /rest/posts` |
-| `rest_path="/posts/{id}"` | `GET /rest/posts/{id}` |
-| `rest_path="/users/{userId}/posts"` | `GET /rest/users/{userId}/posts` |
+| `rest_path="/posts"` | `GET /rest/v1/posts` |
+| `rest_path="/posts/{id}"` | `GET /rest/v1/posts/{id}` |
+| `rest_path="/users/{userId}/posts"` | `GET /rest/v1/users/{userId}/posts` |
 
-Only operations with explicit `rest_path` and `rest_method` annotations are exposed via REST. No endpoints are auto-wired from the database schema.
+### ID Parameter Detection
+
+The REST handler uses `id: UUID` as the URL path parameter for single-resource routes. The detection heuristic is:
+
+1. First required non-nullable argument of type `Int`, `ID`, or `UUID` whose name matches `id`, `pk`, or `pk_*`
+2. If no match, fall back to `pk_*` fields on the return type
+3. Override with `rest_id_arg` annotation on the operation
+
+```python
+# Default: "id" argument auto-detected
+@fraiseql.query(rest_path="/posts/{id}", rest_method="GET")
+def post(id: UUID) -> Post: ...
+
+# Override: use "slug" as the path parameter
+@fraiseql.query(rest_path="/posts/{slug}", rest_method="GET", rest_id_arg="slug")
+def post_by_slug(slug: str) -> Post: ...
+```
 
 ## Request Formats
 
@@ -30,13 +48,13 @@ Only operations with explicit `rest_path` and `rest_method` annotations are expo
 Path parameters are extracted from `{param}` placeholders in the path. Query string parameters map to the operation's function arguments.
 
 ```
-GET /rest/posts?limit=10&offset=0
+GET /rest/v1/posts?limit=10&offset=0
 ```
 
 Maps to `posts(limit: 10, offset: 0)`.
 
 ```
-GET /rest/posts/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+GET /rest/v1/posts/a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ```
 
 Maps to `post(id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890")`.
@@ -46,75 +64,303 @@ Maps to `post(id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890")`.
 Path parameters are extracted from the URL. Additional parameters come from the JSON request body. `Content-Type: application/json` is required.
 
 ```bash
-curl -X POST https://api.example.com/rest/posts \
+curl -X POST https://api.example.com/rest/v1/posts \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title": "Hello", "body": "World"}'
 ```
+
+PATCH requests also accept `Content-Type: application/merge-patch+json` (RFC 7396) — treated identically to `application/json`.
+
+**PUT vs PATCH**: mutations with full coverage of all writable fields generate both `PUT` and `PATCH` routes on the canonical resource path. Mutations with partial coverage generate `PATCH` only, mounted as an action sub-resource. PUT requests must include all writable fields — missing fields return 422.
 
 ### DELETE requests
 
 Path parameters only. No request body.
 
 ```bash
-curl -X DELETE https://api.example.com/rest/posts/a1b2c3d4-... \
+curl -X DELETE https://api.example.com/rest/v1/posts/a1b2c3d4-... \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Response Format
 
-REST responses are unwrapped JSON — no GraphQL `data` wrapper.
+All REST responses use a JSON envelope with `data`, `meta`, and `links` fields.
 
-| Operation type | Response shape |
-|---------------|----------------|
-| Query returning list | `[{...}, {...}]` — JSON array |
-| Query returning single object | `{...}` — JSON object |
-| Mutation (create/update) | `{...}` — the created or updated object |
-| Mutation (delete) | `{"deleted": true}` or `204 No Content` |
+<Aside type="note">
+REST responses bypass the GraphQL parsing and classification pipeline entirely. Requests are converted to typed `QueryMatch` calls and executed directly via the Executor's internal APIs — no intermediate GraphQL string construction.
+</Aside>
 
-Example list response:
-
-```json
-[
-  {"id": "a1b2c3d4-...", "title": "Hello", "body": "World"},
-  {"id": "e5f6g7h8-...", "title": "Second post", "body": "Content"}
-]
-```
-
-Example single-object response:
-
-```json
-{"id": "a1b2c3d4-...", "title": "Hello", "body": "World"}
-```
-
-## Error Response Format
-
-Errors are returned as JSON with `message` and `code` fields.
+### Single resource (200 OK)
 
 ```json
 {
-  "message": "User not found",
-  "code": "NOT_FOUND"
+  "data": { "id": "a1b2c3d4-...", "title": "Hello", "body": "World" }
 }
 ```
 
-### HTTP Status Codes
+### Collection — offset pagination (200 OK)
+
+```json
+{
+  "data": [
+    { "id": "a1b2c3d4-...", "title": "Hello" },
+    { "id": "e5f6g7h8-...", "title": "Second post" }
+  ],
+  "meta": {
+    "limit": 10,
+    "offset": 0
+  },
+  "links": {
+    "self":  "/rest/v1/posts?limit=10&offset=0",
+    "next":  "/rest/v1/posts?limit=10&offset=10",
+    "prev":  null,
+    "first": "/rest/v1/posts?limit=10&offset=0"
+  }
+}
+```
+
+`meta.total` is **opt-in** via `Prefer: count=exact`. When not requested, `meta.total` and `links.last` are omitted and no count query is issued.
+
+### Collection — relay/cursor pagination (200 OK)
+
+```json
+{
+  "data": [ ... ],
+  "meta": {
+    "hasNextPage": true,
+    "hasPreviousPage": false
+  },
+  "links": {
+    "self":  "/rest/v1/users?first=10",
+    "next":  "/rest/v1/users?first=10&after=eyJpZCI6NDJ9"
+  }
+}
+```
+
+### Created resource (201 Created)
+
+```json
+{
+  "data": { "id": "c3d4e5f6-...", "name": "Charlie" }
+}
+```
+
+Includes `Location: /rest/v1/users/c3d4e5f6-...` header.
+
+### Deleted resource
+
+Configurable via `delete_response` in `[fraiseql.rest]`. Per-request override via `Prefer` header:
+
+| Config / Prefer Header | Status | Body |
+|------------------------|--------|------|
+| `delete_response = "no_content"` (default) | 204 No Content | empty |
+| `delete_response = "entity"` | 200 OK | deleted entity in `data` envelope |
+| `Prefer: return=minimal` | 204 No Content | empty |
+| `Prefer: return=representation` | 200 OK | deleted entity in `data` envelope |
+
+The `Prefer` header overrides the server default. Response includes `Preference-Applied` when the header was honored. DELETE functions that do not populate the `entity` field in `mutation_response` gracefully degrade: `return=representation` falls back to 204 with `X-Preference-Fallback: entity-unavailable`.
+
+## Error Response Format
+
+Errors use a structured `error` envelope with `code`, `message`, and `details` fields:
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "User 999 not found",
+    "details": {}
+  }
+}
+```
+
+### Validation errors
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request body validation failed",
+    "details": {
+      "fields": [
+        { "field": "email", "reason": "required for PUT (missing writable field)" },
+        { "field": "age", "reason": "expected integer, got string" }
+      ]
+    }
+  }
+}
+```
+
+### Unknown parameter errors
+
+```json
+{
+  "error": {
+    "code": "UNKNOWN_PARAMETER",
+    "message": "Unknown query parameter 'nme'",
+    "details": {
+      "parameter": "nme",
+      "available": ["name", "email", "status", "limit", "offset", "sort", "select", "filter"]
+    }
+  }
+}
+```
+
+### Unknown operator errors
+
+```json
+{
+  "error": {
+    "code": "UNKNOWN_OPERATOR",
+    "message": "Unknown operator 'beginsWith' on field 'name'",
+    "details": {
+      "field": "name",
+      "operator": "beginsWith",
+      "available": ["eq", "neq", "gt", "gte", "lt", "lte", "in", "nin",
+                     "contains", "icontains", "startswith", "endswith", "like", "ilike", "is_null"]
+    }
+  }
+}
+```
+
+Error details are structured for AI-agent consumption — agents can use the `available` field to self-correct without documentation.
+
+## HTTP Status Codes
 
 | Code | Meaning |
 |------|---------|
-| 200 | Success |
-| 201 | Created (POST mutations) |
-| 204 | No Content (DELETE) |
-| 400 | Validation error — malformed request or invalid parameter value |
-| 401 | Authentication required — missing or invalid token |
-| 403 | Permission denied — authenticated but not authorized |
+| 200 | Success (GET, PUT, PATCH, custom action, DELETE with `return=representation`) |
+| 201 | Created (POST Insert mutations) |
+| 204 | No Content (DELETE with `return=minimal` or default `no_content`) |
+| 304 | Not Modified (ETag match via `If-None-Match`) |
+| 400 | Bad Request — malformed request, unknown parameter, unknown operator |
+| 401 | Unauthorized — missing or invalid token |
+| 403 | Forbidden — authenticated but not authorized |
 | 404 | Not found — resource does not exist |
-| 429 | Rate limited — see `Retry-After` header |
-| 500 | Internal server error |
+| 405 | Method Not Allowed — includes `Allow` header with valid methods |
+| 409 | Conflict — unique constraint violation |
+| 422 | Unprocessable Entity — type mismatch, missing required fields for PUT |
+| 429 | Too Many Requests — see `Retry-After` header |
+| 500 | Internal Server Error |
+
+## Query Parameters
+
+### Filtering
+
+Three filtering syntaxes are supported:
+
+| Syntax | Example | Description |
+|--------|---------|-------------|
+| Simple equality | `?name=Alice&status=active` | Converted to `{"name": {"eq": "Alice"}}` |
+| Bracket operators | `?name[icontains]=Ali&age[gte]=18` | Operator specified in brackets |
+| JSON filter DSL | `?filter={"name":{"startsWith":"A"}}` | Full FraiseQL where DSL |
+
+**Bracket operators:**
+
+| Operator | SQL | Example |
+|----------|-----|---------|
+| `eq` | `=` | `?name[eq]=Alice` |
+| `neq` | `!=` | `?status[neq]=archived` |
+| `gt` | `>` | `?age[gt]=18` |
+| `gte` | `>=` | `?age[gte]=18` |
+| `lt` | `<` | `?price[lt]=100` |
+| `lte` | `<=` | `?price[lte]=100` |
+| `in` | `IN` | `?status[in]=active,pending` (comma-separated) |
+| `nin` | `NOT IN` | `?status[nin]=archived,deleted` |
+| `contains` | `@>` (JSONB) | `?tags[contains]=rust` |
+| `icontains` | `ILIKE '%...%'` | `?name[icontains]=ali` |
+| `startswith` | `LIKE '...%'` | `?name[startswith]=A` |
+| `endswith` | `LIKE '%...'` | `?email[endswith]=@example.com` |
+| `like` | `LIKE` | `?name[like]=A%25ce` |
+| `ilike` | `ILIKE` | `?name[ilike]=a%25ce` |
+| `is_null` | `IS NULL` / `IS NOT NULL` | `?deleted_at[is_null]=true` |
+
+The `?filter=` JSON escape hatch accepts the full 50+ operator set from the FraiseQL operator registry, including JSONB containment, vector distance, full-text search, ltree, network/IP, and range operators.
+
+Rich filter operators from [semantic scalar types](/features/rich-filters/) are also available via bracket notation. For example, `?email[domainEq]=example.com`.
+
+### Sorting
+
+```
+GET /rest/v1/users?sort=name         # ascending
+GET /rest/v1/users?sort=-name        # descending (- prefix)
+GET /rest/v1/users?sort=name,-age    # multi-column
+```
+
+Sort fields are validated against the resource's type definition.
+
+### Pagination
+
+**Offset-based** (standard queries):
+
+```
+GET /rest/v1/users?limit=10&offset=20
+```
+
+**Cursor-based** (relay queries):
+
+```
+GET /rest/v1/users?first=10&after=eyJpZCI6NDJ9
+```
+
+Relay vs offset is determined at compile time from the query definition. Cross-pagination guards apply: a relay query receiving `?limit=`/`?offset=` returns 400, and vice versa.
+
+`limit` values are clamped to `max_page_size` (default: 100). When no `limit` is specified, `default_page_size` (default: 20) is used.
+
+### Field Selection
+
+```
+GET /rest/v1/users?select=id,name,email
+```
+
+Omitting `select` returns all fields. Field names are validated against the type definition. Flat fields only — selecting a nested field (e.g., `address`) returns the full nested object.
+
+| Parameter | Description |
+|-----------|-------------|
+| `sort` | Comma-separated fields. Prefix with `-` for descending. |
+| `select` | Comma-separated field names for sparse fieldsets |
+| `limit` | Maximum rows to return (offset pagination) |
+| `offset` | Rows to skip (offset pagination) |
+| `first` | Maximum rows to return (cursor pagination) |
+| `after` | Cursor for forward pagination |
+| `filter` | JSON filter object (full FraiseQL where DSL) |
+
+## Request Headers
+
+| Header | Description |
+|--------|-------------|
+| `Authorization` | `Bearer <jwt>` or via configured API key header |
+| `Content-Type` | `application/json` or `application/merge-patch+json` (PATCH) |
+| `Prefer` | Request preferences (see below) |
+| `If-None-Match` | ETag value for conditional requests (returns 304 if unchanged) |
+
+### Prefer Header
+
+Multiple preferences can be combined: `Prefer: return=representation, count=exact`
+
+| Preference | Values | Description |
+|------------|--------|-------------|
+| `return` | `representation`, `minimal` | Controls response body for mutations. `representation` returns the entity; `minimal` returns empty body. |
+| `count` | `exact` | Include `meta.total` in collection responses. Issues a parallel `COUNT(*)` query. |
+
+Response always includes `Preference-Applied` listing honored preferences. Unknown preferences are silently ignored per RFC 7240.
+
+## Response Headers
+
+| Header | When | Value |
+|--------|------|-------|
+| `ETag` | GET 200 responses (when `etag = true`) | `W/"<xxhash64-hex>"` (weak validator) |
+| `Location` | 201 Created | Full resource URL |
+| `Preference-Applied` | When `Prefer` header was honored | Applied preferences |
+| `X-Preference-Fallback` | When `Prefer` was partially honored | Explains degradation (e.g., `entity-unavailable`) |
+| `Allow` | 405 Method Not Allowed | Comma-separated allowed HTTP methods |
+| `X-Request-Id` | All responses | Echoed from request or generated UUID |
+| `Content-Type` | All non-204 responses | `application/json` |
 
 ## Content-Type
 
-- Accepted: `application/json`
+- Accepted: `application/json`, `application/merge-patch+json` (PATCH)
 - Returned: `application/json`
 - Required for: POST, PUT, PATCH requests (rejected with 400 if absent)
 
@@ -152,57 +398,47 @@ Rate limiting is configured via `[security.rate_limiting]` in `fraiseql.toml`. S
 
 ## OpenAPI Specification
 
-`GET /rest/openapi.json` (the default `openapi_path`) returns the auto-generated OpenAPI 3.1 specification when `openapi_enabled = true` is set in `[fraiseql.rest]`. The spec is generated at compile time from your SDK annotations — no manual YAML required.
+The compiler generates an OpenAPI 3.0.3 specification from your schema at compile time. No manual YAML required.
+
+**Compile-time generation** (canonical):
 
 ```bash
-curl https://api.example.com/rest/openapi.json
+fraiseql-cli openapi schema.compiled.json -o openapi.json
 ```
 
-Example spec structure:
+**Runtime serving** (convenience):
 
-```yaml
-openapi: "3.1.0"
-info:
-  title: "FraiseQL API"
-  version: "1.0.0"
-paths:
-  /rest/posts:
-    get:
-      operationId: posts
-      parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 10
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Post"
+`GET /rest/v1/openapi.json` (configurable via `openapi_path`) when `openapi_enabled = true` in `[fraiseql.rest]`.
+
+```bash
+curl https://api.example.com/rest/v1/openapi.json
 ```
 
-The spec reflects exactly what is annotated in your schema — no undocumented endpoints, no auto-wired routes.
+The spec is cached in memory and invalidated on schema reload or config change. It reflects exactly what is derived from your schema — no undocumented endpoints.
+
+<Aside type="note">
+OpenAPI 3.0.3 is used instead of 3.1 for broader tooling compatibility (Swagger UI, code generators, API gateways). This will be upgraded to 3.1 when ecosystem support matures.
+</Aside>
 
 ## Configuration Reference
 
-<Aside type="note">
-The `[fraiseql.rest]` TOML section is available since rc.15. It controls REST transport settings including the endpoint prefix, response format options, and transport-level toggles.
-</Aside>
+Key configuration fields in `[fraiseql.rest]`:
 
-Key environment variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `FRAISEQL_REST_PREFIX` | `/rest` | Prefix for all REST endpoints |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `true` | Enable/disable REST transport |
+| `path` | `string` | `"/rest/v1"` | Base URL path for all REST routes |
+| `require_auth` | `bool` | `false` | Require authentication for all REST endpoints |
+| `include` | `array` | `[]` | Whitelist operations (empty = all) |
+| `exclude` | `array` | `[]` | Blacklist operations |
+| `delete_response` | `string` | `"no_content"` | Default DELETE response style |
+| `max_page_size` | `integer` | `100` | Maximum allowed `limit` value |
+| `default_page_size` | `integer` | `20` | Default `limit` when not specified |
+| `etag` | `bool` | `true` | Enable ETag / If-None-Match |
+| `max_filter_bytes` | `integer` | `4096` | Maximum `?filter=` JSON size |
+| `openapi_enabled` | `bool` | `false` | Serve OpenAPI spec |
+| `openapi_path` | `string` | `"/rest/v1/openapi.json"` | OpenAPI spec endpoint path |
+| `title` | `string` | `"FraiseQL REST API"` | OpenAPI info.title |
+| `api_version` | `string` | `"1.0.0"` | OpenAPI info.version |
 
 For full configuration options, see [TOML Configuration Reference](/reference/toml-config/).

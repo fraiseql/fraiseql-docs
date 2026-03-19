@@ -17,7 +17,7 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[server.cors]` | — | Stable |
 | `[server.tls]` | — | Stable |
 | `[fraiseql]` | — | Stable |
-| `[caching]` | — | Unverified |
+| `[caching]` | — | Stable |
 | `[mcp]` | — | Stable |
 | `[query_defaults]` | — | Stable |
 | `[security]` | — | Stable |
@@ -36,6 +36,8 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[debug]` | — | Stable |
 | `[federation]` | — | Stable |
 | `[observers]` | — | Stable |
+| `[tracing]` | 2.1.0 | Stable |
+| `[server.limits]` | 2.1.0 | Stable |
 | `[fraiseql.rest]` | rc.15 | Stable |
 | `[fraiseql.grpc]` | rc.15 | Stable |
 
@@ -227,25 +229,41 @@ output_file = "schema.compiled.json"
 ### [fraiseql.rest]
 
 <Aside type="note">
-Available since rc.15. Requires the `rest-transport` Cargo feature. REST endpoints are only created for queries and mutations that carry a `rest_path` annotation — REST is not auto-wired.
+Available since rc.15. Requires the `rest-transport` Cargo feature. REST endpoints are derived from queries and mutations at compile time using CQRS naming conventions. Override auto-derived routes with explicit `rest_path` / `rest_method` annotations.
 </Aside>
 
 ```toml
 [fraiseql.rest]
-prefix = "/rest"
-auth = "none"
-openapi_enabled = false
-openapi_path = "/rest/openapi.json"
-title = "My API"        # optional
-api_version = "1.0.0"  # optional
+enabled = true
+path = "/rest/v1"                # base path for all REST routes
+require_auth = false             # require OIDC/JWT for all REST endpoints
+include = []                     # whitelist operations by name (empty = all)
+exclude = []                     # blacklist operations by name
+delete_response = "no_content"   # "no_content" (204) or "entity" (200 + body)
+max_page_size = 100              # maximum limit value for pagination
+default_page_size = 20           # default limit when not specified
+etag = true                      # enable ETag / If-None-Match conditional requests
+max_filter_bytes = 4096          # maximum size of ?filter= JSON param
+openapi_enabled = false          # serve OpenAPI 3.0.3 spec
+openapi_path = "/rest/v1/openapi.json"  # path for OpenAPI spec endpoint
+title = "My API"                 # OpenAPI info.title
+api_version = "1.0.0"           # OpenAPI info.version
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `prefix` | `string` | `"/rest"` | URL prefix for all REST routes |
-| `auth` | `string` | `"none"` | Auth requirement: `"none"`, `"optional"`, `"required"` |
-| `openapi_enabled` | `bool` | `false` | Serve OpenAPI 3.1 spec |
-| `openapi_path` | `string` | `"/rest/openapi.json"` | Path for OpenAPI spec endpoint |
+| `enabled` | `bool` | `true` | Enable/disable REST transport. Default: `true` when the `rest-transport` Cargo feature is active. |
+| `path` | `string` | `"/rest/v1"` | Base URL path for all REST routes |
+| `require_auth` | `string` | `false` | Require OIDC/JWT authentication for all REST endpoints |
+| `include` | `array` | `[]` | Whitelist of operation names to expose (empty = all) |
+| `exclude` | `array` | `[]` | Blacklist of operation names to hide from REST |
+| `delete_response` | `string` | `"no_content"` | Default DELETE response: `"no_content"` (204) or `"entity"` (200 with body). Per-request override via `Prefer: return=minimal` or `Prefer: return=representation` header. |
+| `max_page_size` | `integer` | `100` | Maximum allowed `limit` value. Requests exceeding this are clamped. |
+| `default_page_size` | `integer` | `20` | Default `limit` when not specified in the request |
+| `etag` | `bool` | `true` | Enable `ETag` and `If-None-Match` conditional request support (xxHash64) |
+| `max_filter_bytes` | `integer` | `4096` | Maximum size in bytes for the `?filter=` JSON query parameter |
+| `openapi_enabled` | `bool` | `false` | Serve OpenAPI 3.0.3 spec at `openapi_path` |
+| `openapi_path` | `string` | `"/rest/v1/openapi.json"` | Path for the OpenAPI spec endpoint |
 | `title` | `string` | `"FraiseQL REST API"` | OpenAPI `info.title` |
 | `api_version` | `string` | `"1.0.0"` | OpenAPI `info.version` |
 
@@ -265,6 +283,60 @@ enabled = true
 | `enabled` | bool | `true` | Enable/disable gRPC transport. Default: `true` when the `grpc-transport` Cargo feature is active. |
 
 gRPC uses the same port as GraphQL and REST via HTTP/2 content-type negotiation (`application/grpc`). No separate port configuration is needed.
+
+---
+
+### [tracing]
+
+Distributed tracing and OTLP export. OpenTelemetry tracing is compiled into the server by default — zero overhead when no endpoint is configured (no gRPC connection attempt).
+
+```toml
+[tracing]
+enabled              = true       # default: true
+level                = "info"     # log level filter: error | warn | info | debug | trace
+format               = "json"    # log format: json | pretty
+service_name         = "fraiseql" # service name for distributed tracing
+otlp_endpoint        = "http://otel-collector:4317"  # OTLP exporter endpoint
+otlp_export_timeout_secs = 10    # OTLP exporter timeout in seconds
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable tracing and structured logging |
+| `level` | string | `"info"` | Log level filter: `error`, `warn`, `info`, `debug`, `trace` |
+| `format` | string | `"json"` | Log output format: `"json"` (production) or `"pretty"` (development) |
+| `service_name` | string | `"fraiseql"` | Service name for distributed tracing spans |
+| `otlp_endpoint` | string | — | OTLP exporter endpoint (e.g. `"http://otel-collector:4317"`). When not set, falls back to the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable. If neither is set, no OTLP export occurs. |
+| `otlp_export_timeout_secs` | integer | `10` | How long the OTLP exporter waits for a collector response before timing out |
+
+<Aside type="tip">
+You can mix TOML and environment variables. The `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` standard OpenTelemetry env vars still work as fallbacks when the corresponding TOML fields are omitted.
+</Aside>
+
+---
+
+### [server.limits]
+
+Per-request body size, timeout, and concurrency limits. These control the admission controller that protects the server from overload.
+
+```toml
+[server.limits]
+max_request_size        = "10MB"  # maximum request body size
+request_timeout         = "30s"   # per-request processing timeout
+max_concurrent_requests = 1000    # simultaneous requests in flight
+max_queue_depth         = 5000    # requests waiting in the accept queue
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_request_size` | string | `"10MB"` | Maximum allowed request body size (human-readable, e.g. `"10MB"`, `"512KB"`) |
+| `request_timeout` | string | `"30s"` | Maximum time to process a single request (e.g. `"30s"`, `"5m"`) |
+| `max_concurrent_requests` | integer | `1000` | Maximum requests processed simultaneously. Excess requests are queued. |
+| `max_queue_depth` | integer | `5000` | Maximum requests waiting in the accept queue. Requests beyond this limit receive `503 Service Unavailable`. |
+
+<Aside type="caution">
+When `max_concurrent_requests` permits are exhausted, new requests queue up to `max_queue_depth`. If the queue also fills, the server sheds load by returning 503. Monitor `fraiseql_http_responses_5xx` for sustained 503 spikes — this indicates you need more replicas or a higher concurrency limit.
+</Aside>
 
 ---
 
@@ -877,6 +949,10 @@ host = "0.0.0.0"
 port = 8080
 request_timeout_ms = 30000
 
+[server.limits]
+max_concurrent_requests = 1000
+max_queue_depth         = 5000
+
 [server.cors]
 origins = ["https://blog.example.com", "http://localhost:3000"]
 credentials = true
@@ -924,6 +1000,10 @@ fail_open   = false
 enabled   = true
 mode      = "strict"
 manifest_path = "./trusted-documents.json"
+
+[tracing]
+service_name  = "blog-api"
+otlp_endpoint = "http://otel-collector:4317"
 
 [validation]
 max_query_depth      = 10

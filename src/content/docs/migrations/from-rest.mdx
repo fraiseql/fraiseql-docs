@@ -487,14 +487,14 @@ Single endpoint
 Map your existing REST endpoints to `rest_path` annotations — your REST clients continue working unchanged. Add GraphQL for frontends or internal services that benefit from field selection. Introduce gRPC for service-to-service calls when you need binary efficiency.
 
 ```python
-# Existing GET /users → /rest/users  (default prefix; configure via [fraiseql.rest] prefix)
+# Existing GET /users → /rest/v1/users  (default path; configure via [fraiseql.rest] path)
 @fraiseql.query(
     rest_path="/users",
     rest_method="GET",
 )
 def users(limit: int = 100) -> list[User]:
     return fraiseql.config(sql_source="v_user")
-# REST clients call GET /rest/users (unchanged behavior)
+# REST clients call GET /rest/v1/users (unchanged behavior)
 # GraphQL clients send query { users { ... } } (new option)
 ```
 

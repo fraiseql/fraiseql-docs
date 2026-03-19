@@ -15,16 +15,25 @@ Both FraiseQL and PostgREST turn a PostgreSQL database into an HTTP API. They re
 
 | Feature | FraiseQL | PostgREST |
 |---------|----------|-----------|
-| REST | Annotation-driven | Auto-wired from schema |
+| REST | CQRS-derived + annotation override | Auto-wired from schema |
+| Response format | JSON envelope (`data`/`meta`/`links`) | Unwrapped JSON arrays |
+| Filtering | Bracket operators, JSON DSL, simple equality | Operator syntax (`eq.`, `gt.`, etc.) |
+| Pagination | Offset + relay/cursor with `meta`/`links` | `Range` header + `limit`/`offset` |
+| Field selection | `?select=id,name` | `?select=id,name` |
+| ETags | Yes (xxHash64, `If-None-Match` → 304) | Yes |
+| `Prefer` header | `return`, `count=exact` | `return`, `count`, `handling`, `resolution` |
 | GraphQL | Yes | No |
 | gRPC | Yes (requires `grpc-transport` feature flag) | No |
 | WebSocket subscriptions | Yes | No |
 | Schema authoring | 11 SDK languages | PostgreSQL schema |
 | Database support | PostgreSQL, MySQL, SQLite, SQL Server | PostgreSQL only |
 | Runtime | Compiled Rust binary | Haskell runtime |
-| REST endpoint control | Explicit annotations | Auto-expose all tables/views |
-| OpenAPI generation | Yes | Yes |
+| REST endpoint control | CQRS-derived + explicit annotations | Auto-expose all tables/views |
+| OpenAPI generation | Yes (3.0.3) | Yes |
 | Authentication | JWT/OIDC/API keys | JWT via PostgreSQL RLS |
+| Embedding | Coming soon (Phase 2) | `?select=*,orders(*)` |
+| Bulk operations | Coming soon (Phase 2) | Yes |
+| Full-text search | Coming soon (Phase 2) | `?fts=term` |
 | License | Apache 2.0 | MIT |
 
 ## The Fundamental Difference
@@ -104,7 +113,7 @@ def users(limit: int = 100) -> list[User]: ...
 The extra step is intentional. The exposed API surface is auditable in version control.
 
 <Aside type="note">
-FraiseQL's REST transport arrived in rc.15. PostgREST has been production-ready for many years. If you need REST-only from PostgreSQL today, PostgREST is mature and battle-tested. FraiseQL's REST transport is newer and the annotation model requires more upfront work to define your API surface.
+FraiseQL's REST transport arrived in rc.15. PostgREST has been production-ready for many years. FraiseQL now has feature parity for core REST operations (filtering, sorting, pagination, field selection, ETags, `Prefer` header), but PostgREST retains advantages in embedding (`?select=*,orders(*)`), bulk operations, and full-text search — these are planned for FraiseQL Phase 2.
 </Aside>
 
 <CardGrid>

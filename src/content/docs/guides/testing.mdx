@@ -644,17 +644,17 @@ jobs:
 
 Integration tests should cover all active transports.
 
-**REST testing with curl** (the default prefix is `/rest`; configure with `[fraiseql.rest]` `prefix`):
+**REST testing with curl** (the default path is `/rest/v1`; configure with `[fraiseql.rest]` `path`):
 ```bash
 # Test list endpoint
-curl -s http://localhost:8080/rest/posts | jq .
+curl -s http://localhost:8080/rest/v1/posts | jq .
 
 # Test with auth
-curl -s http://localhost:8080/rest/posts \
+curl -s http://localhost:8080/rest/v1/posts \
   -H "Authorization: Bearer $TEST_TOKEN"
 
 # Test POST
-curl -s -X POST http://localhost:8080/rest/posts \
+curl -s -X POST http://localhost:8080/rest/v1/posts \
   -H "Content-Type: application/json" \
   -d '{"title": "Test Post", "authorId": "..."}' | jq .
 ```

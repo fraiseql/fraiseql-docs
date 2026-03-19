@@ -135,6 +135,34 @@ FraiseQL writes to the `tb_audit_log` table you create in your database (see sch
   </TabItem>
 </Tabs>
 
+### Pluggable Audit Exporters
+
+<Aside type="note">
+Available since v2.1.0. Requires the `audit-syslog` or `audit-webhook` Cargo feature flags. The PostgreSQL audit logger remains the default — exporters run **in addition** to the database backend, streaming entries to external immutable stores for SOC 2/PCI compliance.
+</Aside>
+
+FraiseQL supports pluggable audit export sinks that run alongside the PostgreSQL backend:
+
+| Exporter | Feature flag | Protocol | Use case |
+|----------|-------------|----------|----------|
+| Syslog | `audit-syslog` | RFC 5424 UDP/TCP | SIEM integration (Splunk, Datadog) |
+| Webhook | `audit-webhook` | HTTPS POST (batched, with retry) | S3 via Lambda, Loki, custom endpoints |
+
+Enable via Cargo feature flags when building FraiseQL:
+
+```bash
+# Enable syslog exporter
+cargo build --release --features audit-syslog
+
+# Enable webhook exporter
+cargo build --release --features audit-webhook
+
+# Both
+cargo build --release --features audit-syslog,audit-webhook
+```
+
+The exporters are configured programmatically via `AuditLogger::with_exporters()` at server startup. See the [deployment security guide](https://github.com/fraiseql/fraiseql/blob/main/docs/deployment-security-guide.md) for S3/Splunk/Loki integration patterns.
+
 ### Syslog and File Backends
 
 Set `audit_log_backend` to `"syslog"` or `"file"` to forward audit events to those destinations instead of PostgreSQL. All backends are configured via the same `[security.enterprise]` TOML section — no separate namespace is needed.

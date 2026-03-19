@@ -705,15 +705,16 @@ If you can't resolve an issue:
 
 **REST endpoint returns 404**
 - Verify the `rest_path` annotation is present on the query or mutation
-- Check the URL prefix — default is `/rest/`; configurable via `[fraiseql.rest]` `prefix` or `FRAISEQL_REST_PREFIX`
+- Check the URL path — default is `/rest/v1/`; configurable via `[fraiseql.rest]` `path`
 - Confirm `[fraiseql.rest]` is enabled in `fraiseql.toml` (rc.15+)
 
-**REST response is wrapped in `{"data": ...}`**
-- You may be hitting the GraphQL endpoint (`/graphql`) rather than the REST endpoint (`/rest/...`). FraiseQL's REST transport returns unwrapped JSON directly.
+**REST response has unexpected format**
+- FraiseQL's REST transport returns JSON in a `{"data": ..., "meta": ..., "links": ...}` envelope. If you expected unwrapped JSON arrays, update your client to read from the `data` field.
+- If you're getting `{"data": {"posts": [...]}}` (nested `data`), you may be hitting the GraphQL endpoint (`/graphql`) instead of the REST endpoint (`/rest/v1/...`).
 
 **REST auth failing but GraphQL auth works**
 - REST uses the same auth mechanism as GraphQL. Check that the `Authorization: Bearer <token>` or `X-API-Key: <key>` header is present.
-- Verify `auth` in `[fraiseql.rest]` is not set to `"none"` when you expect auth enforcement.
+- Verify `require_auth` in `[fraiseql.rest]` is set to `true` when you expect auth enforcement.
 
 ### gRPC Transport
 

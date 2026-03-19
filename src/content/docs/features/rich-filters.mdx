@@ -418,9 +418,32 @@ Uses PostGIS efficiently:
 WHERE ST_DWithin(location::geography, ST_Point(...)::geography, 5000)
 ```
 
-## REST and gRPC Availability
+## REST Bracket Notation
 
-Rich filters are available via REST query parameters and gRPC request fields. Filters defined in your schema translate directly to REST query param syntax and to protobuf request message fields for gRPC.
+Rich filter operators are available via REST query parameters using bracket notation. Each operator maps directly from the GraphQL `where` input to a `?field[operator]=value` query parameter.
+
+| GraphQL filter | REST bracket notation |
+|---------------|----------------------|
+| `email: { domainEq: "example.com" }` | `?email[domainEq]=example.com` |
+| `email: { domainIn: ["a.com", "b.com"] }` | `?email[domainIn]=a.com,b.com` |
+| `iban: { ibanCountryEq: "DE" }` | `?iban[ibanCountryEq]=DE` |
+| `ipAddress: { cidrContains: "192.168.0.0/24" }` | `?ipAddress[cidrContains]=192.168.0.0/24` |
+| `name: { icontains: "Ali" }` | `?name[icontains]=Ali` |
+| `age: { gte: 18 }` | `?age[gte]=18` |
+
+For complex queries combining multiple rich filter operators, use the `?filter=` JSON parameter which accepts the full FraiseQL where DSL:
+
+```
+GET /rest/v1/users?filter={"email":{"domainEq":"example.com"},"location":{"distanceWithin":{"latitude":40.7128,"longitude":-74.006,"radiusKm":5}}}
+```
+
+Operators that accept structured input (like `distanceWithin`) are only available via the `?filter=` JSON DSL, not via bracket notation.
+
+See [REST Transport](/features/rest-transport/#filtering) for the full list of bracket operators and the JSON filter escape hatch.
+
+## gRPC Availability
+
+Rich filters are also available via gRPC request fields. Filters defined in your schema translate directly to protobuf request message fields for gRPC.
 
 ## Next Steps
 

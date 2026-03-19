@@ -1,17 +1,21 @@
 ---
 title: REST Transport
-description: Annotation-driven REST endpoints from your compiled schema — OpenAPI, HTTP status codes, and same auth as GraphQL
+description: Annotation-driven REST endpoints from your compiled schema — envelope responses, filtering, pagination, ETags, and OpenAPI
 ---
 
 import { Aside, Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-FraiseQL's REST transport exposes HTTP endpoints from your compiled schema. Endpoints are annotation-driven — you control which operations get REST routes. Nothing is auto-wired from the schema automatically.
+FraiseQL's REST transport exposes HTTP endpoints from your compiled schema. Resources are derived at compile time from CQRS naming conventions — most endpoints require zero annotation. Override auto-derived routes with explicit `rest_path` and `rest_method` annotations when needed.
 
 REST shares the same compiled schema, Executor, connection pool, auth middleware, and rate limiting as GraphQL. There is no separate service to run.
 
+<Aside type="tip">
+REST requests bypass the GraphQL parsing and classification pipeline entirely. Requests are converted to typed `QueryMatch` calls and executed directly via the Executor's internal APIs — no intermediate GraphQL string construction, no parsing round-trip.
+</Aside>
+
 ## SDK Annotations
 
-Add `rest_path` and `rest_method` parameters to any `@fraiseql.query` or `@fraiseql.mutation` decorator to expose it as a REST endpoint.
+Add `rest_path` and `rest_method` parameters to any `@fraiseql.query` or `@fraiseql.mutation` decorator to override auto-derived routes.
 
 <Aside type="note">
 REST annotation parity: annotations are available in the **Python** SDK in v2.1.0. Go, Java, and C# support is in unreleased commits. TypeScript, PHP, Rust, Elixir, and F# support has not started yet.
@@ -65,7 +69,7 @@ fraiseql.NewQuery("posts").
 </TabItem>
 </Tabs>
 
-Operations without `rest_path` are not exposed as REST endpoints. GraphQL-only operations remain GraphQL-only.
+Operations without `rest_path` rely on auto-derived routes from CQRS naming conventions. GraphQL-only operations remain GraphQL-only.
 
 ## Path Parameters
 
@@ -80,79 +84,256 @@ Curly-brace placeholders in `rest_path` extract path parameters:
 def post(id: UUID) -> Post: ...
 ```
 
-`GET /rest/posts/abc-123` extracts `id = "abc-123"` and coerces it to `UUID` automatically. Type coercion follows GraphQL scalar rules — invalid values return 400.
+`GET /rest/v1/posts/abc-123` extracts `id = "abc-123"` and coerces it to `UUID` automatically. Type coercion follows GraphQL scalar rules — invalid values return 400.
 
 Two compile-time constraints apply:
 - Duplicate `(method, path)` pairs are rejected at compile time.
 - Path parameter names must match function argument names exactly.
+
+### ID Detection and `rest_id_arg`
+
+For single-resource routes, the REST handler auto-detects the ID parameter: the first required non-nullable argument of type `Int`, `ID`, or `UUID` whose name matches `id`, `pk`, or `pk_*`.
+
+Override with `rest_id_arg` when your parameter uses a different name:
+
+```python
+@fraiseql.query(
+    sql_source="v_post",
+    rest_path="/posts/{slug}",
+    rest_method="GET",
+    rest_id_arg="slug",
+)
+def post_by_slug(slug: str) -> Post: ...
+```
 
 ## Query Parameters
 
 `GET` requests map query string parameters to function arguments:
 
 ```
-GET /rest/posts?limit=10&offset=0
+GET /rest/v1/posts?limit=10&offset=0
 ```
 
-maps to `posts(limit: 10, offset: 0)`. Rich filter arguments work the same way:
+maps to `posts(limit: 10, offset: 0)`.
+
+## Filtering
+
+Three filtering syntaxes are supported, from simple to complex:
+
+### Simple equality
 
 ```
-GET /rest/posts?name_contains=graphql&published=true
+GET /rest/v1/users?name=Alice&status=active
 ```
 
-maps to `posts(name_contains: "graphql", published: true)`. All filter operators from [Rich Filters](/features/rich-filters/) are available via query parameters.
+Converted to `{"name": {"eq": "Alice"}, "status": {"eq": "active"}}` internally.
 
-## Request Body
+### Bracket operator syntax
 
-`POST`, `PUT`, and `PATCH` requests accept a JSON body. Body fields map to GraphQL variables by name:
-
-```bash
-curl -X POST https://api.example.com/rest/posts \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Hello World", "authorId": "550e8400-e29b-41d4-a716-446655440000"}'
+```
+GET /rest/v1/users?name[icontains]=Ali&age[gte]=18
 ```
 
-Field names use camelCase in JSON and map to snake_case function arguments (`authorId` → `author_id`).
+Bracket operators map to the FraiseQL operator registry:
+
+| Operator | SQL | Example |
+|----------|-----|---------|
+| `eq` | `=` | `?name[eq]=Alice` |
+| `neq` | `!=` | `?status[neq]=archived` |
+| `gt`, `gte`, `lt`, `lte` | `>`, `>=`, `<`, `<=` | `?age[gte]=18` |
+| `in`, `nin` | `IN`, `NOT IN` | `?status[in]=active,pending` |
+| `contains` | `@>` (JSONB) | `?tags[contains]=rust` |
+| `icontains` | `ILIKE '%...%'` | `?name[icontains]=ali` |
+| `startswith`, `endswith` | `LIKE` patterns | `?name[startswith]=A` |
+| `like`, `ilike` | `LIKE`, `ILIKE` | `?name[ilike]=a%25ce` |
+| `is_null` | `IS NULL` | `?deleted_at[is_null]=true` |
+
+Rich filter operators from [semantic scalar types](/features/rich-filters/) are also available. For example, `?email[domainEq]=example.com` or `?location[distanceWithin]=...`.
+
+### JSON filter DSL
+
+For complex queries, use the `?filter=` parameter with the full FraiseQL where DSL (same JSON shape as the GraphQL `where` input):
+
+```
+GET /rest/v1/users?filter={"name":{"startsWith":"A"},"age":{"gte":18}}
+```
+
+The JSON filter accepts the full 50+ operator set including JSONB containment, vector distance, full-text search, ltree, network/IP, and range operators.
+
+Filter validation:
+- Maximum size: configurable via `max_filter_bytes` (default 4096)
+- Field names validated against the type definition — unknown fields return 400 with available field list
+- Operators validated against the operator registry — unknown operators return 400 with available operator list
+
+## Sorting
+
+```
+GET /rest/v1/users?sort=name         # ascending
+GET /rest/v1/users?sort=-name        # descending (- prefix)
+GET /rest/v1/users?sort=name,-age    # multi-column
+```
+
+Sort fields are validated against the resource's type definition.
+
+## Field Selection
+
+```
+GET /rest/v1/users?select=id,name,email
+```
+
+Omitting `select` returns all fields. Flat fields only in v1 — selecting a nested field (e.g., `address`) returns the full nested object.
+
+## Pagination
+
+### Offset-based
+
+Standard queries use `limit` and `offset`:
+
+```
+GET /rest/v1/posts?limit=10&offset=20
+```
+
+Response includes `meta.limit`, `meta.offset`, and navigation `links`:
+
+```json
+{
+  "data": [ ... ],
+  "meta": { "limit": 10, "offset": 20 },
+  "links": {
+    "self":  "/rest/v1/posts?limit=10&offset=20",
+    "next":  "/rest/v1/posts?limit=10&offset=30",
+    "prev":  "/rest/v1/posts?limit=10&offset=10",
+    "first": "/rest/v1/posts?limit=10&offset=0"
+  }
+}
+```
+
+Add `Prefer: count=exact` to include `meta.total` and `links.last`. Without it, no count query is issued.
+
+### Cursor-based (relay)
+
+Relay queries use `first`/`after` (or `last`/`before`):
+
+```
+GET /rest/v1/users?first=10&after=eyJpZCI6NDJ9
+```
+
+```json
+{
+  "data": [ ... ],
+  "meta": {
+    "hasNextPage": true,
+    "hasPreviousPage": false
+  },
+  "links": {
+    "self":  "/rest/v1/users?first=10",
+    "next":  "/rest/v1/users?first=10&after=eyJpZCI6NDJ9"
+  }
+}
+```
+
+Relay vs offset is determined at compile time. Cross-pagination guards apply: a relay query receiving `?limit=`/`?offset=` returns 400 ("use `first`/`after` for cursor-based pagination on this endpoint"), and vice versa.
+
+`limit` values are clamped to `max_page_size` (default: 100). When not specified, `default_page_size` (default: 20) is used.
 
 ## Response Format
 
-REST responses are direct JSON — no GraphQL `data` wrapper.
+All REST responses use a JSON envelope:
+
+| Operation type | Envelope shape |
+|---------------|----------------|
+| Query returning single object | `{ "data": {...} }` |
+| Query returning list | `{ "data": [...], "meta": {...}, "links": {...} }` |
+| Mutation (create) | `{ "data": {...} }` + `Location` header + 201 |
+| Mutation (update) | `{ "data": {...} }` |
+| Mutation (delete, no_content) | empty body + 204 |
+| Mutation (delete, entity) | `{ "data": {...} }` |
+
+Null results for single-object endpoints return `404`.
+
+## ETag and Conditional Requests
+
+GET responses include an `ETag` header (xxHash64 of JSON body, hex-encoded, `W/"..."` weak validator). Send `If-None-Match` to receive 304 Not Modified:
+
+```bash
+# First request — returns full response + ETag
+curl -i https://api.example.com/rest/v1/posts/abc-123
+# ETag: W/"a1b2c3d4e5f6g7h8"
+
+# Subsequent request — returns 304 if unchanged
+curl -H 'If-None-Match: W/"a1b2c3d4e5f6g7h8"' \
+  https://api.example.com/rest/v1/posts/abc-123
+```
+
+ETag support integrates with FraiseQL's query result cache for zero-cost validation on cache hits. Disable with `etag = false` in `[fraiseql.rest]`.
+
+## Prefer Header
+
+The `Prefer` header controls response behavior. Multiple preferences can be combined:
 
 ```
-GET /rest/posts
-→ [{"id": "...", "title": "..."}, ...]
-
-GraphQL equivalent
-→ {"data": {"posts": [{"id": "...", "title": "..."}, ...]}}
+Prefer: return=representation, count=exact
 ```
 
-Single-object endpoints return a JSON object. List endpoints return a JSON array. Null results for single-object endpoints return `404`.
+| Preference | Values | Effect |
+|------------|--------|--------|
+| `return` | `representation`, `minimal` | Controls mutation response body |
+| `count` | `exact` | Include `meta.total` in collections (parallel COUNT query) |
+
+Response includes `Preference-Applied` listing honored preferences. Unknown preferences are silently ignored per RFC 7240.
+
+## PUT vs PATCH
+
+The compiler classifies update mutations based on writable field coverage:
+
+- **Full-coverage** (mutation accepts all writable fields): generates both `PUT` and `PATCH` on the canonical resource path. PUT requires all writable fields; PATCH accepts any subset.
+- **Partial-coverage** (mutation accepts a subset): generates `PATCH` only, mounted as an action sub-resource (e.g., `PATCH /rest/v1/users/{id}/update-email`).
+
+Writable fields exclude `pk_*` (auto-generated identity), `id` (auto-generated or function-set), computed fields, and auto-generated fields.
+
+PUT requests with missing required writable fields return 422 with field-level error details.
 
 ## Error-to-Status-Code Mapping
 
 | Error | HTTP Status |
 |-------|-------------|
-| Validation error | 400 |
+| Malformed request / unknown param / unknown operator | 400 |
 | Authentication failure | 401 |
 | Permission denied | 403 |
 | Not found | 404 |
+| Method not allowed | 405 |
+| Unique constraint conflict | 409 |
+| Validation error / type mismatch / PUT missing fields | 422 |
 | Rate limited | 429 |
 | Server error | 500 |
 
-All error responses use a consistent body:
+All error responses use the structured envelope:
 
 ```json
-{"message": "Post not found", "code": "NOT_FOUND"}
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Post not found",
+    "details": {}
+  }
+}
 ```
 
 ## OpenAPI Spec
 
-The compiler generates an OpenAPI 3.1 spec from your annotated schema. No manual YAML required — annotations become the spec.
+The compiler generates an OpenAPI 3.0.3 spec from your schema. No manual YAML required.
 
-Available at `GET /rest/openapi.json` (the default `openapi_path`) when `openapi_enabled = true` in `[fraiseql.rest]`.
+**Compile-time** (canonical):
 
-Returns the full OpenAPI 3.1 document. Import it into Swagger UI, Postman, or any OpenAPI-compatible tool.
+```bash
+fraiseql-cli openapi schema.compiled.json -o openapi.json
+```
+
+**Runtime** (convenience):
+
+Available at `GET /rest/v1/openapi.json` (configurable via `openapi_path`) when `openapi_enabled = true` in `[fraiseql.rest]`.
+
+Import into Swagger UI, Postman, or any OpenAPI-compatible tool.
 
 ## Configuration
 
@@ -162,19 +343,23 @@ The `[fraiseql.rest]` TOML section is available since **rc.15**.
 
 ```toml
 [fraiseql.rest]
-prefix = "/rest"           # URL prefix for all REST routes (default: "/rest")
-auth = "none"              # "none" | "optional" | "required" (default: "none")
-openapi_enabled = true     # serve OpenAPI spec (default: false)
-openapi_path = "/rest/openapi.json"  # path for OpenAPI spec endpoint
-title = "My API"           # optional: OpenAPI info.title
-api_version = "1.0.0"     # optional: OpenAPI info.version
+enabled = true
+path = "/rest/v1"                # base URL path (default: "/rest/v1")
+require_auth = false             # require OIDC/JWT for all REST endpoints
+include = []                     # whitelist operations (empty = all)
+exclude = []                     # blacklist operations
+delete_response = "no_content"   # "no_content" (204) or "entity" (200 + body)
+max_page_size = 100              # maximum limit value
+default_page_size = 20           # default limit when not specified
+etag = true                      # enable ETag / If-None-Match
+max_filter_bytes = 4096          # maximum ?filter= JSON size
+openapi_enabled = true           # serve OpenAPI spec
+openapi_path = "/rest/v1/openapi.json"
+title = "My API"
+api_version = "1.0.0"
 ```
 
-Environment variable overrides:
-
-| Variable | Overrides |
-|----------|-----------|
-| `FRAISEQL_REST_PREFIX` | `prefix` |
+See [TOML Configuration Reference](/reference/toml-config/#fraiseqlrest) for all fields.
 
 ## Feature Flag
 
@@ -191,52 +376,112 @@ cargo build --features rest-transport
 1. **List all posts**
 
    ```bash
-   curl https://api.example.com/rest/posts?limit=20
+   curl https://api.example.com/rest/v1/posts?limit=20
    ```
 
-   Returns an array of post objects.
+   ```json
+   {
+     "data": [
+       { "id": "550e8400-...", "title": "Hello World", "body": "..." },
+       { "id": "6ba7b810-...", "title": "Second Post", "body": "..." }
+     ],
+     "meta": { "limit": 20, "offset": 0 },
+     "links": {
+       "self": "/rest/v1/posts?limit=20&offset=0",
+       "next": null,
+       "prev": null,
+       "first": "/rest/v1/posts?limit=20&offset=0"
+     }
+   }
+   ```
 
 2. **Get a post by ID**
 
    ```bash
-   curl https://api.example.com/rest/posts/550e8400-e29b-41d4-a716-446655440000
+   curl https://api.example.com/rest/v1/posts/550e8400-e29b-41d4-a716-446655440000
    ```
 
-   Returns a single post object, or `404` if not found.
+   ```json
+   {
+     "data": { "id": "550e8400-...", "title": "Hello World", "body": "..." }
+   }
+   ```
+
+   Returns `404` if not found.
 
 3. **Create a post**
 
    ```bash
-   curl -X POST https://api.example.com/rest/posts \
+   curl -X POST https://api.example.com/rest/v1/posts \
      -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"title": "My First Post", "authorId": "user-uuid-here"}'
    ```
 
-   Returns the created post with its assigned `id`.
+   ```json
+   {
+     "data": { "id": "c3d4e5f6-...", "title": "My First Post", "authorId": "user-uuid-here" }
+   }
+   ```
+
+   Returns 201 with `Location: /rest/v1/posts/c3d4e5f6-...` header.
 
 4. **Update a post**
 
    ```bash
-   curl -X PATCH https://api.example.com/rest/posts/550e8400-e29b-41d4-a716-446655440000 \
+   curl -X PATCH https://api.example.com/rest/v1/posts/550e8400-e29b-41d4-a716-446655440000 \
      -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"title": "Updated Title"}'
    ```
 
-   Returns the updated post.
+   ```json
+   {
+     "data": { "id": "550e8400-...", "title": "Updated Title", "body": "..." }
+   }
+   ```
 
 5. **Delete a post**
 
    ```bash
-   curl -X DELETE https://api.example.com/rest/posts/550e8400-e29b-41d4-a716-446655440000 \
+   curl -X DELETE https://api.example.com/rest/v1/posts/550e8400-e29b-41d4-a716-446655440000 \
      -H "Authorization: Bearer $TOKEN"
    ```
 
-   Returns `204 No Content` on success.
+   Returns `204 No Content` by default. Use `Prefer: return=representation` to get the deleted entity.
+
+6. **Filter and sort**
+
+   ```bash
+   curl 'https://api.example.com/rest/v1/posts?title[icontains]=graphql&sort=-created_at&limit=5'
+   ```
+
+   ```json
+   {
+     "data": [
+       { "id": "...", "title": "Getting Started with GraphQL", "created_at": "..." }
+     ],
+     "meta": { "limit": 5, "offset": 0 },
+     "links": { "self": "/rest/v1/posts?title[icontains]=graphql&sort=-created_at&limit=5", "next": null, "prev": null, "first": "/rest/v1/posts?title[icontains]=graphql&sort=-created_at&limit=5" }
+   }
+   ```
 
 </Steps>
 
 REST endpoints share the same Executor, auth, and rate limiting as GraphQL. No new SQL is generated — REST uses the same JSON-shaped views that serve GraphQL queries.
 
-See [REST vs GraphQL](/guides/rest-vs-graphql) for guidance on when to expose operations via REST, GraphQL, or both. See [REST API Reference](/reference/rest-api) for the full endpoint list, OpenAPI fields, and error response format.
+## Coming Soon (Phase 2)
+
+The following features are planned for a future release:
+
+- **Nested resource embedding**: `?select=id,name,posts(id,title,comments(id,body))` — PostgREST-style relationship embedding up to configurable depth
+- **Bulk operations**: `POST /rest/v1/users/bulk` for multi-row inserts with CQRS-compliant safety guards
+- **Upsert**: `PUT` with conflict resolution
+- **Streaming**: NDJSON and SSE for large result sets and real-time events
+- **Full-text search**: `?search=term` using PostgreSQL `tsvector` with relevance ranking
+- **Logical operators**: `?or=(status[eq]=active,status[eq]=pending)` for OR/NOT composition
+- **Extended Prefer header**: `handling=strict`/`lenient`, `tx=rollback` (dry-run)
+- **Idempotency-Key header**: idempotent POST mutations via `Idempotency-Key` header
+- **HTTP caching headers**: `Cache-Control`, `s-maxage` for CDN integration
+
+See [REST vs GraphQL](/guides/rest-vs-graphql) for guidance on when to expose operations via REST, GraphQL, or both. See [REST API Reference](/reference/rest-api) for the full endpoint reference.

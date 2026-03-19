@@ -126,7 +126,7 @@ recovery_timeout_secs    = 30
 ```
 
 <Aside type="note">
-**Authentication** (`JWT_SECRET`, `JWT_ALGORITHM`, OAuth credentials) is configured via environment variables, not `fraiseql.toml`. **Logging** uses `RUST_LOG`. **Tracing** uses `OTEL_*` env vars. There are no `[auth]`, `[logging]`, `[graphql]`, `[metrics]`, `[tracing]`, or `[caching]` sections.
+**Authentication** (`JWT_SECRET`, `JWT_ALGORITHM`, OAuth credentials) is configured via environment variables, not `fraiseql.toml`. **Logging** uses `RUST_LOG`. **Tracing** can be configured via the `[tracing]` TOML section (since v2.1.0) or `OTEL_*` env vars. There are no `[auth]`, `[logging]`, `[graphql]`, or `[metrics]` sections.
 
 For the full engine-verified reference, see [TOML Configuration Reference](/reference/toml-config).
 </Aside>
@@ -138,10 +138,9 @@ Multi-transport configuration sections:
 
 ```toml
 [fraiseql.rest]
-prefix = "/rest"
-auth = "none"
+path = "/rest/v1"
+require_auth = false
 openapi_enabled = true
-openapi_path = "/rest/openapi.json"
 
 [fraiseql.grpc]
 enabled = true
@@ -172,8 +171,8 @@ Some settings are **only** configurable via environment variables (no TOML equiv
 | `JWT_ISSUER` | Expected `iss` claim (optional) |
 | `JWT_AUDIENCE` | Expected `aud` claim (optional) |
 | `RUST_LOG` | Log level: `error` \| `warn` \| `info` \| `debug` \| `trace` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry collector endpoint |
-| `OTEL_SERVICE_NAME` | Service name for traces |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry collector endpoint (fallback; prefer `[tracing] otlp_endpoint` in TOML) |
+| `OTEL_SERVICE_NAME` | Service name for traces (fallback; prefer `[tracing] service_name` in TOML) |
 
 ## Configuration by Environment
 
@@ -294,10 +293,9 @@ url = "${DATABASE_URL}"
 port = 8080
 
 [fraiseql.rest]
-prefix = "/rest"
-auth = "none"
+path = "/rest/v1"
+require_auth = false
 openapi_enabled = true
-openapi_path = "/rest/openapi.json"
 
 [fraiseql.grpc]
 enabled = true

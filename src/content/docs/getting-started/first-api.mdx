@@ -1098,10 +1098,10 @@ Transport annotations are additive — they extend an operation to additional tr
 def posts(limit: int = 10) -> list[Post]: ...
 ```
 
-Adding these annotations exposes the operation as `GET /rest/posts`. The default prefix is `/rest`. Configure with `[fraiseql.rest]` `prefix` to use `/api` or any other value. The GraphQL endpoint continues to work unchanged.
+Adding these annotations exposes the operation as `GET /rest/v1/posts`. The default path is `/rest/v1`. Configure with `[fraiseql.rest]` `path` to use `/api` or any other value. The GraphQL endpoint continues to work unchanged.
 
 ```bash
-curl http://localhost:8080/rest/posts?limit=5
+curl http://localhost:8080/rest/v1/posts?limit=5
 ```
 
 ## Step 8: Test the API
