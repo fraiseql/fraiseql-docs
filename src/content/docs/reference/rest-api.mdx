@@ -29,15 +29,16 @@ The REST handler uses `id: UUID` as the URL path parameter for single-resource r
 
 1. First required non-nullable argument of type `Int`, `ID`, or `UUID` whose name matches `id`, `pk`, or `pk_*`
 2. If no match, fall back to `pk_*` fields on the return type
-3. Override with `rest_id_arg` annotation on the operation
+
+When your path parameter uses a different name, match it in the function signature:
 
 ```python
 # Default: "id" argument auto-detected
 @fraiseql.query(rest_path="/posts/{id}", rest_method="GET")
 def post(id: UUID) -> Post: ...
 
-# Override: use "slug" as the path parameter
-@fraiseql.query(rest_path="/posts/{slug}", rest_method="GET", rest_id_arg="slug")
+# Custom: use "slug" — just match the path placeholder to the function arg
+@fraiseql.query(rest_path="/posts/{slug}", rest_method="GET")
 def post_by_slug(slug: str) -> Post: ...
 ```
 
@@ -280,6 +281,18 @@ The `?filter=` JSON escape hatch accepts the full 50+ operator set from the Frai
 
 Rich filter operators from [semantic scalar types](/features/rich-filters/) are also available via bracket notation. For example, `?email[domainEq]=example.com`.
 
+### Logical Operators
+
+Combine filters with `or=()`, `and=()`, and `not=()`:
+
+```
+GET /rest/v1/users?or=(status[eq]=active,status[eq]=pending)
+GET /rest/v1/users?not=(role[eq]=admin)
+GET /rest/v1/users?or=(and=(age[gte]=18,active[eq]=true),name[eq]=admin)
+```
+
+Logical groups support nesting and combine with regular filter parameters.
+
 ### Sorting
 
 ```
@@ -308,23 +321,32 @@ Relay vs offset is determined at compile time from the query definition. Cross-p
 
 `limit` values are clamped to `max_page_size` (default: 100). When no `limit` is specified, `default_page_size` (default: 20) is used.
 
-### Field Selection
+### Field Selection and Embedding
 
 ```
 GET /rest/v1/users?select=id,name,email
 ```
 
-Omitting `select` returns all fields. Field names are validated against the type definition. Flat fields only — selecting a nested field (e.g., `address`) returns the full nested object.
+Omitting `select` returns all fields. Field names are validated against the type definition.
+
+Parenthesized syntax embeds related resources:
+
+```
+GET /rest/v1/users?select=id,name,posts(id,title,comments(id,body))
+```
+
+Embedding supports rename (`author:fk_user(id,name)`) and count (`posts.count`). Maximum nesting depth is configurable via `max_embedding_depth` (default: 3).
 
 | Parameter | Description |
 |-----------|-------------|
 | `sort` | Comma-separated fields. Prefix with `-` for descending. |
-| `select` | Comma-separated field names for sparse fieldsets |
+| `select` | Comma-separated field names. Parentheses for embedding: `posts(id,title)` |
 | `limit` | Maximum rows to return (offset pagination) |
 | `offset` | Rows to skip (offset pagination) |
 | `first` | Maximum rows to return (cursor pagination) |
 | `after` | Cursor for forward pagination |
 | `filter` | JSON filter object (full FraiseQL where DSL) |
+| `or`, `and`, `not` | Logical operator groups: `or=(field[op]=val,field[op]=val)` |
 
 ## Request Headers
 
@@ -332,8 +354,10 @@ Omitting `select` returns all fields. Field names are validated against the type
 |--------|-------------|
 | `Authorization` | `Bearer <jwt>` or via configured API key header |
 | `Content-Type` | `application/json` or `application/merge-patch+json` (PATCH) |
+| `Accept` | `application/json` (default) or `application/x-ndjson` for streaming |
 | `Prefer` | Request preferences (see below) |
 | `If-None-Match` | ETag value for conditional requests (returns 304 if unchanged) |
+| `Idempotency-Key` | UUID for idempotent POST mutations (replays stored response on retry) |
 
 ### Prefer Header
 
@@ -343,6 +367,9 @@ Multiple preferences can be combined: `Prefer: return=representation, count=exac
 |------------|--------|-------------|
 | `return` | `representation`, `minimal` | Controls response body for mutations. `representation` returns the entity; `minimal` returns empty body. |
 | `count` | `exact` | Include `meta.total` in collection responses. Issues a parallel `COUNT(*)` query. |
+| `resolution` | `merge-duplicates`, `ignore-duplicates` | Upsert conflict resolution for bulk inserts. |
+| `max-affected` | integer | Safety guard for bulk PATCH/DELETE — returns 400 if more rows would be affected. |
+| `tx` | `rollback` | Dry-run: execute in a transaction then roll back. Returns what would have happened. |
 
 Response always includes `Preference-Applied` listing honored preferences. Unknown preferences are silently ignored per RFC 7240.
 
@@ -354,14 +381,17 @@ Response always includes `Preference-Applied` listing honored preferences. Unkno
 | `Location` | 201 Created | Full resource URL |
 | `Preference-Applied` | When `Prefer` header was honored | Applied preferences |
 | `X-Preference-Fallback` | When `Prefer` was partially honored | Explains degradation (e.g., `entity-unavailable`) |
+| `X-Rows-Affected` | Bulk operations | Number of rows inserted/updated/deleted |
+| `Cache-Control` | GET responses | `public, max-age={ttl}` or `private, max-age={ttl}` (when authenticated) |
+| `Vary` | GET responses | `Authorization, Accept, Prefer` |
 | `Allow` | 405 Method Not Allowed | Comma-separated allowed HTTP methods |
 | `X-Request-Id` | All responses | Echoed from request or generated UUID |
-| `Content-Type` | All non-204 responses | `application/json` |
+| `Content-Type` | All non-204 responses | `application/json` or `application/x-ndjson` |
 
 ## Content-Type
 
-- Accepted: `application/json`, `application/merge-patch+json` (PATCH)
-- Returned: `application/json`
+- Accepted: `application/json`, `application/merge-patch+json` (PATCH), `application/x-ndjson` (Accept header for streaming)
+- Returned: `application/json` or `application/x-ndjson`
 - Required for: POST, PUT, PATCH requests (rejected with 400 if absent)
 
 ## Authentication
@@ -436,6 +466,7 @@ Key configuration fields in `[fraiseql.rest]`:
 | `default_page_size` | `integer` | `20` | Default `limit` when not specified |
 | `etag` | `bool` | `true` | Enable ETag / If-None-Match |
 | `max_filter_bytes` | `integer` | `4096` | Maximum `?filter=` JSON size |
+| `max_embedding_depth` | `integer` | `3` | Maximum nesting depth for `?select=` embedding |
 | `openapi_enabled` | `bool` | `false` | Serve OpenAPI spec |
 | `openapi_path` | `string` | `"/rest/v1/openapi.json"` | OpenAPI spec endpoint path |
 | `title` | `string` | `"FraiseQL REST API"` | OpenAPI info.title |

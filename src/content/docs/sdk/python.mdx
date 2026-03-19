@@ -568,8 +568,8 @@ def posts(limit: int = 10) -> list[Post]:
 def post(id: UUID) -> Post:
     return fraiseql.config(sql_source="v_post")
 
-# REST with custom ID argument (override auto-detection)
-@fraiseql.query(rest_path="/posts/{slug}", rest_method="GET", rest_id_arg="slug")
+# REST with custom path parameter — just match the placeholder name to the function arg
+@fraiseql.query(rest_path="/posts/{slug}", rest_method="GET")
 def post_by_slug(slug: str) -> Post:
     return fraiseql.config(sql_source="v_post")
 
@@ -595,7 +595,7 @@ def posts_all(limit: int = 10) -> list[Post]:
 def create_post(title: str, author_id: UUID) -> Post: ...
 ```
 
-Path parameters in `rest_path` (e.g., `{id}`) must match function argument names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time. Use `rest_id_arg` to override the auto-detected ID parameter when your path uses a non-standard name (e.g., `slug` instead of `id`).
+Path parameters in `rest_path` (e.g., `{id}`) must match function argument names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
 
 ---
 

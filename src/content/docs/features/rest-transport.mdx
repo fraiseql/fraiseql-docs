@@ -90,18 +90,17 @@ Two compile-time constraints apply:
 - Duplicate `(method, path)` pairs are rejected at compile time.
 - Path parameter names must match function argument names exactly.
 
-### ID Detection and `rest_id_arg`
+### ID Detection
 
-For single-resource routes, the REST handler auto-detects the ID parameter: the first required non-nullable argument of type `Int`, `ID`, or `UUID` whose name matches `id`, `pk`, or `pk_*`.
+For single-resource routes, the REST handler auto-detects the ID parameter: the first required non-nullable argument of type `Int`, `ID`, or `UUID` whose name matches `id`, `pk`, or `pk_*`. If no match, the heuristic falls back to `pk_*` fields on the return type.
 
-Override with `rest_id_arg` when your parameter uses a different name:
+When your path parameter uses a different name, simply match it in the function signature:
 
 ```python
 @fraiseql.query(
     sql_source="v_post",
     rest_path="/posts/{slug}",
     rest_method="GET",
-    rest_id_arg="slug",
 )
 def post_by_slug(slug: str) -> Post: ...
 ```
@@ -160,7 +159,20 @@ GET /rest/v1/users?filter={"name":{"startsWith":"A"},"age":{"gte":18}}
 
 The JSON filter accepts the full 50+ operator set including JSONB containment, vector distance, full-text search, ltree, network/IP, and range operators.
 
-Filter validation:
+### Logical operators
+
+Combine filters with `or=()`, `and=()`, and `not=()`:
+
+```
+GET /rest/v1/users?or=(status[eq]=active,status[eq]=pending)
+GET /rest/v1/users?and=(age[gte]=18,verified[eq]=true)
+GET /rest/v1/users?or=(and=(age[gte]=18,active[eq]=true),name[eq]=admin)
+```
+
+Logical groups can be nested and combined with regular filter parameters. Nesting depth is enforced.
+
+### Filter validation
+
 - Maximum size: configurable via `max_filter_bytes` (default 4096)
 - Field names validated against the type definition — unknown fields return 400 with available field list
 - Operators validated against the operator registry — unknown operators return 400 with available operator list
@@ -279,6 +291,8 @@ Prefer: return=representation, count=exact
 |------------|--------|--------|
 | `return` | `representation`, `minimal` | Controls mutation response body |
 | `count` | `exact` | Include `meta.total` in collections (parallel COUNT query) |
+| `resolution` | `merge-duplicates`, `ignore-duplicates` | Upsert behavior for bulk operations |
+| `max-affected` | integer | Safety guard for bulk PATCH/DELETE — returns 400 if more rows would be affected |
 
 Response includes `Preference-Applied` listing honored preferences. Unknown preferences are silently ignored per RFC 7240.
 
@@ -353,6 +367,7 @@ max_page_size = 100              # maximum limit value
 default_page_size = 20           # default limit when not specified
 etag = true                      # enable ETag / If-None-Match
 max_filter_bytes = 4096          # maximum ?filter= JSON size
+max_embedding_depth = 3          # maximum nesting depth for ?select=posts(comments(...))
 openapi_enabled = true           # serve OpenAPI spec
 openapi_path = "/rest/v1/openapi.json"
 title = "My API"
@@ -470,18 +485,113 @@ cargo build --features rest-transport
 
 REST endpoints share the same Executor, auth, and rate limiting as GraphQL. No new SQL is generated — REST uses the same JSON-shaped views that serve GraphQL queries.
 
-## Coming Soon (Phase 2)
+## Nested Resource Embedding
 
-The following features are planned for a future release:
+Fetch related resources in a single request using parenthesized `?select=` syntax:
 
-- **Nested resource embedding**: `?select=id,name,posts(id,title,comments(id,body))` — PostgREST-style relationship embedding up to configurable depth
-- **Bulk operations**: `POST /rest/v1/users/bulk` for multi-row inserts with CQRS-compliant safety guards
-- **Upsert**: `PUT` with conflict resolution
-- **Streaming**: NDJSON and SSE for large result sets and real-time events
+```
+GET /rest/v1/users?select=id,name,posts(id,title,comments(id,body))
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "...", "name": "Alice",
+      "posts": [
+        { "id": "...", "title": "Hello", "comments": [{ "id": "...", "body": "Great post" }] }
+      ]
+    }
+  ],
+  "meta": { "limit": 20, "offset": 0 },
+  "links": { ... }
+}
+```
+
+Embedding supports:
+- **Nesting** up to `max_embedding_depth` (default 3, configurable in `[fraiseql.rest]`)
+- **Cardinality-aware**: one-to-many returns arrays, many-to-one returns an object or null
+- **Rename syntax**: `?select=author:fk_user(id,name)` — rename the embedded field
+- **Count syntax**: `?select=posts.count` — return a count instead of the full collection
+
+Relationships are inferred from foreign key naming conventions (`fk_user` → `pk_user` on `tb_user`).
+
+## Bulk Operations
+
+Multi-row inserts, filter-based updates, and filter-based deletes:
+
+```bash
+# Bulk insert
+curl -X POST https://api.example.com/rest/v1/users/bulk \
+  -H "Content-Type: application/json" \
+  -d '[{"name": "Alice", "email": "alice@a.com"}, {"name": "Bob", "email": "bob@b.com"}]'
+
+# Bulk update (filter-based)
+curl -X PATCH https://api.example.com/rest/v1/users?status[eq]=inactive \
+  -H "Content-Type: application/json" \
+  -H "Prefer: return=representation, max-affected=100" \
+  -d '{"status": "archived"}'
+
+# Bulk delete (filter-based)
+curl -X DELETE https://api.example.com/rest/v1/users?status[eq]=archived \
+  -H "Prefer: max-affected=100"
+```
+
+Bulk operations support:
+- **Upsert** via `Prefer: resolution=merge-duplicates` or `resolution=ignore-duplicates`
+- **Safety guard** via `Prefer: max-affected=N` — returns 400 if more rows would be affected (default cap: 1000)
+- **Dry run** via `Prefer: tx=rollback` — executes in a transaction then rolls back
+- Response includes `X-Rows-Affected` header
+
+## NDJSON Streaming
+
+For large result sets, request Newline-Delimited JSON:
+
+```bash
+curl -H "Accept: application/x-ndjson" \
+  https://api.example.com/rest/v1/events?limit=10000
+```
+
+Returns one JSON object per line with `Content-Type: application/x-ndjson`. No envelope — each line is a standalone JSON object. Pagination parameters (`offset`, `first`/`after`) and `Prefer: count=exact` are not compatible with NDJSON streaming.
+
+## Idempotency
+
+POST mutations support idempotent retries via the `Idempotency-Key` header:
+
+```bash
+curl -X POST https://api.example.com/rest/v1/orders \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000" \
+  -H "Content-Type: application/json" \
+  -d '{"product_id": "...", "quantity": 1}'
+```
+
+- Same key + same body → replays the stored response (no duplicate creation)
+- Same key + different body → 422 `IDEMPOTENCY_CONFLICT`
+- Keys expire after 24 hours (configurable via `idempotency_ttl_seconds` in `RestConfig`)
+- Only applies to POST mutations (Insert + custom actions). PUT and DELETE are naturally idempotent.
+
+<Aside type="caution">
+The idempotency store is currently in-memory only — keys are not shared across replicas. In multi-replica deployments, clients should pin to a single replica or accept that idempotency is per-instance.
+</Aside>
+
+## HTTP Caching
+
+GET responses include `Cache-Control` and `Vary` headers:
+
+- **Authenticated requests**: `Cache-Control: private, max-age={ttl}`
+- **Unauthenticated requests**: `Cache-Control: public, max-age={ttl}`
+- **Mutations**: `Cache-Control: no-store`
+- **Vary**: `Authorization, Accept, Prefer` (always included on GETs)
+
+Per-query cache TTL can be set via `cache_ttl_seconds` in `fraiseql.config()`. The default TTL is 60 seconds.
+
+## Coming Soon
+
+The following features are in progress:
+
+- **SSE streaming**: `GET /rest/v1/{resource}/stream` for real-time event streams via Server-Sent Events
 - **Full-text search**: `?search=term` using PostgreSQL `tsvector` with relevance ranking
-- **Logical operators**: `?or=(status[eq]=active,status[eq]=pending)` for OR/NOT composition
-- **Extended Prefer header**: `handling=strict`/`lenient`, `tx=rollback` (dry-run)
-- **Idempotency-Key header**: idempotent POST mutations via `Idempotency-Key` header
-- **HTTP caching headers**: `Cache-Control`, `s-maxage` for CDN integration
+- **`Prefer: handling=strict`/`lenient`**: strict mode rejects unknown parameters; lenient ignores them
+- **CDN integration**: `s-maxage` header for shared cache TTL
 
 See [REST vs GraphQL](/guides/rest-vs-graphql) for guidance on when to expose operations via REST, GraphQL, or both. See [REST API Reference](/reference/rest-api) for the full endpoint reference.

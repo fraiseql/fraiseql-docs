@@ -244,6 +244,7 @@ max_page_size = 100              # maximum limit value for pagination
 default_page_size = 20           # default limit when not specified
 etag = true                      # enable ETag / If-None-Match conditional requests
 max_filter_bytes = 4096          # maximum size of ?filter= JSON param
+max_embedding_depth = 3          # max nesting for ?select=posts(comments(...))
 openapi_enabled = false          # serve OpenAPI 3.0.3 spec
 openapi_path = "/rest/v1/openapi.json"  # path for OpenAPI spec endpoint
 title = "My API"                 # OpenAPI info.title
@@ -262,6 +263,7 @@ api_version = "1.0.0"           # OpenAPI info.version
 | `default_page_size` | `integer` | `20` | Default `limit` when not specified in the request |
 | `etag` | `bool` | `true` | Enable `ETag` and `If-None-Match` conditional request support (xxHash64) |
 | `max_filter_bytes` | `integer` | `4096` | Maximum size in bytes for the `?filter=` JSON query parameter |
+| `max_embedding_depth` | `integer` | `3` | Maximum nesting depth for `?select=posts(comments(...))` embedding |
 | `openapi_enabled` | `bool` | `false` | Serve OpenAPI 3.0.3 spec at `openapi_path` |
 | `openapi_path` | `string` | `"/rest/v1/openapi.json"` | Path for the OpenAPI spec endpoint |
 | `title` | `string` | `"FraiseQL REST API"` | OpenAPI `info.title` |

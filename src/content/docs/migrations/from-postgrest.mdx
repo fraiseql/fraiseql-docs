@@ -190,7 +190,7 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
 | `POST /users` | `POST /rest/v1/users` |
 | `PATCH /users?id=eq.123` | `PATCH /rest/v1/users/{id}` |
 | `DELETE /users?id=eq.123` | `DELETE /rest/v1/users/{id}` |
-| `GET /users?select=*,orders(*)` | Use a SQL view that joins users and orders (embedding planned for Phase 2) |
+| `GET /users?select=*,orders(*)` | `GET /rest/v1/users?select=id,email,orders(id,total)` (explicit field lists required) |
 
 ### Query Parameter Mapping
 
@@ -236,8 +236,8 @@ Error responses also differ:
 
 ## Known Differences and Gotchas
 
-**Auto-embedding does not translate directly.**
-PostgREST's `?select=*,orders(*)` syntax performs automatic relationship embedding. FraiseQL does not have an equivalent. Create a SQL view that joins the tables and expose that view as a separate endpoint:
+**Embedding syntax is similar but requires explicit field lists.**
+PostgREST's `?select=*,orders(*)` uses `*` to include all fields. FraiseQL requires explicit field lists: `?select=id,email,orders(id,total)`. Relationships are inferred from foreign key naming conventions (`fk_user` → `pk_user` on `tb_user`). For complex joins that don't follow naming conventions, create a SQL view:
 
 ```sql
 CREATE OR REPLACE VIEW v_user_with_orders AS
@@ -266,5 +266,5 @@ If you rely heavily on PostgREST's RLS integration, review the [Authentication g
 **The endpoint prefix changes.**
 PostgREST serves at `/` by default (or a configured prefix). FraiseQL serves REST at `/rest/v1` by default. Update your clients accordingly, or configure a custom path via `[fraiseql.rest]` `path` in `fraiseql.toml` (available since rc.15).
 
-**Embedding is not yet available.**
-PostgREST's `?select=*,orders(*)` syntax for automatic relationship embedding is planned for FraiseQL Phase 2. In the meantime, create SQL views that join the tables you need.
+**Embedding syntax differs.**
+PostgREST's `?select=*,orders(*)` embeds using foreign key detection. FraiseQL uses the same parenthesized syntax (`?select=id,orders(id,total)`) with explicit field lists. Rename syntax (`author:fk_user(id,name)`) and count syntax (`orders.count`) are also available. Maximum nesting depth is configurable via `max_embedding_depth`.
