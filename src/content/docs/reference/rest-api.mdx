@@ -347,6 +347,34 @@ Embedding supports rename (`author:fk_user(id,name)`) and count (`posts.count`).
 | `after` | Cursor for forward pagination |
 | `filter` | JSON filter object (full FraiseQL where DSL) |
 | `or`, `and`, `not` | Logical operator groups: `or=(field[op]=val,field[op]=val)` |
+| `search` | Full-text search query (PostgreSQL `websearch_to_tsquery`). Only on types with searchable fields. |
+
+### Full-Text Search
+
+```
+GET /rest/v1/posts?search=graphql+tutorial
+```
+
+Uses PostgreSQL `websearch_to_tsquery()` — supports natural-language operators (`OR`, `-exclude`, `"exact phrase"`). Multiple searchable fields are ORed. Results auto-sort by relevance unless `?sort=` is specified.
+
+Returns 400 if the type has no searchable fields.
+
+### SSE Streaming
+
+```
+GET /rest/v1/{resource}/stream
+Accept: text/event-stream
+```
+
+Subscribes to real-time entity changes. Events follow SSE wire format:
+
+| SSE field | Value |
+|-----------|-------|
+| `event` | `insert`, `update`, `delete`, `custom`, `ping` |
+| `id` | Event UUID (use with `Last-Event-ID` for reconnection) |
+| `data` | JSON entity payload |
+
+Requires the `observers` feature. Returns 501 without it.
 
 ## Request Headers
 
@@ -354,7 +382,7 @@ Embedding supports rename (`author:fk_user(id,name)`) and count (`posts.count`).
 |--------|-------------|
 | `Authorization` | `Bearer <jwt>` or via configured API key header |
 | `Content-Type` | `application/json` or `application/merge-patch+json` (PATCH) |
-| `Accept` | `application/json` (default) or `application/x-ndjson` for streaming |
+| `Accept` | `application/json` (default), `application/x-ndjson` for NDJSON streaming, or `text/event-stream` for SSE |
 | `Prefer` | Request preferences (see below) |
 | `If-None-Match` | ETag value for conditional requests (returns 304 if unchanged) |
 | `Idempotency-Key` | UUID for idempotent POST mutations (replays stored response on retry). See below. |

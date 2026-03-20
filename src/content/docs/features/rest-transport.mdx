@@ -638,12 +638,63 @@ Limit the number of rows affected by bulk PATCH/DELETE operations:
 max_bulk_affected = 500  # Limit bulk DELETE/PATCH to 500 rows
 ```
 
+## SSE Streaming
+
+Subscribe to real-time entity changes via Server-Sent Events:
+
+```bash
+curl -N -H "Accept: text/event-stream" \
+  https://api.example.com/rest/v1/orders/stream
+```
+
+Response (SSE wire format):
+```
+event: insert
+id: 550e8400-e29b-41d4-a716-446655440000
+data: {"id":"...","status":"pending","total":99.99}
+
+event: update
+id: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+data: {"id":"...","status":"shipped","total":99.99}
+
+event: ping
+data:
+
+```
+
+Each resource gets a `/{resource}/stream` endpoint automatically. The server subscribes to observer events for the resource's entity type and forwards them as SSE events.
+
+- **Event types**: `insert`, `update`, `delete`, `custom`, `ping` (heartbeat)
+- **Reconnection**: Send `Last-Event-ID` header to resume from a specific event
+- **Heartbeat**: `ping` events are sent every 30 seconds to keep the connection alive
+- **Requires**: The `observers` feature must be enabled. Without it, the endpoint returns `501 Not Implemented`.
+
+## Full-Text Search
+
+Search across fields marked as `searchable` in the type definition:
+
+```
+GET /rest/v1/posts?search=graphql+tutorial
+```
+
+The server uses PostgreSQL's `websearch_to_tsquery()` for natural-language search syntax. Multiple searchable fields are combined with OR — a match in any field returns the row.
+
+When `?search=` is active and no explicit `?sort=` is provided, results are ordered by relevance (`_relevance desc`).
+
+Combine with regular filters:
+
+```
+GET /rest/v1/posts?search=rust&status[eq]=published&limit=10
+```
+
+The search clause is ANDed with other filters.
+
+<Aside type="note">
+Full-text search requires PostgreSQL. The `?search=` parameter returns 400 on types with no searchable fields.
+</Aside>
+
 ## Coming Soon
 
-The following features are in progress:
-
-- **SSE streaming**: `GET /rest/v1/{resource}/stream` for real-time event streams via Server-Sent Events
-- **Full-text search**: `?search=term` using PostgreSQL `tsvector` with relevance ranking
 - **`Prefer: handling=strict`/`lenient`**: strict mode rejects unknown parameters; lenient ignores them
 
 See [REST vs GraphQL](/guides/rest-vs-graphql) for guidance on when to expose operations via REST, GraphQL, or both. See [REST API Reference](/reference/rest-api) for the full endpoint reference.
