@@ -40,6 +40,8 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[server.limits]` | 2.1.0 | Stable |
 | `[fraiseql.rest]` | v2.1 | Stable |
 | `[fraiseql.grpc]` | v2.1 | Stable |
+| `[session_variables]` | v2.1 | Stable |
+| `[inject_defaults]` | v2.1 | Stable |
 | `[dev]` | v2.2 | Stable |
 | `[gateway]` | v2.2 | Beta |
 
@@ -904,14 +906,17 @@ backend           = "redis"            # "redis" | "nats" | "postgresql" | "in-m
 max_concurrency   = 50                 # thread pool for concurrent action execution
 channel_capacity  = 1000              # in-process event buffer size
 max_dlq_size      = 10000             # dead letter queue cap; set this in production
+checkpoint_strategy = "at_least_once"  # "at_least_once" or "effectively_once"
+idempotency_table = "observer_idempotency_keys"  # required when checkpoint_strategy = "effectively_once"
 nats_url          = "${FRAISEQL_NATS_URL}"  # required when backend = "nats"
 # redis_url       = "${REDIS_URL}"    # required when backend = "redis"
 
 [[observers.handlers]]
-name   = "notify-new-user"
-event  = "user.created"
-action = "webhook"
+name        = "notify-new-user"
+event       = "user.created"
+action      = "webhook"
 webhook_url = "https://api.example.com/notify"
+synchronous = false                    # true = block mutation response until complete
 ```
 
 | Field | Type | Default | Description |
@@ -921,8 +926,20 @@ webhook_url = "https://api.example.com/notify"
 | `max_concurrency` | integer | `50` | Maximum concurrent action executions (thread pool size). Size to match your expected peak event rate and action latency. |
 | `channel_capacity` | integer | `1000` | In-process event buffer. Events exceeding capacity trigger backpressure. |
 | `max_dlq_size` | integer | unbounded | Dead letter queue maximum entries. **Always set in production** to prevent unbounded memory growth on persistent action failures. Use `null` to keep unbounded (not recommended). |
+| `checkpoint_strategy` | string | `"at_least_once"` | `"at_least_once"` (fast, may duplicate) or `"effectively_once"` (dedup via PostgreSQL idempotency table) |
+| `idempotency_table` | string | `"observer_idempotency_keys"` | PostgreSQL table for deduplication (required when `checkpoint_strategy = "effectively_once"`) |
 | `nats_url` | string | — | NATS server URL (required when `backend = "nats"`). Override via `FRAISEQL_NATS_URL`. |
 | `redis_url` | string | — | Redis connection URL (required when `backend = "redis"`). |
+
+**`[[observers.handlers]]`** — each entry maps an event to an action:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | required | Handler identifier |
+| `event` | string | required | Event name to match (e.g., `user.created`) |
+| `action` | string | required | Action type: `"webhook"` |
+| `webhook_url` | string | — | URL to POST to (required when `action = "webhook"`) |
+| `synchronous` | bool | `false` | Block mutation response until this handler completes |
 
 #### Sizing Guidelines
 
@@ -933,6 +950,81 @@ webhook_url = "https://api.example.com/notify"
 | High (> 1,000 events/s) | 100–200 | 5,000 | 50,000 |
 
 See [Observer Operations Runbook](/operations/observer-runbook) for DLQ recovery procedures.
+
+---
+
+### [session_variables]
+
+Inject per-request context into PostgreSQL via `SET LOCAL` before each query/mutation. SQL views and functions can read these values with `current_setting('app.tenant_id')`.
+
+```toml
+[session_variables]
+inject_started_at = true  # auto-inject fraiseql.started_at timestamp (default: true)
+
+[[session_variables.variables]]
+pg_name = "app.tenant_id"
+source = "jwt"
+claim = "tenant_id"
+
+[[session_variables.variables]]
+pg_name = "app.locale"
+source = "header"
+name = "Accept-Language"
+
+[[session_variables.variables]]
+pg_name = "app.user_id"
+source = "jwt"
+claim = "sub"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `inject_started_at` | boolean | `true` | Auto-inject `fraiseql.started_at` timestamp |
+
+**`[[session_variables.variables]]`** — each entry maps a PostgreSQL GUC variable to a request context source:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `pg_name` | string | yes | PostgreSQL variable name (e.g., `app.tenant_id`) |
+| `source` | string | yes | `"jwt"` or `"header"` |
+| `claim` | string | when `source = "jwt"` | JWT claim name to extract |
+| `name` | string | when `source = "header"` | HTTP header name to extract |
+
+Use `app.*` namespaced variables (PostgreSQL custom GUC prefix) to avoid conflicts with built-in settings. Access in SQL:
+
+```sql
+CREATE VIEW v_tenant_posts AS
+SELECT id, jsonb_build_object(...) AS data
+FROM tb_post
+WHERE tenant_id = current_setting('app.tenant_id')::uuid;
+```
+
+See [Multi-Tenancy](/guides/multi-tenancy) for the full RLS pattern.
+
+---
+
+### [inject_defaults]
+
+Apply `inject` parameters globally to all queries and/or mutations, instead of repeating `inject={"tenant_id": "jwt:tenant_id"}` on every decorator.
+
+```toml
+[inject_defaults]
+tenant_id = "jwt:tenant_id"   # applied to ALL queries and mutations
+
+[inject_defaults.queries]
+# Query-specific overrides (merged with top-level defaults)
+
+[inject_defaults.mutations]
+user_id = "jwt:sub"            # applied to mutations only
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| Top-level keys | `string` | Applied to both queries and mutations |
+| `[inject_defaults.queries]` | table | Applied to queries only (merged with top-level) |
+| `[inject_defaults.mutations]` | table | Applied to mutations only (merged with top-level) |
+
+Per-decorator `inject=` overrides take precedence over defaults. This is particularly useful with `tenant_scoped=True` on `@fraiseql.type`, which generates the inject configuration automatically.
 
 ---
 

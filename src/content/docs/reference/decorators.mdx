@@ -98,6 +98,9 @@ type User {
 | `implements` | `list[str]` | Interfaces to implement |
 | `relay` | `bool` | Implement the `Node` interface and enable keyset cursor generation |
 | `requires_role` | `str` | Required role to access this type |
+| `crud` | `bool` or `list[str]` | Auto-generate CRUD queries/mutations. `True` = all ops, or list: `["create", "read", "list", "update", "delete"]` |
+| `tenant_scoped` | `bool` | Auto-inject `tenant_id` from JWT on all queries/mutations for this type |
+| `sql_source` | `str` | Override the default view name (default: `v_{snake_case_name}`) |
 
 When `relay=True`, the type implements the `Node` interface, the global `node(id: ID!)` query is added to the schema, and `fraiseql compile` validates that `pk_{entity}` is present in the corresponding SQL view.
 

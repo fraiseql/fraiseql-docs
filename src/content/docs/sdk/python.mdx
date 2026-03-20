@@ -79,6 +79,63 @@ class Comment:
     author: User
 ```
 
+### Auto-CRUD Generation
+
+Use `crud=True` on `@fraiseql.type` to auto-generate standard CRUD queries and mutations without writing them manually:
+
+```python
+@fraiseql.type(crud=True)
+class Post:
+    """A blog post — CRUD operations generated automatically."""
+    id: ID
+    title: str
+    content: str
+    is_published: bool
+    created_at: DateTime
+```
+
+This generates:
+- `post(id: ID): Post` — single lookup via `v_post`
+- `posts(limit, offset, ...): [Post]` — list query via `v_post`
+- `create_post(input: CreatePostInput): Post` — via `fn_create_post`
+- `update_post(id: ID, input: UpdatePostInput): Post` — via `fn_update_post`
+- `delete_post(id: ID): Post` — via `fn_delete_post`
+
+You can also select specific operations:
+
+```python
+@fraiseql.type(crud=["create", "read", "list"])  # no update/delete
+class AuditLog:
+    id: ID
+    action: str
+    created_at: DateTime
+```
+
+The generated SQL source names follow Trinity pattern conventions: `v_{snake_case}` for views, `fn_{action}_{snake_case}` for functions.
+
+### Tenant-Scoped Types
+
+Use `tenant_scoped=True` to automatically inject `tenant_id` from the JWT on all queries and mutations for this type:
+
+```python
+@fraiseql.type(tenant_scoped=True)
+class Invoice:
+    """Tenant-scoped invoice — tenant_id injected automatically."""
+    id: ID
+    amount: Decimal
+    status: str
+```
+
+This is equivalent to adding `inject={"tenant_id": "jwt:tenant_id"}` to every query and mutation that targets this type. Combine with `crud=True` for zero-boilerplate multi-tenant schemas:
+
+```python
+@fraiseql.type(crud=True, tenant_scoped=True)
+class Project:
+    id: ID
+    name: str
+    created_at: DateTime
+```
+
 <Aside type="caution">
 Do not include an `info` parameter in your function or method signatures. FraiseQL is compile-time only — there is no request context. Any parameter you declare becomes a GraphQL argument. An `info` parameter would be exposed as a field named `info` in the GraphQL schema.
 </Aside>
@@ -134,6 +191,30 @@ class UpdatePostInput:
     content: str | None = None
     is_published: bool | None = None
 ```
+
+### The UNSET Sentinel
+
+For update mutations, `None` means "set this field to null" — but what if you want to say "don't update this field at all"? Use `fraiseql.UNSET`:
+
+```python
+import fraiseql
+from fraiseql import UNSET
+
+@fraiseql.input
+class UpdateUserInput:
+    """Partial update — UNSET fields are excluded from the SQL UPDATE."""
+    name: str | None = UNSET       # omitted from UPDATE unless explicitly provided
+    email: str | None = UNSET      # omitted from UPDATE unless explicitly provided
+    bio: str | None = UNSET        # omitted — or set to None to clear it
+```
+
+| Value | Meaning | SQL behavior |
+|-------|---------|-------------|
+| `"Alice"` | Set to this value | `SET name = 'Alice'` |
+| `None` | Set to null | `SET name = NULL` |
+| `UNSET` | Don't touch this field | Field excluded from UPDATE |
+
+This three-way distinction is essential for PATCH-style partial updates where clients only send the fields they want to change.
 
 ---
 

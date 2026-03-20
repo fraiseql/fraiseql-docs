@@ -415,6 +415,58 @@ backoff_strategy = "exponential"
 
 Handlers execute in definition order. Each has its own retry budget.
 
+## Synchronous Mode
+
+By default, observers are fire-and-forget — the mutation response returns immediately without waiting for observer actions to complete. For use cases that require guaranteed side effects before the response, set `synchronous = true`:
+
+```toml title="fraiseql.toml"
+[[observers.handlers]]
+name        = "create-stripe-customer"
+event       = "user.created"
+action      = "webhook"
+webhook_url = "${STRIPE_WEBHOOK_URL}"
+synchronous = true   # mutation response waits for this observer to complete
+```
+
+When `synchronous = true`:
+- The mutation response is held until the observer action completes (or times out)
+- If the observer action fails, the mutation still succeeds (the write is already committed), but the response includes a warning header
+- Use this for side effects that the client needs to know completed, such as creating a linked resource in an external system
+
+<Aside type="caution">
+Synchronous observers add latency to your mutation responses. Only use `synchronous = true` when the client genuinely needs to wait for the side effect. For most use cases (emails, analytics, event publishing), the default asynchronous mode is correct.
+</Aside>
+
+## Effectively-Once Delivery
+
+For observers that must not process the same event twice (e.g., billing, ledger entries), use the `CheckpointStrategy` with an idempotency table:
+
+```toml title="fraiseql.toml"
+[observers]
+backend = "nats"
+nats_url = "${NATS_URL}"
+checkpoint_strategy = "effectively_once"
+idempotency_table = "observer_idempotency_keys"
+```
+
+This records each event's idempotency key in a PostgreSQL table before processing. Duplicate events are detected via `INSERT ... ON CONFLICT DO NOTHING` and skipped.
+
+The idempotency table schema:
+
+```sql
+CREATE TABLE observer_idempotency_keys (
+    idempotency_key  TEXT        NOT NULL,
+    listener_id      TEXT        NOT NULL,
+    processed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (idempotency_key, listener_id)
+);
+```
+
+| Strategy | Guarantees | Use for |
+|----------|-----------|---------|
+| `at_least_once` (default) | Fast, may duplicate | Idempotent handlers (emails, webhooks) |
+| `effectively_once` | Deduplication via PostgreSQL | Billing, ledger entries, non-idempotent actions |
+
 ## Observers vs Database Triggers
 
 Both observers and database triggers react to data changes. They serve different purposes:
