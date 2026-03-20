@@ -22,29 +22,82 @@ Most users never edit `schema.json` directly — the SDK generates it. This refe
 {
   "version": "2.1",
   "project": { "name": "my_app" },
-  "types": [ ... ],
-  "queries": [ ... ],
-  "mutations": [ ... ]
+  "types": [],
+  "enums": [],
+  "input_types": [],
+  "interfaces": [],
+  "unions": [],
+  "scalars": [],
+  "queries": [],
+  "mutations": [],
+  "subscriptions": []
 }
 ```
 
-## Type Definitions
+Only `types`, `queries`, and `mutations` are required. All other arrays default to empty when omitted.
 
-### Scalar References
+## Nullability Rules
 
-Type references use **bare type names**. Nullability is controlled by a separate `nullable` field, **not** by a `!` suffix.
+Nullability is controlled by a `nullable` boolean field. The `type` field should be a bare type name.
 
 ```json
-// ✅ Correct
+// ✅ Recommended — bare type name + explicit nullable
 { "name": "id", "type": "ID", "nullable": false }
 { "name": "email", "type": "String", "nullable": true }
 
-// ❌ Wrong — compiler error: "references unknown type 'ID!'"
+// ⚠️ Accepted but deprecated — ! suffix is stripped, nullable inferred as false
 { "name": "id", "type": "ID!" }
-
-// ❌ Wrong — compiler error: "references unknown type 'String!'"
-{ "name": "email", "type": "String!" }
 ```
+
+<Aside type="caution">
+The `!` suffix (e.g., `"type": "ID!"`) is accepted for compatibility with GraphQL conventions: the parser strips the `!` and sets `nullable = false`. However, this form is **deprecated** and emits a warning at compile time. Always prefer the explicit `"type": "ID", "nullable": false` form. If both `!` and an explicit `nullable` field are present, the explicit `nullable` value wins.
+</Aside>
+
+### Defaults When `nullable` Is Omitted
+
+The default varies by context:
+
+| Element | Default `nullable` | Rationale |
+|---------|-------------------|-----------|
+| Type fields | `true` | Matches GraphQL convention (nullable by default) |
+| Input type fields | `true` | Matches GraphQL convention |
+| Query/mutation arguments | `true` | Arguments are optional by default |
+| Query return type | `false` | Queries return data or error, not null |
+| Mutation return type | `false` | Mutations return data or error, not null |
+
+<Aside type="tip">
+For code generators: always emit `nullable` explicitly. Relying on defaults makes the output harder to reason about and fragile if defaults change.
+</Aside>
+
+## Type Definitions
+
+Each entry in the `types` array defines a GraphQL object type:
+
+```json
+{
+  "name": "User",
+  "description": "A registered user",
+  "sql_source": "v_user",
+  "fields": [
+    { "name": "id", "type": "ID", "nullable": false },
+    { "name": "name", "type": "String", "nullable": false },
+    { "name": "email", "type": "String", "nullable": false },
+    { "name": "bio", "type": "String", "nullable": true },
+    { "name": "created_at", "type": "DateTime", "nullable": false }
+  ]
+}
+```
+
+### Field Properties
+
+| Property | Type | Required | Default | Description |
+|----------|------|----------|---------|-------------|
+| `name` | string | yes | — | Field name |
+| `type` | string | yes | — | Bare type name (no `!` suffix) |
+| `nullable` | boolean | no | `true` | Whether the field can be null |
+| `description` | string | no | — | Field description for GraphQL docs |
+| `sql_column` | string | no | — | Override the SQL column name (defaults to field name) |
+| `list` | boolean | no | `false` | Whether this is a list type |
 
 ### Available Scalar Types
 
@@ -82,6 +135,42 @@ Reference custom types by name (must match a type defined in the `types` array):
 { "name": "address", "type": "Address", "nullable": true }
 ```
 
+## Enum Definitions
+
+```json
+{
+  "name": "OrderStatus",
+  "description": "Order lifecycle status",
+  "values": [
+    { "name": "PENDING" },
+    { "name": "CONFIRMED" },
+    { "name": "SHIPPED" },
+    { "name": "DELIVERED" },
+    { "name": "CANCELLED", "deprecation_reason": "Use CANCELED instead" }
+  ]
+}
+```
+
+Each enum value can have an optional `description` and `deprecation_reason`.
+
+## Input Type Definitions
+
+Input types are used as arguments for mutations:
+
+```json
+{
+  "name": "CreateUserInput",
+  "description": "Input for creating a user",
+  "fields": [
+    { "name": "name", "type": "String", "nullable": false },
+    { "name": "email", "type": "String", "nullable": false },
+    { "name": "bio", "type": "String", "nullable": true }
+  ]
+}
+```
+
+Input type fields support `default_value` in addition to the standard field properties.
+
 ## Query Definitions
 
 ```json
@@ -89,10 +178,12 @@ Reference custom types by name (must match a type defined in the `types` array):
   "name": "posts",
   "sql_source": "v_post",
   "return_type": "Post",
-  "return_list": true,
+  "returns_list": true,
+  "nullable": false,
+  "description": "List all posts",
   "arguments": [
-    { "name": "limit", "type": "Int", "nullable": true, "default": 10 },
-    { "name": "offset", "type": "Int", "nullable": true, "default": 0 }
+    { "name": "limit", "type": "Int", "nullable": true, "default_value": 10 },
+    { "name": "offset", "type": "Int", "nullable": true, "default_value": 0 }
   ],
   "rest": {
     "path": "/posts",
@@ -105,14 +196,39 @@ Reference custom types by name (must match a type defined in the `types` array):
 }
 ```
 
+### Query Properties
+
+| Property | Type | Required | Default | Description |
+|----------|------|----------|---------|-------------|
+| `name` | string | yes | — | Query name |
+| `return_type` | string | yes | — | Bare return type name |
+| `returns_list` | boolean | no | `false` | Whether the query returns a list |
+| `nullable` | boolean | no | `false` | Whether the return value can be null |
+| `sql_source` | string | no | — | SQL view or function backing this query |
+| `description` | string | no | — | Query description for GraphQL docs |
+| `arguments` | array | no | `[]` | Query arguments (see below) |
+| `rest` | object | no | — | REST transport annotation (`path`, `method`) |
+| `grpc` | object | no | — | gRPC transport annotation (`service`, `method`) |
+
+### Argument Properties
+
+| Property | Type | Required | Default | Description |
+|----------|------|----------|---------|-------------|
+| `name` | string | yes | — | Argument name |
+| `type` | string | yes | — | Bare type name |
+| `nullable` | boolean | no | `true` | Whether the argument is optional |
+| `default_value` | any | no | — | Default value when argument is omitted |
+| `description` | string | no | — | Argument description |
+
 ## Mutation Definitions
 
 ```json
 {
   "name": "create_post",
-  "sql_source": "create_post",
+  "sql_source": "fn_create_post",
   "operation": "CREATE",
   "return_type": "Post",
+  "nullable": false,
   "arguments": [
     { "name": "title", "type": "String", "nullable": false },
     { "name": "author_id", "type": "ID", "nullable": false }
@@ -124,18 +240,86 @@ Reference custom types by name (must match a type defined in the `types` array):
 }
 ```
 
+### Mutation Properties
+
+| Property | Type | Required | Default | Description |
+|----------|------|----------|---------|-------------|
+| `name` | string | yes | — | Mutation name |
+| `return_type` | string | yes | — | Bare return type name |
+| `nullable` | boolean | no | `false` | Whether the return value can be null |
+| `operation` | string | yes | — | `"CREATE"`, `"UPDATE"`, `"DELETE"`, or `"CUSTOM"` |
+| `sql_source` | string | no | — | SQL function backing this mutation |
+| `description` | string | no | — | Mutation description |
+| `arguments` | array | no | `[]` | Mutation arguments |
+| `rest` | object | no | — | REST transport annotation |
+
+## Subscription Definitions
+
+```json
+{
+  "name": "order_updated",
+  "return_type": "Order",
+  "description": "Watch for order changes",
+  "arguments": [
+    { "name": "customer_id", "type": "ID", "nullable": false }
+  ]
+}
+```
+
 ## inject_params
+
+Inject JWT claims as implicit query parameters (not visible to clients):
 
 ```json
 {
   "name": "orders",
   "sql_source": "v_order",
   "return_type": "Order",
-  "return_list": true,
+  "returns_list": true,
   "inject_params": {
     "tenant_id": "jwt.tenant_id"
   },
-  "arguments": [ ]
+  "arguments": []
+}
+```
+
+Keys are parameter names passed to the SQL view/function. Values are dot-paths into the JWT claims object.
+
+## Interface and Union Definitions
+
+### Interfaces
+
+```json
+{
+  "name": "Node",
+  "description": "Relay node interface",
+  "fields": [
+    { "name": "id", "type": "ID", "nullable": false }
+  ]
+}
+```
+
+### Unions
+
+```json
+{
+  "name": "SearchResult",
+  "description": "Union of searchable types",
+  "types": ["User", "Post", "Comment"]
+}
+```
+
+## Custom Scalar Definitions
+
+Register custom scalars with optional validation:
+
+```json
+{
+  "name": "Email",
+  "description": "RFC 5322 email address",
+  "base_type": "String",
+  "specified_by_url": "https://datatracker.ietf.org/doc/html/rfc5322",
+  "validation_rules": []
 }
 ```
 
@@ -143,9 +327,14 @@ Reference custom types by name (must match a type defined in the `types` array):
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `references unknown type 'ID!'` | `!` suffix in type field | Use `"nullable": false` instead |
-| `references unknown type 'String!'` | `!` suffix in type field | Use `"nullable": false` instead |
+| `Field missing 'name'` | Missing `name` in a field/argument | Add `"name"` property |
+| `Field missing 'type'` | Missing `type` in a field/argument | Add `"type"` property with bare type name |
+| `Query missing 'return_type'` | Missing `return_type` on a query | Add `"return_type"` property |
 | `duplicate field 'eq' in WhereInput` | Duplicate argument names | Remove duplicate argument definitions |
+
+<Aside type="note">
+Prior to the fix for [#121](https://github.com/fraiseql/fraiseql/issues/121), using `"type": "ID!"` produced `references unknown type 'ID!'`. This is now accepted with a deprecation warning. Use `"type": "ID", "nullable": false` to avoid the warning.
+</Aside>
 
 ## Generating schema.json
 
