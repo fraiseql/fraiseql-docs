@@ -288,8 +288,108 @@ backend  = "postgresql"
 
 ---
 
+## Idempotency Table Operations
+
+When using `CheckpointStrategy.EffectivelyOnce`, the observer stores a unique key for each processed event before acknowledging it. If the same event is delivered again (after a crash or broker redelivery), the key is found and the event is skipped.
+
+This prevents duplicate processing of non-idempotent operations: billing charges, audit log writes, email sends, and external API calls.
+
+### Table Schema
+
+The `EffectivelyOnce` checkpoint strategy creates the idempotency table automatically on first use. You can also create it manually in a migration:
+
+```sql
+CREATE TABLE IF NOT EXISTS observer_idempotency_keys (
+    idempotency_key  TEXT        NOT NULL,
+    listener_id      TEXT        NOT NULL,
+    processed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (idempotency_key, listener_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_observer_idempotency_processed_at
+    ON observer_idempotency_keys (processed_at);
+```
+
+Each observer should use a **distinct table name** to avoid cross-observer key collisions:
+
+```python
+@fraiseql.subscription(
+    entity_type="Order",
+    topic="order.created",
+    operation="create",
+    checkpoint=fraiseql.EffectivelyOnce(
+        idempotency_table="billing_observer_keys"
+    )
+)
+def handle_order_created(order: Order) -> None:
+    charge_customer(order)
+```
+
+### Table Growth and Cleanup
+
+The table grows by one row per processed event:
+
+| Events/day | Rows/year | Approx. size/year |
+|------------|-----------|-------------------|
+| 1,000      | 365,000   | ~50 MB            |
+| 10,000     | 3.65 M    | ~500 MB           |
+| 100,000    | 36.5 M    | ~5 GB             |
+
+Keys older than your broker's maximum redelivery window are safe to delete. Run daily via `pg_cron`:
+
+```sql
+DELETE FROM observer_idempotency_keys
+WHERE processed_at < NOW() - INTERVAL '7 days';
+```
+
+<Aside type="caution">
+Add a monitoring alert if the table exceeds 10 million rows. This indicates the cleanup job is not running or the broker is experiencing abnormal redelivery rates.
+</Aside>
+
+### Idempotency Failure Modes
+
+| Scenario | Behaviour |
+|----------|-----------|
+| Table missing at startup | Observer logs ERROR and refuses to start (fail closed) |
+| Table missing mid-operation | Event processing fails; message is requeued by broker |
+| Duplicate key found | Event is skipped; acknowledgment sent to broker |
+| Database unreachable | Observer pauses and retries with backoff |
+
+### Resetting an Observer
+
+Clearing idempotency keys allows events to be reprocessed:
+
+```sql
+DELETE FROM observer_idempotency_keys WHERE listener_id = 'my-observer-name';
+DELETE FROM observer_checkpoints WHERE listener_id = 'my-observer-name';
+```
+
+### Bulk Cleanup for Large Tables
+
+```sql
+DO $$
+DECLARE rows_deleted INT;
+BEGIN
+  LOOP
+    DELETE FROM observer_idempotency_keys
+    WHERE ctid IN (
+      SELECT ctid FROM observer_idempotency_keys
+      WHERE processed_at < NOW() - INTERVAL '7 days'
+      LIMIT 10000
+    );
+    GET DIAGNOSTICS rows_deleted = ROW_COUNT;
+    EXIT WHEN rows_deleted = 0;
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+END;
+$$;
+
+VACUUM ANALYZE observer_idempotency_keys;
+```
+
+---
+
 ## See Also
 
 - [Observer Concepts](/concepts/observers) — how the observer runtime works
 - [TOML Configuration: \[observers\]](/reference/toml-config#observers) — full parameter reference
-- [Observer Idempotency](/operations/observer-idempotency) — preventing duplicate action execution

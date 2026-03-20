@@ -55,7 +55,7 @@ export default defineConfig({
             { label: 'Introduction', slug: 'getting-started/introduction' },
             { label: '5-Minute Quickstart', slug: 'getting-started/five-minute-quickstart' },
             { label: 'Installation', slug: 'getting-started/installation' },
-            { label: 'Quick Start', slug: 'getting-started/quickstart' },
+            { label: 'Manual Setup', slug: 'getting-started/quickstart' },
             { label: 'Your First API', slug: 'getting-started/first-api' },
             { label: 'Adding Mutations', slug: 'getting-started/adding-mutations' },
             { label: 'Starter Templates', slug: 'getting-started/starters' },
@@ -87,7 +87,6 @@ export default defineConfig({
             { label: 'Schema Definition', slug: 'concepts/schema' },
             { label: 'Configuration', slug: 'concepts/configuration' },
             { label: 'Elo Validation Language', slug: 'concepts/elo-validation' },
-            { label: 'SDK Design Philosophy', slug: 'concepts/sdk-design' },
           ],
         },
         {
@@ -150,7 +149,6 @@ export default defineConfig({
                 { label: 'Deployment', slug: 'guides/deployment' },
                 { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
                 { label: 'FAQ', slug: 'guides/faq' },
-                { label: 'Observer Idempotency', slug: 'operations/observer-idempotency' },
                 { label: 'Observer Operations Runbook', slug: 'operations/observer-runbook' },
               ],
             },
@@ -327,14 +325,6 @@ export default defineConfig({
             { label: 'From Hasura', slug: 'migrations/from-hasura' },
             { label: 'From REST API', slug: 'migrations/from-rest' },
             { label: 'From PostgREST', slug: 'migrations/from-postgrest' },
-          ],
-        },
-        {
-          label: 'Diagrams',
-          collapsed: true,
-          items: [
-            { label: 'Architecture', slug: 'diagrams/architecture' },
-            { label: 'Analytics Architecture', slug: 'analytics-architecture' },
           ],
         },
         {

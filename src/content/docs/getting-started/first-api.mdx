@@ -1,1081 +1,231 @@
 ---
 title: Your First API
-description: Build a complete blog API with FraiseQL and Confiture
+description: Build a complete blog API with FraiseQL — tables, views, schema, and queries
 ---
 
-import { Tabs, TabItem, Code, Aside } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
 
-Build a complete blog API with users, posts, and comments. This guide shows the full workflow: write tables, write views, build the database with 🍯 Confiture, compile the GraphQL mapping, and serve.
+Build a blog API with users, posts, and comments. You'll write SQL tables and views, define a Python schema, and serve GraphQL + REST from a single binary.
 
-## What We're Building
-
-A GraphQL API with:
-- Users with profiles
-- Blog posts with authors
-- Comments on posts
-- Queries and mutations
+<Aside type="tip">
+**Just want to see it work first?** The [5-Minute Quickstart](/getting-started/five-minute-quickstart) gets you a working API with one `docker compose up` — no installation needed.
+</Aside>
 
 ## Prerequisites
 
-This guide requires a running database.
-
-FraiseQL supports PostgreSQL, MySQL, SQLite, and SQL Server.  
-For this tutorial, we <strong>recommend PostgreSQL</strong> for the best JSON support and the smoothest experience.
-
-<Tabs syncKey="database">
-
-  <TabItem label="PostgreSQL (Recommended)">
-
-  <h3>Option A — Docker (Fastest Setup)</h3>
-
-  ```bash
-  docker run --name blog-postgres \
-    -e POSTGRES_USER=user \
-    -e POSTGRES_PASSWORD=password \
-    -e POSTGRES_DB=db_blog \
-    -p 5432:5432 \
-    -d postgres:16
-  ```
-
-Verify connection:
+- FraiseQL installed ([Installation guide](/getting-started/installation))
+- PostgreSQL running (Docker is easiest):
 
 ```bash
-psql postgresql://user:password@localhost:5432/db_blog
+docker run --name blog-postgres \
+  -e POSTGRES_USER=user \
+  -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=db_blog \
+  -p 5432:5432 \
+  -d postgres:16
 ```
 
-Enable UUID support:
+<Aside>
+This guide uses PostgreSQL. FraiseQL also supports MySQL 8.0+, SQLite, and SQL Server 2019+ — see the [database guides](/troubleshooting/by-database/postgresql) for dialect-specific SQL.
+</Aside>
 
-```sql
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-```
-
-  <h4>Connection String</h4>
-
-```toml
-[database]
-url = "postgresql://user:password@localhost:5432/db_blog"
-```
-
-  <p>
-  Documentation:<br/>
-  <a href="https://hub.docker.com/_/postgres">PostgreSQL Docker image</a><br/>
-  <a href="https://www.postgresql.org/docs/current/pgcrypto.html">pgcrypto extension</a>
-  </p>
-
-  </TabItem>
-
-  <TabItem label="MySQL 8.0+">
-
-  <h3>Create Database</h3>
-
-```sql
-CREATE DATABASE db_blog;
-```
-
-  <h4>Connection String</h4>
-
-```toml
-[database]
-url = "mysql://user:password@localhost:3306/db_blog"
-```
-
-  <p>
-  Requires MySQL 8.0+ (expression defaults for UUID).<br/><br/>
-  Documentation:<br/>
-  <a href="https://dev.mysql.com/downloads/">MySQL Downloads</a><br/>
-  <a href="https://dev.mysql.com/doc/refman/8.4/en/data-type-defaults.html">
-    Default expressions documentation
-  </a>
-  </p>
-
-  </TabItem>
-
-  <TabItem label="SQLite">
-
-  <p>No server installation required.</p>
-
-  <h4>Connection String</h4>
-
-```toml
-[database]
-url = "sqlite://./db_blog.db"
-```
-
-  <p>
-  UUIDs must be generated in the application layer.<br/>
-  SQLite does <strong>not</strong> enforce foreign keys by default. You must enable them per connection:
-  </p>
-
-  ```sql
-  PRAGMA foreign_keys = ON;
-  ```
-
-  <p>
-  Documentation:<br/>
-  <a href="https://sqlite.org/download.html">SQLite Downloads</a><br/>
-  <a href="https://sqlite.org/foreignkeys.html">Foreign Key Support</a>
-  </p>
-
-  </TabItem>
-
-  <TabItem label="SQL Server 2019+">
-
-  <h3>Create Database</h3>
-
-```sql
-CREATE DATABASE db_blog;
-```
-
-  <h4>Connection String</h4>
-
-```toml
-[database]
-url = "sqlserver://user:password@localhost:1433/db_blog"
-```
-
-  <p>
-  Requires SQL Server 2019+ (JSON support).<br/><br/>
-  Documentation:<br/>
-  <a href="https://www.microsoft.com/en-us/sql-server/sql-server-downloads">
-    SQL Server Downloads
-  </a><br/>
-  <a href="https://learn.microsoft.com/en-us/sql/relational-databases/json/json-data-sql-server">
-    JSON Support in SQL Server
-  </a>
-  </p>
-
-  </TabItem>
-
-</Tabs>
-
-<p>Once your database is running and configured, continue to the next step.</p>
-
-## Step 1: Initialize the Project
+## Step 1: Initialize the project
 
 ```bash
 mkdir blog-api && cd blog-api
 fraiseql init .
 ```
 
-This creates the project structure including the `db/schema/` directory where your SQL lives.
-
-## Step 2: Write the Database Schema
-
-Create your tables in `db/schema/01_write/`. The schema uses the **Trinity pattern**: a surrogate key (`pk_*`), a UUID/external identifier (`id`), and a text identifier. This pattern works across all databases:
-
-<Tabs syncKey="db">
-  <TabItem label="PostgreSQL">
-    ```sql title="db/schema/01_write/tb_user.sql"
-    CREATE TABLE tb_user (
-        /*keys*/
-        pk_user BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-        id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
-        identifier TEXT UNIQUE NOT NULL,
-
-        /*business fields*/
-        username VARCHAR(255) NOT NULL UNIQUE,
-        email VARCHAR(255) NOT NULL UNIQUE,
-        bio TEXT,
-
-        /*audit fields*/
-        created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    ```
-
-    ```sql title="db/schema/01_write/tb_post.sql"
-    CREATE TABLE tb_post (
-        /*keys*/
-        pk_post BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-        id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
-        identifier TEXT UNIQUE NOT NULL,
-        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
-
-        /*business fields*/
-        title TEXT NOT NULL,
-        slug TEXT UNIQUE NOT NULL,
-        content TEXT NOT NULL,
-        is_published BOOLEAN DEFAULT false,
-
-        /*audit fields*/
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    /*indexes*/
-    CREATE INDEX ix_tb_post_fk_user ON tb_post(fk_user);
-    ```
-
-    ```sql title="db/schema/01_write/tb_comment.sql"
-    CREATE TABLE tb_comment (
-        /*keys*/
-        pk_comment BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-        id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
-        identifier TEXT UNIQUE NOT NULL,
-        fk_user BIGINT NOT NULL REFERENCES tb_user(pk_user),
-        fk_post BIGINT NOT NULL REFERENCES tb_post(pk_post),
-
-        /*business fields*/
-        content TEXT NOT NULL,
-
-        /*audit fields*/
-        created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    /*indexes*/
-    CREATE INDEX ix_tb_comment_fk_user ON tb_comment(fk_user);
-    CREATE INDEX ix_tb_comment_fk_post ON tb_comment(fk_post);
-    ```
-  </TabItem>
-
-  <TabItem label="MySQL">
-    ```sql title="db/schema/01_write/tb_user.sql"
-    CREATE TABLE tb_user (
-        /*keys*/
-        pk_user BIGINT PRIMARY KEY AUTO_INCREMENT,
-        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
-        identifier VARCHAR(255) UNIQUE NOT NULL,
-
-        /*business fields*/
-        username VARCHAR(255) NOT NULL UNIQUE,
-        email VARCHAR(255) NOT NULL UNIQUE,
-        bio TEXT,
-
-        /*audit fields*/
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    ```
-
-    ```sql title="db/schema/01_write/tb_post.sql"
-    CREATE TABLE tb_post (
-        /*keys*/
-        pk_post BIGINT PRIMARY KEY AUTO_INCREMENT,
-        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
-        identifier VARCHAR(255) UNIQUE NOT NULL,
-        fk_user BIGINT NOT NULL,
-
-        /*business fields*/
-        title TEXT NOT NULL,
-        slug VARCHAR(255) UNIQUE NOT NULL,
-        content LONGTEXT NOT NULL,
-        is_published BOOLEAN DEFAULT false,
-
-        /*audit fields*/
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-        /*constraints*/
-        CONSTRAINT FK_tb_post_user
-            FOREIGN KEY (fk_user)
-            REFERENCES tb_user(pk_user)
-            ON DELETE RESTRICT
-    );
-    ```
-
-    ```sql title="db/schema/01_write/tb_comment.sql"
-    CREATE TABLE tb_comment (
-        /*keys*/
-        pk_comment BIGINT PRIMARY KEY AUTO_INCREMENT,
-        id CHAR(36) NOT NULL UNIQUE DEFAULT (UUID()),
-        identifier VARCHAR(255) UNIQUE NOT NULL,
-        fk_user BIGINT NOT NULL,
-        fk_post BIGINT NOT NULL,
-
-        /*business fields*/
-        content TEXT NOT NULL,
-
-        /*audit fields*/
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-        /*constraints*/
-        CONSTRAINT FK_tb_comment_user
-            FOREIGN KEY (fk_user)
-            REFERENCES tb_user(pk_user)
-            ON DELETE RESTRICT,
-        CONSTRAINT FK_tb_comment_post
-            FOREIGN KEY (fk_post)
-            REFERENCES tb_post(pk_post)
-            ON DELETE RESTRICT
-    );
-    ```
-  </TabItem>
-
-  <TabItem label="SQLite">
-    ```sql title="db/schema/01_write/tb_user.sql"
-    CREATE TABLE tb_user (
-        /*keys*/
-        pk_user INTEGER PRIMARY KEY,
-        id TEXT NOT NULL,
-        identifier TEXT NOT NULL,
-
-        /*business fields*/
-        username TEXT NOT NULL,
-        email TEXT NOT NULL,
-        bio TEXT,
-
-        /*audit fields*/
-        created_at TEXT NOT NULL
-            DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
-
-        /*constraints*/
-        CONSTRAINT uq_tb_user_id UNIQUE (id),
-        CONSTRAINT uq_tb_user_identifier UNIQUE (identifier),
-        CONSTRAINT uq_tb_user_username UNIQUE (username),
-        CONSTRAINT uq_tb_user_email UNIQUE (email)
-    );
-    ```
-
-    ```sql title="db/schema/01_write/tb_post.sql"
-    CREATE TABLE tb_post (
-        /*keys*/
-        pk_post INTEGER PRIMARY KEY,
-        id TEXT NOT NULL,
-        identifier TEXT NOT NULL,
-        fk_user BIGINT NOT NULL,
-
-        /*business fields*/
-        title TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        content TEXT NOT NULL,
-        is_published INTEGER NOT NULL
-            DEFAULT 0
-            CHECK (is_published IN (0,1)),
-
-        /*audit fields*/
-        created_at TEXT NOT NULL
-            DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
-        updated_at TEXT NOT NULL
-            DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
-
-        /*constraints*/
-        CONSTRAINT uq_tb_post_id UNIQUE (id),
-        CONSTRAINT uq_tb_post_identifier UNIQUE (identifier),
-        CONSTRAINT uq_tb_post_slug UNIQUE (slug)
-    );
-
-    /*indexes*/
-    CREATE INDEX ix_tb_post_fk_user ON tb_post(fk_user);
-    ```
-
-    ```sql title="db/schema/01_write/tb_comment.sql"
-    CREATE TABLE tb_comment (
-        /*keys*/
-        pk_comment INTEGER PRIMARY KEY,
-        id TEXT NOT NULL,
-        identifier TEXT NOT NULL,
-        fk_user BIGINT NOT NULL,
-        fk_post BIGINT NOT NULL,
-
-        /*business fields*/
-        content TEXT NOT NULL,
-
-        /*audit fields*/
-        created_at TEXT NOT NULL
-            DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
-
-        /*constraints*/
-        CONSTRAINT uq_tb_comment_id UNIQUE (id),
-        CONSTRAINT uq_tb_comment_identifier UNIQUE (identifier),
-        CONSTRAINT fk_tb_comment_user
-            FOREIGN KEY (fk_user)
-            REFERENCES tb_user(pk_user)
-            ON DELETE RESTRICT,
-        CONSTRAINT fk_tb_comment_post
-            FOREIGN KEY (fk_post)
-            REFERENCES tb_post(pk_post)
-            ON DELETE RESTRICT
-    );
-
-    /*indexes*/
-    CREATE INDEX ix_tb_comment_fk_user ON tb_comment(fk_user);
-    CREATE INDEX ix_tb_comment_fk_post ON tb_comment(fk_post);
-    ```
-  </TabItem>
-
-  <TabItem label="SQL Server">
-    ```sql title="db/schema/01_write/tb_user.sql"
-    CREATE TABLE dbo.tb_user (
-        /*keys*/
-        pk_user BIGINT IDENTITY(1,1) NOT NULL,
-        id UNIQUEIDENTIFIER NOT NULL
-            CONSTRAINT DF_tb_user_id
-            DEFAULT NEWSEQUENTIALID(),
-        identifier NVARCHAR(255) NOT NULL,
-
-        /*business fields*/
-        username NVARCHAR(255) NOT NULL,
-        email NVARCHAR(255) NOT NULL,
-        bio NVARCHAR(MAX) NULL,
-
-        /*audit fields*/
-        created_at DATETIMEOFFSET(3) NOT NULL
-            CONSTRAINT DF_tb_user_created_at
-            DEFAULT SYSDATETIMEOFFSET(),
-
-        /*constraints*/
-        CONSTRAINT PK_tb_user
-            PRIMARY KEY CLUSTERED (pk_user),
-        CONSTRAINT UQ_tb_user_id UNIQUE (id),
-        CONSTRAINT UQ_tb_user_identifier UNIQUE (identifier),
-        CONSTRAINT UQ_tb_user_username UNIQUE (username),
-        CONSTRAINT UQ_tb_user_email UNIQUE (email)
-    );
-    ```
-
-    ```sql title="db/schema/01_write/tb_post.sql"
-    CREATE TABLE dbo.tb_post (
-        /*keys*/
-        pk_post BIGINT IDENTITY(1,1) NOT NULL,
-        id UNIQUEIDENTIFIER NOT NULL
-            CONSTRAINT DF_tb_post_id
-            DEFAULT NEWSEQUENTIALID(),
-        identifier NVARCHAR(255) NOT NULL,
-        fk_user BIGINT NOT NULL,
-
-        /*business fields*/
-        title NVARCHAR(MAX) NOT NULL,
-        slug NVARCHAR(255) NOT NULL,
-        content NVARCHAR(MAX) NOT NULL,
-        is_published BIT NOT NULL
-            CONSTRAINT DF_tb_post_is_published
-            DEFAULT 0,
-
-        /*audit fields*/
-        created_at DATETIMEOFFSET(3) NOT NULL
-            CONSTRAINT DF_tb_post_created_at
-            DEFAULT SYSDATETIMEOFFSET(),
-        updated_at DATETIMEOFFSET(3) NOT NULL
-            CONSTRAINT DF_tb_post_updated_at
-            DEFAULT SYSDATETIMEOFFSET(),
-
-        /*constraints*/
-        CONSTRAINT PK_tb_post
-            PRIMARY KEY CLUSTERED (pk_post),
-        CONSTRAINT UQ_tb_post_id UNIQUE (id),
-        CONSTRAINT UQ_tb_post_identifier UNIQUE (identifier),
-        CONSTRAINT UQ_tb_post_slug UNIQUE (slug),
-        CONSTRAINT FK_tb_post_user
-            FOREIGN KEY (fk_user)
-            REFERENCES dbo.tb_user(pk_user)
-            ON DELETE NO ACTION
-    );
-
-    /*indexes*/
-    CREATE INDEX IX_tb_post_fk_user ON dbo.tb_post(fk_user);
-    ```
-
-    ```sql title="db/schema/01_write/tb_comment.sql"
-    CREATE TABLE dbo.tb_comment (
-        /*keys*/
-        pk_comment BIGINT IDENTITY(1,1) NOT NULL,
-        id UNIQUEIDENTIFIER NOT NULL
-            CONSTRAINT DF_tb_comment_id
-            DEFAULT NEWSEQUENTIALID(),
-        identifier NVARCHAR(255) NOT NULL,
-        fk_user BIGINT NOT NULL,
-        fk_post BIGINT NOT NULL,
-
-        /*business fields*/
-        content NVARCHAR(MAX) NOT NULL,
-
-        /*audit fields*/
-        created_at DATETIMEOFFSET(3) NOT NULL
-            CONSTRAINT DF_tb_comment_created_at
-            DEFAULT SYSDATETIMEOFFSET(),
-
-        /*constraints*/
-        CONSTRAINT PK_tb_comment
-            PRIMARY KEY CLUSTERED (pk_comment),
-        CONSTRAINT UQ_tb_comment_id UNIQUE (id),
-        CONSTRAINT UQ_tb_comment_identifier UNIQUE (identifier),
-        CONSTRAINT FK_tb_comment_user
-            FOREIGN KEY (fk_user)
-            REFERENCES dbo.tb_user(pk_user)
-            ON DELETE NO ACTION,
-        CONSTRAINT FK_tb_comment_post
-            FOREIGN KEY (fk_post)
-            REFERENCES dbo.tb_post(pk_post)
-            ON DELETE NO ACTION
-    );
-
-    /*indexes*/
-    CREATE INDEX IX_tb_comment_fk_user ON dbo.tb_comment(fk_user);
-    CREATE INDEX IX_tb_comment_fk_post ON dbo.tb_comment(fk_post);
-    ```
-  </TabItem>
-</Tabs>
-
-**Note on `updated_at`:** Only MySQL auto-updates this column via `ON UPDATE CURRENT_TIMESTAMP`. On PostgreSQL, SQLite, and SQL Server, your database functions (called via mutations) must set `updated_at` explicitly — the column records what your function passes, not a database-managed timestamp.
-
-## Step 3: Write the SQL Views
-
-Create views in `db/schema/02_read/` following the `.data` JSONB pattern:
-
-<Tabs syncKey="db">
-  <TabItem label="PostgreSQL">
-    ```sql title="db/schema/02_read/v_user.sql"
-    CREATE VIEW v_user AS
-    SELECT
-        u.id,
-        jsonb_build_object(
-            /*keys*/
-            'id', u.id::text,
-
-            /*scalar fields*/
-            'username', u.username,
-            'email', u.email,
-            'bio', u.bio,
-            'created_at', u.created_at
-        ) AS data
-    FROM tb_user u;
-    ```
-
-    ```sql title="db/schema/02_read/v_comment.sql"
-    CREATE VIEW v_comment AS
-    SELECT
-        c.id,
-        c.fk_post,
-        jsonb_build_object(
-            /*keys*/
-            'id', c.id::text,
-
-            /*scalar fields*/
-            'content', c.content,
-            'created_at', c.created_at,
-
-            /*relationships*/
-            'author', vu.data
-        ) AS data
-    FROM tb_comment c
-    JOIN tb_user u ON u.pk_user = c.fk_user
-    JOIN v_user vu ON vu.id = u.id;
-    ```
-
-    ```sql title="db/schema/02_read/v_post.sql"
-    CREATE VIEW v_post AS
-    SELECT
-        p.id,
-        jsonb_build_object(
-            /*keys*/
-            'id', p.id::text,
-
-            /*scalar fields*/
-            'title', p.title,
-            'slug', p.slug,
-            'content', p.content,
-            'is_published', p.is_published,
-
-            /*relationships*/
-            'author', vu.data,
-            'comments', COALESCE(
-                jsonb_agg(vc.data) FILTER (WHERE vc.id IS NOT NULL),
-                '[]'::jsonb
-            )
-        ) AS data
-    FROM tb_post p
-    JOIN tb_user u ON u.pk_user = p.fk_user
-    JOIN v_user vu ON vu.id = u.id
-    LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
-    GROUP BY p.pk_post, vu.data;
-    ```
-  </TabItem>
-
-  <TabItem label="MySQL">
-    ```sql title="db/schema/02_read/v_user.sql"
-    CREATE VIEW v_user AS
-    SELECT
-        u.id,
-        JSON_OBJECT(
-            /*keys*/
-            'id', u.id,
-
-            /*scalar fields*/
-            'username', u.username,
-            'email', u.email,
-            'bio', u.bio,
-            'created_at', u.created_at
-        ) AS data
-    FROM tb_user u;
-    ```
-
-    ```sql title="db/schema/02_read/v_comment.sql"
-    CREATE VIEW v_comment AS
-    SELECT
-        c.id,
-        c.fk_post,
-        JSON_OBJECT(
-            /*keys*/
-            'id', c.id,
-
-            /*scalar fields*/
-            'content', c.content,
-            'created_at', c.created_at,
-
-            /*relationships*/
-            'author', vu.data
-        ) AS data
-    FROM tb_comment c
-    JOIN tb_user u ON u.pk_user = c.fk_user
-    JOIN v_user vu ON vu.id = u.id;
-    ```
-
-    ```sql title="db/schema/02_read/v_post.sql"
-    CREATE VIEW v_post AS
-    SELECT
-        p.id,
-        JSON_OBJECT(
-            /*keys*/
-            'id', p.id,
-
-            /*scalar fields*/
-            'title', p.title,
-            'slug', p.slug,
-            'content', p.content,
-            'is_published', p.is_published,
-
-            /*relationships*/
-            'author', vu.data,
-            'comments', COALESCE(
-                JSON_ARRAYAGG(vc.data),
-                JSON_ARRAY()
-            )
-        ) AS data
-    FROM tb_post p
-    JOIN tb_user u ON u.pk_user = p.fk_user
-    JOIN v_user vu ON vu.id = u.id
-    LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
-    GROUP BY p.pk_post, vu.data;
-    ```
-  </TabItem>
-
-  <TabItem label="SQLite">
-    ```sql title="db/schema/02_read/v_user.sql"
-    CREATE VIEW v_user AS
-    SELECT
-        u.id,
-        json_object(
-            /*keys*/
-            'id', u.id,
-
-            /*scalar fields*/
-            'username', u.username,
-            'email', u.email,
-            'bio', u.bio,
-            'created_at', u.created_at
-        ) AS data
-    FROM tb_user u;
-    ```
-
-    ```sql title="db/schema/02_read/v_comment.sql"
-    CREATE VIEW v_comment AS
-    SELECT
-        c.id,
-        c.fk_post,
-        json_object(
-            /*keys*/
-            'id', c.id,
-
-            /*scalar fields*/
-            'content', c.content,
-            'created_at', c.created_at,
-
-            /*relationships*/
-            'author', vu.data
-        ) AS data
-    FROM tb_comment c
-    JOIN tb_user u ON u.pk_user = c.fk_user
-    JOIN v_user vu ON vu.id = u.id;
-    ```
-
-    ```sql title="db/schema/02_read/v_post.sql"
-    CREATE VIEW v_post AS
-    SELECT
-        p.id,
-        json_object(
-            /*keys*/
-            'id', p.id,
-
-            /*scalar fields*/
-            'title', p.title,
-            'slug', p.slug,
-            'content', p.content,
-            'is_published', p.is_published,
-
-            /*relationships*/
-            'author', vu.data,
-            'comments', COALESCE(
-                (SELECT json_group_array(vc.data)
-                 FROM v_comment vc
-                 WHERE vc.fk_post = p.pk_post),
-                json_array()
-            )
-        ) AS data
-    FROM tb_post p
-    JOIN tb_user u ON u.pk_user = p.fk_user
-    JOIN v_user vu ON vu.id = u.id;
-    ```
-  </TabItem>
-
-  <TabItem label="SQL Server">
-    ```sql title="db/schema/02_read/v_user.sql"
-    CREATE VIEW dbo.v_user AS
-    SELECT
-        u.id,
-        (
-            SELECT
-                /*keys*/
-                u.id,
-
-                /*scalar fields*/
-                u.username, u.email, u.bio, u.created_at
-            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-        ) AS data
-    FROM dbo.tb_user u;
-    ```
-
-    ```sql title="db/schema/02_read/v_comment.sql"
-    CREATE VIEW dbo.v_comment AS
-    SELECT
-        c.id,
-        c.fk_post,
-        (
-            SELECT
-                /*keys*/
-                c.id,
-
-                /*scalar fields*/
-                c.content, c.created_at,
-
-                /*relationships*/
-                JSON_QUERY(vu.data) AS author
-            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-        ) AS data
-    FROM dbo.tb_comment c
-    JOIN dbo.tb_user u ON u.pk_user = c.fk_user
-    JOIN dbo.v_user vu ON vu.id = u.id;
-    ```
-
-    ```sql title="db/schema/02_read/v_post.sql"
-    CREATE VIEW dbo.v_post AS
-    SELECT
-        p.id,
-        (
-            SELECT
-                /*keys*/
-                p.id,
-
-                /*scalar fields*/
-                p.title, p.slug, p.content, p.is_published,
-
-                /*relationships*/
-                JSON_QUERY(vu.data) AS author,
-                JSON_QUERY(COALESCE(
-                    (SELECT '[' + STRING_AGG(vc.data, ',') + ']'
-                     FROM dbo.v_comment vc
-                     WHERE vc.fk_post = p.pk_post),
-                    '[]'
-                )) AS comments
-            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-        ) AS data
-    FROM dbo.tb_post p
-    JOIN dbo.tb_user u ON u.pk_user = p.fk_user
-    JOIN dbo.v_user vu ON vu.id = u.id;
-    ```
-  </TabItem>
-</Tabs>
-
-**Key insight:** Views compose other views. `v_post` uses `vu.data` and `jsonb_agg(vc.data)` — no duplication of field definitions. Add a field to `v_user` once, and it appears everywhere `v_user.data` is embedded.
-
-## Step 4: Define the GraphQL Schema
-
-<Tabs syncKey="lang">
-  <TabItem label="Python">
-    Replace `schema.py` with:
-
-    ```python title="schema.py"
-    import fraiseql
-    from fraiseql.scalars import ID, Email, Slug, DateTime
-
-    @fraiseql.type
-    class User:
-        """A blog user."""
-        id: ID
-        username: str
-        email: Email
-        bio: str | None
-        created_at: DateTime
-        posts: list['Post']
-
-    @fraiseql.type
-    class Post:
-        """A blog post."""
-        id: ID
-        title: str
-        slug: Slug
-        content: str
-        published: bool
-        created_at: DateTime
-        updated_at: DateTime
-        author: User
-        comments: list['Comment']
-
-    @fraiseql.type
-    class Comment:
-        """A comment on a post."""
-        id: ID
-        content: str
-        created_at: DateTime
-        author: User
-        post: Post
-
-    # Input types for mutations
-    @fraiseql.input
-    class CreateUserInput:
-        username: str
-        email: Email
-        bio: str | None = None
-
-    @fraiseql.input
-    class CreatePostInput:
-        title: str
-        content: str
-        author_id: ID
-        published: bool = False
-
-    @fraiseql.input
-    class CreateCommentInput:
-        content: str
-        post_id: ID
-        author_id: ID
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    Replace `schema.ts` with:
-
-    ```typescript title="schema.ts"
-    import { type, input } from 'fraiseql';
-    import { ID, Email, Slug, DateTime } from 'fraiseql/scalars';
-
-    @type()
-    class User {
-      /** A blog user. */
-      id: ID;
-      username: string;
-      email: Email;
-      bio: string | null;
-      createdAt: DateTime;
-      posts: Post[];
-    }
-
-    @type()
-    class Post {
-      /** A blog post. */
-      id: ID;
-      title: string;
-      slug: Slug;
-      content: string;
-      published: boolean;
-      createdAt: DateTime;
-      updatedAt: DateTime;
-      author: User;
-      comments: Comment[];
-    }
-
-    @type()
-    class Comment {
-      /** A comment on a post. */
-      id: ID;
-      content: string;
-      createdAt: DateTime;
-      author: User;
-      post: Post;
-    }
-
-    // Input types for mutations
-    @input()
-    class CreateUserInput {
-      username: string;
-      email: Email;
-      bio?: string;
-    }
-
-    @input()
-    class CreatePostInput {
-      title: string;
-      content: string;
-      authorId: ID;
-      published: boolean = false;
-    }
-
-    @input()
-    class CreateCommentInput {
-      content: string;
-      postId: ID;
-      authorId: ID;
-    }
-    ```
-  </TabItem>
-  <TabItem label="Go">
-    Replace `schema.go` with:
-
-    ```go title="schema.go"
-    package schema
-
-    import "github.com/fraiseql/fraiseql-go/scalars"
-
-    // User represents a blog user.
-    type User struct {
-        ID        scalars.ID       `fraiseql:"type"`
-        Username  string
-        Email     scalars.Email
-        Bio       *string
-        CreatedAt scalars.DateTime
-        Posts     []Post
-    }
-
-    // Post represents a blog post.
-    type Post struct {
-        ID        scalars.ID   `fraiseql:"type"`
-        Title     string
-        Slug      scalars.Slug
-        Content   string
-        Published bool
-        CreatedAt scalars.DateTime
-        UpdatedAt scalars.DateTime
-        Author    User
-        Comments  []Comment
-    }
-
-    // Comment represents a comment on a post.
-    type Comment struct {
-        ID        scalars.ID       `fraiseql:"type"`
-        Content   string
-        CreatedAt scalars.DateTime
-        Author    User
-        Post      Post
-    }
-
-    // Input types for mutations
-
-    // CreateUserInput is the input for creating a user.
-    type CreateUserInput struct {
-        Username string        `fraiseql:"input"`
-        Email    scalars.Email
-        Bio      *string
-    }
-
-    // CreatePostInput is the input for creating a post.
-    type CreatePostInput struct {
-        Title     string     `fraiseql:"input"`
-        Content   string
-        AuthorID  scalars.ID
-        Published bool
-    }
-
-    // CreateCommentInput is the input for creating a comment.
-    type CreateCommentInput struct {
-        Content  string     `fraiseql:"input"`
-        PostID   scalars.ID
-        AuthorID scalars.ID
-    }
-    ```
-  </TabItem>
-</Tabs>
-
-## Step 5: Configure the Project
-
-<Tabs syncKey="db">
-  <TabItem label="PostgreSQL">
-    ```toml title="fraiseql.toml"
-    [project]
-    name = "blog-api"
-    version = "1.0.0"
-
-    [database]
-    url = "postgresql://user:password@localhost:5432/db_blog"
-
-    [server]
-    port = 8080
-    host = "127.0.0.1"
-
-    [server.cors]
-    origins = ["http://localhost:3000"]
-    ```
-  </TabItem>
-
-  <TabItem label="MySQL">
-    ```toml title="fraiseql.toml"
-    [project]
-    name = "blog-api"
-    version = "1.0.0"
-
-    [database]
-    url = "mysql://user:password@localhost:3306/db_blog"
-
-    [server]
-    port = 8080
-    host = "127.0.0.1"
-
-    [server.cors]
-    origins = ["http://localhost:3000"]
-    ```
-  </TabItem>
-
-  <TabItem label="SQLite">
-    ```toml title="fraiseql.toml"
-    [project]
-    name = "blog-api"
-    version = "1.0.0"
-
-    [database]
-    url = "sqlite://./db_blog.db"
-
-    [server]
-    port = 8080
-    host = "127.0.0.1"
-
-    [server.cors]
-    origins = ["http://localhost:3000"]
-    ```
-  </TabItem>
-
-  <TabItem label="SQL Server">
-    ```toml title="fraiseql.toml"
-    [project]
-    name = "blog-api"
-    version = "1.0.0"
-
-    [database]
-    url = "sqlserver://user:password@localhost:1433/db_blog"
-
-    [server]
-    port = 8080
-    host = "127.0.0.1"
-
-    [server.cors]
-    origins = ["http://localhost:3000"]
-    ```
-  </TabItem>
-</Tabs>
-
-## Step 6: Build the Database
-
-Use [🍯 Confiture](/confiture) to create the database from your DDL files:
+## Step 2: Write the tables
+
+Create tables in `db/schema/01_write/` using the **Trinity Pattern**: a surrogate key (`pk_*`), a UUID (`id`), and a text identifier.
+
+```sql title="db/schema/01_write/tb_user.sql"
+CREATE TABLE tb_user (
+    pk_user    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT UNIQUE NOT NULL,
+
+    username   VARCHAR(255) NOT NULL UNIQUE,
+    email      VARCHAR(255) NOT NULL UNIQUE,
+    bio        TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+```sql title="db/schema/01_write/tb_post.sql"
+CREATE TABLE tb_post (
+    pk_post    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT UNIQUE NOT NULL,
+    fk_user    BIGINT NOT NULL REFERENCES tb_user(pk_user),
+
+    title      TEXT NOT NULL,
+    slug       TEXT UNIQUE NOT NULL,
+    content    TEXT NOT NULL,
+    is_published BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX ix_tb_post_fk_user ON tb_post(fk_user);
+```
+
+```sql title="db/schema/01_write/tb_comment.sql"
+CREATE TABLE tb_comment (
+    pk_comment BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT UNIQUE NOT NULL,
+    fk_user    BIGINT NOT NULL REFERENCES tb_user(pk_user),
+    fk_post    BIGINT NOT NULL REFERENCES tb_post(pk_post),
+
+    content    TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX ix_tb_comment_fk_user ON tb_comment(fk_user);
+CREATE INDEX ix_tb_comment_fk_post ON tb_comment(fk_post);
+```
+
+## Step 3: Write the views
+
+Views go in `db/schema/02_read/` and return `(id UUID, data JSONB)` — the standard `v_*` pattern. Views compose other views: `v_post` embeds `v_user.data` for the author.
+
+```sql title="db/schema/02_read/v_user.sql"
+CREATE VIEW v_user AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id', u.id::text,
+        'username', u.username,
+        'email', u.email,
+        'bio', u.bio,
+        'created_at', u.created_at
+    ) AS data
+FROM tb_user u;
+```
+
+```sql title="db/schema/02_read/v_comment.sql"
+CREATE VIEW v_comment AS
+SELECT
+    c.id,
+    c.fk_post,
+    jsonb_build_object(
+        'id', c.id::text,
+        'content', c.content,
+        'created_at', c.created_at,
+        'author', vu.data
+    ) AS data
+FROM tb_comment c
+JOIN tb_user u ON u.pk_user = c.fk_user
+JOIN v_user vu ON vu.id = u.id;
+```
+
+```sql title="db/schema/02_read/v_post.sql"
+CREATE VIEW v_post AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id', p.id::text,
+        'title', p.title,
+        'slug', p.slug,
+        'content', p.content,
+        'is_published', p.is_published,
+        'author', vu.data,
+        'comments', COALESCE(
+            jsonb_agg(vc.data) FILTER (WHERE vc.id IS NOT NULL),
+            '[]'::jsonb
+        )
+    ) AS data
+FROM tb_post p
+JOIN tb_user u ON u.pk_user = p.fk_user
+JOIN v_user vu ON vu.id = u.id
+LEFT JOIN v_comment vc ON vc.fk_post = p.pk_post
+GROUP BY p.pk_post, vu.data;
+```
+
+Add a field to `v_user` once, and it appears everywhere `v_user.data` is embedded — no duplication.
+
+## Step 4: Define the schema
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID, Email, Slug, DateTime
+
+@fraiseql.type
+class User:
+    """A blog user."""
+    id: ID
+    username: str
+    email: Email
+    bio: str | None
+    created_at: DateTime
+
+@fraiseql.type
+class Post:
+    """A blog post."""
+    id: ID
+    title: str
+    slug: Slug
+    content: str
+    published: bool
+    created_at: DateTime
+    updated_at: DateTime
+    author: User
+    comments: list['Comment']
+
+@fraiseql.type
+class Comment:
+    """A comment on a post."""
+    id: ID
+    content: str
+    created_at: DateTime
+    author: User
+
+@fraiseql.query
+def posts(limit: int = 10) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+
+@fraiseql.query
+def post(id: ID) -> Post | None:
+    return fraiseql.config(sql_source="v_post")
+
+@fraiseql.query
+def users(limit: int = 10) -> list[User]:
+    return fraiseql.config(sql_source="v_user")
+
+@fraiseql.query
+def user(id: ID) -> User | None:
+    return fraiseql.config(sql_source="v_user")
+```
+
+<Aside>
+See the [TypeScript](/sdk/typescript), [Go](/sdk/go), and [other SDK pages](/sdk) for the equivalent schema in your language.
+</Aside>
+
+## Step 5: Configure
+
+```toml title="fraiseql.toml"
+[project]
+name = "blog-api"
+
+[database]
+url = "postgresql://user:password@localhost:5432/db_blog"
+
+[server]
+port = 8080
+host = "127.0.0.1"
+
+[server.cors]
+origins = ["http://localhost:3000"]
+```
+
+## Step 6: Build, compile, serve
 
 ```bash
-# Build fresh database from all SQL files
+# Build the database from SQL files
 confiture build --env local
-```
 
-```
-✓ Schema built successfully in 0.4s
-  → Created 3 tables, 3 views
-```
-
-This concatenates and executes all your SQL files in order: tables first, then views.
-
-## Step 7: Compile and Serve
-
-```bash
 # Compile the GraphQL mapping
 fraiseql compile
 
@@ -1083,98 +233,17 @@ fraiseql compile
 fraiseql run
 ```
 
-Your API is now running at `http://localhost:8080/graphql`.
+Your API is running at `http://localhost:8080/graphql`.
 
-### Adding REST Annotations
+## Step 7: Test it
 
-Transport annotations are additive — they extend an operation to additional transports without changing GraphQL behavior. Add `rest_path` and `rest_method` to expose a query via REST:
-
-```python
-@fraiseql.query(
-    sql_source="v_post",
-    rest_path="/posts",
-    rest_method="GET",
-)
-def posts(limit: int = 10) -> list[Post]: ...
-```
-
-Adding these annotations exposes the operation as `GET /rest/v1/posts`. The default path is `/rest/v1`. Configure with `[fraiseql.rest]` `path` to use `/api` or any other value. The GraphQL endpoint continues to work unchanged.
-
-```bash
-curl http://localhost:8080/rest/v1/posts?limit=5
-```
-
-## Step 8: Test the API
-
-Open the GraphQL Playground at `http://localhost:8080/graphql` and try these queries:
-
-### Create a User
-
-```graphql
-mutation {
-  createUser(input: {
-    username: "alice"
-    email: "alice@example.com"
-    bio: "Software developer"
-  }) {
-    id
-    username
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "data": {
-    "createUser": {
-      "id": "usr_01HZ3K",
-      "username": "alice"
-    }
-  }
-}
-```
-
-### Create a Post
-
-```graphql
-mutation {
-  createPost(input: {
-    title: "Hello World"
-    content: "This is my first post!"
-    authorId: "usr_01HZ3K"
-    published: true
-  }) {
-    id
-    title
-    slug
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "data": {
-    "createPost": {
-      "id": "pst_01HZ4M",
-      "title": "Hello World",
-      "slug": "hello-world"
-    }
-  }
-}
-```
-
-### Query Posts with Authors
+Query posts with nested authors and comments:
 
 ```graphql
 query {
   posts {
     id
     title
-    content
     author {
       username
     }
@@ -1188,153 +257,38 @@ query {
 }
 ```
 
-Response:
+The nested response comes from JSON composition in your views — `v_post` embeds `v_user.data` and aggregates `v_comment.data`. One SQL query per GraphQL request, no N+1.
 
-```json
-{
-  "data": {
-    "posts": [
-      {
-        "id": "pst_01HZ4M",
-        "title": "Hello World",
-        "content": "This is my first post!",
-        "author": {
-          "username": "alice"
-        },
-        "comments": []
-      }
-    ]
-  }
-}
+### Adding REST
+
+Transport annotations extend a query to REST without changing GraphQL behavior:
+
+```python
+@fraiseql.query(rest_path="/posts", rest_method="GET")
+def posts(limit: int = 10) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
 ```
 
-### Query a Single User
-
-```graphql
-query {
-  user(id: "usr_01HZ3K") {
-    username
-    email
-    posts {
-      title
-      published
-    }
-  }
-}
+```bash
+curl http://localhost:8080/rest/v1/posts?limit=5
 ```
 
-Response:
+The GraphQL endpoint continues to work unchanged. See [REST Transport](/features/rest-transport) for the full reference.
 
-```json
-{
-  "data": {
-    "user": {
-      "username": "alice",
-      "email": "alice@example.com",
-      "posts": [
-        {
-          "title": "Hello World",
-          "published": true
-        }
-      ]
-    }
-  }
-}
-```
+## Adding custom views
 
-## What Happened Behind the Scenes
+`v_user` exposes scalar fields only. To return a user with all their posts (a reverse relationship), create a dedicated view:
 
-1. **You wrote the SQL** — Tables (`tb_*`) for writes, views (`v_*`) for reads
-2. **🍯 Confiture built the database** — DDL files concatenated and executed in under 1s
-3. **FraiseQL compiled the mapping** — GraphQL types mapped to SQL views
-4. **Queries resolve to SQL** — `posts { author { ... } }` becomes `SELECT data FROM v_post`
-
-The nested GraphQL response comes from JSON composition in your views. `v_post` embeds `v_user.data` for the author and aggregates `v_comment.data` for comments. One query per GraphQL request, no application-level N+1.
-
-## Adding Custom Logic
-
-Sometimes you need a query that cannot be expressed automatically. The `v_user` view exposes scalar fields only — it does not embed posts. `v_post` embeds the author (`v_user.data`), but the reverse — a user with all their posts — requires explicit SQL composition. This is a classic **reverse-relationship** that a custom view handles cleanly.
-
-Define an `AuthorProfile` type and map it to a dedicated view:
-
-<Tabs syncKey="lang">
-  <TabItem label="Python">
-    ```python title="schema.py"
-    @fraiseql.type
-    class AuthorProfile:
-        id: ID
-        username: str
-        email: Email
-        bio: str | None
-        created_at: DateTime
-        posts: list[Post]
-
-    @fraiseql.query
-    def author_profile(id: ID) -> AuthorProfile | None:
-        """Get an author with all their posts."""
-        return fraiseql.config(sql_source="v_author_profile")
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```typescript title="schema.ts"
-    import { type, query } from 'fraiseql';
-    import { ID, Email, DateTime } from 'fraiseql/scalars';
-
-    @type()
-    class AuthorProfile {
-      id: ID;
-      username: string;
-      email: Email;
-      bio: string | null;
-      createdAt: DateTime;
-      posts: Post[];
-    }
-
-    @query({ sqlSource: 'v_author_profile' })
-    async function authorProfile(id: ID): Promise<AuthorProfile | null> {
-      // Get an author with all their posts
-    }
-    ```
-  </TabItem>
-  <TabItem label="Go">
-    ```go title="schema.go"
-    // AuthorProfile represents a user with all their posts.
-    type AuthorProfile struct {
-        ID        scalars.ID       `fraiseql:"type"`
-        Username  string
-        Email     scalars.Email
-        Bio       *string
-        CreatedAt scalars.DateTime
-        Posts     []Post
-    }
-
-    // AuthorProfile returns an author with all their posts.
-    // Maps to v_author_profile view.
-    func AuthorProfile(ctx context.Context, id scalars.ID) (*AuthorProfile, error) {
-        return nil, nil
-    }
-    ```
-  </TabItem>
-</Tabs>
-
-Then write the view that shapes the data at the SQL level:
-
-<Tabs syncKey="db">
-  <TabItem label="PostgreSQL">
-    <Code lang="sql" title="db/schema/02_read/v_author_profile.sql" code={`CREATE VIEW v_author_profile AS
+```sql title="db/schema/02_read/v_author_profile.sql"
+CREATE VIEW v_author_profile AS
 SELECT
     u.id,
     jsonb_build_object(
-        /*keys*/
         'id', u.id::text,
-
-        /*scalar fields*/
         'username', u.username,
         'email', u.email,
         'bio', u.bio,
         'created_at', u.created_at,
-
-        /*relationships*/
         'posts', COALESCE(
             jsonb_agg(vp.data) FILTER (WHERE vp.id IS NOT NULL),
             '[]'::jsonb
@@ -1343,99 +297,30 @@ SELECT
 FROM tb_user u
 LEFT JOIN tb_post tp ON tp.fk_user = u.pk_user
 LEFT JOIN v_post vp ON vp.id = tp.id
-GROUP BY u.pk_user;`} />
-  </TabItem>
-  <TabItem label="MySQL">
-    <Code lang="sql" title="db/schema/02_read/v_author_profile.sql" code={`CREATE VIEW v_author_profile AS
-SELECT
-    u.id,
-    JSON_OBJECT(
-        /*keys*/
-        'id', u.id,
+GROUP BY u.pk_user;
+```
 
-        /*scalar fields*/
-        'username', u.username,
-        'email', u.email,
-        'bio', u.bio,
-        'created_at', u.created_at,
+```python
+@fraiseql.type
+class AuthorProfile:
+    id: ID
+    username: str
+    email: Email
+    bio: str | None
+    created_at: DateTime
+    posts: list[Post]
 
-        /*relationships*/
-        'posts', COALESCE(JSON_ARRAYAGG(vp.data), JSON_ARRAY())
-    ) AS data
-FROM tb_user u
-LEFT JOIN tb_post tp ON tp.fk_user = u.pk_user
-LEFT JOIN v_post vp ON vp.id = tp.id
-GROUP BY u.pk_user;`} />
-  </TabItem>
-  <TabItem label="SQLite">
-    <Code lang="sql" title="db/schema/02_read/v_author_profile.sql" code={`CREATE VIEW v_author_profile AS
-SELECT
-    u.id,
-    json_object(
-        /*keys*/
-        'id', u.id,
+@fraiseql.query
+def author_profile(id: ID) -> AuthorProfile | None:
+    return fraiseql.config(sql_source="v_author_profile")
+```
 
-        /*scalar fields*/
-        'username', u.username,
-        'email', u.email,
-        'bio', u.bio,
-        'created_at', u.created_at,
+Shape data for the UI at the SQL level. `v_author_profile` composes `v_post` the same way `v_post` composes `v_user` — no resolvers, no N+1.
 
-        /*relationships*/
-        'posts', COALESCE(
-            (SELECT json_group_array(vp.data)
-             FROM tb_post tp
-             JOIN v_post vp ON vp.id = tp.id
-             WHERE tp.fk_user = u.pk_user),
-            json_array()
-        )
-    ) AS data
-FROM tb_user u;`} />
-  </TabItem>
-  <TabItem label="SQL Server">
-    <Code lang="sql" title="db/schema/02_read/v_author_profile.sql" code={`CREATE VIEW dbo.v_author_profile AS
-SELECT
-    u.id,
-    (
-        SELECT
-            /*keys*/
-            u.id,
+## Next steps
 
-            /*scalar fields*/
-            u.username, u.email, u.bio, u.created_at,
-
-            /*relationships*/
-            JSON_QUERY(COALESCE(
-                (SELECT '[' + STRING_AGG(vp.data, ',') + ']'
-                 FROM dbo.tb_post tp
-                 JOIN dbo.v_post vp ON vp.id = tp.id
-                 WHERE tp.fk_user = u.pk_user),
-                '[]'
-            )) AS posts
-        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-    ) AS data
-FROM dbo.tb_user u;`} />
-  </TabItem>
-</Tabs>
-
-This is the power of the database-first approach: shape data for the UI entirely at the SQL level. `v_author_profile` composes `v_post` the same way `v_post` composes `v_user` — no custom resolvers, no N+1, one query.
-
-For business logic and side effects, use **observers** to trigger actions automatically.
-
-## Before Deploying to Production
-
-Your API is running locally. Before deploying:
-
-- [ ] Create a `fraiseql.toml` with TLS and auth configuration (replace the dev config)
-- [ ] Replace any `ServerConfig::default()` usage with `ServerConfig::from_file("fraiseql.toml")`
-- [ ] Set `admin_token` (or `FRAISEQL_ADMIN_TOKEN`) to protect the RBAC management API
-- [ ] Configure `JWT_SECRET` environment variable for user authentication
-- [ ] Review the [production checklist](/guides/deployment#production-checklist)
-
-## Next Steps
-
+- [Adding Mutations](/getting-started/adding-mutations) — Add create, update, and delete operations
 - [Developer-Owned SQL](/concepts/developer-owned-sql) — Why SQL ownership is a strength
-- [🍯 Confiture](/confiture) — Database lifecycle management
+- [Confiture](/confiture) — Database lifecycle management
 - [Schema Definition](/concepts/schema) — Advanced type patterns
-- [Authentication](/guides/authentication) — Add user auth
-- [Deployment](/guides/deployment) — Deploy to production
+- [Deployment](/guides/deployment) — Production checklist

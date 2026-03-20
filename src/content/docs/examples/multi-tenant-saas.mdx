@@ -21,6 +21,18 @@ A realistic SaaS application where tenants are isolated by JWT claims and Postgr
 Every table uses three identity columns: `pk_*` (internal bigint), `id` (public UUID), `identifier` (human-readable unique key).
 
 ```sql title="migrations/001_tables.sql"
+-- Canonical mutation return type (required by fn_* functions)
+CREATE TYPE mutation_response AS (
+    status       TEXT,
+    message      TEXT,
+    entity_id    UUID,
+    entity_type  TEXT,
+    entity       JSONB,
+    updated_fields TEXT[],
+    cascade      JSONB,
+    metadata     JSONB
+);
+
 -- Organizations
 CREATE TABLE tb_organization (
     pk_organization BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -322,7 +334,7 @@ class Activity:
 
 # --- Queries (JWT-scoped) ---
 
-@fraiseql.query(inject={"org_id": "jwt:org_id"})
+@fraiseql.query(inject={"org_id": "jwt:org_id"}, rest_path="/projects", rest_method="GET")
 def projects(status: str | None = None, limit: int = 20, offset: int = 0) -> list[Project]:
     """List projects in the caller's organization."""
     return fraiseql.config(sql_source="v_project")
@@ -358,16 +370,8 @@ def invite_member(org_id: ID, email: str, role: str = "member") -> Member:
     """Invite a user to the organization. Requires admin role."""
     pass
 
-# --- REST annotations (Python SDK v2.1.0) ---
-
-@fraiseql.query(
-    inject={"org_id": "jwt:org_id"},
-    rest_path="/projects",
-    rest_method="GET",
-)
-def rest_projects(status: str | None = None, limit: int = 20, offset: int = 0) -> list[Project]:
-    """REST endpoint for projects."""
-    return fraiseql.config(sql_source="v_project")
+# Note: REST annotations (rest_path, rest_method) on queries above expose
+# the same data over both GraphQL and REST — no duplicate functions needed.
 ```
 
 ## Configuration
@@ -440,7 +444,7 @@ services:
     volumes:
       - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-ONLY", "pg_isready"]
+      test: ["CMD-SHELL", "pg_isready"]
       interval: 2s
       retries: 10
 

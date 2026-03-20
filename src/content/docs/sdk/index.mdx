@@ -280,8 +280,19 @@ Each SDK provides:
   </Card>
 </CardGrid>
 
+## What SDKs do NOT do
+
+SDKs are compile-time tools. They do not:
+
+- Handle HTTP requests or execute GraphQL queries
+- Connect to databases or run at application startup
+- Add any runtime overhead — the server is always compiled Rust
+
+**Why this matters**: The JSON schema is the contract between authoring and serving. You can compile on a developer machine and deploy only `schema.json` + the Rust binary. The attack surface is the Rust binary + PostgreSQL — SDK code never runs in production.
+
 ## See Also
 
 - [How FraiseQL Works](/concepts/how-it-works) — Compilation and runtime
 - [Schema Definition](/concepts/schema) — Schema concepts and patterns
+- [SQL Patterns](/reference/sql-patterns) — The SQL conventions SDKs wire to
 - [Deployment](/deployment) — Deploy your compiled schema

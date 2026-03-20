@@ -27,11 +27,11 @@ The question: how much does skipping GraphQL parsing, validation, and resolution
 
 All benchmarks use [VelocityBench](https://github.com/fraiseql/velocitybench), our open-source benchmarking harness. The setup:
 
-- **Hardware**: Single machine, 8-core AMD EPYC, 32 GB RAM
-- **Database**: PostgreSQL 16, 10,000 rows in `tb_post`, standard `v_post` view with one join
-- **Connections**: 50 concurrent connections via wrk2
-- **Duration**: 30 seconds per run, 5 runs averaged
-- **Query**: List posts with `is_published=true`, limit 20 (simple filtered list)
+- **Hardware**: Single machine, Linux, 32 GB RAM
+- **Database**: PostgreSQL 15, shared `velocitybench_benchmark` dataset
+- **Connections**: 50 concurrent connections via `hey`
+- **Runs**: 3 runs per scenario, 2,000 requests per run, median reported
+- **Query**: `users(limit: 20) { id username fullName }` (shallow list)
 
 <Aside type="caution">
 These benchmarks measure FraiseQL against itself — REST direct vs GraphQL bridge for the same query on the same server. They are not comparing FraiseQL against other frameworks. For cross-framework numbers, see the [VelocityBench results](https://github.com/fraiseql/velocitybench).
@@ -39,24 +39,30 @@ These benchmarks measure FraiseQL against itself — REST direct vs GraphQL brid
 
 ## Results
 
-| Metric | REST Direct | GraphQL | Difference |
-|--------|----------:|--------:|-----------:|
-| Requests/sec | 34,218 | 29,672 | +15.3% |
-| p50 latency | 1.4 ms | 1.6 ms | -12.5% |
-| p99 latency | 4.8 ms | 5.6 ms | -14.3% |
-| Allocations/req | ~42 | ~49 | -14.3% |
-| Peak memory | 14 MB | 16 MB | -12.5% |
+<Aside type="caution">
+The REST Direct column below is **projected** from measured GraphQL performance plus the ~15% improvement observed in allocation profiling. Only the GraphQL column contains measured VelocityBench data. Direct REST benchmarks will be published when the VelocityBench REST-vs-GraphQL scenario is complete.
+</Aside>
 
-The GraphQL column matches our published VelocityBench numbers (29,672 RPS at 50 connections). REST direct execution adds ~15% throughput and shaves ~0.8ms off p99.
+| Metric | REST Direct (projected) | GraphQL (measured) | Difference |
+|--------|----------:|--------:|-----------:|
+| Requests/sec | ~34,200 | 29,672 | ~+15% |
+| p50 latency | ~1.4 ms | 1.3 ms | ~-8% |
+| p99 latency | ~4.8 ms | 5.6 ms | ~-14% |
+| Allocations/req | ~42 | ~49 | ~-14% |
+| Peak memory | ~14 MB | 16 MB | ~-12% |
+
+The GraphQL column matches our [VelocityBench framework-matrix results](https://github.com/fraiseql/velocitybench) (29,672 RPS median at 50 connections using `hey`). The REST Direct column is an estimate based on profiling the allocation savings from skipping the GraphQL layer — not a direct measurement.
 
 ## Where the savings come from
 
 We profiled both paths with `perf` and `DHAT`. The differences:
 
-1. **No GraphQL parsing** (~3% of savings): Skipping `graphql-parser` AST construction. For simple queries this is cheap; the savings would grow with query complexity.
+1. **No GraphQL parsing** (~3% of projected savings): Skipping `graphql-parser` AST construction. For simple queries this is cheap; the savings would grow with query complexity.
 2. **No validation pass** (~4%): No type-checking the query against the schema. Direct execution knows the types at route registration time.
 3. **No resolver dispatch** (~5%): No walking the resolver tree. Direct execution goes straight from URL parameters to SQL WHERE clauses.
 4. **Fewer allocations** (~3%): No intermediate GraphQL response that gets re-serialized into the REST envelope. The SQL result is wrapped directly.
+
+These percentages are from `DHAT` allocation analysis comparing the two code paths. They have not yet been validated with end-to-end throughput benchmarks.
 
 ## What this doesn't mean
 
@@ -80,13 +86,15 @@ It doesn't make sense for:
 - **Low-traffic endpoints** where the difference is unmeasurable
 - **Endpoints that already use GraphQL clients** (Apollo Client, urql) — no reason to add a REST layer
 
-## Reproducing these numbers
+## Reproducing the GraphQL numbers
+
+The GraphQL baseline comes from VelocityBench:
 
 ```bash
 git clone https://github.com/fraiseql/velocitybench.git
 cd velocitybench
 docker compose up -d
-./bench.sh --framework fraiseql --scenario rest-vs-graphql
+./bench.sh --framework fraiseql
 ```
 
-The `rest-vs-graphql` scenario runs both paths against the same FraiseQL instance and reports the delta. Raw data is written to `results/` in CSV format.
+Results are written to `reports/` in Markdown and JSON. The REST direct execution projection is based on allocation profiling with `perf` and `DHAT`, not a dedicated VelocityBench scenario — a proper REST-vs-GraphQL benchmark scenario is planned but not yet implemented.

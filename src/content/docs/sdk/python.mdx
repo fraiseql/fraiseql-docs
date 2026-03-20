@@ -8,7 +8,7 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 The FraiseQL Python SDK is a **compile-time schema authoring SDK**: you define GraphQL types, queries, and mutations in Python, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views. **There is no runtime FFI** — decorators output JSON only. Function bodies are never executed.
 
 <Aside type="note">
-This is a compile-time schema authoring SDK, not a GraphQL client. See [SDK Design Philosophy](/concepts/sdk-design) for how the compile→run model works.
+This is a compile-time schema authoring SDK, not a GraphQL client. See [SDK Overview](/sdk) for how the compile→run model works.
 </Aside>
 
 ## Installation
@@ -395,92 +395,11 @@ class User:
 
 ---
 
-## Complete Schema Example
+## Complete example
 
-A blog API schema using only verified FraiseQL Python APIs:
+For a complete blog API schema combining all the patterns above, see the [fraiseql-starter-blog](https://github.com/fraiseql/fraiseql-starter-blog) repository. To export the compiled schema:
 
-```python title="schema.py"
-import fraiseql
-from fraiseql.scalars import ID, Email, Slug, DateTime
-from typing import Annotated
-
-# --- Types ---
-
-@fraiseql.type
-class User:
-    id: ID
-    username: str
-    email: Email
-    bio: str | None
-    created_at: DateTime
-
-@fraiseql.type
-class Post:
-    id: ID
-    title: str
-    slug: Slug
-    content: str
-    is_published: bool
-    created_at: DateTime
-    updated_at: DateTime
-    author: User
-
-@fraiseql.type
-class Comment:
-    id: ID
-    content: str
-    created_at: DateTime
-    author: User
-
-# --- Inputs ---
-
-@fraiseql.input
-class CreatePostInput:
-    """Input for creating a new blog post."""
-    title: str
-    content: str
-    is_published: bool = False
-
-@fraiseql.input
-class CreateCommentInput:
-    """Input for adding a comment to a post."""
-    post_id: ID
-    content: str
-
-# --- Queries ---
-
-@fraiseql.query
-def posts(is_published: bool | None = None, limit: int = 20) -> list[Post]:
-    return fraiseql.config(sql_source="v_post")
-
-@fraiseql.query
-def post(id: ID) -> Post | None:
-    return fraiseql.config(sql_source="v_post")
-
-@fraiseql.query(inject={"author_id": "jwt:sub"})
-def my_posts(limit: int = 20) -> list[Post]:
-    """Returns only posts authored by the requesting user."""
-    return fraiseql.config(sql_source="v_post")
-
-# --- Mutations ---
-
-@fraiseql.mutation(sql_source="fn_create_post", operation="CREATE",
-                   invalidates_views=["v_post"])
-def create_post(input: CreatePostInput) -> Post:
-    pass
-
-@fraiseql.mutation(sql_source="fn_create_comment", operation="CREATE",
-                   invalidates_views=["v_comment"])
-def create_comment(input: CreateCommentInput) -> Comment:
-    pass
-
-@fraiseql.mutation(sql_source="fn_publish_post", operation="UPDATE",
-                   invalidates_views=["v_post"])
-def publish_post(id: ID) -> Post:
-    pass
-
-# --- Export schema ---
-
+```python
 fraiseql.export_schema("schema.json")
 ```
 
@@ -594,7 +513,7 @@ Path parameters in `rest_path` (e.g., `{id}`) must match function argument names
 
 ## Next Steps
 
-- [SDK Design Philosophy](/concepts/sdk-design) — how compile-time authoring works
+- [SDK Overview](/sdk) — how compile-time authoring works
 - [SQL Patterns](/reference/sql-patterns) — view and function conventions
 - [FraiseQL for Python Teams](/use-cases/python-teams) — decorator patterns, REST annotations, SpecQL
 - [Your First API](/getting-started/first-api) — full tutorial

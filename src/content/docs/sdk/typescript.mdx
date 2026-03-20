@@ -8,7 +8,7 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 The FraiseQL TypeScript SDK is a **compile-time schema authoring SDK**: you define GraphQL types, queries, and mutations in TypeScript using decorators, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views. **There is no runtime FFI** — decorators output JSON only. Function bodies are never executed.
 
 <Aside type="note">
-This is a compile-time schema authoring SDK, not a GraphQL client. See [SDK Design Philosophy](/concepts/sdk-design) for how the compile→run model works.
+This is a compile-time schema authoring SDK, not a GraphQL client. See [SDK Overview](/sdk) for how the compile→run model works.
 </Aside>
 
 ## Installation
@@ -410,91 +410,11 @@ const SearchResult = union('SearchResult', ['User', 'Post', 'Comment'], {
 
 ---
 
-## Complete Schema Example
+## Complete example
 
-A blog API schema using only verified FraiseQL TypeScript APIs:
+For a complete blog API schema combining all the patterns above, see the [fraiseql-starter-blog](https://github.com/fraiseql/fraiseql-starter-blog) repository. To export the compiled schema:
 
-```typescript title="schema.ts"
-import {
-  Type, registerTypeFields,
-  input,
-  registerQuery, registerMutation,
-  exportSchema,
-} from 'fraiseql';
-
-// --- Types ---
-
-@Type({ description: 'A registered user' })
-class User {}
-registerTypeFields('User', [
-  { name: 'id',        type: 'ID',       nullable: false },
-  { name: 'username',  type: 'String',   nullable: false },
-  { name: 'email',     type: 'Email',    nullable: false },
-  { name: 'bio',       type: 'String',   nullable: true  },
-  { name: 'createdAt', type: 'DateTime', nullable: false },
-]);
-
-@Type({ description: 'A blog post' })
-class Post {}
-registerTypeFields('Post', [
-  { name: 'id',          type: 'ID',       nullable: false },
-  { name: 'title',       type: 'String',   nullable: false },
-  { name: 'slug',        type: 'Slug',     nullable: false },
-  { name: 'content',     type: 'String',   nullable: false },
-  { name: 'isPublished', type: 'Boolean',  nullable: false },
-  { name: 'createdAt',   type: 'DateTime', nullable: false },
-  { name: 'author',      type: 'User',     nullable: false },
-]);
-
-@Type({ description: 'A comment on a post' })
-class Comment {}
-registerTypeFields('Comment', [
-  { name: 'id',        type: 'ID',       nullable: false },
-  { name: 'content',   type: 'String',   nullable: false },
-  { name: 'createdAt', type: 'DateTime', nullable: false },
-  { name: 'author',    type: 'User',     nullable: false },
-]);
-
-// --- Inputs ---
-
-input('CreatePostInput', [
-  { name: 'title',       type: 'String',  nullable: false },
-  { name: 'content',     type: 'String',  nullable: false },
-  { name: 'isPublished', type: 'Boolean', nullable: false, default: false },
-], { description: 'Input for creating a new blog post' });
-
-input('CreateCommentInput', [
-  { name: 'postId',  type: 'ID',     nullable: false },
-  { name: 'content', type: 'String', nullable: false },
-], { description: 'Input for adding a comment to a post' });
-
-// --- Queries ---
-
-registerQuery('posts', 'Post', true, false, [
-  { name: 'isPublished', type: 'Boolean', nullable: true },
-  { name: 'limit',       type: 'Int',     nullable: false, default: 20 },
-], 'Fetch posts filtered by published status', { sqlSource: 'v_post' });
-
-registerQuery('post', 'Post', false, true, [
-  { name: 'id', type: 'ID', nullable: false },
-], 'Fetch a single post by ID', { sqlSource: 'v_post' });
-
-// --- Mutations ---
-
-registerMutation('createPost', 'Post', false, false, [
-  { name: 'input', type: 'CreatePostInput', nullable: false },
-], 'Create a new blog post', { sqlSource: 'fn_create_post', operation: 'CREATE' });
-
-registerMutation('createComment', 'Comment', false, false, [
-  { name: 'input', type: 'CreateCommentInput', nullable: false },
-], 'Add a comment to a post', { sqlSource: 'fn_create_comment', operation: 'CREATE' });
-
-registerMutation('publishPost', 'Post', false, false, [
-  { name: 'id', type: 'ID', nullable: false },
-], 'Publish a draft post', { sqlSource: 'fn_publish_post', operation: 'UPDATE' });
-
-// --- Export ---
-
+```typescript
 exportSchema('schema.json');
 ```
 
@@ -609,7 +529,7 @@ Path parameters in `restPath` (e.g., `{id}`) must match function parameter names
 
 ## Next Steps
 
-- [SDK Design Philosophy](/concepts/sdk-design) — how compile-time authoring works
+- [SDK Overview](/sdk) — how compile-time authoring works
 - [SQL Patterns](/reference/sql-patterns) — view and function conventions
 - [Your First API](/getting-started/first-api) — full tutorial
 - [All SDKs](/sdk) — compare languages

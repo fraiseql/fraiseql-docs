@@ -8,7 +8,7 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 The `fraiseql-rust` crate provides **authorization and RBAC configuration utilities** for FraiseQL schemas. It gives you type-safe, fluent builders for defining custom authorization rules, role-based access control, and named authorization policies.
 
 <Aside type="note">
-`fraiseql-rust` is an authorization library, not a schema authoring DSL. Schema authoring is done via the other SDKs — see [SDK Design Philosophy](/concepts/sdk-design). Also includes `fraiseql-client`, an async HTTP client for consuming FraiseQL APIs.
+`fraiseql-rust` is an authorization library, not a schema authoring DSL. Schema authoring is done via the other SDKs — see [SDK Overview](/sdk). Also includes `fraiseql-client`, an async HTTP client for consuming FraiseQL APIs.
 </Aside>
 
 ## Installation
@@ -275,52 +275,9 @@ let map = config.to_map();
 
 ---
 
-## Complete Example
+## Complete example
 
-```rust
-use fraiseql_rust::{
-    AuthorizeBuilder, RoleRequiredBuilder, AuthzPolicyBuilder,
-    RoleMatchStrategy, AuthzPolicyType,
-    Field, SchemaRegistry, validate_scope,
-};
-
-fn build_auth_config() {
-    // Custom authorization rule
-    let ownership_check = AuthorizeBuilder::new()
-        .rule("isOwner($context.userId, $resource.ownerId)")
-        .description("Ownership validation")
-        .error_message("You do not own this resource")
-        .operations("update,delete")
-        .cacheable(true)
-        .build();
-
-    // Role-based requirement
-    let admin_access = RoleRequiredBuilder::new()
-        .roles(vec!["admin"])
-        .strategy(RoleMatchStrategy::Any)
-        .description("Administrator access only")
-        .build();
-
-    // Named reusable policy
-    let pii_policy = AuthzPolicyBuilder::new("piiAccess")
-        .policy_type(AuthzPolicyType::Rbac)
-        .rule("hasRole($context, 'data_manager')")
-        .audit_logging(true)
-        .build();
-
-    // Field-level scope registry
-    let mut registry = SchemaRegistry::new();
-    registry.register_type("User", vec![
-        Field::new("id", "ID").with_nullable(false),
-        Field::new("email", "String")
-            .with_nullable(false)
-            .with_requires_scope(Some("read:user.email".to_string())),
-    ]);
-
-    let scoped_fields = registry.extract_scoped_fields();
-    println!("Scoped fields: {:?}", scoped_fields);
-}
-```
+For a complete example combining authorization, schema registry, and field-level scoping, see the [fraiseql-starter-blog](https://github.com/fraiseql/fraiseql-starter-blog) repository.
 
 ---
 
@@ -484,7 +441,7 @@ let tensor = client.fetch_embeddings(
 
 ## Next Steps
 
-- [SDK Design Philosophy](/concepts/sdk-design) — how compile-time authoring works
+- [SDK Overview](/sdk) — how compile-time authoring works
 - [SQL Patterns](/reference/sql-patterns) — view and function conventions
 - [Security](/features/security) — authentication, RBAC, field-level scopes
 - [All SDKs](/sdk) — compare languages
