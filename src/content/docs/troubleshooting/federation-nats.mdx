@@ -9,6 +9,102 @@ import { Tabs, TabItem, CardGrid, Card, Aside } from '@astrojs/starlight/compone
 
 This guide covers solutions for common issues when using FraiseQL's federation and NATS capabilities.
 
+## Gateway Troubleshooting
+
+### Subgraph unreachable
+
+**Symptoms**: `GatewayError: Failed to fetch SDL from subgraph 'orders'` at startup, or circuit breaker opening during operation.
+
+**Causes**:
+- Subgraph not running or not reachable from the gateway host
+- Wrong URL in `gateway.toml`
+- Network/firewall issue
+
+**Solutions**:
+
+```bash
+# 1. Verify subgraph is reachable from the gateway host
+curl http://order-service:4002/health
+
+# 2. Check gateway.toml subgraph URLs
+cat gateway.toml | grep url
+
+# 3. Test the GraphQL endpoint directly
+curl http://order-service:4002/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ _service { sdl } }"}'
+```
+
+### Type ownership conflicts
+
+**Symptoms**: `GatewayError: Type 'User' is defined in multiple subgraphs: users, orders`
+
+**Causes**: The same type name appears in multiple subgraphs. The built-in gateway requires each type to be owned by exactly one subgraph.
+
+**Solutions**: Ensure each type is defined in only one subgraph. If both services need a `User` type, have the non-owning service reference it via `@key` entity resolution instead of redefining it.
+
+### Entity resolution timeouts
+
+**Symptoms**: Queries that span multiple subgraphs time out or return partial results.
+
+**Solutions**:
+
+```toml title="gateway.toml"
+# Increase circuit breaker recovery window
+[gateway.circuit_breaker]
+failure_threshold = 10
+recovery_timeout_secs = 60
+```
+
+```bash
+# Check subgraph latency for _entities queries
+curl -w "@curl-format.txt" http://order-service:4002/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ _entities(representations: [{__typename: \"Order\", id: \"...\"}]) { id } }"}'
+```
+
+---
+
+## Invalid SDL from \_service Introspection
+
+<Aside type="caution">
+**Known issue** ([#120](https://github.com/fraiseql/fraiseql/issues/120)):
+The SDL returned by the `_service { sdl }` introspection endpoint may contain
+invalid GraphQL syntax (Python type names, duplicate fields, missing root types).
+This prevents `rover supergraph compose` from working without post-processing.
+</Aside>
+
+### Symptoms
+
+```
+ERROR: INVALID_GRAPHQL
+  subgraph "my-service" SDL is not valid GraphQL
+```
+
+The SDL contains issues like:
+- `str` instead of `String`, `int` instead of `Int`
+- `'Order' | None` instead of `Order`
+- Duplicate fields in generated `WhereInput` types
+
+### Workaround
+
+Use `fraiseql compile --sdl` to export the schema as SDL directly from the compiler (bypasses the runtime endpoint):
+
+```bash
+fraiseql compile schema.py --sdl > subgraph.graphql
+```
+
+Alternatively, use `__schema` introspection instead of `_service { sdl }`:
+
+```bash
+curl localhost:4001/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ __schema { types { name fields { name type { name kind ofType { name } } } } } }"}' \
+  | jq > schema-introspection.json
+```
+
+---
+
 ## Federation Issues
 
 ### Connection Issues

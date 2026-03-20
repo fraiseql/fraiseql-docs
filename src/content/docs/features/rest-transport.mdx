@@ -549,8 +549,17 @@ For large result sets, request Newline-Delimited JSON:
 
 ```bash
 curl -H "Accept: application/x-ndjson" \
-  https://api.example.com/rest/v1/events?limit=10000
+  https://api.example.com/rest/v1/events?limit=100000
 ```
+
+Response (chunked transfer encoding):
+```
+{"id":"...","type":"click","timestamp":"2026-03-20T08:00:00Z"}
+{"id":"...","type":"view","timestamp":"2026-03-20T08:00:01Z"}
+...
+```
+
+The server streams rows in batches using a database cursor (`FETCH FORWARD N` in a transaction). Memory usage is constant regardless of result set size — only one batch is buffered at a time.
 
 Returns one JSON object per line with `Content-Type: application/x-ndjson`. No envelope — each line is a standalone JSON object. Pagination parameters (`offset`, `first`/`after`) and `Prefer: count=exact` are not compatible with NDJSON streaming.
 
@@ -567,11 +576,23 @@ curl -X POST https://api.example.com/rest/v1/orders \
 
 - Same key + same body → replays the stored response (no duplicate creation)
 - Same key + different body → 422 `IDEMPOTENCY_CONFLICT`
-- Keys expire after 24 hours (configurable via `idempotency_ttl_seconds` in `RestConfig`)
+- Keys expire after 24 hours by default. Configure via `idempotency_ttl_seconds` in `[fraiseql.rest]`:
+  ```toml
+  [fraiseql.rest]
+  idempotency_ttl_seconds = 43200  # 12 hours
+  ```
 - Only applies to POST mutations (Insert + custom actions). PUT and DELETE are naturally idempotent.
 
-<Aside type="caution">
-The idempotency store is currently in-memory only — keys are not shared across replicas. In multi-replica deployments, clients should pin to a single replica or accept that idempotency is per-instance.
+### Storage Backends
+
+**In-memory (default)**: Idempotency keys are stored in a per-process `DashMap` with TTL expiry. Suitable for single-replica deployments or when clients use sticky sessions.
+
+**Redis (multi-replica)**: When the `redis-apq` or `redis-rate-limiting` Cargo feature is enabled and `REDIS_URL` is set, idempotency keys are automatically stored in Redis. Key format: `fraiseql:idempotency:{key}:{mutation_name}`.
+
+If Redis is configured but unavailable, the server falls back to in-memory storage (fail-open) and logs a warning.
+
+<Aside type="note">
+For multi-replica deployments, enable the `redis-apq` Cargo feature and set `REDIS_URL` to share idempotency state across replicas. Without Redis, idempotency is per-process only.
 </Aside>
 
 ## HTTP Caching
@@ -583,7 +604,39 @@ GET responses include `Cache-Control` and `Vary` headers:
 - **Mutations**: `Cache-Control: no-store`
 - **Vary**: `Authorization, Accept, Prefer` (always included on GETs)
 
-Per-query cache TTL can be set via `cache_ttl_seconds` in `fraiseql.config()`. The default TTL is 60 seconds.
+Per-query cache TTL can be set via `cache_ttl_seconds` in `fraiseql.config()`. The default TTL is configurable via `default_cache_ttl` in `[fraiseql.rest]` (default: 60 seconds).
+
+```toml
+[fraiseql.rest]
+default_cache_ttl = 120  # 2-minute max-age on GET responses
+```
+
+### CDN Integration
+
+Set `cdn_max_age` to add an `s-maxage` directive to `Cache-Control` headers on public GET responses. This tells CDN proxies (Cloudflare, Fastly, CloudFront) to cache for a different duration than browsers.
+
+```toml
+[fraiseql.rest]
+default_cache_ttl = 60    # Browser cache: 1 minute
+cdn_max_age = 300          # CDN cache: 5 minutes
+```
+
+Response header:
+```
+Cache-Control: public, max-age=60, s-maxage=300
+Vary: Authorization, Accept, Prefer
+```
+
+When `cdn_max_age` is not set, no `s-maxage` directive is included. Mutations always return `Cache-Control: no-store` regardless of config.
+
+### Bulk Operation Limits
+
+Limit the number of rows affected by bulk PATCH/DELETE operations:
+
+```toml
+[fraiseql.rest]
+max_bulk_affected = 500  # Limit bulk DELETE/PATCH to 500 rows
+```
 
 ## Coming Soon
 
@@ -592,6 +645,5 @@ The following features are in progress:
 - **SSE streaming**: `GET /rest/v1/{resource}/stream` for real-time event streams via Server-Sent Events
 - **Full-text search**: `?search=term` using PostgreSQL `tsvector` with relevance ranking
 - **`Prefer: handling=strict`/`lenient`**: strict mode rejects unknown parameters; lenient ignores them
-- **CDN integration**: `s-maxage` header for shared cache TTL
 
 See [REST vs GraphQL](/guides/rest-vs-graphql) for guidance on when to expose operations via REST, GraphQL, or both. See [REST API Reference](/reference/rest-api) for the full endpoint reference.

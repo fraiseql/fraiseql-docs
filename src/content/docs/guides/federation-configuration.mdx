@@ -5,7 +5,7 @@ description: Configure each FraiseQL service as an Apollo Federation v2 subgraph
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
-FraiseQL federation means running **multiple independent FraiseQL services**, each with its own database and compiled schema, composed into a supergraph by Apollo Router. This guide covers the `fraiseql.toml` configuration for each service and the Apollo Router setup that connects them.
+FraiseQL federation means running **multiple independent FraiseQL services**, each with its own database and compiled schema, composed into a supergraph by a gateway. This guide covers the `fraiseql.toml` configuration for each service, the built-in `fraiseql gateway`, and the Apollo Router setup.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ FraiseQL federation means running **multiple independent FraiseQL services**, ea
 Client
   │
   ▼
-Apollo Router :4000     ← single entry point, routes queries to subgraphs
+Gateway :4000              ← fraiseql gateway or Apollo Router
   │         │
   ▼         ▼
 User        Order
@@ -21,7 +21,7 @@ Service     Service
 :4001       :4002
   │           │
   ▼           ▼
-PostgreSQL  PostgreSQL  ← each service has its own database
+PostgreSQL  PostgreSQL     ← each service has its own database
 (users)     (orders)
 ```
 
@@ -270,7 +270,36 @@ export STATE_ENCRYPTION_KEY=$(openssl rand -base64 32)
 
 ---
 
-## Apollo Router Configuration
+## Gateway Configuration
+
+FraiseQL offers two gateway options. For FraiseQL-only subgraphs, the built-in gateway is the simplest option. For mixed subgraphs, use Apollo Router.
+
+### Built-in Gateway (`gateway.toml`)
+
+```toml title="gateway.toml"
+[gateway]
+port = 4000
+
+[[gateway.subgraphs]]
+name = "users"
+url = "http://user-service:4001/graphql"
+
+[[gateway.subgraphs]]
+name = "orders"
+url = "http://order-service:4002/graphql"
+
+[gateway.circuit_breaker]
+failure_threshold = 5
+recovery_timeout_secs = 30
+```
+
+```bash
+fraiseql gateway --config gateway.toml
+```
+
+See [Federation Gateway Guide](/guides/federation-gateway) for the full configuration reference.
+
+### Apollo Router Configuration
 
 The Apollo Router connects to each FraiseQL subgraph by URL. It does not read `fraiseql.toml` files — it communicates with the running Rust runtime processes.
 
@@ -297,6 +326,10 @@ The `headers.all.request` block forwards the client's JWT to all subgraphs. This
 </Aside>
 
 ### Composing the Supergraph
+
+<Aside type="caution">
+The runtime `_service { sdl }` endpoint has a known issue with invalid GraphQL syntax ([#120](https://github.com/fraiseql/fraiseql/issues/120)). Use `fraiseql compile --sdl` for reliable SDL export until this is fixed. See [Troubleshooting](/troubleshooting/federation-nats#invalid-sdl-from-_service-introspection).
+</Aside>
 
 Use the Rover CLI to compose subgraph schemas into a supergraph:
 

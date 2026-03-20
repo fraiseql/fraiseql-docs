@@ -1,0 +1,162 @@
+---
+title: AuthoringIR Format
+description: Reference for the schema.json intermediate representation between SDK schema definitions and the FraiseQL compiler
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The AuthoringIR is the intermediate representation between SDK schema definitions and the FraiseQL compiler. SDKs generate `schema.json` in this format; the compiler reads it to produce compiled views, SQL migrations, and runtime artifacts.
+
+```
+SDK (Python/TypeScript/Go/...) → schema.json (AuthoringIR) → fraiseql compile → compiled output
+```
+
+Most users never edit `schema.json` directly — the SDK generates it. This reference is for:
+- Building custom code generators targeting FraiseQL
+- Debugging compilation errors
+- Understanding what the SDK produces
+
+## Top-Level Structure
+
+```json
+{
+  "version": "2.1",
+  "project": { "name": "my_app" },
+  "types": [ ... ],
+  "queries": [ ... ],
+  "mutations": [ ... ]
+}
+```
+
+## Type Definitions
+
+### Scalar References
+
+Type references use **bare type names**. Nullability is controlled by a separate `nullable` field, **not** by a `!` suffix.
+
+```json
+// ✅ Correct
+{ "name": "id", "type": "ID", "nullable": false }
+{ "name": "email", "type": "String", "nullable": true }
+
+// ❌ Wrong — compiler error: "references unknown type 'ID!'"
+{ "name": "id", "type": "ID!" }
+
+// ❌ Wrong — compiler error: "references unknown type 'String!'"
+{ "name": "email", "type": "String!" }
+```
+
+### Available Scalar Types
+
+| AuthoringIR type | GraphQL type | PostgreSQL type |
+|-----------------|-------------|----------------|
+| `ID` | `ID` | `UUID` |
+| `String` | `String` | `TEXT` |
+| `Int` | `Int` | `INTEGER` |
+| `BigInt` | `BigInt` | `BIGINT` |
+| `Float` | `Float` | `DOUBLE PRECISION` |
+| `Boolean` | `Boolean` | `BOOLEAN` |
+| `DateTime` | `DateTime` | `TIMESTAMPTZ` |
+| `JSON` | `JSON` | `JSONB` |
+| `Date` | `Date` | `DATE` |
+| `Time` | `Time` | `TIME` |
+| `Decimal` | `Decimal` | `NUMERIC` |
+
+Plus all semantic scalars (Email, IBAN, Money, etc.) — see [Semantic Scalars](/reference/semantic-scalars).
+
+### List Types
+
+```json
+// List of strings (nullable list, non-null elements)
+{ "name": "tags", "type": "String", "list": true, "nullable": true }
+
+// Non-null list of non-null IDs
+{ "name": "ids", "type": "ID", "list": true, "nullable": false }
+```
+
+### Object References
+
+Reference custom types by name (must match a type defined in the `types` array):
+
+```json
+{ "name": "address", "type": "Address", "nullable": true }
+```
+
+## Query Definitions
+
+```json
+{
+  "name": "posts",
+  "sql_source": "v_post",
+  "return_type": "Post",
+  "return_list": true,
+  "arguments": [
+    { "name": "limit", "type": "Int", "nullable": true, "default": 10 },
+    { "name": "offset", "type": "Int", "nullable": true, "default": 0 }
+  ],
+  "rest": {
+    "path": "/posts",
+    "method": "GET"
+  },
+  "grpc": {
+    "service": "PostService",
+    "method": "ListPosts"
+  }
+}
+```
+
+## Mutation Definitions
+
+```json
+{
+  "name": "create_post",
+  "sql_source": "create_post",
+  "operation": "CREATE",
+  "return_type": "Post",
+  "arguments": [
+    { "name": "title", "type": "String", "nullable": false },
+    { "name": "author_id", "type": "ID", "nullable": false }
+  ],
+  "rest": {
+    "path": "/posts",
+    "method": "POST"
+  }
+}
+```
+
+## inject_params
+
+```json
+{
+  "name": "orders",
+  "sql_source": "v_order",
+  "return_type": "Order",
+  "return_list": true,
+  "inject_params": {
+    "tenant_id": "jwt.tenant_id"
+  },
+  "arguments": [ ]
+}
+```
+
+## Common Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `references unknown type 'ID!'` | `!` suffix in type field | Use `"nullable": false` instead |
+| `references unknown type 'String!'` | `!` suffix in type field | Use `"nullable": false` instead |
+| `duplicate field 'eq' in WhereInput` | Duplicate argument names | Remove duplicate argument definitions |
+
+## Generating schema.json
+
+Each SDK has a compile command that produces `schema.json`:
+
+```bash
+# Python
+fraiseql compile schema.py -o schema.json
+
+# TypeScript
+fraiseql compile schema.ts -o schema.json
+```
+
+Or use a custom code generator — any tool that produces valid AuthoringIR JSON is a valid FraiseQL schema source. See also [SpecQL](https://github.com/fraiseql/specql) for TOML-first schema authoring.

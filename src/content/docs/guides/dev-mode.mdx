@@ -1,0 +1,82 @@
+---
+title: Dev Mode
+description: Bypass JWT requirements during local development with default claims injection
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+:::caution
+Dev mode bypasses authentication checks. Never enable in production.
+:::
+
+## The Problem
+
+When a schema uses `inject_params` (e.g., `tenant_id` from JWT), all queries fail locally without a valid JWT. This blocks local iteration, testing, and introspection — you need JWT infrastructure just to run a simple query.
+
+## Enabling Dev Mode
+
+### Via TOML
+
+```toml title="fraiseql.toml"
+[dev]
+enabled = true
+default_claims = { tenant_id = "dev-tenant", sub = "dev-user" }
+```
+
+### Via CLI flag
+
+```bash
+fraiseql run --dev-claims '{"tenant_id": "dev-tenant", "sub": "dev-user"}'
+```
+
+### Via environment variable
+
+```bash
+FRAISEQL_ENV=development fraiseql run
+```
+
+When using the environment variable, set default claims separately:
+
+```bash
+FRAISEQL_ENV=development \
+FRAISEQL_DEV_CLAIMS='{"tenant_id": "dev-tenant", "sub": "dev-user"}' \
+fraiseql run
+```
+
+## How It Works
+
+- When `[dev].enabled = true` and no JWT is present in the request, FraiseQL constructs a `SecurityContext` from `default_claims`
+- When a valid JWT **is** present, it takes precedence — dev defaults are ignored
+- `inject_params` resolve normally against the synthesized claims
+
+## Precedence
+
+1. Valid JWT in request → real claims used (always)
+2. No JWT + dev mode enabled → `default_claims` used
+3. No JWT + dev mode disabled → validation error (production behavior)
+
+## Docker Compose Example
+
+```yaml title="docker-compose.yml"
+services:
+  fraiseql:
+    image: ghcr.io/fraiseql/server:latest
+    environment:
+      DATABASE_URL: postgresql://postgres:password@db:5432/mydb
+      FRAISEQL_ENV: development
+      FRAISEQL_DEV_CLAIMS: '{"tenant_id": "dev-tenant", "sub": "dev-user"}'
+    ports:
+      - "8080:8080"
+```
+
+## Security Guardrails
+
+- The server logs a **WARNING** on startup when dev mode is active
+- The `/health` endpoint includes `"dev_mode": true` when enabled
+- `FRAISEQL_ENV=production` explicitly disables dev mode regardless of TOML settings
+
+## When NOT to Use Dev Mode
+
+- **Staging environments** — use real JWT infrastructure instead
+- **CI pipelines testing auth flows** — test against real auth to catch regressions
+- **Any environment accessible outside localhost**

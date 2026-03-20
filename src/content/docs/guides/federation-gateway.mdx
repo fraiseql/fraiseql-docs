@@ -1,0 +1,225 @@
+---
+title: Federation Gateway
+description: Run fraiseql gateway to federate multiple FraiseQL subgraphs without Apollo Router
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+:::caution[Beta feature]
+The built-in federation gateway is available as a beta feature. Core routing and entity resolution work today. Advanced features (subscription forwarding, `@requires` pre-fetching) are planned for future releases.
+:::
+
+## When to Use the Built-in Gateway
+
+The `fraiseql gateway` command federates multiple FraiseQL subgraphs into a single endpoint without Apollo Router.
+
+| | Built-in Gateway | Apollo Router |
+|---|---|---|
+| **Best for** | FraiseQL-only subgraphs | Mixed subgraphs (FraiseQL + non-FraiseQL) |
+| **Dependencies** | None — single `fraiseql` binary | Separate binary + Rover CLI |
+| **Query planning** | Type-level routing (HashMap) | Field-level routing (query planner) |
+| **`@shareable` fields** | Not supported | Supported |
+| **`@requires` / `@provides`** | Not supported | Supported |
+| **Subscriptions** | Not forwarded (use direct subgraph WebSocket) | Supported |
+
+Use the built-in gateway when:
+- All subgraphs are FraiseQL services
+- Each type is fully owned by one subgraph (no `@shareable` fields)
+- You want zero external dependencies
+
+Use Apollo Router when:
+- You have non-FraiseQL subgraphs (Node.js, Java, etc.)
+- You need field-level splitting or `@requires` / `@provides`
+
+## Architecture
+
+```
+Client
+  │
+  ▼
+fraiseql gateway :4000     ← type-level routing, entity resolution
+  │         │
+  ▼         ▼
+User        Order
+Service     Service
+:4001       :4002
+  │           │
+  ▼           ▼
+PostgreSQL  PostgreSQL
+(users)     (orders)
+```
+
+FraiseQL's CQRS architecture makes query planning simple: each type is a single JSONB view owned by exactly one subgraph. The gateway routes at the **type level** (a HashMap lookup), not the field level. This eliminates the complexity of general-purpose query planners.
+
+## Quick Start
+
+1. **Start two FraiseQL subgraphs with federation enabled:**
+
+```bash
+# Terminal 1: User service
+cd user-service && fraiseql run --port 4001
+
+# Terminal 2: Order service
+cd order-service && fraiseql run --port 4002
+```
+
+2. **Create `gateway.toml`:**
+
+```toml title="gateway.toml"
+[gateway]
+port = 4000
+bind = "0.0.0.0"
+
+[[gateway.subgraphs]]
+name = "users"
+url = "http://localhost:4001/graphql"
+
+[[gateway.subgraphs]]
+name = "orders"
+url = "http://localhost:4002/graphql"
+```
+
+3. **Start the gateway:**
+
+```bash
+fraiseql gateway --config gateway.toml
+```
+
+4. **Query the gateway:**
+
+```bash
+curl http://localhost:4000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ users(limit: 5) { id name } }"}'
+```
+
+## Configuration Reference (`gateway.toml`)
+
+The gateway uses a **separate** config file from `fraiseql.toml`.
+
+### `[gateway]`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `port` | integer | `4000` | Gateway listen port |
+| `bind` | string | `"0.0.0.0"` | Bind address |
+
+### `[[gateway.subgraphs]]`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | required | Subgraph identifier |
+| `url` | string | required | Subgraph GraphQL endpoint URL |
+
+### `[gateway.circuit_breaker]`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `failure_threshold` | integer | `5` | Failures before circuit opens |
+| `recovery_timeout_secs` | integer | `30` | Seconds before half-open retry |
+
+### `[gateway.cache]`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `sdl_ttl_secs` | integer | `300` | Cache subgraph SDL for this duration |
+| `query_plan_cache_size` | integer | `1000` | Max cached query plans |
+
+## How Query Routing Works
+
+1. Parse incoming GraphQL query
+2. Look up owning subgraph for each root type (type → subgraph map built from SDL introspection at startup)
+3. Fan out per-subgraph queries in parallel
+4. Collect responses
+5. Scan for `@key` UUID references to other subgraphs
+6. Batch `_entities` calls to resolve cross-subgraph references
+7. Stitch into final response
+
+The type → subgraph map is a `HashMap<TypeName, SubgraphUrl>`. For FraiseQL services where each type is owned by exactly one subgraph, this is all the query planner needs.
+
+## Cross-Subgraph References
+
+When a type in one subgraph references an entity in another (e.g., `Order.user_id` → `User.id`), the gateway uses `_entities` batching:
+
+```graphql
+# Client sends:
+query {
+  orders(limit: 10) {
+    id
+    total
+    user { id name email }
+  }
+}
+
+# Gateway:
+# 1. Fetch orders from order-service → gets user_id UUIDs
+# 2. Batch _entities call to user-service:
+#    query { _entities(representations: [{__typename: "User", id: "..."}]) { id name email } }
+# 3. Stitch user objects into order responses
+```
+
+The gateway reuses `HttpEntityResolver` for entity resolution — the same component FraiseQL subgraphs use internally, with SSRF protection, retry, circuit breaker, and request deduplication.
+
+## Distributed Tracing
+
+The gateway propagates W3C TraceContext headers (`traceparent`, `tracestate`) to all subgraph requests. Gateway spans appear as parent spans in your tracing backend (Jaeger, Grafana Tempo, etc.).
+
+Configure tracing on the gateway via environment variables:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 \
+OTEL_SERVICE_NAME=fraiseql-gateway \
+fraiseql gateway --config gateway.toml
+```
+
+## Limitations
+
+- **No field-level splitting**: `@shareable` fields across subgraphs are not supported. Each type must be fully owned by one subgraph.
+- **No `@requires` / `@provides`**: Pre-fetching fields from another subgraph before resolving a local field is not implemented.
+- **No subscription forwarding**: Use direct WebSocket connections to individual subgraph URLs for subscriptions.
+- **FraiseQL-only**: Mixed subgraphs (FraiseQL + non-FraiseQL) require Apollo Router.
+
+## Migration from Apollo Router
+
+If you currently use Apollo Router with FraiseQL-only subgraphs:
+
+<Tabs>
+<TabItem label="Apollo Router">
+```yaml title="supergraph.yaml"
+federation_version: =2.4.0
+subgraphs:
+  users:
+    routing_url: http://user-service:4001/graphql
+    schema:
+      subgraph_url: http://user-service:4001/graphql
+  orders:
+    routing_url: http://order-service:4002/graphql
+    schema:
+      subgraph_url: http://order-service:4002/graphql
+```
+</TabItem>
+<TabItem label="FraiseQL Gateway">
+```toml title="gateway.toml"
+[gateway]
+port = 4000
+
+[[gateway.subgraphs]]
+name = "users"
+url = "http://user-service:4001/graphql"
+
+[[gateway.subgraphs]]
+name = "orders"
+url = "http://order-service:4002/graphql"
+```
+</TabItem>
+</Tabs>
+
+What changes:
+- Replace `supergraph.yaml` + `router.yaml` with a single `gateway.toml`
+- Replace `rover supergraph compose` + `router` commands with `fraiseql gateway`
+- No `supergraph.graphql` artifact needed — the gateway introspects subgraphs at startup
+
+What stays the same:
+- Per-service `fraiseql.toml` and schemas — no changes needed
+- JWT forwarding — the gateway passes `Authorization` headers to all subgraphs
+- Circuit breaker behavior

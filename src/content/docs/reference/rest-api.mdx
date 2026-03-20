@@ -357,7 +357,11 @@ Embedding supports rename (`author:fk_user(id,name)`) and count (`posts.count`).
 | `Accept` | `application/json` (default) or `application/x-ndjson` for streaming |
 | `Prefer` | Request preferences (see below) |
 | `If-None-Match` | ETag value for conditional requests (returns 304 if unchanged) |
-| `Idempotency-Key` | UUID for idempotent POST mutations (replays stored response on retry) |
+| `Idempotency-Key` | UUID for idempotent POST mutations (replays stored response on retry). See below. |
+
+<Aside type="note">
+For multi-replica deployments, enable the `redis-apq` Cargo feature and set `REDIS_URL` to share idempotency state across replicas. Without Redis, idempotency is per-process only.
+</Aside>
 
 ### Prefer Header
 

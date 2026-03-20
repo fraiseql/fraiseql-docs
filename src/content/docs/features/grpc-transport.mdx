@@ -13,25 +13,20 @@ Requires the `grpc-transport` Cargo feature.
 The `grpc-transport` Cargo feature is not included in the default `ghcr.io/fraiseql/server:latest` Docker image. To use gRPC, either use the full image (`ghcr.io/fraiseql/server-full:latest` which includes all optional features), or build from source with `cargo build --release --features grpc-transport`. See [GitHub issue #80](https://github.com/fraiseql/fraiseql/issues/80) for tracking.
 </Aside>
 
-## The Performance Story
+## Transport-Aware View Compilation
 
-The GraphQL and REST paths ask PostgreSQL to produce JSON:
+The compiler generates the optimal view shape for each transport from the same SDK annotation:
 
-```
-GraphQL/REST path:
-  DB → json_agg → JSON text → server pass-through → JSON response
-  (JSON serialization happens in PostgreSQL)
-```
+| Transport | View shape | PostgreSQL work | Server work | Wire format |
+|-----------|-----------|-----------------|-------------|-------------|
+| GraphQL | JSON-shaped (`json_agg`, `row_to_json`) | JSON serialization | Pass-through | JSON |
+| REST | Same JSON views | JSON serialization | Unwrap + re-key | JSON |
+| gRPC | Row-shaped (typed columns) | No JSON work | Column → protobuf field | Binary protobuf |
 
-The gRPC path uses typed rows instead:
-
-```
-gRPC path:
-  DB → typed rows → server column mapping → protobuf → binary response
-  (No JSON intermediate — DB does less work, wire is smaller)
-```
-
-This is the concrete architectural difference. The compiler generates two view shapes from the same SDK annotation: a JSON-shaped view for GraphQL/REST, and a row-shaped view for gRPC.
+The gRPC path is faster end-to-end because:
+1. PostgreSQL skips `json_agg` / `row_to_json` (not free, especially for nested objects)
+2. The server never parses JSON — typed columns map directly to protobuf fields
+3. Protobuf wire format is smaller (no key names, varint integers, no string escaping)
 
 Honest framing: gRPC performance is competitive with hand-written tonic, not faster — FraiseQL's gRPC transport is built on tonic. The real win is zero handler code with near-native performance.
 
@@ -101,13 +96,17 @@ grpc_tools_node_protoc --ts_out=. schema.proto
 
 ## Type Mapping
 
-| GraphQL | Protobuf |
-|---------|----------|
-| `Int` | `int32` |
-| `Float` | `double` |
+| FraiseQL type | Protobuf type |
+|---------------|---------------|
 | `String` | `string` |
+| `Int` | `int32` |
+| `BigInt` | `int64` |
+| `Float` | `double` |
 | `Boolean` | `bool` |
 | `ID` / `UUID` | `string` |
+| `DateTime` | `google.protobuf.Timestamp` |
+| `JSON` | `google.protobuf.Struct` |
+| `Decimal` | `string` (preserves precision) |
 | `[T]` | `repeated T` |
 | nullable `T` | `optional T` |
 | Enum | `enum` |
@@ -115,9 +114,22 @@ grpc_tools_node_protoc --ts_out=. schema.proto
 
 Custom scalars not in this table are serialized as `string`.
 
-## Server Streaming
+### Nullability
 
-`@fraiseql.subscription` decorators generate gRPC server-streaming methods alongside WebSocket subscriptions. The same subscription logic powers both transports:
+GraphQL is nullable-by-default; protobuf3 uses `optional` for nullable fields. The compiler translates:
+
+```
+GraphQL: name: String     →  proto: optional string name = 1;
+GraphQL: name: String!    →  proto: string name = 1;
+```
+
+### Nested Objects
+
+Nested object fields compile to protobuf `message` types. The row-shaped view uses JOINs returning flat columns; the server reconstructs the message nesting during serialization.
+
+## Streaming RPCs
+
+Server-streaming RPCs map to the existing subscription infrastructure. `@fraiseql.subscription` decorators generate gRPC server-streaming methods alongside WebSocket subscriptions — the same subscription logic powers both transports:
 
 ```python
 @fraiseql.subscription(
@@ -129,6 +141,8 @@ def order_updated(customer_id: UUID) -> Order: ...
 ```
 
 This produces both a WebSocket subscription and a `WatchOrder` server-streaming RPC in `OrderService`.
+
+The server uses PostgreSQL `LISTEN/NOTIFY` (same as GraphQL subscriptions) to push events through the gRPC stream. Client-streaming and bidirectional streaming are not supported.
 
 ## Configuration
 
@@ -183,6 +197,22 @@ user = stub.GetUser(user_pb2.GetUserRequest(id='123'))
 ```
 </TabItem>
 </Tabs>
+
+## Design Considerations
+
+### Tonic Integration
+
+gRPC is built on [tonic](https://github.com/hyperium/tonic), which integrates with axum via shared Tower middleware. Auth, rate limiting, tracing, and all other middleware apply to gRPC requests unchanged.
+
+### Proto File Generation
+
+Generate proto files for client code generation:
+
+```bash
+fraiseql compile schema.py --output-proto ./proto/
+```
+
+The generated `.proto` reflects the exact API shape from your compiled schema — no manual proto authoring needed.
 
 ## gRPC Reflection
 

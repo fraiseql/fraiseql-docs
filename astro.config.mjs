@@ -115,6 +115,7 @@ export default defineConfig({
                 { label: 'Custom Queries', slug: 'guides/custom-queries' },
                 { label: 'Custom Resolvers', slug: 'guides/custom-resolvers' },
                 { label: 'Testing', slug: 'guides/testing' },
+                { label: 'Dev Mode', slug: 'guides/dev-mode' },
               ],
             },
             {
@@ -133,6 +134,7 @@ export default defineConfig({
               label: 'Federation & Integration',
               collapsed: true,
               items: [
+                { label: 'Federation Gateway', slug: 'guides/federation-gateway' },
                 { label: 'Multi-Database Federation', slug: 'guides/federation-configuration' },
                 { label: 'Federation & NATS', slug: 'guides/federation-nats-integration' },
                 { label: 'Advanced Federation', slug: 'guides/advanced-federation' },
@@ -252,6 +254,7 @@ export default defineConfig({
             { label: 'Validation Rules', slug: 'reference/validation-rules' },
             { label: 'Naming Conventions', slug: 'reference/naming-conventions' },
             { label: 'SQL Patterns', slug: 'reference/sql-patterns' },
+            { label: 'AuthoringIR Format', slug: 'reference/authoring-ir' },
           ],
         },
         {

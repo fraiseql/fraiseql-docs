@@ -8,13 +8,13 @@ import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/compone
 :::caution[Beta feature]
 Apollo Federation support is available in v2.0.1 as a beta feature.
 Core federation queries (`_service`, `_entities`) work in production today.
-Full compatibility with Apollo Router, federated query planning, and multi-service tracing are planned for v2.2.0 (Q1 2027). Advanced features (saga execution, `@requires` across services) should be evaluated in a staging environment before production use.
+The built-in federation gateway and full compatibility with Apollo Router are planned for v2.2.0 (Q1 2027). Advanced features (saga execution, `@requires` across services) should be evaluated in a staging environment before production use.
 :::
 
-FraiseQL supports **Apollo Federation v2**. Each FraiseQL service operates as a standalone GraphQL subgraph — its own Python schema, its own compiled Rust runtime, and its own PostgreSQL database. An Apollo Router composes the subgraphs into a single entry point for clients.
+FraiseQL supports **Apollo Federation v2**. Each FraiseQL service operates as a standalone GraphQL subgraph — its own Python schema, its own compiled Rust runtime, and its own PostgreSQL database. A gateway composes the subgraphs into a single entry point for clients.
 
 <Aside type="note">
-FraiseQL federation means running multiple independent FraiseQL services. There is no single FraiseQL process that connects to multiple databases. Each service has exactly one `[database]` section in its `fraiseql.toml`. Cross-service data access is the Apollo Router's responsibility.
+FraiseQL federation means running multiple independent FraiseQL services. Each service has exactly one `[database]` section in its `fraiseql.toml`. Cross-service data access is the gateway's responsibility — either the built-in `fraiseql gateway` or Apollo Router.
 </Aside>
 
 ## Architecture
@@ -23,7 +23,7 @@ FraiseQL federation means running multiple independent FraiseQL services. There 
 Client
   │
   ▼
-Apollo Router :4000     ← single entry point, routes and merges queries
+Gateway :4000              ← fraiseql gateway or Apollo Router
   │         │
   ▼         ▼
 User        Order
@@ -31,9 +31,21 @@ Service     Service
 :4001       :4002
   │           │
   ▼           ▼
-PostgreSQL  PostgreSQL  ← each service owns its own database
+PostgreSQL  PostgreSQL     ← each service owns its own database
 (users)     (orders)
 ```
+
+## Gateway Options
+
+### Built-in Gateway (recommended for FraiseQL-only setups)
+
+FraiseQL includes a lightweight federation gateway (`fraiseql gateway`) optimized for CQRS architectures where each type is fully owned by one subgraph. No external dependencies required — type-level routing via a simple HashMap lookup.
+
+See [Federation Gateway Guide](/guides/federation-gateway) for setup.
+
+### Apollo Router (mixed subgraphs)
+
+When federating FraiseQL subgraphs with non-FraiseQL services (e.g., a Node.js subgraph alongside FraiseQL subgraphs), use Apollo Router as the gateway. Apollo Router supports field-level query planning, `@shareable`, `@requires`, and `@provides`.
 
 Each FraiseQL service is fully standalone:
 - Its own `fraiseql.toml` with a single `[database]` section
@@ -333,6 +345,9 @@ Apollo Federation with FraiseQL has these limitations:
 ## Next Steps
 
 <CardGrid>
+  <Card title="Federation Gateway" icon="rocket">
+    [Federation Gateway](/guides/federation-gateway) — Built-in gateway for FraiseQL-only setups
+  </Card>
   <Card title="Federation Configuration" icon="setting">
     [Federation Configuration](/guides/federation-configuration) — Full per-service TOML reference and Docker Compose example
   </Card>
@@ -341,9 +356,6 @@ Apollo Federation with FraiseQL has these limitations:
   </Card>
   <Card title="Federation + NATS" icon="random">
     [Federation + NATS Integration](/guides/federation-nats-integration) — Cross-service event routing
-  </Card>
-  <Card title="NATS Integration" icon="random">
-    [NATS Integration](/features/nats) — Durable cross-service event streaming
   </Card>
   <Card title="Observers" icon="document">
     [Observers](/guides/observers) — React to cross-service changes
