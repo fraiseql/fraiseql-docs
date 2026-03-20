@@ -41,17 +41,15 @@ Only `types`, `queries`, and `mutations` are required. All other arrays default 
 Nullability is controlled by a `nullable` boolean field. The `type` field should be a bare type name.
 
 ```json
-// ✅ Recommended — bare type name + explicit nullable
+// Recommended — bare type name + explicit nullable
 { "name": "id", "type": "ID", "nullable": false }
 { "name": "email", "type": "String", "nullable": true }
 
-// ⚠️ Accepted but deprecated — ! suffix is stripped, nullable inferred as false
+// Also valid — ! suffix is stripped and nullable is inferred as false
 { "name": "id", "type": "ID!" }
 ```
 
-<Aside type="caution">
-The `!` suffix (e.g., `"type": "ID!"`) is accepted for compatibility with GraphQL conventions: the parser strips the `!` and sets `nullable = false`. However, this form is **deprecated** and emits a warning at compile time. Always prefer the explicit `"type": "ID", "nullable": false` form. If both `!` and an explicit `nullable` field are present, the explicit `nullable` value wins.
-</Aside>
+The `!` suffix (e.g., `"type": "ID!"`) is accepted for compatibility with GraphQL conventions: the parser strips the `!` and sets `nullable = false`. If both `!` and an explicit `nullable` field are present, the explicit `nullable` value wins. The bare type name form is preferred for clarity.
 
 ### Defaults When `nullable` Is Omitted
 
@@ -332,9 +330,6 @@ Register custom scalars with optional validation:
 | `Query missing 'return_type'` | Missing `return_type` on a query | Add `"return_type"` property |
 | `duplicate field 'eq' in WhereInput` | Duplicate argument names | Remove duplicate argument definitions |
 
-<Aside type="note">
-Prior to the fix for [#121](https://github.com/fraiseql/fraiseql/issues/121), using `"type": "ID!"` produced `references unknown type 'ID!'`. This is now accepted with a deprecation warning. Use `"type": "ID", "nullable": false` to avoid the warning.
-</Aside>
 
 ## Generating schema.json
 
