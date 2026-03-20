@@ -8,7 +8,7 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 The FraiseQL PHP SDK is a **schema authoring SDK**: you define GraphQL types using PHP 8 attributes and register queries and mutations using a fluent builder API, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views.
 
 <Aside type="note">
-This is not a GraphQL client library. FraiseQL PHP lets you **define** APIs, not consume them. For consuming GraphQL APIs, use any standard GraphQL client.
+This is a compile-time schema authoring SDK, not a GraphQL client. See [SDK Design Philosophy](/concepts/sdk-design) for how the compile→run model works.
 </Aside>
 
 ## Installation
@@ -258,23 +258,7 @@ StaticAPI::query('post')
 
 ### How Arguments Become WHERE Clauses
 
-FraiseQL's **automatic-where** feature maps query arguments to SQL filters automatically:
-
-```graphql
-query {
-  posts(isPublished: true, limit: 10) { id title }
-}
-```
-
-Becomes:
-
-```sql
-SELECT data FROM v_post
-WHERE is_published = true
-LIMIT 10 OFFSET 0;
-```
-
-No resolver code required.
+Query arguments matching columns in the backing view become SQL `WHERE` clauses automatically. See [SQL Patterns → Automatic WHERE Clauses](/reference/sql-patterns#automatic-where-clauses) for details.
 
 ---
 
@@ -324,54 +308,7 @@ StaticAPI::mutation('deletePost')
 
 ### The SQL Side
 
-```sql
--- db/schema/tb_post.sql
-CREATE TABLE tb_post (
-    pk_post      BIGINT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id           UUID    DEFAULT gen_random_uuid() UNIQUE NOT NULL,
-    identifier   TEXT    UNIQUE NOT NULL,
-    title        TEXT    NOT NULL,
-    content      TEXT    NOT NULL DEFAULT '',
-    is_published BOOLEAN NOT NULL DEFAULT false,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    fk_author BIGINT NOT NULL REFERENCES tb_user(pk_user)
-);
-
--- db/schema/v_post.sql
-CREATE VIEW v_post AS
-SELECT
-    p.id,
-    jsonb_build_object(
-        'id',           p.id::text,
-        'identifier',   p.identifier,
-        'title',        p.title,
-        'content',      p.content,
-        'is_published', p.is_published,
-        'created_at',   p.created_at,
-        'updated_at',   p.updated_at
-    ) AS data
-FROM tb_post p;
-
--- db/schema/fn_create_post.sql
-CREATE FUNCTION fn_create_post(p_input jsonb)
-RETURNS mutation_response
-LANGUAGE plpgsql AS $$
-DECLARE
-    v_id UUID := gen_random_uuid();
-BEGIN
-    INSERT INTO tb_post (id, identifier, title, content, is_published)
-    VALUES (
-        v_id,
-        p_input->>'title',
-        p_input->>'title',
-        p_input->>'content',
-        (p_input->>'is_published')::boolean
-    );
-    RETURN ROW('success', NULL, v_id, 'Post', NULL, NULL, NULL, NULL)::mutation_response;
-END;
-$$;
-```
+Mutations wire to PostgreSQL functions returning `mutation_response`. Views return `(id UUID, data JSONB)`. See [SQL Patterns](/reference/sql-patterns) for complete table, view, and function templates.
 
 ---
 
@@ -498,17 +435,7 @@ StaticAPI::query('myPosts')
 
 ## Next Steps
 
-<CardGrid>
-  <Card title="Full Tutorial" icon="open-book">
-    [Build a complete blog API from scratch](/getting-started/first-api)
-  </Card>
-  <Card title="Custom Queries" icon="magnifier">
-    [Filtering, pagination, and full-text search](/guides/custom-queries)
-  </Card>
-  <Card title="Security" icon="approve-check-circle">
-    [Authentication, RBAC, and field-level scopes](/features/security)
-  </Card>
-  <Card title="Other SDKs" icon="puzzle">
-    [Python, TypeScript, Go, Java, Rust](/sdk/)
-  </Card>
-</CardGrid>
+- [SDK Design Philosophy](/concepts/sdk-design) — how compile-time authoring works
+- [SQL Patterns](/reference/sql-patterns) — view and function conventions
+- [Your First API](/getting-started/first-api) — full tutorial
+- [All SDKs](/sdk) — compare languages

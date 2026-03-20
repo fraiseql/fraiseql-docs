@@ -154,7 +154,7 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
    ```
 
    <Aside type="note">
-   The `[fraiseql.rest]` configuration section is available since rc.15. See [TOML Configuration Reference](/reference/toml-config/#fraiseqlrest) for all fields.
+   The `[fraiseql.rest]` configuration section is available since v2.1. See [TOML Configuration Reference](/reference/toml-config/#fraiseqlrest) for all fields.
    </Aside>
 
 5. **Compile and run**
@@ -264,7 +264,7 @@ If you rely heavily on PostgREST's RLS integration, review the [Authentication g
 </Aside>
 
 **The endpoint prefix changes.**
-PostgREST serves at `/` by default (or a configured prefix). FraiseQL serves REST at `/rest/v1` by default. Update your clients accordingly, or configure a custom path via `[fraiseql.rest]` `path` in `fraiseql.toml` (available since rc.15).
+PostgREST serves at `/` by default (or a configured prefix). FraiseQL serves REST at `/rest/v1` by default. Update your clients accordingly, or configure a custom path via `[fraiseql.rest]` `path` in `fraiseql.toml` (available since v2.1).
 
 **Embedding syntax differs.**
 PostgREST's `?select=*,orders(*)` embeds using foreign key detection. FraiseQL uses the same parenthesized syntax (`?select=id,orders(id,total)`) with explicit field lists. Rename syntax (`author:fk_user(id,name)`) and count syntax (`orders.count`) are also available. Maximum nesting depth is configurable via `max_embedding_depth`.

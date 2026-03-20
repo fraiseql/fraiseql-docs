@@ -5,18 +5,10 @@ description: Release notes for FraiseQL.
 
 import { LinkCard, Aside } from '@astrojs/starlight/components';
 
-## rc.15
-
-- REST transport: annotation-driven REST endpoints, OpenAPI 3.0.3 spec, JSON envelope responses, filtering, pagination, ETags
-- gRPC transport: transport-aware DB views, auto-generated `.proto`, gRPC reflection
-- See [GitHub Releases](https://github.com/fraiseql/fraiseql/releases) for full details.
-
----
-
-## Unreleased
+## v2.1 (Unreleased)
 
 <Aside type="note">
-These changes are on the `dev` branch and will be included in the next release.
+These changes are on the `dev` branch and will ship in FraiseQL v2.1.
 </Aside>
 
 ### Added
@@ -36,6 +28,64 @@ These changes are on the `dev` branch and will be included in the next release.
 
 - **`CachedDatabaseAdapter::cache.put()` argument mismatch**: Three call sites were passing 4 arguments to a 5-argument signature (missing `entity_type`), silently breaking cache writes.
 - **Entity-aware cache invalidation**: `executor.rs` now calls `invalidate_by_entity` for UPDATE/DELETE mutations when `entity_id` is present in the response, enabling precise cache eviction instead of flushing the entire view. View-level flush is still applied for CREATE mutations and when `invalidates_views` is explicitly declared.
+
+---
+
+## rc.15 (included in v2.1)
+
+**Release highlights:** Multi-transport support. FraiseQL now serves GraphQL, REST, and gRPC from a single compiled schema, on a single port.
+
+### Breaking Changes
+
+- **`[fraiseql.rest]` config**: `prefix` renamed to `path`. Update your `fraiseql.toml`:
+  ```toml
+  [fraiseql.rest]
+  path = "/rest/v1"  # was: prefix = "/rest/v1"
+  ```
+
+### Added
+
+- **REST transport**: Annotation-driven REST endpoints via `rest_path` and `rest_method` decorator parameters. JSON envelope responses with `data`, `count`, `limit`, `offset` fields. Bracket-syntax filtering (`?title=eq.Hello`, `?age=gt.18`). Embedding related resources (`?select=*,author(*)`). Bulk insert/update/upsert via `POST`/`PATCH` with arrays. ETag-based conditional requests (`If-None-Match`, `If-Match`). `Prefer: return=representation|headers-only|count=exact` header. OpenAPI 3.0.3 spec auto-generated at `/rest/v1/openapi.json`.
+- **REST direct execution**: REST queries bypass the GraphQL resolver layer entirely, executing SQL directly for lower latency. Benchmarked at ~15% fewer allocations than the GraphQL bridge path.
+- **gRPC transport**: Transport-aware database views (`rv_*` for REST, `va_*` for Arrow/gRPC) that skip JSONB serialization. Auto-generated `.proto` definitions from the compiled schema. gRPC reflection for `grpcurl` and Postman discovery. Requires `grpc-transport` Cargo feature (not in the default Docker image).
+- **11 SDK languages**: Python, TypeScript, Go, Java, C#, Rust, Elixir, F#, PHP, Ruby, Dart. All produce JSON schema for `fraiseql compile`. Python, TypeScript, Go, Java, and C# support REST transport annotations.
+- **Observer system**: `[[observers]]` TOML syntax for event-driven workflows. LISTEN/NOTIFY on table events (INSERT, UPDATE, DELETE). NATS backend support via `[observers]` singleton config. Idempotency, retry, and dead-letter patterns.
+- **Admin API**: `POST /api/v1/admin/reload-schema` for hot-reload (also via `SIGUSR1`). Cache stats, cache clear, config introspection, query explain, and Grafana dashboard export endpoints. Requires `admin_api_enabled = true` and `admin_token` in `[server]`.
+- **Health endpoint**: `GET /health` returns server status including `schema_hash` for deployment verification.
+- **APQ (Automatic Persisted Queries)**: Enabled by default. Optional Redis backend via `redis-apq` feature + `REDIS_URL`. Disable with `FRAISEQL_APQ_ENABLED=false`.
+- **Security features**: OIDC/OAuth2 authentication (env-var configured), RBAC with `requires_role` decorator parameter, field-level authorization via `requires_scope`, PKCE support, API key authentication, token revocation, trusted documents, rate limiting, state encryption, error sanitization.
+- **Caching**: View-level caching with entity-aware invalidation. Cache headers (ETag, `Cache-Control`). Configurable TTL per view.
+- **Federation**: Multi-database federation with circuit breaker. Cross-database joins via federated views.
+- **Subscriptions**: WebSocket subscriptions via `graphql-ws` protocol.
+
+### Changed
+
+- **Docker images**: Published as `ghcr.io/fraiseql/server:latest` (default) and `ghcr.io/fraiseql/server-full:latest` (includes gRPC). Also on Docker Hub as `fraiseql/server:latest`.
+- **Default port**: `8080` (bind `0.0.0.0`). CLI flags override env vars override TOML config.
+
+---
+
+## rc.14
+
+- **Confiture migration tool**: `confiture migrate` for incremental DDL migrations. Build-from-DDL, production data sync, schema-to-schema comparison.
+- **ELO validation language**: Compile-time validation rules for input types, enforced at the Rust runtime layer.
+- **Trinity Pattern**: Convention for table design — `pk_*` (internal identity), `id` (public UUID), `identifier` (human-readable unique key). Enforced by Confiture scaffolding.
+- **View composition**: `v_*` views return `(id UUID, data JSONB)` via `jsonb_build_object()`. Queries map directly to views with no resolver code.
+- **Custom scalars**: Semantic scalar types (Email, Slug, DateTime, URL, PhoneNumber, etc.) validated at the Rust runtime.
+- **Automatic WHERE clauses**: Query arguments whose names match view columns become SQL `WHERE` clauses automatically.
+- **Pagination**: Offset-based (`limit`/`offset`) and Relay cursor-based (keyset) pagination.
+- **Rich filters**: Bracket-syntax operators for equality, comparison, pattern matching, array containment, and range queries.
+
+---
+
+## rc.13
+
+- **CQRS architecture**: Separate read path (SQL views) and write path (SQL functions returning `mutation_response`). Views are the query layer; functions are the mutation layer.
+- **`fraiseql compile`**: Compile SDK schema definitions to `schema.json`. The compiled artifact is the single source of truth for the Rust runtime.
+- **`fraiseql run`**: Start the Rust server from a compiled schema + database connection. Hot-reload via `SIGUSR1`.
+- **`fraiseql init`**: Scaffold a new project with `fraiseql.toml`, schema directory, and migration directory.
+- **Python and TypeScript SDKs**: Initial schema authoring SDKs. Decorators/annotations produce JSON schema, no runtime FFI.
+- **PostgreSQL adapter**: Connection pooling (`pool_min`/`pool_max`), SSL modes, configurable timeouts.
 
 ---
 

@@ -1,0 +1,203 @@
+---
+title: SQL Patterns
+description: "SQL conventions for FraiseQL: view patterns for queries, function patterns for mutations, the Trinity Pattern for tables"
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+FraiseQL maps SDK definitions to SQL objects by convention. This page documents the patterns that all SDKs wire to.
+
+## Query views (`v_*`)
+
+Every query maps to a SQL view prefixed with `v_`. Views must return exactly two columns:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | `UUID` | Row identity for caching, filtering, cursor pagination |
+| `data` | `JSONB` | The payload — fields map 1:1 to GraphQL type fields |
+
+```sql
+CREATE OR REPLACE VIEW v_post AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id', p.id,
+        'title', p.title,
+        'slug', p.identifier,
+        'content', p.content,
+        'is_published', p.is_published,
+        'created_at', p.created_at,
+        'author', jsonb_build_object(
+            'id', u.id,
+            'name', u.name
+        )
+    ) AS data
+FROM tb_post p
+JOIN tb_user u ON u.pk_user = p.fk_author;
+```
+
+The `data` JSONB object is what the GraphQL resolver (or REST envelope) returns. Keys in `jsonb_build_object` must match field names in your SDK type definition.
+
+### Joins in views
+
+Views can join any number of tables. The `v_*` view is the single place where read-path complexity lives — no resolver code needed:
+
+```sql
+-- v_project joins three tables
+CREATE OR REPLACE VIEW v_project AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id', p.id,
+        'name', p.name,
+        'organization', jsonb_build_object('id', o.id, 'name', o.name),
+        'owner', jsonb_build_object('id', u.id, 'name', u.name),
+        'task_count', (SELECT count(*) FROM tb_task WHERE fk_project = p.pk_project)
+    ) AS data
+FROM tb_project p
+JOIN tb_organization o ON o.pk_organization = p.fk_organization
+JOIN tb_user u ON u.pk_user = p.fk_owner;
+```
+
+### Automatic WHERE clauses
+
+FraiseQL appends `WHERE` clauses for any query argument whose name matches a key in the `data` JSONB. Given:
+
+```python
+@fraiseql.query
+def posts(is_published: bool | None = None, limit: int = 20) -> list[Post]:
+    return fraiseql.config(sql_source="v_post")
+```
+
+A call to `posts(is_published: true)` becomes:
+
+```sql
+SELECT data FROM v_post
+WHERE data->>'is_published' = 'true'
+LIMIT 20;
+```
+
+No additional code needed — the mapping is automatic.
+
+## Transport-specific views
+
+| Prefix | Transport | Required shape |
+|--------|-----------|---------------|
+| `v_*` | GraphQL, REST | `(id UUID, data JSONB)` |
+| `rv_*` | REST-only | Flat columns (no JSONB wrapping) |
+| `va_*` | Arrow/gRPC | Flat columns (serialized to Arrow RecordBatch) |
+
+`rv_*` and `va_*` views skip the JSONB serialization/deserialization overhead. Use them when a specific transport needs maximum throughput.
+
+## Mutation functions (`fn_*`)
+
+Mutations map to PostgreSQL functions prefixed with `fn_`. Functions must return the `mutation_response` composite type:
+
+```sql
+CREATE TYPE mutation_response AS (
+    status       TEXT,      -- 'success' or 'error'
+    message      TEXT,      -- human-readable message
+    id           UUID,      -- entity ID (for cache invalidation)
+    entity_type  TEXT,      -- GraphQL type name
+    data         JSONB,     -- the created/updated entity
+    error_code   TEXT,      -- machine-readable error code (nullable)
+    error_field  TEXT,      -- field that caused the error (nullable)
+    metadata     JSONB      -- additional context (nullable)
+);
+```
+
+### Function template
+
+```sql
+CREATE OR REPLACE FUNCTION fn_create_post(
+    p_title     TEXT,
+    p_content   TEXT,
+    p_author_id UUID
+)
+RETURNS mutation_response
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_pk BIGINT;
+    v_id UUID;
+BEGIN
+    INSERT INTO tb_post (identifier, title, content, fk_author)
+    VALUES (
+        slugify(p_title),
+        p_title,
+        p_content,
+        (SELECT pk_user FROM tb_user WHERE id = p_author_id)
+    )
+    RETURNING pk_post, id INTO v_pk, v_id;
+
+    RETURN ROW(
+        'success', 'Post created', v_id, 'Post',
+        (SELECT data FROM v_post WHERE id = v_id),
+        NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$;
+```
+
+<Aside type="tip">
+The `data` field in `mutation_response` is typically populated by selecting from the same `v_*` view that backs the query. This ensures the mutation response matches the query shape exactly.
+</Aside>
+
+### Error handling in functions
+
+Return an error status instead of raising exceptions. FraiseQL translates the `status` field into the appropriate HTTP status code and GraphQL error format:
+
+```sql
+IF v_fk_org IS NULL THEN
+    RETURN ROW(
+        'error', 'Organization not found',
+        NULL, NULL, NULL,
+        'NOT_FOUND', 'org_id', NULL
+    )::mutation_response;
+END IF;
+```
+
+## Table design: Trinity Pattern
+
+FraiseQL tables use three identity columns:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `pk_*` | `BIGINT GENERATED ALWAYS AS IDENTITY` | Internal primary key. Used in foreign keys and joins. Never exposed via API. |
+| `id` | `UUID DEFAULT gen_random_uuid()` | Public identity. Exposed in GraphQL/REST responses. Used for client-side references. |
+| `identifier` | `TEXT UNIQUE` | Human-readable unique key (slugs, emails, usernames). Used in URLs and logs. |
+
+```sql
+CREATE TABLE tb_user (
+    pk_user    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT UNIQUE NOT NULL,
+    name       TEXT NOT NULL,
+    email      TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+```
+
+**Why three columns?** `pk_*` is efficient for joins (8-byte bigint). `id` is safe for external use (unpredictable UUID). `identifier` is human-friendly for URLs and debugging. Foreign keys always reference `pk_*`, never `id` or `identifier`.
+
+<Aside type="note">
+Join tables (like `tb_membership` linking users to organizations) do not need the full Trinity Pattern. A `pk_*` identity column is sufficient.
+</Aside>
+
+## Naming conventions
+
+| Object | Convention | Example |
+|--------|-----------|---------|
+| Table | `tb_` prefix | `tb_user`, `tb_post` |
+| View (GraphQL/REST) | `v_` prefix | `v_user`, `v_post` |
+| View (REST-only) | `rv_` prefix | `rv_user_list` |
+| View (Arrow/gRPC) | `va_` prefix | `va_analytics` |
+| Function | `fn_` prefix | `fn_create_post` |
+| Primary key | `pk_` + entity | `pk_user`, `pk_post` |
+| Foreign key | `fk_` + target | `fk_author`, `fk_organization` |
+
+## Next steps
+
+- [SDK Overview](/sdk) — how each language wires to these SQL patterns
+- [View Composition](/concepts/view-composition) — advanced view patterns
+- [Mutations](/concepts/mutations) — mutation design in depth

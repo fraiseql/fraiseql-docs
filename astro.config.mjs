@@ -53,6 +53,7 @@ export default defineConfig({
           label: 'Getting Started',
           items: [
             { label: 'Introduction', slug: 'getting-started/introduction' },
+            { label: '5-Minute Quickstart', slug: 'getting-started/five-minute-quickstart' },
             { label: 'Installation', slug: 'getting-started/installation' },
             { label: 'Quick Start', slug: 'getting-started/quickstart' },
             { label: 'Your First API', slug: 'getting-started/first-api' },
@@ -86,6 +87,7 @@ export default defineConfig({
             { label: 'Schema Definition', slug: 'concepts/schema' },
             { label: 'Configuration', slug: 'concepts/configuration' },
             { label: 'Elo Validation Language', slug: 'concepts/elo-validation' },
+            { label: 'SDK Design Philosophy', slug: 'concepts/sdk-design' },
           ],
         },
         {
@@ -251,12 +253,14 @@ export default defineConfig({
             { label: 'Query Operators', slug: 'reference/operators' },
             { label: 'Validation Rules', slug: 'reference/validation-rules' },
             { label: 'Naming Conventions', slug: 'reference/naming-conventions' },
+            { label: 'SQL Patterns', slug: 'reference/sql-patterns' },
           ],
         },
         {
           label: 'Examples',
           items: [
             { label: 'Examples Overview', slug: 'examples' },
+            { label: 'Multi-Tenant SaaS', slug: 'examples/multi-tenant-saas' },
             { label: 'SaaS Blog Platform', slug: 'examples/saas-blog' },
             { label: 'Real-Time Collaboration', slug: 'examples/realtime-collaboration' },
             { label: 'Real-Time Analytics', slug: 'examples/realtime-analytics' },
@@ -370,6 +374,8 @@ export default defineConfig({
             { label: 'Why Our gRPC Skips JSON', slug: 'blog/why-grpc-skips-json' },
             { label: 'REST: Annotation-Driven', slug: 'blog/rest-annotation-driven' },
             { label: '11 Languages, One Server', slug: 'blog/eleven-languages-one-server' },
+            { label: 'How Compilation Works', slug: 'blog/how-compilation-works' },
+            { label: 'REST vs GraphQL Benchmark', slug: 'blog/rest-direct-execution-benchmark' },
           ],
         },
         {

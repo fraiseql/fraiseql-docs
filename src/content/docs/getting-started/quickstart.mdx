@@ -3,10 +3,14 @@ title: Quick Start
 description: Get a FraiseQL GraphQL API running in 5 minutes
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 import EmbeddedSandbox from '../../../components/EmbeddedSandbox.astro';
 
-Get a FraiseQL GraphQL API running in 5 minutes. This guide assumes you have a PostgreSQL database with tables already set up. For the full workflow including database setup with 🍯 Confiture, see [Your First API](/getting-started/first-api).
+<Aside type="tip">
+**Just want to see it work?** The [5-Minute Quickstart](/getting-started/five-minute-quickstart) gets you from zero to a working API with one `docker compose up` command — no installation required.
+</Aside>
+
+Get a FraiseQL GraphQL API running with your own database. This guide assumes you have a PostgreSQL database with tables already set up. For the full workflow including database setup with 🍯 Confiture, see [Your First API](/getting-started/first-api).
 
 ## Prerequisites
 
@@ -59,8 +63,6 @@ The schema SDK lets you define GraphQL types in your preferred language using de
 </Tabs>
 
 ## Step 2: Write Your SQL Views
-
-import { Aside } from '@astrojs/starlight/components';
 
 <Aside type="tip">
 The `tb_`/`v_`/`fn_` prefixes aren't mandatory, but FraiseQL uses them to find your objects automatically. `fraiseql compile` scans for views matching `v_{query_name}` and functions matching `fn_{mutation_name}`. If you already have a different naming convention, you can override it with `sql_source="my_posts_view"` on the decorator — but following the convention means less config everywhere.

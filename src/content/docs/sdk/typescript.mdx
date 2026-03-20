@@ -8,7 +8,7 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 The FraiseQL TypeScript SDK is a **compile-time schema authoring SDK**: you define GraphQL types, queries, and mutations in TypeScript using decorators, and the FraiseQL compiler generates an optimized GraphQL API backed by your SQL views. **There is no runtime FFI** — decorators output JSON only. Function bodies are never executed.
 
 <Aside type="note">
-This is not a GraphQL client library. FraiseQL TypeScript lets you **define** APIs, not consume them. The Node.js process never handles GraphQL requests — that is the Rust runtime's job. For consuming GraphQL APIs, use any standard GraphQL client (Apollo Client, urql, etc.).
+This is a compile-time schema authoring SDK, not a GraphQL client. See [SDK Design Philosophy](/concepts/sdk-design) for how the compile→run model works.
 </Aside>
 
 ## Installation
@@ -248,13 +248,7 @@ const UpdatePostInput = input('UpdatePostInput', [
 
 ### How Arguments Become WHERE Clauses
 
-FraiseQL maps query arguments to SQL `WHERE` clauses automatically. An argument named `isPublished` matching the `is_published` column in `v_post` generates:
-
-```sql
-SELECT data FROM v_post WHERE is_published = true LIMIT 20;
-```
-
-No resolver code required.
+Query arguments matching columns in the backing view become SQL `WHERE` clauses automatically. See [SQL Patterns → Automatic WHERE Clauses](/reference/sql-patterns#automatic-where-clauses) for details.
 
 ---
 
@@ -319,31 +313,7 @@ Use `@Mutation()` on class methods or `registerMutation()` imperatively:
 
 ### Backing SQL Function Shape
 
-```sql
--- db/functions/fn_create_post.sql
-CREATE OR REPLACE FUNCTION fn_create_post(
-    p_title     TEXT,
-    p_content   TEXT,
-    p_published BOOLEAN DEFAULT FALSE
-)
-RETURNS mutation_response
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_id UUID;
-BEGIN
-    INSERT INTO tb_post (identifier, title, content, is_published)
-    VALUES (slugify(p_title), p_title, p_content, p_published)
-    RETURNING id INTO v_id;
-
-    RETURN ROW(
-        'success', 'Post created', v_id, 'Post',
-        (SELECT data FROM v_post WHERE id = v_id),
-        NULL, NULL, NULL
-    )::mutation_response;
-END;
-$$;
-```
+Mutations wire to PostgreSQL functions returning `mutation_response`. See [SQL Patterns → Mutation Functions](/reference/sql-patterns#mutation-functions-fn_) for the complete function template.
 
 ---
 
@@ -639,17 +609,7 @@ Path parameters in `restPath` (e.g., `{id}`) must match function parameter names
 
 ## Next Steps
 
-<CardGrid>
-  <Card title="Full Tutorial" icon="open-book">
-    [Build a complete blog API from scratch](/getting-started/first-api)
-  </Card>
-  <Card title="Custom Queries" icon="magnifier">
-    [Filtering, pagination, and search](/guides/custom-queries)
-  </Card>
-  <Card title="Security" icon="approve-check-circle">
-    [Authentication and RBAC](/features/security)
-  </Card>
-  <Card title="Other SDKs" icon="puzzle">
-    [Python, Go, Java, Rust, PHP](/sdk/)
-  </Card>
-</CardGrid>
+- [SDK Design Philosophy](/concepts/sdk-design) — how compile-time authoring works
+- [SQL Patterns](/reference/sql-patterns) — view and function conventions
+- [Your First API](/getting-started/first-api) — full tutorial
+- [All SDKs](/sdk) — compare languages

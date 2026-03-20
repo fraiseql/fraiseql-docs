@@ -38,8 +38,8 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[observers]` | — | Stable |
 | `[tracing]` | 2.1.0 | Stable |
 | `[server.limits]` | 2.1.0 | Stable |
-| `[fraiseql.rest]` | rc.15 | Stable |
-| `[fraiseql.grpc]` | rc.15 | Stable |
+| `[fraiseql.rest]` | v2.1 | Stable |
+| `[fraiseql.grpc]` | v2.1 | Stable |
 
 ## File Location
 
@@ -229,7 +229,7 @@ output_file = "schema.compiled.json"
 ### [fraiseql.rest]
 
 <Aside type="note">
-Available since rc.15. Requires the `rest-transport` Cargo feature. REST endpoints are derived from queries and mutations at compile time using CQRS naming conventions. Override auto-derived routes with explicit `rest_path` / `rest_method` annotations.
+Available since v2.1. Requires the `rest-transport` Cargo feature. REST endpoints are derived from queries and mutations at compile time using CQRS naming conventions. Override auto-derived routes with explicit `rest_path` / `rest_method` annotations.
 </Aside>
 
 ```toml
@@ -272,7 +272,7 @@ api_version = "1.0.0"           # OpenAPI info.version
 ### [fraiseql.grpc]
 
 <Aside type="note">
-Available since rc.15. Requires the `grpc-transport` Cargo feature. gRPC endpoints are only created for queries and mutations that carry a `grpc_service`/`grpc_method` annotation. Use `fraiseql compile --output-proto` to generate the `.proto` file for gRPC clients.
+Available since v2.1. Requires the `grpc-transport` Cargo feature. gRPC endpoints are only created for queries and mutations that carry a `grpc_service`/`grpc_method` annotation. Use `fraiseql compile --output-proto` to generate the `.proto` file for gRPC clients.
 </Aside>
 
 ```toml

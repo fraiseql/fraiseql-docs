@@ -8,11 +8,7 @@ import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/
 The `fraiseql-rust` crate provides **authorization and RBAC configuration utilities** for FraiseQL schemas. It gives you type-safe, fluent builders for defining custom authorization rules, role-based access control, and named authorization policies.
 
 <Aside type="note">
-`fraiseql-rust` is not a schema authoring DSL. It is an authorization library. The FraiseQL server itself is written in Rust — this crate gives Rust projects a way to configure authorization rules and field-level RBAC using idiomatic Rust patterns.
-</Aside>
-
-<Aside type="note">
-If you want to author a FraiseQL schema in Rust, use the `fraiseql-rust` crate to define authorization configurations, then export them alongside your schema JSON. Schema authoring (types, queries, mutations) is done via the other SDKs or directly in TOML/JSON.
+`fraiseql-rust` is an authorization library, not a schema authoring DSL. Schema authoring is done via the other SDKs — see [SDK Design Philosophy](/concepts/sdk-design). Also includes `fraiseql-client`, an async HTTP client for consuming FraiseQL APIs.
 </Aside>
 
 ## Installation
@@ -488,14 +484,7 @@ let tensor = client.fetch_embeddings(
 
 ## Next Steps
 
-<CardGrid>
-  <Card title="Security Overview" icon="approve-check-circle">
-    [Authentication, RBAC, and field-level scopes](/features/security)
-  </Card>
-  <Card title="Other SDKs" icon="puzzle">
-    [All SDKs](/sdk/)
-  </Card>
-  <Card title="Schema Reference" icon="open-book">
-    [Naming conventions and schema structure](/reference/naming-conventions)
-  </Card>
-</CardGrid>
+- [SDK Design Philosophy](/concepts/sdk-design) — how compile-time authoring works
+- [SQL Patterns](/reference/sql-patterns) — view and function conventions
+- [Security](/features/security) — authentication, RBAC, field-level scopes
+- [All SDKs](/sdk) — compare languages

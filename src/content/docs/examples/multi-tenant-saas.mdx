@@ -1,0 +1,502 @@
+---
+title: "Multi-Tenant SaaS"
+description: "A complete multi-tenant SaaS API with RLS, Trinity Pattern tables, CQRS views with joins, observer-driven workflows, and REST + GraphQL exposure"
+---
+
+import { Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components';
+
+A realistic SaaS application where tenants are isolated by JWT claims and PostgreSQL Row-Level Security. This example demonstrates patterns that synthetic "blog API" examples skip: multi-tenant RLS, the Trinity Pattern in practice, CQRS views with joins, observer-driven workflows, and configuring security + rate limiting + observers together.
+
+## What you'll build
+
+- **Organizations** with member management
+- **Projects** scoped to organizations with role-based access
+- **Activity log** driven by observers (no application-layer event bus)
+- **REST + GraphQL** serving the same data, same auth, same RLS
+
+## Database schema
+
+### Tables (Trinity Pattern)
+
+Every table uses three identity columns: `pk_*` (internal bigint), `id` (public UUID), `identifier` (human-readable unique key).
+
+```sql title="migrations/001_tables.sql"
+-- Organizations
+CREATE TABLE tb_organization (
+    pk_organization BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id              UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier      TEXT UNIQUE NOT NULL,  -- e.g. "acme-corp"
+    name            TEXT NOT NULL,
+    plan            TEXT NOT NULL DEFAULT 'free',
+    created_at      TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+
+-- Users
+CREATE TABLE tb_user (
+    pk_user    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id         UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier TEXT UNIQUE NOT NULL,  -- e.g. "alice@acme.com"
+    name       TEXT NOT NULL,
+    email      TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+
+-- Organization membership (join table — no Trinity Pattern needed)
+CREATE TABLE tb_membership (
+    pk_membership    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    fk_organization  BIGINT NOT NULL REFERENCES tb_organization(pk_organization),
+    fk_user          BIGINT NOT NULL REFERENCES tb_user(pk_user),
+    role             TEXT NOT NULL DEFAULT 'member',  -- 'owner', 'admin', 'member'
+    joined_at        TIMESTAMPTZ DEFAULT now() NOT NULL,
+    UNIQUE (fk_organization, fk_user)
+);
+
+-- Projects scoped to organizations
+CREATE TABLE tb_project (
+    pk_project      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id              UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    identifier      TEXT NOT NULL,  -- unique within org, e.g. "api-v2"
+    fk_organization BIGINT NOT NULL REFERENCES tb_organization(pk_organization),
+    name            TEXT NOT NULL,
+    description     TEXT,
+    status          TEXT NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMPTZ DEFAULT now() NOT NULL,
+    UNIQUE (fk_organization, identifier)
+);
+
+-- Activity log (append-only, observer-populated)
+CREATE TABLE tb_activity (
+    pk_activity     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id              UUID DEFAULT gen_random_uuid() NOT NULL UNIQUE,
+    fk_organization BIGINT NOT NULL REFERENCES tb_organization(pk_organization),
+    actor_id        UUID NOT NULL,
+    entity_type     TEXT NOT NULL,
+    entity_id       UUID NOT NULL,
+    action          TEXT NOT NULL,
+    metadata        JSONB DEFAULT '{}' NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+```
+
+### Row-Level Security
+
+RLS policies use `current_setting('request.jwt.claims')` — FraiseQL sets this on every connection from the JWT.
+
+```sql title="migrations/002_rls.sql"
+ALTER TABLE tb_project ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tb_membership ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tb_activity ENABLE ROW LEVEL SECURITY;
+
+-- Users can only see projects in their organization
+CREATE POLICY project_tenant_isolation ON tb_project
+    USING (
+        fk_organization IN (
+            SELECT fk_organization FROM tb_membership
+            WHERE fk_user = (
+                SELECT pk_user FROM tb_user
+                WHERE id = (current_setting('request.jwt.claims', true)::jsonb ->> 'sub')::uuid
+            )
+        )
+    );
+
+-- Users can only see memberships in their organization
+CREATE POLICY membership_tenant_isolation ON tb_membership
+    USING (
+        fk_organization IN (
+            SELECT fk_organization FROM tb_membership m2
+            WHERE m2.fk_user = (
+                SELECT pk_user FROM tb_user
+                WHERE id = (current_setting('request.jwt.claims', true)::jsonb ->> 'sub')::uuid
+            )
+        )
+    );
+
+-- Activity is scoped to organization
+CREATE POLICY activity_tenant_isolation ON tb_activity
+    USING (
+        fk_organization IN (
+            SELECT fk_organization FROM tb_membership
+            WHERE fk_user = (
+                SELECT pk_user FROM tb_user
+                WHERE id = (current_setting('request.jwt.claims', true)::jsonb ->> 'sub')::uuid
+            )
+        )
+    );
+```
+
+<Aside type="tip">
+RLS policies are enforced by PostgreSQL, not by FraiseQL. The Rust server sets the JWT claims on the database connection — PostgreSQL does the filtering. This means tenant isolation works identically for REST, GraphQL, and gRPC.
+</Aside>
+
+### CQRS Views
+
+Views return `(id UUID, data JSONB)` — the standard `v_*` pattern.
+
+```sql title="migrations/003_views.sql"
+-- Organization with member count
+CREATE OR REPLACE VIEW v_organization AS
+SELECT
+    o.id,
+    jsonb_build_object(
+        'id', o.id,
+        'identifier', o.identifier,
+        'name', o.name,
+        'plan', o.plan,
+        'member_count', (SELECT count(*) FROM tb_membership WHERE fk_organization = o.pk_organization),
+        'created_at', o.created_at
+    ) AS data
+FROM tb_organization o;
+
+-- Project with organization name (cross-table join)
+CREATE OR REPLACE VIEW v_project AS
+SELECT
+    p.id,
+    jsonb_build_object(
+        'id', p.id,
+        'identifier', p.identifier,
+        'name', p.name,
+        'description', p.description,
+        'status', p.status,
+        'organization', jsonb_build_object(
+            'id', o.id,
+            'name', o.name
+        ),
+        'created_at', p.created_at
+    ) AS data
+FROM tb_project p
+JOIN tb_organization o ON o.pk_organization = p.fk_organization;
+
+-- Team member with user details and role
+CREATE OR REPLACE VIEW v_member AS
+SELECT
+    u.id,
+    jsonb_build_object(
+        'id', u.id,
+        'name', u.name,
+        'email', u.email,
+        'role', m.role,
+        'joined_at', m.joined_at,
+        'organization_id', o.id
+    ) AS data
+FROM tb_membership m
+JOIN tb_user u ON u.pk_user = m.fk_user
+JOIN tb_organization o ON o.pk_organization = m.fk_organization;
+
+-- Activity feed
+CREATE OR REPLACE VIEW v_activity AS
+SELECT
+    a.id,
+    jsonb_build_object(
+        'id', a.id,
+        'actor_id', a.actor_id,
+        'entity_type', a.entity_type,
+        'entity_id', a.entity_id,
+        'action', a.action,
+        'metadata', a.metadata,
+        'created_at', a.created_at
+    ) AS data
+FROM tb_activity a;
+```
+
+### Mutation functions
+
+```sql title="migrations/004_functions.sql"
+CREATE OR REPLACE FUNCTION fn_create_project(
+    p_name        TEXT,
+    p_identifier  TEXT,
+    p_org_id      UUID,
+    p_description TEXT DEFAULT NULL
+)
+RETURNS mutation_response
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_pk  BIGINT;
+    v_id  UUID;
+    v_fk_org BIGINT;
+BEGIN
+    SELECT pk_organization INTO v_fk_org
+    FROM tb_organization WHERE id = p_org_id;
+
+    IF v_fk_org IS NULL THEN
+        RETURN ROW('error', 'Organization not found', NULL, NULL, NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+
+    INSERT INTO tb_project (identifier, fk_organization, name, description)
+    VALUES (p_identifier, v_fk_org, p_name, p_description)
+    RETURNING pk_project, id INTO v_pk, v_id;
+
+    RETURN ROW(
+        'success', 'Project created', v_id, 'Project',
+        (SELECT data FROM v_project WHERE id = v_id),
+        NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_invite_member(
+    p_org_id UUID,
+    p_email  TEXT,
+    p_role   TEXT DEFAULT 'member'
+)
+RETURNS mutation_response
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_fk_org  BIGINT;
+    v_fk_user BIGINT;
+    v_user_id UUID;
+BEGIN
+    SELECT pk_organization INTO v_fk_org FROM tb_organization WHERE id = p_org_id;
+    SELECT pk_user, id INTO v_fk_user, v_user_id FROM tb_user WHERE email = p_email;
+
+    IF v_fk_org IS NULL THEN
+        RETURN ROW('error', 'Organization not found', NULL, NULL, NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+    IF v_fk_user IS NULL THEN
+        RETURN ROW('error', 'User not found', NULL, NULL, NULL, NULL, NULL, NULL)::mutation_response;
+    END IF;
+
+    INSERT INTO tb_membership (fk_organization, fk_user, role)
+    VALUES (v_fk_org, v_fk_user, p_role)
+    ON CONFLICT (fk_organization, fk_user) DO UPDATE SET role = p_role;
+
+    RETURN ROW(
+        'success', 'Member invited', v_user_id, 'User',
+        (SELECT data FROM v_member WHERE id = v_user_id),
+        NULL, NULL, NULL
+    )::mutation_response;
+END;
+$$;
+```
+
+## Schema definition (Python)
+
+```python title="schema.py"
+import fraiseql
+from fraiseql.scalars import ID, Email, DateTime
+
+# --- Types ---
+
+@fraiseql.type
+class Organization:
+    """A tenant organization."""
+    id: ID
+    identifier: str
+    name: str
+    plan: str
+    member_count: int
+    created_at: DateTime
+
+@fraiseql.type
+class Project:
+    """A project within an organization."""
+    id: ID
+    identifier: str
+    name: str
+    description: str | None
+    status: str
+    organization: Organization
+    created_at: DateTime
+
+@fraiseql.type
+class Member:
+    """An organization member with role."""
+    id: ID
+    name: str
+    email: Email
+    role: str
+    joined_at: DateTime
+    organization_id: ID
+
+@fraiseql.type
+class Activity:
+    """An activity log entry."""
+    id: ID
+    actor_id: ID
+    entity_type: str
+    entity_id: ID
+    action: str
+    metadata: str  # JSON string
+    created_at: DateTime
+
+# --- Queries (JWT-scoped) ---
+
+@fraiseql.query(inject={"org_id": "jwt:org_id"})
+def projects(status: str | None = None, limit: int = 20, offset: int = 0) -> list[Project]:
+    """List projects in the caller's organization."""
+    return fraiseql.config(sql_source="v_project")
+
+@fraiseql.query(inject={"org_id": "jwt:org_id"})
+def members(role: str | None = None, limit: int = 50) -> list[Member]:
+    """List members of the caller's organization."""
+    return fraiseql.config(sql_source="v_member")
+
+@fraiseql.query(inject={"org_id": "jwt:org_id"})
+def activity(entity_type: str | None = None, limit: int = 50) -> list[Activity]:
+    """Recent activity in the caller's organization."""
+    return fraiseql.config(sql_source="v_activity")
+
+@fraiseql.query
+def project(id: ID) -> Project | None:
+    """Fetch a single project by ID (RLS enforces tenant scope)."""
+    return fraiseql.config(sql_source="v_project")
+
+# --- Mutations ---
+
+@fraiseql.mutation(sql_source="fn_create_project", operation="CREATE")
+def create_project(name: str, identifier: str, org_id: ID, description: str | None = None) -> Project:
+    """Create a new project."""
+    pass
+
+@fraiseql.mutation(
+    sql_source="fn_invite_member",
+    operation="UPDATE",
+    requires_role="admin",
+)
+def invite_member(org_id: ID, email: str, role: str = "member") -> Member:
+    """Invite a user to the organization. Requires admin role."""
+    pass
+
+# --- REST annotations (Python SDK v2.1.0) ---
+
+@fraiseql.query(
+    inject={"org_id": "jwt:org_id"},
+    rest_path="/projects",
+    rest_method="GET",
+)
+def rest_projects(status: str | None = None, limit: int = 20, offset: int = 0) -> list[Project]:
+    """REST endpoint for projects."""
+    return fraiseql.config(sql_source="v_project")
+```
+
+## Configuration
+
+```toml title="fraiseql.toml"
+[project]
+name = "saas-multi-tenant"
+
+[fraiseql]
+schema = "schema.json"
+
+[fraiseql.rest]
+enabled = true
+path = "/rest/v1"
+
+[server]
+host = "0.0.0.0"
+port = 8080
+request_timeout_ms = 15000
+admin_api_enabled = true
+admin_token = "${ADMIN_TOKEN}"
+
+[database]
+url = "${DATABASE_URL}"
+pool_min = 5
+pool_max = 30
+connect_timeout_ms = 5000
+ssl_mode = "prefer"
+
+[security]
+jwt_secret = "${JWT_SECRET}"
+
+[security.rate_limiting]
+enabled = true
+window_ms = 60000
+max_requests = 100
+
+[security.error_sanitization]
+enabled = true
+expose_details = false
+
+[tracing]
+enabled = true
+
+[[observers]]
+table = "tb_project"
+event = "INSERT"
+subject = "saas.project.created"
+
+[[observers]]
+table = "tb_membership"
+event = "INSERT"
+subject = "saas.member.invited"
+
+[observers]
+backend = "nats"
+nats_url = "${NATS_URL}"
+```
+
+## Docker Compose
+
+```yaml title="docker-compose.yml"
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: saas
+      POSTGRES_USER: fraiseql
+      POSTGRES_PASSWORD: fraiseql
+    volumes:
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-ONLY", "pg_isready"]
+      interval: 2s
+      retries: 10
+
+  nats:
+    image: nats:2-alpine
+    ports:
+      - "4222:4222"
+
+  fraiseql:
+    image: ghcr.io/fraiseql/server:latest
+    depends_on:
+      db: { condition: service_healthy }
+      nats: { condition: service_started }
+    environment:
+      DATABASE_URL: postgres://fraiseql:fraiseql@db:5432/saas
+      JWT_SECRET: your-dev-secret-change-in-production
+      ADMIN_TOKEN: admin-secret
+      NATS_URL: nats://nats:4222
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./schema.json:/app/schema.json
+      - ./fraiseql.toml:/app/fraiseql.toml
+```
+
+## Testing it
+
+```bash
+# Start everything
+docker compose up -d
+
+# Create a project (with a JWT containing org_id claim)
+TOKEN=$(python3 -c "
+import jwt, json
+print(jwt.encode({'sub': 'user-uuid', 'org_id': 'org-uuid', 'role': 'admin'}, 'your-dev-secret-change-in-production'))
+")
+
+# GraphQL
+curl -s http://localhost:8080/graphql \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ projects { id name organization { name } } }"}'
+
+# REST (same data, same auth)
+curl -s http://localhost:8080/rest/v1/projects \
+  -H "Authorization: Bearer $TOKEN"
+
+# Activity feed (populated by observers when you create projects)
+curl -s http://localhost:8080/graphql \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ activity(limit: 10) { action entityType entityId createdAt } }"}'
+```
+
+## Why this is hard without FraiseQL
+
+With PostgREST, you'd need a separate process for observers and would lose the GraphQL endpoint entirely. With Hasura, you'd need to configure RLS through their metadata layer and add event triggers via the console. With a hand-rolled Express/FastAPI server, you'd be writing resolvers, middleware, and event plumbing that FraiseQL handles declaratively.
+
+Here, the SQL is the logic, the schema is the API contract, and the config ties them together. One binary serves both transports with the same auth and the same RLS — no glue code.

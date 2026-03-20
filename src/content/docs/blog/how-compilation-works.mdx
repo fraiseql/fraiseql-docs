@@ -1,0 +1,143 @@
+---
+title: "How FraiseQL Compiles Your Schema to SQL"
+description: "A walk through the compile pipeline: SDK decorators → JSON schema → compiled artifact → SQL views → runtime execution"
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+When you run `fraiseql compile`, your Python decorators (or TypeScript annotations, or Go struct tags) turn into a running API server. This post walks through each stage of that transformation, showing the actual intermediate representations.
+
+## The pipeline
+
+```
+SDK code → schema registry → schema.json → fraiseql run → SQL execution
+```
+
+Five stages, one direction. No feedback loops, no runtime interpretation.
+
+## Stage 1: SDK execution
+
+`fraiseql compile` invokes your SDK code as a subprocess. For Python, it runs `python schema.py`. For TypeScript, `npx ts-node schema.ts`. For Go, `go run ./schema/`.
+
+The SDK process does one thing: populate a schema registry with type metadata and export it as JSON. Here's what happens when the Python runtime encounters a decorator:
+
+```python
+@fraiseql.type
+class Post:
+    id: ID
+    title: str
+    content: str
+    author: User
+```
+
+The `@fraiseql.type` decorator inspects the class annotations, records them in an in-memory registry, and returns the original class unmodified. No bytecode generation, no metaclass magic. The class is still a plain Python class — it just has a side effect of registering metadata.
+
+At the end of the file, `fraiseql.export()` (called automatically or explicitly) serializes the registry to stdout as JSON.
+
+## Stage 2: Schema registry → JSON
+
+The SDK process writes a JSON document to stdout. `fraiseql compile` captures it. For the `Post` type above, the registry entry looks like:
+
+```json
+{
+  "types": [
+    {
+      "name": "Post",
+      "description": "A blog post.",
+      "fields": [
+        { "name": "id", "type": "ID", "nullable": false },
+        { "name": "title", "type": "String", "nullable": false },
+        { "name": "content", "type": "String", "nullable": false },
+        { "name": "author", "type": "User", "nullable": false }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "posts",
+      "return_type": "[Post]",
+      "sql_source": "v_post",
+      "arguments": [
+        { "name": "is_published", "type": "Boolean", "nullable": true },
+        { "name": "limit", "type": "Int", "default": 20 },
+        { "name": "offset", "type": "Int", "default": 0 }
+      ],
+      "inject": {},
+      "transport": {
+        "rest": { "path": null, "method": null },
+        "grpc": { "service": null }
+      }
+    }
+  ]
+}
+```
+
+This is the full contract between the SDK world and the Rust world. Every SDK — regardless of language — produces this same JSON shape.
+
+## Stage 3: Compilation
+
+`fraiseql compile` takes the raw JSON from Stage 2 and validates it:
+
+- **Type resolution**: Are all referenced types defined? Does `Post.author` reference a real `User` type?
+- **SQL source validation**: Is every `sql_source` a valid identifier?
+- **Argument validation**: Do injected JWT claims have valid `jwt:` prefixes?
+- **Transport validation**: Are REST paths unique? Do they start with `/`?
+- **ELO validation**: Are input validation rules syntactically correct?
+
+If validation passes, the compiler writes `schema.json` — the compiled artifact. This file is a superset of the Stage 2 JSON with resolved type references, computed GraphQL SDL, and transport metadata baked in.
+
+```bash
+$ fraiseql compile
+INFO  Loading schema from schema.py
+INFO  Compiled schema: 4 types, 3 queries, 2 mutations
+INFO  Written to schema.json (12.4 KB)
+```
+
+## Stage 4: Server startup
+
+`fraiseql run` reads `schema.json` and `fraiseql.toml`, connects to PostgreSQL, and builds the runtime:
+
+1. **GraphQL schema**: Constructs an async-graphql schema from the type definitions. Each query becomes a resolver that maps to a SQL view.
+2. **REST routes**: For queries with `rest_path` annotations, registers Actix-web routes that execute SQL directly (bypassing the GraphQL resolver layer).
+3. **gRPC services**: If the `grpc-transport` feature is enabled, generates service descriptors from type definitions.
+4. **Prepared statements**: For each query, prepares a SQL statement template: `SELECT data FROM {sql_source} WHERE ... LIMIT $1 OFFSET $2`.
+
+No SDK code is loaded. No interpreter is embedded. The server is pure Rust operating on the compiled JSON.
+
+## Stage 5: Request execution
+
+When a request arrives:
+
+**GraphQL path:**
+```
+HTTP POST /graphql
+  → parse GraphQL query
+  → resolve fields against schema
+  → for each query field, execute: SELECT data FROM v_post WHERE ...
+  → assemble JSON response
+```
+
+**REST direct execution path:**
+```
+HTTP GET /rest/v1/posts?is_published=eq.true
+  → match route to query definition
+  → parse bracket filters to WHERE clauses
+  → execute: SELECT data FROM v_post WHERE is_published = true LIMIT 20
+  → wrap in envelope { data, count, limit, offset }
+```
+
+The REST path skips GraphQL parsing and resolution entirely. It translates URL parameters directly to SQL. This is why REST direct execution benchmarks ~15% fewer allocations than the equivalent GraphQL query.
+
+## Why this matters
+
+**Debuggability**: Every stage produces an inspectable artifact. You can read `schema.json` to see exactly what the server will do. You can run `EXPLAIN` on the generated SQL to see the query plan.
+
+**Language independence**: The JSON boundary means adding a new SDK is "just" writing a library that outputs the right JSON shape. The Rust server doesn't change.
+
+**Zero runtime overhead**: There's no Python process running alongside your server. No JVM. No Node.js event loop. The SDK is a build tool, not a runtime dependency.
+
+**Predictable performance**: The server's behavior is fully determined by `schema.json` + `fraiseql.toml` + the database. No dynamic dispatch, no plugin loading, no configuration drift between deploys.
+
+<Aside type="note">
+This architecture has a tradeoff: you can't extend the server's behavior at runtime with custom resolvers or middleware in your SDK language. If you need custom logic beyond what SQL functions provide, you write it in SQL (in a `fn_*` function) or as a separate service that FraiseQL calls via federation/observers. The compile-time boundary is strict by design.
+</Aside>

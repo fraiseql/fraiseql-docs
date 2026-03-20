@@ -1,0 +1,87 @@
+---
+title: 5-Minute Quickstart
+description: From zero to a working FraiseQL API in under 5 minutes using Docker Compose
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Go from nothing to a working REST + GraphQL API in one terminal.
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose installed
+
+That's it. No database, no language runtime, no FraiseQL binary needed.
+
+<Steps>
+
+1. **Clone the starter**
+
+   ```bash
+   git clone https://github.com/fraiseql/fraiseql-starter-minimal.git
+   cd fraiseql-starter-minimal
+   ```
+
+2. **Start everything**
+
+   ```bash
+   docker compose up
+   ```
+
+   This starts PostgreSQL and FraiseQL together. Wait for:
+
+   ```
+   INFO  FraiseQL v2.1 starting…
+   INFO  Schema compiled — 2 types, 2 queries, 1 mutation
+   INFO  Connected to PostgreSQL at db:5432/fraiseql
+   INFO  GraphQL endpoint: http://localhost:8080/graphql
+   ```
+
+3. **Query via REST**
+
+   ```bash
+   curl http://localhost:8080/rest/v1/posts
+   ```
+
+   ```json
+   {
+     "data": [],
+     "count": 0,
+     "limit": 20,
+     "offset": 0
+   }
+   ```
+
+4. **Query via GraphQL**
+
+   ```bash
+   curl -s http://localhost:8080/graphql \
+     -H 'Content-Type: application/json' \
+     -d '{"query":"{ posts { id title } }"}'
+   ```
+
+   ```json
+   { "data": { "posts": [] } }
+   ```
+
+5. **Create a record**
+
+   ```bash
+   curl -s http://localhost:8080/graphql \
+     -H 'Content-Type: application/json' \
+     -d '{"query":"mutation { createPost(title: \"Hello FraiseQL\", content: \"It works.\") { id title } }"}'
+   ```
+
+   Now re-run the REST or GraphQL query from step 3 or 4 — your post is there.
+
+</Steps>
+
+## What just happened?
+
+The starter contains a Python schema (`schema.py`), a SQL migration (`migrations/`), and a `fraiseql.toml` config. Docker Compose ran the migration, compiled the schema to a JSON artifact, and started the Rust server — all in one command. The same data is queryable via REST and GraphQL simultaneously.
+
+## Next steps
+
+- [Quick Start](/getting-started/quickstart) — install FraiseQL locally, use your own database
+- [Your First API](/getting-started/first-api) — full walkthrough with Confiture migrations
+- [Starter Templates](/getting-started/starters) — blog, SaaS multi-tenant, and auth starters
