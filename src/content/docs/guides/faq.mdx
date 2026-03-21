@@ -296,7 +296,7 @@ A: After profiling (measure first). Follow: 1) Add indexes, 2) Cache, 3) optimiz
 Yes. FraiseQL serves all three transports (GraphQL, REST, gRPC) simultaneously from the same binary on port 8080. No separate processes needed.
 
 **Do I need to choose between transports?**
-No. Add `rest_path`/`rest_method` annotations to expose operations as REST, `grpc_service`/`grpc_method` for gRPC, or both. Operations without annotations are GraphQL-only. Each operation can be on any combination of transports.
+No. Add `rest_path`/`rest_method` annotations to expose operations as REST. gRPC endpoints are auto-generated for all operations when `[grpc]` is enabled — see [gRPC Transport](/features/grpc-transport). Operations without REST annotations are GraphQL-only (plus gRPC if enabled).
 
 **Does gRPC require a separate port?**
 No. gRPC runs on the same port as GraphQL and REST. HTTP/2 content-type negotiation distinguishes gRPC requests (`application/grpc`) from HTTP/1.1 REST and GraphQL.

@@ -39,7 +39,7 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[tracing]` | 2.1.0 | Stable |
 | `[server.limits]` | 2.1.0 | Stable |
 | `[fraiseql.rest]` | v2.1 | Stable |
-| `[fraiseql.grpc]` | v2.1 | Stable |
+| `[grpc]` | v2.1 | Stable |
 | `[session_variables]` | v2.1 | Stable |
 | `[inject_defaults]` | v2.1 | Stable |
 | `[dev]` | v2.2 | Stable |
@@ -277,22 +277,36 @@ api_version = "1.0.0"           # OpenAPI info.version
 | `cdn_max_age` | `integer` | — | `s-maxage` value for CDN proxies (seconds). Omitted from header if unset. |
 | `idempotency_ttl_seconds` | `integer` | `86400` | How long idempotency keys are retained |
 
-### [fraiseql.grpc]
+### [grpc]
 
 <Aside type="note">
-Available since v2.1. Requires the `grpc-transport` Cargo feature. gRPC endpoints are only created for queries and mutations that carry a `grpc_service`/`grpc_method` annotation. Use `fraiseql compile --output-proto` to generate the `.proto` file for gRPC clients.
+Available since v2.1. Requires the `grpc-transport` Cargo feature. When enabled, gRPC endpoints are auto-generated for all queries and mutations. Use `fraiseql compile --output-proto` to generate the `.proto` file for gRPC clients.
 </Aside>
 
 ```toml
-[fraiseql.grpc]
+[grpc]
 enabled = true
+port = 50052
+reflection = true
+max_message_size_bytes = 4194304
+descriptor_path = "proto/descriptor.binpb"
+stream_batch_size = 500
+# include_types = ["User", "Post"]
+# exclude_types = ["InternalAudit"]
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `true` | Enable/disable gRPC transport. Default: `true` when the `grpc-transport` Cargo feature is active. |
+| `enabled` | bool | `false` | Enable gRPC transport |
+| `port` | integer | `50052` | gRPC listen port (separate from the HTTP server) |
+| `reflection` | bool | `true` | Enable gRPC server reflection for `grpcurl` / gRPC UI discovery |
+| `max_message_size_bytes` | integer | `4194304` | Maximum inbound message size in bytes (4 MiB) |
+| `descriptor_path` | string | `"proto/descriptor.binpb"` | Path to the compiled `FileDescriptorSet` binary |
+| `stream_batch_size` | integer | `500` | Rows per batch in server-streaming RPCs (list queries) |
+| `include_types` | string[] | `[]` | Whitelist of type names to expose as gRPC services (empty = all) |
+| `exclude_types` | string[] | `[]` | Blacklist of type names to hide from gRPC services |
 
-gRPC uses the same port as GraphQL and REST via HTTP/2 content-type negotiation (`application/grpc`). No separate port configuration is needed.
+gRPC runs on a separate port (default 50052) from the HTTP server.
 
 ---
 

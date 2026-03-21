@@ -1,17 +1,17 @@
 ---
 title: Federation Gateway
-description: Run fraiseql gateway to federate multiple FraiseQL subgraphs without Apollo Router
+description: Run fraiseql federation gateway to federate multiple FraiseQL subgraphs without Apollo Router
 ---
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-:::caution[Beta feature]
-The built-in federation gateway is available as a beta feature. Core routing and entity resolution work today. Advanced features (subscription forwarding, `@requires` pre-fetching) are planned for future releases.
+:::tip[Available]
+The `fraiseql federation gateway` command is available as of v2.1.0. It federates multiple FraiseQL subgraphs into a single endpoint with config validation, query planning, and response merging.
 :::
 
 ## When to Use the Built-in Gateway
 
-The `fraiseql gateway` command federates multiple FraiseQL subgraphs into a single endpoint without Apollo Router.
+The `fraiseql federation gateway` command federates multiple FraiseQL subgraphs into a single endpoint without Apollo Router.
 
 | | Built-in Gateway | Apollo Router |
 |---|---|---|
@@ -37,7 +37,7 @@ Use Apollo Router when:
 Client
   │
   ▼
-fraiseql gateway :4000     ← type-level routing, entity resolution
+fraiseql federation gateway :4000  ← type-level routing, entity resolution
   │         │
   ▼         ▼
 User        Order
@@ -82,7 +82,7 @@ url = "http://localhost:4002/graphql"
 3. **Start the gateway:**
 
 ```bash
-fraiseql gateway --config gateway.toml
+fraiseql federation gateway gateway.toml
 ```
 
 4. **Query the gateway:**
@@ -169,7 +169,7 @@ Configure tracing on the gateway via environment variables:
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 \
 OTEL_SERVICE_NAME=fraiseql-gateway \
-fraiseql gateway --config gateway.toml
+fraiseql federation gateway gateway.toml
 ```
 
 ## Limitations
@@ -216,7 +216,7 @@ url = "http://order-service:4002/graphql"
 
 What changes:
 - Replace `supergraph.yaml` + `router.yaml` with a single `gateway.toml`
-- Replace `rover supergraph compose` + `router` commands with `fraiseql gateway`
+- Replace `rover supergraph compose` + `router` commands with `fraiseql federation gateway`
 - No `supergraph.graphql` artifact needed — the gateway introspects subgraphs at startup
 
 What stays the same:

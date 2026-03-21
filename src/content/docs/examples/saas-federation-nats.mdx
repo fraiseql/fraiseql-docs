@@ -579,7 +579,7 @@ CREATE USER tenant_acme_corp WITH PASSWORD '...';
 GRANT CONNECT ON DATABASE tenant_acme_corp TO tenant_acme_corp;
 
 -- Then run migrations for each tenant database:
--- confiture migrate --database $TENANT_DATABASE_URL
+-- fraiseql migrate --database $TENANT_DATABASE_URL
 ```
 
 ### Apollo Federation Gateway
@@ -631,10 +631,10 @@ rover supergraph compose --config gateway/supergraph.yaml > supergraph.graphql
 4. **Run migrations for each tenant**:
    ```bash
    export TENANT_DATABASE_URL=postgresql://postgres:password@localhost:5432/tenant_acme_corp
-   confiture migrate
+   fraiseql migrate
 
    export TENANT_DATABASE_URL=postgresql://postgres:password@localhost:5432/tenant_global_corp
-   confiture migrate
+   fraiseql migrate
    ```
 
 5. **Start all FraiseQL services**:

@@ -7,7 +7,7 @@ import { CardGrid, Card, Aside, Tabs, TabItem } from '@astrojs/starlight/compone
 
 FraiseQL provides **11 official SDKs** across different programming languages, plus a Rust authorization library. The schema authoring SDKs (Python, TypeScript, Go, Java, PHP, C#, Elixir, F#, Ruby, Dart, and Rust for authorization) let you define your API schemas using native language constructs — type annotations, decorators, and attributes — which the FraiseQL CLI compiles into an optimized Rust-powered GraphQL API backed by SQL views. Ruby and Dart also include production-ready HTTP clients for consuming FraiseQL APIs.
 
-Transport annotations (`rest_path`/`rest_method` for REST, `grpc_service`/`grpc_method` for gRPC) are available across all SDKs. REST annotation support is confirmed in the Python SDK as of v2.1.0; Go, Java, and C# have REST annotations in unreleased commits on `main`; TypeScript, PHP, Rust, Elixir, F#, Ruby, and Dart support is in progress. gRPC annotations require the `grpc-transport` Cargo feature.
+Transport annotations (`rest_path`/`rest_method`) let you expose operations as REST endpoints. All 11 SDKs support REST annotations as of v2.1.0. gRPC endpoints are auto-generated when `[grpc]` is enabled — no per-operation annotation needed. See [gRPC Transport](/features/grpc-transport).
 
 <Aside type="note">
 These are **schema authoring** SDKs, not GraphQL client libraries. You use them to define your API. The FraiseQL Rust binary serves that API. For consuming a FraiseQL GraphQL API, use any standard GraphQL client.

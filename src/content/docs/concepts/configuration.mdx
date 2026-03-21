@@ -142,7 +142,7 @@ path = "/rest/v1"
 require_auth = false
 openapi_enabled = true
 
-[fraiseql.grpc]
+[grpc]
 enabled = true
 ```
 </Aside>
@@ -297,11 +297,11 @@ path = "/rest/v1"
 require_auth = false
 openapi_enabled = true
 
-[fraiseql.grpc]
+[grpc]
 enabled = true
 ```
 
-REST endpoints are only created for operations that include `rest_path`/`rest_method` annotations. gRPC methods are only created for operations that include `grpc_service`/`grpc_method` annotations. Operations without transport annotations remain GraphQL-only.
+REST endpoints are only created for operations that include `rest_path`/`rest_method` annotations. gRPC endpoints are auto-generated for all operations when `[grpc]` is enabled — see [gRPC Transport](/features/grpc-transport). Operations without REST annotations remain GraphQL-only (plus gRPC if enabled).
 </Aside>
 
 ## Next Steps

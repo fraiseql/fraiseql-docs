@@ -87,7 +87,7 @@ Apply pending schema migrations with Confiture before deploying:
 gcloud run jobs create fraiseql-migrate \
   --image python:3.13-slim \
   --set-secrets="DATABASE_URL=fraiseql-database-url:latest" \
-  --command="sh,-c,pip install -q fraiseql-confiture && confiture migrate up --env production" \
+  --command="sh,-c,pip install -q fraiseql-confiture && fraiseql migrate up --env production" \
   --region us-central1
 
 # Execute the migration job

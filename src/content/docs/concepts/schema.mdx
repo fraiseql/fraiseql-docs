@@ -224,14 +224,12 @@ FraiseQL compiles the `sql_source` (set via `fraiseql.config()` in the function 
 
 ### Transport Annotations
 
-**Transport annotations** are optional parameters that extend operations to additional transports. Omit them to serve an operation via GraphQL only. Add `rest_path`/`rest_method` to expose via REST. Add `grpc_service`/`grpc_method` to expose via gRPC.
+**Transport annotations** are optional parameters that extend operations to additional transports. Omit them to serve an operation via GraphQL only. Add `rest_path`/`rest_method` to expose via REST. gRPC endpoints are auto-generated when `[grpc]` is enabled — see [gRPC Transport](/features/grpc-transport).
 
 ```python
 @fraiseql.query(
     rest_path="/posts",       # REST: GET /rest/v1/posts  (default path; configure via [fraiseql.rest] path)
     rest_method="GET",
-    grpc_service="BlogService",
-    grpc_method="ListPosts",   # gRPC: BlogService/ListPosts
 )
 def posts(limit: int = 10) -> list[Post]:
     return fraiseql.config(sql_source="v_post")
@@ -244,8 +242,6 @@ The same annotations are available in TypeScript:
   sqlSource: 'v_post',
   restPath: '/posts',
   restMethod: 'GET',
-  grpcService: 'BlogService',
-  grpcMethod: 'ListPosts',
 })
 async function posts(limit: number = 10): Promise<Post[]> {}
 ```

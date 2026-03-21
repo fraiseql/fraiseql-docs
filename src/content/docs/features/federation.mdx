@@ -8,7 +8,7 @@ import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/compone
 :::caution[Beta feature]
 Apollo Federation support is available in v2.0.1 as a beta feature.
 Core federation queries (`_service`, `_entities`) work in production today.
-The built-in federation gateway and full compatibility with Apollo Router are planned for v2.2.0 (Q1 2027). Advanced features (saga execution, `@requires` across services) should be evaluated in a staging environment before production use.
+The built-in federation gateway and full compatibility with Apollo Router are planned for v2.2.0 (Q1 2027). Saga execution across services is production-ready with crash recovery, health checks, and monitoring (SagaExecutor, SagaCompensator, PostgresSagaStore).
 :::
 
 FraiseQL supports **Apollo Federation v2**. Each FraiseQL service operates as a standalone GraphQL subgraph — its own Python schema, its own compiled Rust runtime, and its own PostgreSQL database. A gateway composes the subgraphs into a single entry point for clients.
@@ -327,10 +327,10 @@ REST is enabled by default on every FraiseQL service, including those with `[fed
 
 Apollo Federation with FraiseQL has these limitations:
 
-1. **No cross-service transactions**: Each service operation is independent. There is no two-phase commit or distributed transaction coordinator.
+1. **No cross-service two-phase commit**: Each service operation is independent. There is no distributed two-phase commit. For cross-service consistency, use the saga pattern — SagaExecutor with SagaCompensator and PostgresSagaStore provides production-ready orchestration with crash recovery and automatic compensation on failure.
 2. **No cross-service SQL joins**: Each service queries its own database only. Field resolution across services happens at the Apollo Router level.
 3. **Each service has one database**: FraiseQL does not support connecting a single service to multiple databases simultaneously. Split data ownership across services instead.
-4. **`@requires` is a no-op**: The Apollo Federation `@requires` directive (which pre-fetches fields from another subgraph before resolving a local field) is not implemented. FraiseQL operates as a pure subgraph — it owns its own data and resolves `_entities` queries independently. If your supergraph composition depends on `@requires`, route that resolution through the Apollo Router's query planner or restructure the field ownership so each service resolves from its own database.
+4. **`@requires` needs Apollo Router for cross-service resolution**: FraiseQL implements `@requires` at the subgraph level (compile-time validation via `RequiresProvidesValidator`, runtime entity resolution with circuit breaker). However, the **built-in gateway** does not perform field-level query planning — use Apollo Router if your supergraph composition depends on cross-service `@requires` / `@provides` resolution.
 
 ---
 

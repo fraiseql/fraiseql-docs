@@ -107,7 +107,7 @@ az containerapp job create \
   --image python:3.13-slim \
   --replica-timeout 300 \
   --trigger-type Manual \
-  --args "sh" "-c" "pip install -q fraiseql-confiture && confiture migrate up --env production" \
+  --args "sh" "-c" "pip install -q fraiseql-confiture && fraiseql migrate up --env production" \
   --env-vars "DATABASE_URL=secretref:database-url"
 
 # Execute the migration job

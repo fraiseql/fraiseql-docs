@@ -336,7 +336,7 @@ New to FraiseQL? Start with the **[SaaS Blog](../saas-blog)** example — it cov
 5. **Run migrations**
 
    ```bash
-   confiture migrate
+   fraiseql migrate
    ```
 
 6. **Start development server**
@@ -408,9 +408,9 @@ All FraiseQL starters and examples serve REST and gRPC alongside GraphQL on port
 # REST — same resource names as GraphQL queries (default path: /rest/v1; configure via [fraiseql.rest] path)
 curl http://localhost:8080/rest/v1/users
 
-# gRPC — requires grpcurl and HTTP/2
-grpcurl -plaintext localhost:8080 list
-grpcurl -plaintext -d '{"limit": 10}' localhost:8080 fraiseql.BlogService/ListPosts
+# gRPC — separate port (default 50052), requires grpcurl
+grpcurl -plaintext localhost:50052 list
+grpcurl -plaintext -d '{"limit": 10}' localhost:50052 fraiseql.BlogService/ListPosts
 ```
 
 Schema annotations like `@fraiseql.query` (with `fraiseql.config(sql_source="v_post")` in the function body) automatically generate both the GraphQL resolver and the REST/gRPC endpoints. No separate REST or gRPC schema definition is needed.

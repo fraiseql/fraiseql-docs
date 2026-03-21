@@ -26,12 +26,12 @@ FraiseQL is database-first — your SQL tables, views, and functions are the sou
 | Scenario | Confiture command |
 |----------|------------------|
 | Fresh dev or CI database | `confiture build --env local` |
-| Apply pending schema changes to production | `confiture migrate up --env production` |
-| Roll back last migration | `confiture migrate down --env production` |
-| Check what's pending | `confiture migrate status --env production` |
+| Apply pending schema changes to production | `fraiseql migrate up --env production` |
+| Roll back last migration | `fraiseql migrate down --env production` |
+| Check what's pending | `fraiseql migrate status --env production` |
 | Seed local DB with anonymised production data | `confiture sync --from prod --to local --anonymize` |
 
-Every deployment platform below runs `confiture migrate up` as a pre-start step (initContainer in Kubernetes, a one-off task in ECS, a release command in Docker Compose) before FraiseQL starts serving traffic.
+Every deployment platform below runs `fraiseql migrate up` as a pre-start step (initContainer in Kubernetes, a one-off task in ECS, a release command in Docker Compose) before FraiseQL starts serving traffic.
 
 <Aside type="tip">
 Confiture is a Python CLI tool — it does not need to run inside the FraiseQL container. Install it via `pip install fraiseql-confiture` (or `uv pip install fraiseql-confiture`) in a lightweight Python image for init containers and migration jobs. Example: `python:3.13-slim` with `pip install fraiseql-confiture` in the entrypoint.
@@ -46,7 +46,7 @@ FraiseQL supports hot-reloading schemas via SIGUSR1 or the admin API — in-flig
 Before deploying to production:
 
 - [ ] Environment variables configured (DATABASE_URL, JWT_SECRET, etc.)
-- [ ] Database schema migrations applied (`confiture migrate up --env production`)
+- [ ] Database schema migrations applied (`fraiseql migrate up --env production`)
 - [ ] Database connection pooling configured
 - [ ] Health check endpoints enabled
 - [ ] Logging configured (structured JSON logs)

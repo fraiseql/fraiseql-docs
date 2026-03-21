@@ -46,7 +46,7 @@ You can expose the same underlying view at multiple REST paths with different co
 
 **Safe internal views.** A view you add for debugging, reporting, or internal tooling is not automatically a REST endpoint. You have to explicitly annotate it. The default is private.
 
-**Secure by default.** If you add `rest_path` to an operation that also has `grpc_service`, both transports enforce the same RBAC. There's no risk of accidentally exposing a gRPC-only operation as a public REST endpoint — you'd have to annotate it.
+**Secure by default.** If you add `rest_path` to an operation that is also available via gRPC, both transports enforce the same RBAC. There's no risk of accidentally exposing a gRPC operation as a public REST endpoint — you'd have to annotate it.
 
 ## OpenAPI generation
 

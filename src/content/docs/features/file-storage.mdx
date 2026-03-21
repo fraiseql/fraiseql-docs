@@ -1,6 +1,6 @@
 ---
 title: File Storage
-description: File upload, storage, and retrieval with local filesystem and S3 backends
+description: File upload, storage, and retrieval with local, S3, GCS, Azure Blob, and European cloud backends
 ---
 
 import { Aside, Tabs, TabItem, CardGrid, Card } from '@astrojs/starlight/components';
@@ -18,18 +18,24 @@ File uploads in FraiseQL work as follows:
 
 The Python SDK has no `Upload` type. File URL fields in your schema are plain `str`.
 
-## Implemented Storage Backends
+## Storage Backends
 
-Two backends are implemented and available:
+The following backends are available:
 
-| Backend | Status | Feature flag |
-|---------|--------|-------------|
-| `local` | Available | Always enabled |
-| `s3` | Available | `aws-s3` feature |
+| Backend | Provider | Feature flag |
+|---------|----------|-------------|
+| `local` | Local filesystem | Always enabled |
+| `s3` | Amazon S3 | `aws-s3` feature |
+| `gcs` | Google Cloud Storage | `gcs` feature |
+| `azure` | Azure Blob Storage | `azure-blob` feature |
+| `s3` (compatible) | Cloudflare R2, MinIO | `aws-s3` feature |
+| `s3` (compatible) | Scaleway Object Storage | `aws-s3` feature |
+| `s3` (compatible) | OVHcloud Object Storage | `aws-s3` feature |
+| `s3` (compatible) | Clever Cloud Cellar | `aws-s3` feature |
+| `s3` (compatible) | Exoscale SOS | `aws-s3` feature |
+| `s3` (compatible) | Infomaniak Swiss Backup | `aws-s3` feature |
 
-<Aside type="caution">
-Only `local` and `s3` backends are implemented. Other providers (Cloudflare R2, Google Cloud Storage, Azure Blob) are not available.
-</Aside>
+S3-compatible providers (Cloudflare R2, Scaleway, OVH, Clever Cloud, Exoscale, Infomaniak) use the `s3` backend with a custom `endpoint_env`. See the [S3-compatible configuration](#s3-compatible-services) section below.
 
 ## TOML Configuration
 
@@ -84,10 +90,32 @@ public = false
 url_expiry = "1h"
 ```
 
-### S3-Compatible Services (MinIO)
+### GCS Storage
 
-For S3-compatible services, provide a custom endpoint via an environment variable name:
+```toml
+[storage.primary]
+backend = "gcs"
+bucket_env = "GCS_BUCKET"
+credentials_file_env = "GOOGLE_APPLICATION_CREDENTIALS"
+public_url = "https://storage.googleapis.com/my-bucket"
+```
 
+### Azure Blob Storage
+
+```toml
+[storage.primary]
+backend = "azure"
+container_env = "AZURE_CONTAINER"
+connection_string_env = "AZURE_STORAGE_CONNECTION_STRING"
+public_url = "https://myaccount.blob.core.windows.net/my-container"
+```
+
+### S3-Compatible Services
+
+For S3-compatible services (MinIO, Cloudflare R2, Scaleway, OVH, Clever Cloud, Exoscale, Infomaniak), use the `s3` backend with a custom endpoint:
+
+<Tabs>
+<TabItem label="MinIO">
 ```toml
 [storage.minio]
 backend = "s3"
@@ -97,14 +125,68 @@ secret_key_env = "MINIO_SECRET_KEY"
 endpoint_env = "MINIO_ENDPOINT"
 ```
 
-Set the corresponding environment variables at runtime:
-
 ```bash
 export MINIO_BUCKET=uploads
 export MINIO_ACCESS_KEY=minioadmin
 export MINIO_SECRET_KEY=minioadmin
 export MINIO_ENDPOINT=http://minio:9000
 ```
+</TabItem>
+<TabItem label="Cloudflare R2">
+```toml
+[storage.r2]
+backend = "s3"
+bucket_env = "R2_BUCKET"
+access_key_env = "R2_ACCESS_KEY_ID"
+secret_key_env = "R2_SECRET_ACCESS_KEY"
+endpoint_env = "R2_ENDPOINT"
+public_url = "https://pub-xxxx.r2.dev"
+```
+
+```bash
+export R2_BUCKET=uploads
+export R2_ACCESS_KEY_ID=your-access-key
+export R2_SECRET_ACCESS_KEY=your-secret-key
+export R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+```
+</TabItem>
+<TabItem label="Scaleway">
+```toml
+[storage.scaleway]
+backend = "s3"
+region = "fr-par"
+bucket_env = "SCW_BUCKET"
+access_key_env = "SCW_ACCESS_KEY"
+secret_key_env = "SCW_SECRET_KEY"
+endpoint_env = "SCW_ENDPOINT"
+```
+
+```bash
+export SCW_BUCKET=uploads
+export SCW_ACCESS_KEY=your-access-key
+export SCW_SECRET_KEY=your-secret-key
+export SCW_ENDPOINT=https://s3.fr-par.scw.cloud
+```
+</TabItem>
+<TabItem label="OVH">
+```toml
+[storage.ovh]
+backend = "s3"
+region = "gra"
+bucket_env = "OVH_BUCKET"
+access_key_env = "OVH_ACCESS_KEY"
+secret_key_env = "OVH_SECRET_KEY"
+endpoint_env = "OVH_ENDPOINT"
+```
+
+```bash
+export OVH_BUCKET=uploads
+export OVH_ACCESS_KEY=your-access-key
+export OVH_SECRET_KEY=your-secret-key
+export OVH_ENDPOINT=https://s3.gra.io.cloud.ovh.net
+```
+</TabItem>
+</Tabs>
 
 ## FileConfig Reference
 
@@ -445,7 +527,7 @@ scan_malware = true
 
 ## Best Practices
 
-**Use S3 in production.** The local backend stores files on disk alongside your application. It does not support real signed URLs and is not suitable for multi-instance deployments.
+**Use a cloud backend in production.** The local backend stores files on disk alongside your application. It does not support real signed URLs and is not suitable for multi-instance deployments. Use S3, GCS, Azure Blob, or an S3-compatible European provider (Scaleway, OVH, Clever Cloud, Exoscale, Infomaniak) depending on your region and compliance requirements.
 
 **Keep `validate_magic_bytes = true`.** This is the default and should not be disabled. Accepting files based only on the declared MIME type allows malicious uploads.
 

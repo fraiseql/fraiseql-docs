@@ -100,37 +100,57 @@ Use `--watch` during development so the server restarts automatically when you e
 
 ---
 
-## `fraiseql gateway`
+## `fraiseql federation gateway`
 
-Start a federation gateway that routes queries to multiple FraiseQL subgraphs.
+Start the federation gateway, routing GraphQL queries across multiple FraiseQL subgraphs. This is a subcommand of `fraiseql federation`.
 
 ```bash
-fraiseql gateway [OPTIONS]
+fraiseql federation gateway [OPTIONS] <CONFIG>
 ```
+
+**Arguments:**
+- `CONFIG` — Path to `gateway.toml` configuration file (required)
 
 **Options:**
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--config` | `./gateway.toml` | Path to `gateway.toml` |
-| `--port` | `4000` | Gateway listen port |
-| `--bind` | `0.0.0.0` | Bind address |
-| `--subgraph` | — | Add subgraph (`name=url`), repeatable |
+| `--check` | off | Validate the gateway config and exit without starting the server |
+
+The gateway starts an axum HTTP server exposing three endpoints:
+
+| Endpoint | Description |
+|----------|-------------|
+| `/graphql` | Federated GraphQL endpoint — routes queries to the appropriate subgraphs |
+| `/health` | Health check — returns `200 OK` when the gateway is running |
+| `/ready` | Readiness check — returns `200 OK` once all subgraphs have been introspected |
+
+At startup the gateway introspects each subgraph's SDL, builds a type-level query plan (type → subgraph map), and merges responses from parallel subgraph requests.
 
 **Examples:**
 
 ```bash
-# Via config file
-fraiseql gateway --config gateway.toml
+# Start the federation gateway
+fraiseql federation gateway gateway.toml
 
-# Via CLI flags
-fraiseql gateway \
-  --port 4000 \
-  --subgraph inventory=http://localhost:4001 \
-  --subgraph billing=http://localhost:4002
+# Validate config without starting
+fraiseql federation gateway gateway.toml --check
 ```
 
-See [Federation Gateway Guide](/guides/federation-gateway) for the full configuration reference.
+**Expected output:**
+
+```
+$ fraiseql federation gateway gateway.toml
+🍓 FraiseQL Gateway v2.1.0
+   GraphQL endpoint: http://localhost:4000/graphql
+   Health check:     http://localhost:4000/health
+   Readiness check:  http://localhost:4000/ready
+   Subgraphs:        users (http://localhost:4001/graphql)
+                     orders (http://localhost:4002/graphql)
+   Press Ctrl+C to stop
+```
+
+See the [Federation Gateway guide](/guides/federation-gateway/) for configuration format, query routing details, and migration from Apollo Router.
 
 ---
 
@@ -151,7 +171,7 @@ fraiseql compile [OPTIONS] [INPUT]
 |--------|---------|-------------|
 | `-o, --output <FILE>` | `schema.compiled.json` | Output file path |
 | `--check` | off | Validate only; do not write output |
-| `--database <URL>` | `$DATABASE_URL` | Validate against live database schema |
+| `--database <URL>` | `$DATABASE_URL` | Validate against live database (three-level check — see below) |
 | `--output-proto <PATH>` | — | Write the auto-generated `.proto` file for gRPC clients. Requires the `grpc-transport` feature. |
 | `--features <LIST>` | — | Comma-separated compile-time feature flags. Use `rest-transport` and `grpc-transport` to control which transports are included in the compiled output. |
 
@@ -174,11 +194,25 @@ fraiseql compile fraiseql.toml --check --database "$DATABASE_URL"
 **Expected output:**
 
 ```
-$ fraiseql compile
+$ fraiseql compile fraiseql.toml --database "$DATABASE_URL"
 ✓ Schema validated (3 types, 2 inputs, 5 queries, 3 mutations)
-✓ SQL views verified against database
+✓ Database validation passed: all relations, columns, and JSON keys verified.
 ✓ Compiled to build/schema.compiled.json (0.4s)
 ```
+
+#### Database validation levels
+
+When `--database` is provided, the compiler connects to the live database and runs three levels of validation. All diagnostics are **warnings** — compilation never fails due to validation.
+
+| Level | What it checks | Example warning |
+|-------|---------------|-----------------|
+| **L1** | `sql_source` relation exists (tables, views, materialized views) | `query 'users': sql_source 'v_user' does not exist in database` |
+| **L2** | JSONB column exists and has the correct type; relay cursor column exists | `query 'users': column 'data' not found on 'v_user'` |
+| **L3** | JSONB keys match declared fields (samples rows from the view) | `query 'users': JSON key 'email' not found in sampled data from 'v_user'.data` |
+
+L1 catches typos and missing migrations. L2 catches schema drift (e.g. renamed columns). L3 is best-effort — it samples existing rows, so it may miss keys that only appear in some rows.
+
+All four databases are supported: PostgreSQL, MySQL, SQLite, and SQL Server.
 
 ---
 
@@ -396,61 +430,49 @@ $ fraiseql validate
 
 ### `fraiseql doctor`
 
-Run a comprehensive health check of your FraiseQL project. Validates configuration, schema, database connectivity, secrets, and coherence between features. Use this as the first diagnostic step when something isn't working.
+Run diagnostic checks on your FraiseQL setup. Validates configuration, connectivity, and common setup issues.
 
 ```bash
 fraiseql doctor [OPTIONS]
 ```
 
+**Checks performed:**
+1. Schema file exists and parses correctly
+2. Schema version compatibility
+3. TOML config validity
+4. `DATABASE_URL` is set
+5. Database is reachable
+6. JWT secret configuration
+7. Redis connectivity (if configured)
+8. TLS certificate validity (if configured)
+9. Cache + auth coherence
+
 **Options:**
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--config <PATH>` | `fraiseql.toml` | Path to configuration file |
-| `--schema <PATH>` | `schema.compiled.json` | Path to compiled schema |
-| `--database-url <URL>` | `$DATABASE_URL` | Override database connection string |
-| `--json` | off | Output results as JSON |
-
-**Checks performed (11 total):**
-
-| Check | Severity | Description |
-|-------|----------|-------------|
-| Schema file exists | Fail | Compiled schema file is present |
-| Schema parses | Fail | Schema JSON is valid with types/queries/mutations |
-| Schema format version | Fail | Schema version field is `v1` |
-| fraiseql.toml found | Warn | Configuration file exists |
-| TOML syntax valid | Fail | Configuration file parses without errors |
-| DATABASE_URL set | Fail | Database connection string is provided |
-| DATABASE_URL reachable | Fail | TCP connection to database succeeds (5s timeout) |
-| FRAISEQL_JWT_SECRET | Warn | JWT signing secret is set |
-| FRAISEQL_REDIS_URL | Pass/Skip | Redis connectivity (skipped if not configured) |
-| TLS certificate | Fail | Certificate file exists (if TLS enabled in config) |
-| Cache + auth coherence | Warn | Caching without authorization policies |
-
-**Exit codes:**
-- `0` — All checks passed (warnings do not cause failure)
-- `1` — One or more checks failed
+| Option | Description |
+|--------|-------------|
+| `--config <CONFIG>` | Path to `fraiseql.toml` config file (default: `fraiseql.toml`) |
+| `--schema <SCHEMA>` | Path to `schema.compiled.json` (default: `schema.compiled.json`) |
+| `--database <DATABASE_URL>` | Override `DATABASE_URL` for connectivity check |
+| `--json` | Output as JSON (machine-readable) |
+| `-q, --quiet` | Suppress output (exit code only) |
+| `-v, --verbose` | Enable verbose logging |
+| `-d, --debug` | Enable debug logging |
 
 **Examples:**
 
 ```bash
-# Run all checks with default paths
+# Run all checks
 fraiseql doctor
 
-# Check a specific config and schema
-fraiseql doctor --config deploy/fraiseql.toml --schema build/schema.compiled.json
+# Use custom paths
+fraiseql doctor --config fraiseql.toml --schema schema.compiled.json
 
-# JSON output for CI pipelines
+# Machine-readable output (for CI)
 fraiseql doctor --json
-```
 
-**JSON output format** (with `--json`):
-
-```json
-[
-  { "name": "Schema file exists", "status": "pass", "detail": "schema.compiled.json found", "hint": null },
-  { "name": "FRAISEQL_JWT_SECRET", "status": "warn", "detail": "Not set", "hint": "Set FRAISEQL_JWT_SECRET for JWT authentication" }
-]
+# Silent mode — check exit code only
+fraiseql doctor --quiet && echo "All checks passed"
 ```
 
 ---
@@ -566,18 +588,44 @@ fraiseql init my-api --language python --database postgres
 
 ---
 
-### Database Migrations
+### `fraiseql migrate`
 
-FraiseQL does not have a `fraiseql migrate` subcommand. Database migrations are managed by **Confiture**, the companion migration tool:
+Manage database migrations. This command wraps [Confiture](/confiture) under the hood, so you do not need to install Confiture separately.
 
 ```bash
-confiture migrate up                         # Apply pending migrations
-confiture migrate down                       # Roll back the last migration
-confiture migrate status                     # Show migration status
-confiture migrate create add_user_table      # Create a new migration file
+fraiseql migrate <SUBCOMMAND> [OPTIONS]
 ```
 
-See the [Confiture documentation](/confiture/migrate) for full migration reference.
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `up` | Apply all pending migrations |
+| `down` | Roll back the last applied migration |
+| `status` | Show which migrations have been applied and which are pending |
+| `create <NAME>` | Create a new migration file pair (up/down SQL) |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--database <URL>` | `$DATABASE_URL` | PostgreSQL connection string |
+
+**Examples:**
+
+```bash
+# Apply all pending migrations
+fraiseql migrate up
+
+# Roll back the last migration
+fraiseql migrate down
+
+# Check migration status
+fraiseql migrate status
+
+# Create a new migration
+fraiseql migrate create add_user_table
+```
 
 ---
 
@@ -715,7 +763,7 @@ Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if 
 | Task | Command |
 |------|---------|
 | Start development server | `fraiseql run --watch` |
-| Start federation gateway | `fraiseql gateway --config gateway.toml` |
+| Start federation gateway | `fraiseql federation gateway gateway.toml` |
 | Compile for production | `fraiseql compile --check` |
 | Health check project | `fraiseql doctor` |
 | Validate schema | `fraiseql validate --strict` |
@@ -724,7 +772,7 @@ Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if 
 | Analyze schema | `fraiseql analyze schema.compiled.json` |
 | Generate client types | `fraiseql generate --language typescript` |
 | Export federation graph | `fraiseql federation graph schema.compiled.json --format mermaid` |
-| Run migrations | `confiture migrate up` |
+| Run migrations | `fraiseql migrate up` |
 
 ### CI/CD Integration
 
@@ -733,7 +781,7 @@ Pass the path explicitly to any command that accepts `[INPUT]` or `[SCHEMA]` if 
 fraiseql validate schema.json          # Validate configuration
 fraiseql compile fraiseql.toml --check # Compile and validate schema
 fraiseql lint --fail-on-warning        # Run all audits
-confiture migrate up                   # Apply migrations (Confiture, not fraiseql)
+fraiseql migrate up                    # Apply pending migrations
 fraiseql run                           # Start server
 ```
 

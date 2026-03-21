@@ -316,14 +316,10 @@ Mutations wire to PostgreSQL functions returning `mutation_response`. Views retu
 ## Transport Annotations
 
 <Aside type="note">
-REST annotation support (`restPath`, `restMethod`) is in active development for this SDK. Available in the main branch; check the SDK changelog for the release version.
+REST annotation support (`restPath`, `restMethod`) is available in the Java SDK as of v2.1.0.
 </Aside>
 
-<Aside type="caution">
-gRPC annotations (`grpcService`, `grpcMethod`) require building FraiseQL with the `grpc-transport` feature — not included in the official `ghcr.io/fraiseql/server:latest` Docker image. See [gRPC Transport](/features/grpc-transport).
-</Aside>
-
-Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Use `@FraiseQLQuery` and `@FraiseQLMutation` method-level annotations with `restPath`, `restMethod`, `grpcService`, and `grpcMethod` attributes.
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Use `@FraiseQLQuery` and `@FraiseQLMutation` method-level annotations with `restPath` and `restMethod` attributes. gRPC endpoints are auto-generated when `[grpc]` is enabled — no per-operation annotation needed. See [gRPC Transport](/features/grpc-transport).
 
 ```java
 import io.fraiseql.sdk.*;
@@ -331,9 +327,7 @@ import io.fraiseql.sdk.*;
 @FraiseQLQuery(
     sqlSource = "v_post",
     restPath = "/posts",
-    restMethod = "GET",
-    grpcService = "BlogService",
-    grpcMethod = "ListPosts"
+    restMethod = "GET"
 )
 public List<Post> posts(@Default("10") int limit) { return null; }
 
@@ -348,9 +342,7 @@ public Post post(UUID id) { return null; }
     sqlSource = "create_post",
     operation = "CREATE",
     restPath = "/posts",
-    restMethod = "POST",
-    grpcService = "BlogService",
-    grpcMethod = "CreatePost"
+    restMethod = "POST"
 )
 public Post createPost(String title, UUID authorId) { return null; }
 ```

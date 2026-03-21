@@ -233,9 +233,7 @@ The complexity lives in the database, where it belongs — not in runtime resolv
 @fraiseql.query(
     sql_source="v_user",
     rest_path="/users/{id}",    # REST: GET /rest/users/{id}
-    rest_method="GET",
-    grpc_service="UserService",
-    grpc_method="GetUser",      # gRPC: UserService/GetUser
+    rest_method="GET",          # gRPC: auto-generated when [grpc] is enabled
 )
 def get_user(id: UUID) -> User: ...
 ```
@@ -248,7 +246,7 @@ $ fraiseql compile && fraiseql run --database $DATABASE_URL
 ✓ Built query executor
 → GraphQL  http://localhost:8080/graphql
 → REST      http://localhost:8080/rest/v1/  (default path; configure via [fraiseql.rest] path)
-→ gRPC      localhost:8080 (HTTP/2)
+→ gRPC      localhost:50052
 ```
 
 ## Why Database-First?

@@ -30,48 +30,17 @@ The gRPC path is faster end-to-end because:
 
 Honest framing: gRPC performance is competitive with hand-written tonic, not faster — FraiseQL's gRPC transport is built on tonic. The real win is zero handler code with near-native performance.
 
-## SDK Annotations
+## Automatic Endpoint Generation
 
-Add `grpc_service` and `grpc_method` parameters to any decorator to expose it as a gRPC method.
+gRPC endpoints require **no SDK annotations**. When gRPC is enabled, the compiler automatically generates a `.proto` service with one RPC per query and mutation. Method names follow naming conventions:
 
-<Tabs>
-<TabItem label="Python">
-```python
-@fraiseql.query(
-    sql_source="v_user",
-    grpc_service="UserService",
-    grpc_method="GetUser",
-)
-def get_user(id: UUID) -> User: ...
+| Schema operation | Generated gRPC RPC | Rule |
+|-----------------|-------------------|------|
+| `get_user` query | `GetUser` | PascalCase of query name |
+| `posts` list query | `ListPosts` (server-streaming) | `List` + PascalCase for list returns |
+| `create_user` mutation | `CreateUser` → `MutationResponse` | PascalCase of mutation name |
 
-@fraiseql.query(
-    sql_source="v_post",
-    grpc_service="BlogService",
-    grpc_method="ListPosts",
-)
-def posts(limit: int = 10) -> list[Post]: ...
-```
-</TabItem>
-<TabItem label="TypeScript">
-```typescript
-import { query } from '@fraiseql/sdk';
-
-@query({ sqlSource: 'v_user', grpcService: 'UserService', grpcMethod: 'GetUser' })
-async function getUser(id: string): Promise<User> {}
-```
-</TabItem>
-<TabItem label="Go">
-```go
-fraiseql.NewQuery("getUser").
-    SQLSource("v_user").
-    GRPCService("UserService").
-    GRPCMethod("GetUser").
-    Build()
-```
-</TabItem>
-</Tabs>
-
-The compiler groups methods by `grpc_service` name into a single protobuf `service` block.
+All types are included by default. Use `include_types` / `exclude_types` in `[grpc]` to filter which types (and their associated queries/mutations) are exposed.
 
 ## Proto Generation
 
@@ -127,36 +96,68 @@ GraphQL: name: String!    →  proto: string name = 1;
 
 Nested object fields compile to protobuf `message` types. The row-shaped view uses JOINs returning flat columns; the server reconstructs the message nesting during serialization.
 
-## Streaming RPCs
+## Mutations
 
-Server-streaming RPCs map to the existing subscription infrastructure. `@fraiseql.subscription` decorators generate gRPC server-streaming methods alongside WebSocket subscriptions — the same subscription logic powers both transports:
+Mutations are automatically exposed as gRPC RPCs that call the underlying database function via `execute_function_call()`. The response is a standard `MutationResponse` message:
 
-```python
-@fraiseql.subscription(
-    sql_source="v_order_updates",
-    grpc_service="OrderService",
-    grpc_method="WatchOrder",
-)
-def order_updated(customer_id: UUID) -> Order: ...
+```protobuf
+message MutationResponse {
+  bool success = 1;
+  optional string id = 2;     // entity ID returned by the function
+  optional string error = 3;
+}
 ```
 
-This produces both a WebSocket subscription and a `WatchOrder` server-streaming RPC in `OrderService`.
+Given a mutation `create_user`, the compiler generates a `CreateUserRequest` message from the function arguments and a `CreateUser` RPC that returns `MutationResponse`. No additional annotation is needed.
+
+## Streaming RPCs
+
+**List queries** are automatically exposed as server-streaming RPCs. When a query returns a list, the generated `.proto` uses `returns (stream Entity)` instead of a wrapper response — rows are fetched in batches from the database and streamed individually as gRPC frames:
+
+```protobuf
+// Generated for a list query
+rpc ListPosts(ListPostsRequest) returns (stream Post);
+
+// Generated for a single-item query
+rpc GetUser(GetUserRequest) returns (User);
+```
+
+The batch size is controlled by the `stream_batch_size` config field (default 500). Memory usage is O(batch_size) regardless of total result count.
+
+**Subscriptions** also map to server-streaming RPCs. A `@fraiseql.subscription` decorator generates both a WebSocket subscription and a gRPC server-streaming RPC automatically — the same subscription logic powers both transports.
 
 The server uses PostgreSQL `LISTEN/NOTIFY` (same as GraphQL subscriptions) to push events through the gRPC stream. Client-streaming and bidirectional streaming are not supported.
 
 ## Configuration
 
 <Aside type="note">
-The `[fraiseql.grpc]` TOML section is available since **v2.1**.
+The `[grpc]` TOML section is available since **v2.1**.
 </Aside>
 
 ```toml
-[fraiseql.grpc]
+[grpc]
 enabled = true
-# gRPC shares the same port via HTTP/2 content-type negotiation
+port = 50052                          # separate port for gRPC (default 50052)
+reflection = true                     # gRPC reflection for grpcurl/gRPC UI (default true)
+max_message_size_bytes = 4194304      # 4 MiB (default)
+descriptor_path = "proto/descriptor.binpb"  # compiled FileDescriptorSet
+stream_batch_size = 500               # rows per batch in server-streaming RPCs
+# include_types = ["User", "Post"]    # whitelist (empty = all types)
+# exclude_types = ["InternalAudit"]   # blacklist
 ```
 
-gRPC uses the same port as GraphQL and REST. HTTP/2 content-type negotiation distinguishes gRPC requests (`application/grpc`) from HTTP/1.1 traffic. No separate port configuration is needed.
+gRPC runs on a **separate port** (default 50052) from the HTTP server. This avoids HTTP/2 negotiation complexity and lets you expose gRPC only on internal networks while keeping HTTP public.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable gRPC transport |
+| `port` | integer | `50052` | gRPC listen port |
+| `reflection` | bool | `true` | Enable gRPC server reflection |
+| `max_message_size_bytes` | integer | `4194304` | Maximum inbound message size (bytes) |
+| `descriptor_path` | string | `"proto/descriptor.binpb"` | Path to compiled `FileDescriptorSet` binary |
+| `stream_batch_size` | integer | `500` | Rows per batch in server-streaming RPCs |
+| `include_types` | string[] | `[]` | Whitelist of type names to expose (empty = all) |
+| `exclude_types` | string[] | `[]` | Blacklist of type names to hide |
 
 ## Feature Flag
 
@@ -175,13 +176,13 @@ After generating client code from the `.proto`:
 ```bash
 grpcurl -plaintext \
   -d '{"id": "123"}' \
-  localhost:8080 \
+  localhost:50052 \
   UserService/GetUser
 ```
 </TabItem>
 <TabItem label="Go">
 ```go
-conn, err := grpc.Dial("localhost:8080", grpc.WithInsecure())
+conn, err := grpc.Dial("localhost:50052", grpc.WithInsecure())
 if err != nil {
     log.Fatal(err)
 }
@@ -191,7 +192,7 @@ user, err := client.GetUser(ctx, &pb.GetUserRequest{Id: "123"})
 </TabItem>
 <TabItem label="Python">
 ```python
-channel = grpc.insecure_channel('localhost:8080')
+channel = grpc.insecure_channel('localhost:50052')
 stub = user_pb2_grpc.UserServiceStub(channel)
 user = stub.GetUser(user_pb2.GetUserRequest(id='123'))
 ```
@@ -220,10 +221,10 @@ The reflection service is enabled by default when `grpc-transport` is active. To
 
 ```bash
 # List all services
-grpcurl -plaintext localhost:8080 list
+grpcurl -plaintext localhost:50052 list
 
 # Describe a specific service
-grpcurl -plaintext localhost:8080 describe UserService
+grpcurl -plaintext localhost:50052 describe UserService
 ```
 
 ## Authentication
@@ -234,7 +235,7 @@ gRPC auth follows standard gRPC conventions — pass credentials in metadata hea
 grpcurl -plaintext \
   -H "authorization: Bearer $TOKEN" \
   -d '{"id": "123"}' \
-  localhost:8080 \
+  localhost:50052 \
   UserService/GetUser
 ```
 

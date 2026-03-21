@@ -176,11 +176,18 @@ For UPDATE events, `"old"` contains the previous field values and `"new"` contai
 
 ### Email
 
-<Aside type="caution">
-The email action is **not yet implemented**. The current Rust implementation (`EmailAction.execute()`) is a stub that always returns success without sending any email. Do not use the email action in production. Route email notifications through a webhook to your email provider instead.
-</Aside>
+The email action sends messages via SMTP using the [lettre](https://github.com/lettre/lettre) crate. It supports TLS, SMTP authentication, and configurable sender/recipient addresses.
 
-The email action is planned for a future release. For now, use a webhook action pointing to your email service's API (SendGrid, Resend, Postmark, etc.).
+**Supported configuration:**
+- `from` — Sender email address
+- `to` — Recipient email address(es)
+- `subject` — Subject line with `{field_name}` substitution
+- `body_template` — Body text with `{field_name}` substitution
+- `smtp_host` or `smtp_host_env` — SMTP server hostname
+- `smtp_port` — SMTP port (default: 587)
+- `smtp_user_env` — SMTP username from environment variable
+- `smtp_password_env` — SMTP password from environment variable
+- `tls` — `"required"` (default), `"opportunistic"`, or `"none"`
 
 ### Slack
 
@@ -353,8 +360,8 @@ When `RUST_LOG=debug` is set, FraiseQL prints each observer invocation to stdout
 [observer] on_high_value_order completed in 287ms
 ```
 
-<Aside type="caution">
-The email action (`EmailAction`) is **not yet implemented** — the current Rust implementation is a stub that always returns success without sending any email. Route email notifications through a webhook action pointing to your email provider's API (SendGrid, Resend, Postmark, etc.) instead.
+<Aside type="note">
+The email action uses SMTP via the `lettre` crate. For high-volume transactional email, consider routing through a webhook action to a dedicated email provider API (SendGrid, Resend, Postmark) instead of direct SMTP.
 </Aside>
 
 If an action fails, the log includes the error and retry schedule:

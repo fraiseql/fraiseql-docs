@@ -492,7 +492,7 @@ fraiseql.export_schema("schema.json")
 REST annotations (`rest_path`, `rest_method`) are available in the Python SDK as of v2.1.0.
 </Aside>
 
-Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Add `rest_path`/`rest_method` to also expose it as a REST endpoint. Add `grpc_service`/`grpc_method` to also expose it via gRPC. Annotations can be combined freely.
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Add `rest_path`/`rest_method` to also expose it as a REST endpoint. gRPC endpoints are auto-generated when `[grpc]` is enabled — no per-operation annotation needed. See [gRPC Transport](/features/grpc-transport).
 
 ```python
 import fraiseql
@@ -524,24 +524,12 @@ def post(id: UUID) -> Post:
 def post_by_slug(slug: str) -> Post:
     return fraiseql.config(sql_source="v_post")
 
-# gRPC + GraphQL
-@fraiseql.query(grpc_service="BlogService", grpc_method="ListPosts")
-def posts_grpc(limit: int = 10) -> list[Post]:
-    return fraiseql.config(sql_source="v_post")
-
-# All three transports
-@fraiseql.query(rest_path="/posts", rest_method="GET", grpc_service="BlogService", grpc_method="ListPosts")
-def posts_all(limit: int = 10) -> list[Post]:
-    return fraiseql.config(sql_source="v_post")
-
 # REST mutation
 @fraiseql.mutation(
     sql_source="create_post",
     operation="CREATE",
     rest_path="/posts",
     rest_method="POST",
-    grpc_service="BlogService",
-    grpc_method="CreatePost",
 )
 def create_post(title: str, author_id: UUID) -> Post: ...
 ```
@@ -562,19 +550,21 @@ Path parameters in `rest_path` (e.g., `{id}`) must match function argument names
 
    This writes `schema.json` containing the compiled type registry.
 
-2. Compile and validate against the database:
+2. Compile (and optionally validate against the database):
 
    ```bash
-   fraiseql compile
+   fraiseql compile fraiseql.toml --database "$DATABASE_URL"
    ```
 
    Expected output:
 
    ```
    ✓ Schema compiled: 3 types, 3 queries, 3 mutations
-   ✓ Views validated against database
-   ✓ Build complete: schema.json
+   ✓ Database validation passed: all relations, columns, and JSON keys verified.
+   ✓ Build complete: schema.compiled.json
    ```
+
+   The `--database` flag enables [three-level validation](/reference/cli/#database-validation-levels) — checking that `sql_source` views exist, columns match, and JSONB keys are present. Omit it to compile without database access.
 
 3. Serve the API:
 

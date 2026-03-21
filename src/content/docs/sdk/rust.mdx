@@ -283,11 +283,11 @@ For a complete example combining authorization, schema registry, and field-level
 
 ## Transport Annotations
 
-<Aside type="caution">
-REST annotation support is not yet available in this SDK. Follow the SDK repository for updates.
+<Aside type="note">
+REST annotation support (`rest_path`, `rest_method`) is available in the Rust SDK as of v2.1.0.
 </Aside>
 
-Transport annotations are **optional** on schema operations authored with other SDKs. When using `fraiseql-rust` for Rust-native schema authoring (separate from the authorization library), add `rest_path`, `rest_method`, `grpc_service`, and `grpc_method` to the `#[fraiseql::query]` and `#[fraiseql::mutation]` proc-macro attributes.
+Transport annotations are **optional** on schema operations authored with other SDKs. When using `fraiseql-rust` for Rust-native schema authoring (separate from the authorization library), add `rest_path` and `rest_method` to the `#[fraiseql::query]` and `#[fraiseql::mutation]` proc-macro attributes. gRPC endpoints are auto-generated when `[grpc]` is enabled — no per-operation annotation needed. See [gRPC Transport](/features/grpc-transport).
 
 ```rust
 use fraiseql_sdk::prelude::*;
@@ -308,22 +308,12 @@ async fn posts(limit: Option<i32>) -> Vec<Post> { vec![] }
 )]
 async fn post(id: Uuid) -> Option<Post> { None }
 
-// gRPC
-#[fraiseql::query(
-    sql_source = "v_post",
-    grpc_service = "BlogService",
-    grpc_method = "ListPosts",
-)]
-async fn posts_grpc(limit: Option<i32>) -> Vec<Post> { vec![] }
-
 // REST mutation
 #[fraiseql::mutation(
     sql_source = "create_post",
     operation = "CREATE",
     rest_path = "/posts",
     rest_method = "POST",
-    grpc_service = "BlogService",
-    grpc_method = "CreatePost",
 )]
 async fn create_post(title: String, author_id: Uuid) -> Post { unimplemented!() }
 ```

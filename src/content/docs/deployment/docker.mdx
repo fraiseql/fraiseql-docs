@@ -60,7 +60,7 @@ services:
     image: python:3.13-slim
     environment:
       DATABASE_URL: postgresql://fraiseql:dev-password@postgres:5432/fraiseql_dev
-    entrypoint: ["sh", "-c", "pip install -q fraiseql-confiture && confiture migrate up --env local"]
+    entrypoint: ["sh", "-c", "pip install -q fraiseql-confiture && fraiseql migrate up --env local"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -344,7 +344,7 @@ Example `scripts/init-db.sh`:
 set -e
 
 echo "Running database migrations..."
-confiture migrate
+fraiseql migrate
 
 echo "Seeding database (optional)..."
 psql "$DATABASE_URL" -f seeds/initial-data.sql

@@ -311,7 +311,7 @@ Writing SQL views is one half. Managing the database is the other. [🍯 Confitu
 confiture build --env local
 
 # Apply pending migrations
-confiture migrate up --env production
+fraiseql migrate up --env production
 ```
 
 ## The Compilation Pipeline
@@ -360,7 +360,7 @@ The compiler generates different database view shapes for different transports.
 
 **JSON-shaped views** (GraphQL and REST): The compiler generates views using `json_agg`/`row_to_json` — PostgreSQL produces JSON directly, and the server passes it through to the client. This is the fast path for GraphQL and REST.
 
-**Row-shaped views** (gRPC): For operations annotated with `grpc_service`/`grpc_method`, the compiler generates standard SELECT views with typed columns. The server maps columns to protobuf fields — no JSON intermediate. The database does less work, the server does less work, the wire payload is smaller.
+**Row-shaped views** (gRPC): When `[grpc]` is enabled, the compiler generates standard SELECT views with typed columns for all operations. The server maps columns to protobuf fields — no JSON intermediate. The database does less work, the server does less work, the wire payload is smaller.
 
 The same SDK annotations drive both shapes. The compiler determines the shape based on which transport annotations are present.
 

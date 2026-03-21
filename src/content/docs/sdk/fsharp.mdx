@@ -185,25 +185,23 @@ type' "User" (TypeCEBuilder("User") {
 
 ## Transport Annotations
 
-<Aside type="caution">
-REST annotation support is not yet available in this SDK. Follow the SDK repository for updates.
+<Aside type="note">
+REST annotation support (`RestPath`, `RestMethod`) is available in the F# SDK as of v2.1.0.
 </Aside>
 
-Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Use `[<Query(...)>]` and `[<Mutation(...)>]` .NET attributes with `SqlSource`, `RestPath`, `RestMethod`, `GrpcService`, and `GrpcMethod` named parameters.
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Use `[<Query(...)>]` and `[<Mutation(...)>]` .NET attributes with `SqlSource`, `RestPath`, and `RestMethod` named parameters. gRPC endpoints are auto-generated when `[grpc]` is enabled — no per-operation annotation needed. See [gRPC Transport](/features/grpc-transport).
 
 ```fsharp
 open FraiseQL.SDK
 
-[<Query(SqlSource = "v_post", RestPath = "/posts", RestMethod = "GET",
-        GrpcService = "BlogService", GrpcMethod = "ListPosts")>]
+[<Query(SqlSource = "v_post", RestPath = "/posts", RestMethod = "GET")>]
 let posts (limit: int) : Post list = []
 
 [<Query(SqlSource = "v_post", RestPath = "/posts/{id}", RestMethod = "GET")>]
 let post (id: System.Guid) : Post option = None
 
 [<Mutation(SqlSource = "create_post", Operation = "CREATE",
-           RestPath = "/posts", RestMethod = "POST",
-           GrpcService = "BlogService", GrpcMethod = "CreatePost")>]
+           RestPath = "/posts", RestMethod = "POST")>]
 let createPost (title: string) (authorId: System.Guid) : Post = Unchecked.defaultof<Post>
 ```
 

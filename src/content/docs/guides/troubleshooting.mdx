@@ -23,7 +23,7 @@ Before searching this guide or opening an issue, gather the following informatio
 
 ## Quick Diagnostic Checklist
 
-If FraiseQL isn't working, start with `fraiseql doctor` — it runs 11 checks covering schema, config, database, secrets, and feature coherence in a single command:
+If FraiseQL isn't working, start with `fraiseql doctor` — it runs checks covering schema, config, database, secrets, and feature coherence in a single command:
 
 ```bash
 fraiseql doctor
@@ -229,13 +229,13 @@ Error: Migration failed
 1. Check migration status to understand what has already been applied:
 
    ```bash
-   confiture migrate status
+   fraiseql migrate status
    ```
 
 2. If the state is inconsistent, reset the migration history (CAUTION: drops data in development only):
 
    ```bash
-   confiture migrate reset
+   fraiseql migrate reset
    ```
 
 3. Alternatively, remove the conflicting object manually:
@@ -724,8 +724,7 @@ If you can't resolve an issue:
 - On nginx: use `listen 443 ssl http2;` and `grpc_pass` directive instead of `proxy_pass`.
 
 **gRPC method not found**
-- `grpc_service` and `grpc_method` values are case-sensitive. Verify they match the service and method name exactly as declared in your SDK annotations.
-- Use `grpcurl -plaintext localhost:8080 list` to see available services.
+- gRPC endpoints are auto-generated for all operations when `[grpc]` is enabled. Verify the operation name matches what gRPC clients expect — use `grpcurl -plaintext localhost:50052 list` to inspect available services.
 
 ---
 

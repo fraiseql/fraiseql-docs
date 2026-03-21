@@ -195,11 +195,11 @@ end
 
 ## Transport Annotations
 
-<Aside type="caution">
-REST annotation support is not yet available in this SDK. Follow the SDK repository for updates.
+<Aside type="note">
+REST annotation support (`rest_path:`, `rest_method:`) is available in the Elixir SDK as of v2.1.0.
 </Aside>
 
-Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Pass `rest_path:`, `rest_method:`, `grpc_service:`, and `grpc_method:` as keyword options on `fraiseql_query` and `fraiseql_mutation`.
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Pass `rest_path:` and `rest_method:` as keyword options on `fraiseql_query` and `fraiseql_mutation`. gRPC endpoints are auto-generated when `[grpc]` is enabled — no per-operation annotation needed. See [gRPC Transport](/features/grpc-transport).
 
 ```elixir
 defmodule MyApp.Schema do
@@ -208,9 +208,7 @@ defmodule MyApp.Schema do
   query :posts,
     sql_source: "v_post",
     rest_path: "/posts",
-    rest_method: "GET",
-    grpc_service: "BlogService",
-    grpc_method: "ListPosts" do
+    rest_method: "GET" do
     arg :limit, :integer, default: 10
     returns list_of(:post)
   end
@@ -227,9 +225,7 @@ defmodule MyApp.Schema do
     sql_source: "create_post",
     operation: :create,
     rest_path: "/posts",
-    rest_method: "POST",
-    grpc_service: "BlogService",
-    grpc_method: "CreatePost" do
+    rest_method: "POST" do
     arg :title, :string
     arg :author_id, :uuid
     returns :post

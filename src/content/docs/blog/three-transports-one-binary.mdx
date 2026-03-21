@@ -52,14 +52,12 @@ You write your schema in whatever language your team uses. The SDK annotations c
 @fraiseql.query(
     rest_path="/posts",
     rest_method="GET",
-    grpc_service="BlogService",
-    grpc_method="ListPosts",
 )
 def posts(limit: int = 10) -> list[Post]:
     return fraiseql.config(sql_source="v_post")
 ```
 
-An operation with no `rest_path` is GraphQL-only. Add `rest_path` and `rest_method` and it's also available as a REST endpoint. Add `grpc_service` and `grpc_method` and gRPC too.
+An operation with no `rest_path` is GraphQL-only. Add `rest_path` and `rest_method` and it's also available as a REST endpoint. gRPC endpoints are auto-generated when `[grpc]` is enabled — see [gRPC Transport](/features/grpc-transport).
 
 `fraiseql compile` reads the annotations and generates transport-aware database views. `fraiseql run` serves all three transports simultaneously from the compiled schema — no SDK code runs at request time.
 

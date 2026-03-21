@@ -69,9 +69,11 @@ today()  # Current date
 now()    # Current timestamp
 ```
 
-<Aside type="caution">
-The `age()` function is **not yet implemented**. The current evaluator always returns valid for `age()` expressions without computing the actual age. Do not use `age()` for age-gating in production. Implement age validation in your PostgreSQL function instead.
-</Aside>
+**Age function:**
+```text
+age(value) >= 18  # Person must be at least 18 years old
+age(value) < 65   # Person must be under 65
+```
 
 **Numeric functions:**
 ```text
@@ -428,9 +430,10 @@ When FraiseQL compiles your schema, it:
 4. **Stores** the expression in `schema.compiled.json` for runtime use
 </Steps>
 
-<Aside type="note">
-Compile-time generation of PostgreSQL `CHECK` constraints and JavaScript compiled functions is **not yet implemented**. Elo expressions are interpreted at runtime by the Rust `EloExpressionEvaluator`, not compiled to database constraints or JavaScript. Add `CHECK` constraints to your `tb_*` tables manually if you need database-level enforcement.
-</Aside>
+FraiseQL can also generate PostgreSQL `CHECK` constraints and JavaScript validation functions from Elo expressions at compile time:
+
+- **SQL CHECK constraints**: `fraiseql compile --emit-checks` generates `ALTER TABLE ... ADD CONSTRAINT` statements for `tb_*` tables, enforcing Elo rules at the database level.
+- **JavaScript codegen**: `fraiseql compile --emit-js` generates a JavaScript module exporting a validation function per custom scalar, suitable for client-side pre-validation.
 
 ## Troubleshooting
 

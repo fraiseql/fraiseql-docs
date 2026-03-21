@@ -216,14 +216,10 @@ public string Email { get; set; } = "";
 ## Transport Annotations
 
 <Aside type="note">
-REST annotation support (`RestPath`, `RestMethod`) is in active development for this SDK. Available in the main branch; check the SDK changelog for the release version.
+REST annotation support (`RestPath`, `RestMethod`) is available in the C# SDK as of v2.1.0.
 </Aside>
 
-<Aside type="caution">
-gRPC annotations (`GrpcService`, `GrpcMethod`) require building FraiseQL with the `grpc-transport` feature — not included in the official `ghcr.io/fraiseql/server:latest` Docker image. See [gRPC Transport](/features/grpc-transport).
-</Aside>
-
-Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Extend `[FraiseQLQuery]` and `[FraiseQLMutation]` with `RestPath`, `RestMethod`, `GrpcService`, and `GrpcMethod` named parameters.
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Extend `[FraiseQLQuery]` and `[FraiseQLMutation]` with `RestPath` and `RestMethod` named parameters. gRPC endpoints are auto-generated when `[grpc]` is enabled — no per-operation annotation needed. See [gRPC Transport](/features/grpc-transport).
 
 ```csharp
 using FraiseQL.SDK;
@@ -236,14 +232,9 @@ public List<Post> Posts(int limit = 10) => null;
 [FraiseQLQuery(SqlSource = "v_post", RestPath = "/posts/{id}", RestMethod = "GET")]
 public Post Post(Guid id) => null;
 
-// gRPC
-[FraiseQLQuery(SqlSource = "v_post", GrpcService = "BlogService", GrpcMethod = "ListPosts")]
-public List<Post> PostsGrpc(int limit = 10) => null;
-
 // REST mutation
 [FraiseQLMutation(SqlSource = "create_post", Operation = "CREATE",
-                  RestPath = "/posts", RestMethod = "POST",
-                  GrpcService = "BlogService", GrpcMethod = "CreatePost")]
+                  RestPath = "/posts", RestMethod = "POST")]
 public Post CreatePost(string title, Guid authorId) => null;
 ```
 

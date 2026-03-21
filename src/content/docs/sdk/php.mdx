@@ -314,11 +314,11 @@ Mutations wire to PostgreSQL functions returning `mutation_response`. Views retu
 
 ## Transport Annotations
 
-<Aside type="caution">
-REST annotation support is not yet available in this SDK. Follow the SDK repository for updates.
+<Aside type="note">
+REST annotation support (`restPath`, `restMethod`) is available in the PHP SDK as of v2.1.0.
 </Aside>
 
-Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Use the `#[Query]` and `#[Mutation]` function-level attributes from `FraiseQL\SDK\Attributes` with `restPath`, `restMethod`, `grpcService`, and `grpcMethod` named arguments.
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Use the `#[Query]` and `#[Mutation]` function-level attributes from `FraiseQL\SDK\Attributes` with `restPath` and `restMethod` named arguments. gRPC endpoints are auto-generated when `[grpc]` is enabled — no per-operation annotation needed. See [gRPC Transport](/features/grpc-transport).
 
 ```php
 use FraiseQL\SDK\Attributes\Query;
@@ -328,8 +328,6 @@ use FraiseQL\SDK\Attributes\Mutation;
     sqlSource: 'v_post',
     restPath: '/posts',
     restMethod: 'GET',
-    grpcService: 'BlogService',
-    grpcMethod: 'ListPosts',
 )]
 function posts(int $limit = 10): array { return []; }
 

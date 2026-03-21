@@ -422,66 +422,39 @@ exportSchema('schema.json');
 
 ## Transport Annotations
 
-<Aside type="caution">
-REST annotation support is not yet available in this SDK. Follow the SDK repository for updates.
-</Aside>
+REST annotations (`restPath`/`restMethod`) are available in the TypeScript SDK as of v2.1.0.
 
-Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. The TypeScript SDK uses camelCase for annotation keys (`restPath`, `restMethod`, `grpcService`, `grpcMethod`).
+Transport annotations are **optional**. Omit them to serve an operation via GraphQL only. Add `restPath`/`restMethod` to the config object of `registerQuery()`, `registerMutation()`, `@Query()`, and `@Mutation()` to also expose an operation as a REST endpoint. gRPC endpoints are auto-generated when `[grpc]` is enabled — no per-operation annotation needed. See [gRPC Transport](/features/grpc-transport).
 
 ```typescript
-import { Query, Mutation } from 'fraiseql';
+import { registerQuery, registerMutation } from 'fraiseql';
 
 // REST + GraphQL
-class Queries {
-  @Query({
-    sqlSource: 'v_post',
-    restPath: '/posts',       // camelCase in TypeScript
-    restMethod: 'GET',
-  })
-  async posts(limit: number = 10): Promise<Post[]> { return []; }
+registerQuery(
+  'posts', 'Post', true, false,
+  [{ name: 'limit', type: 'Int', nullable: false, default: 20 }],
+  'Fetch posts',
+  { sqlSource: 'v_post', restPath: '/posts', restMethod: 'GET' }
+);
 
-  // With path parameter
-  @Query({
-    sqlSource: 'v_post',
-    restPath: '/posts/{id}',  // {id} must match function param name
-    restMethod: 'GET',
-  })
-  async post(id: string): Promise<Post | null> { return null; }
+// With path parameter
+registerQuery(
+  'post', 'Post', false, true,
+  [{ name: 'id', type: 'ID', nullable: false }],
+  'Fetch a single post by ID',
+  { sqlSource: 'v_post', restPath: '/posts/{id}', restMethod: 'GET' }
+);
 
-  // gRPC
-  @Query({
-    sqlSource: 'v_post',
-    grpcService: 'BlogService',
-    grpcMethod: 'ListPosts',
-  })
-  async postsGrpc(limit: number = 10): Promise<Post[]> { return []; }
-
-  // All three transports
-  @Query({
-    sqlSource: 'v_post',
-    restPath: '/posts',
-    restMethod: 'GET',
-    grpcService: 'BlogService',
-    grpcMethod: 'ListPosts',
-  })
-  async postsAll(limit: number = 10): Promise<Post[]> { return []; }
-}
-
-class Mutations {
-  // REST mutation
-  @Mutation({
-    sqlSource: 'create_post',
-    operation: 'CREATE',
-    restPath: '/posts',
-    restMethod: 'POST',
-    grpcService: 'BlogService',
-    grpcMethod: 'CreatePost',
-  })
-  async createPost(title: string, authorId: string): Promise<Post> { return {} as Post; }
-}
+// REST mutation
+registerMutation(
+  'createPost', 'Post', false, false,
+  [{ name: 'input', type: 'CreatePostInput', nullable: false }],
+  'Create a new blog post',
+  { sqlSource: 'fn_create_post', operation: 'CREATE', restPath: '/posts', restMethod: 'POST' }
+);
 ```
 
-Path parameters in `restPath` (e.g., `{id}`) must match function parameter names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
+Path parameters in `restPath` (e.g., `{id}`) must match argument names exactly. A mismatch produces a compile-time error. Duplicate `(method, path)` pairs are also rejected at compile time.
 
 ---
 
@@ -497,19 +470,21 @@ Path parameters in `restPath` (e.g., `{id}`) must match function parameter names
 
    This writes `schema.json` containing the compiled type registry.
 
-2. Compile and validate against the database:
+2. Compile (and optionally validate against the database):
 
    ```bash
-   fraiseql compile
+   fraiseql compile fraiseql.toml --database "$DATABASE_URL"
    ```
 
    Expected output:
 
    ```
    ✓ Schema compiled: 3 types, 2 queries, 3 mutations
-   ✓ Views validated against database
-   ✓ Build complete: schema.json
+   ✓ Database validation passed: all relations, columns, and JSON keys verified.
+   ✓ Build complete: schema.compiled.json
    ```
+
+   The `--database` flag enables [three-level validation](/reference/cli/#database-validation-levels) — checking that `sql_source` views exist, columns match, and JSONB keys are present. Omit it to compile without database access.
 
 3. Serve the API:
 
