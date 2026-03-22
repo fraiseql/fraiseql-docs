@@ -66,12 +66,12 @@ Enterprise-grade relational database with advanced features.
 
 | FraiseQL Feature | PostgreSQL | MySQL | SQLite | SQL Server |
 |-----------------|-----------|-------|--------|-----------|
-| **Relay cursor pagination** | ✅ | ✅ | ❌ offset only | ✅ |
+| **Relay cursor pagination** | ✅ | ✅ | ✅ | ✅ |
 | **Offset pagination** | ✅ | ✅ | ✅ | ✅ |
 | **Rich filters** | ✅ | ✅ | ✅ | ✅ |
 | **JSON field filters** | ✅ JSONB operators | ✅ | ✅ | ✅ JSON_VALUE |
 | **Full-text search** | ✅ | ✅ | ✅ FTS5 | ✅ CONTAINS/FREETEXT |
-| **Mutations (functions)** | ✅ | ✅ | ❌ [^sqlite-fn] | ✅ |
+| **Mutations** | ✅ | ✅ | ✅ DirectSql | ✅ |
 | **Row-level security** | ✅ native RLS | via views | via views | ✅ native RLS |
 | **Subscriptions** | ✅ | ❌ | ❌ | ✅ |
 | **Windows Authentication** | ❌ | ❌ | ❌ | ✅ native |
@@ -80,8 +80,6 @@ Enterprise-grade relational database with advanced features.
 | **Transparent Data Encryption** | via pgcrypto | ❌ | ❌ | ✅ native TDE |
 | **Indexed views** | ✅ materialized views | ❌ | ❌ | ✅ native |
 | **Compliance tooling** | good | basic | minimal | excellent |
-
-[^sqlite-fn]: SQLite's function-call layer returns `Unsupported` for mutations. SQLite is recommended for development and testing only.
 
 ## Platform-Specific Recommendations
 
@@ -114,7 +112,7 @@ SQL Server is a first-class FraiseQL runtime target. If your organization alread
 </Aside>
 
 <Aside type="tip">
-FraiseQL schemas are database-agnostic. The `tb_*`, `v_*`, `fn_*`, `tv_*` naming conventions and the data column pattern work across PostgreSQL, MySQL, and SQL Server. SQLite supports read operations only — mutations via `fn_*` functions are not supported on SQLite.
+FraiseQL schemas are database-agnostic. The `tb_*`, `v_*`, `fn_*`, `tv_*` naming conventions and the data column pattern work across all four backends. SQLite uses DirectSql for mutations (INSERT/UPDATE/DELETE with RETURNING) instead of stored procedures.
 </Aside>
 
 ## Common Database Tasks

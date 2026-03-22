@@ -38,7 +38,7 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[observers]` | — | Stable |
 | `[tracing]` | 2.1.0 | Stable |
 | `[server.limits]` | 2.1.0 | Stable |
-| `[fraiseql.rest]` | v2.1 | Stable |
+| `[rest]` | v2.1 | Stable |
 | `[grpc]` | v2.1 | Stable |
 | `[session_variables]` | v2.1 | Stable |
 | `[inject_defaults]` | v2.1 | Stable |
@@ -231,14 +231,14 @@ output_file = "schema.compiled.json"
 | `schema_file` | string | `"schema.json"` | Path to the schema definition |
 | `output_file` | string | `"schema.compiled.json"` | Path for the compiled output |
 
-### [fraiseql.rest]
+### [rest]
 
 <Aside type="note">
 Available since v2.1. Requires the `rest-transport` Cargo feature. REST endpoints are derived from queries and mutations at compile time using CQRS naming conventions. Override auto-derived routes with explicit `rest_path` / `rest_method` annotations.
 </Aside>
 
 ```toml
-[fraiseql.rest]
+[rest]
 enabled = true
 path = "/rest/v1"                # base path for all REST routes
 require_auth = false             # require OIDC/JWT for all REST endpoints

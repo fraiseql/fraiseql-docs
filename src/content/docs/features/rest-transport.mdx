@@ -277,7 +277,7 @@ curl -H 'If-None-Match: W/"a1b2c3d4e5f6g7h8"' \
   https://api.example.com/rest/v1/posts/abc-123
 ```
 
-ETag support integrates with FraiseQL's query result cache for zero-cost validation on cache hits. Disable with `etag = false` in `[fraiseql.rest]`.
+ETag support integrates with FraiseQL's query result cache for zero-cost validation on cache hits. Disable with `etag = false` in `[rest]`.
 
 ## Prefer Header
 
@@ -345,18 +345,18 @@ fraiseql-cli openapi schema.compiled.json -o openapi.json
 
 **Runtime** (convenience):
 
-Available at `GET /rest/v1/openapi.json` (configurable via `openapi_path`) when `openapi_enabled = true` in `[fraiseql.rest]`.
+Available at `GET /rest/v1/openapi.json` (configurable via `openapi_path`) when `openapi_enabled = true` in `[rest]`.
 
 Import into Swagger UI, Postman, or any OpenAPI-compatible tool.
 
 ## Configuration
 
 <Aside type="note">
-The `[fraiseql.rest]` TOML section is available since **v2.1**.
+The `[rest]` TOML section is available since **v2.1**.
 </Aside>
 
 ```toml
-[fraiseql.rest]
+[rest]
 enabled = true
 path = "/rest/v1"                # base URL path (default: "/rest/v1")
 require_auth = false             # require OIDC/JWT for all REST endpoints
@@ -374,7 +374,7 @@ title = "My API"
 api_version = "1.0.0"
 ```
 
-See [TOML Configuration Reference](/reference/toml-config/#fraiseqlrest) for all fields.
+See [TOML Configuration Reference](/reference/toml-config/#rest) for all fields.
 
 ## Feature Flag
 
@@ -509,7 +509,7 @@ GET /rest/v1/users?select=id,name,posts(id,title,comments(id,body))
 ```
 
 Embedding supports:
-- **Nesting** up to `max_embedding_depth` (default 3, configurable in `[fraiseql.rest]`)
+- **Nesting** up to `max_embedding_depth` (default 3, configurable in `[rest]`)
 - **Cardinality-aware**: one-to-many returns arrays, many-to-one returns an object or null
 - **Rename syntax**: `?select=author:fk_user(id,name)` — rename the embedded field
 - **Count syntax**: `?select=posts.count` — return a count instead of the full collection
@@ -576,9 +576,9 @@ curl -X POST https://api.example.com/rest/v1/orders \
 
 - Same key + same body → replays the stored response (no duplicate creation)
 - Same key + different body → 422 `IDEMPOTENCY_CONFLICT`
-- Keys expire after 24 hours by default. Configure via `idempotency_ttl_seconds` in `[fraiseql.rest]`:
+- Keys expire after 24 hours by default. Configure via `idempotency_ttl_seconds` in `[rest]`:
   ```toml
-  [fraiseql.rest]
+  [rest]
   idempotency_ttl_seconds = 43200  # 12 hours
   ```
 - Only applies to POST mutations (Insert + custom actions). PUT and DELETE are naturally idempotent.
@@ -604,10 +604,10 @@ GET responses include `Cache-Control` and `Vary` headers:
 - **Mutations**: `Cache-Control: no-store`
 - **Vary**: `Authorization, Accept, Prefer` (always included on GETs)
 
-Per-query cache TTL can be set via `cache_ttl_seconds` in `fraiseql.config()`. The default TTL is configurable via `default_cache_ttl` in `[fraiseql.rest]` (default: 60 seconds).
+Per-query cache TTL can be set via `cache_ttl_seconds` in `fraiseql.config()`. The default TTL is configurable via `default_cache_ttl` in `[rest]` (default: 60 seconds).
 
 ```toml
-[fraiseql.rest]
+[rest]
 default_cache_ttl = 120  # 2-minute max-age on GET responses
 ```
 
@@ -616,7 +616,7 @@ default_cache_ttl = 120  # 2-minute max-age on GET responses
 Set `cdn_max_age` to add an `s-maxage` directive to `Cache-Control` headers on public GET responses. This tells CDN proxies (Cloudflare, Fastly, CloudFront) to cache for a different duration than browsers.
 
 ```toml
-[fraiseql.rest]
+[rest]
 default_cache_ttl = 60    # Browser cache: 1 minute
 cdn_max_age = 300          # CDN cache: 5 minutes
 ```
@@ -634,7 +634,7 @@ When `cdn_max_age` is not set, no `s-maxage` directive is included. Mutations al
 Limit the number of rows affected by bulk PATCH/DELETE operations:
 
 ```toml
-[fraiseql.rest]
+[rest]
 max_bulk_affected = 500  # Limit bulk DELETE/PATCH to 500 rows
 ```
 

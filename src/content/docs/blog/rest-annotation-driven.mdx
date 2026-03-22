@@ -52,7 +52,7 @@ You can expose the same underlying view at multiple REST paths with different co
 
 Because annotations are explicit, the compiler can generate an accurate OpenAPI 3.0.3 specification from them. Every annotated operation becomes an OpenAPI path item. Parameters come from the query signature. Response schemas come from the return type.
 
-The spec is available at `GET /rest/v1/openapi.json` at runtime (the default path is `/rest/v1`; configure with `[fraiseql.rest]` `path`). You can also generate it at compile time with `fraiseql-cli openapi`. No manual YAML. No spec drift — the spec is generated from the same source as the endpoint.
+The spec is available at `GET /rest/v1/openapi.json` at runtime (the default path is `/rest/v1`; configure with `[rest]` `path`). You can also generate it at compile time with `fraiseql-cli openapi`. No manual YAML. No spec drift — the spec is generated from the same source as the endpoint.
 
 This is only possible because the REST surface is defined precisely. Auto-wired APIs can generate specs, but the spec becomes a reflection of whatever the database exposes at that moment — not a stable API contract.
 

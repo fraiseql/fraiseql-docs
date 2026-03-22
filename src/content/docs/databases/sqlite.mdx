@@ -165,10 +165,8 @@ END;
 
 ## Mutation Triggers
 
-<Aside type="caution">
-**`@fraiseql.mutation` is not supported on SQLite.** The FraiseQL runtime returns a `FraiseQLError::Unsupported` error if a mutation decorated with `@fraiseql.mutation(sql_source="fn_...")` is attempted on a SQLite connection. SQLite has no stored procedures, so the standard FraiseQL mutation dispatch mechanism does not work.
-
-Use **INSTEAD OF triggers** or **application-level Python** (shown below) as alternatives. For full mutation support via `@fraiseql.mutation`, use PostgreSQL or SQL Server.
+<Aside type="note">
+SQLite uses `MutationStrategy::DirectSql` for mutations. Since SQLite has no stored procedures, FraiseQL executes INSERT, UPDATE, and DELETE statements directly with a RETURNING clause. Mutations decorated with `@fraiseql.mutation` work — the runtime automatically uses DirectSql dispatch instead of function calls.
 </Aside>
 
 SQLite uses **INSTEAD OF triggers** for mutation logic (no stored procedures):

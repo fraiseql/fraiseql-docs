@@ -143,10 +143,10 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
    port = 8080
    ```
 
-   Add `[fraiseql.rest]` to configure the REST transport:
+   Add `[rest]` to your schema TOML to configure the REST transport:
 
    ```toml
-   [fraiseql.rest]
+   [rest]
    path = "/rest/v1"
    openapi_enabled = true
    default_page_size = 20
@@ -154,7 +154,7 @@ Your existing PostgreSQL views work unchanged as `sql_source` values in FraiseQL
    ```
 
    <Aside type="note">
-   The `[fraiseql.rest]` configuration section is available since v2.1. See [TOML Configuration Reference](/reference/toml-config/#fraiseqlrest) for all fields.
+   The `[rest]` configuration section is available since v2.1. See [TOML Configuration Reference](/reference/toml-config/#rest) for all fields.
    </Aside>
 
 5. **Compile and run**
@@ -264,7 +264,7 @@ If you rely heavily on PostgREST's RLS integration, review the [Authentication g
 </Aside>
 
 **The endpoint prefix changes.**
-PostgREST serves at `/` by default (or a configured prefix). FraiseQL serves REST at `/rest/v1` by default. Update your clients accordingly, or configure a custom path via `[fraiseql.rest]` `path` in `fraiseql.toml` (available since v2.1).
+PostgREST serves at `/` by default (or a configured prefix). FraiseQL serves REST at `/rest/v1` by default. Update your clients accordingly, or configure a custom path via `[rest]` `path` in your schema TOML (available since v2.1).
 
 **Embedding syntax differs.**
 PostgREST's `?select=*,orders(*)` embeds using foreign key detection. FraiseQL uses the same parenthesized syntax (`?select=id,orders(id,total)`) with explicit field lists. Rename syntax (`author:fk_user(id,name)`) and count syntax (`orders.count`) are also available. Maximum nesting depth is configurable via `max_embedding_depth`.

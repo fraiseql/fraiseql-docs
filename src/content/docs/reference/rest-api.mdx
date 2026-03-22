@@ -8,12 +8,12 @@ import { Aside } from '@astrojs/starlight/components';
 See also: [GraphQL API Reference](/reference/graphql-api/) and [REST vs GraphQL](/guides/rest-vs-graphql/).
 
 <Aside type="note">
-REST transport requires the `rest-transport` Cargo feature. It is included in the published Docker image at `ghcr.io/fraiseql/server:latest`. Configuration via `[fraiseql.rest]` in `fraiseql.toml` is available since v2.1.
+REST transport requires the `rest-transport` Cargo feature. It is included in the published Docker image at `ghcr.io/fraiseql/server:latest`. Configuration via the `[rest]` section in your schema TOML is available since v2.1.
 </Aside>
 
 ## Endpoint Convention
 
-REST endpoints follow the pattern `{path}/{resource}` where the path defaults to `/rest/v1`. The path is configurable via the `[fraiseql.rest]` `path` field.
+REST endpoints follow the pattern `{path}/{resource}` where the path defaults to `/rest/v1`. The path is configurable via the `[rest]` `path` field.
 
 Resources are derived at compile time from your schema's CQRS naming conventions. Override auto-derived routes with explicit `rest_path` and `rest_method` annotations on any query or mutation.
 
@@ -151,7 +151,7 @@ Includes `Location: /rest/v1/users/c3d4e5f6-...` header.
 
 ### Deleted resource
 
-Configurable via `delete_response` in `[fraiseql.rest]`. Per-request override via `Prefer` header:
+Configurable via `delete_response` in `[rest]`. Per-request override via `Prefer` header:
 
 | Config / Prefer Header | Status | Body |
 |------------------------|--------|------|
@@ -470,7 +470,7 @@ fraiseql-cli openapi schema.compiled.json -o openapi.json
 
 **Runtime serving** (convenience):
 
-`GET /rest/v1/openapi.json` (configurable via `openapi_path`) when `openapi_enabled = true` in `[fraiseql.rest]`.
+`GET /rest/v1/openapi.json` (configurable via `openapi_path`) when `openapi_enabled = true` in `[rest]`.
 
 ```bash
 curl https://api.example.com/rest/v1/openapi.json
@@ -484,7 +484,7 @@ OpenAPI 3.0.3 is used instead of 3.1 for broader tooling compatibility (Swagger 
 
 ## Configuration Reference
 
-Key configuration fields in `[fraiseql.rest]`:
+Key configuration fields in `[rest]`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
