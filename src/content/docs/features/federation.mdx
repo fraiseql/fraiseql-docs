@@ -130,7 +130,92 @@ key_fields = ["id"]
 
 ## Defining Federated Schemas
 
-Each subgraph defines its own types and queries using the standard FraiseQL Python decorators. There is no special federation decorator — entity ownership is declared in `fraiseql.toml`.
+There are two ways to declare federation entities: in the **SDK** (recommended) or in **TOML**.
+
+### SDK-based (recommended)
+
+Pass `federation=` to `export_schema()` and it auto-derives the entity list from your registered types. Every type defaults to `key_fields=["id"]` — you only need to set `key_fields` explicitly for compound keys.
+
+<Tabs>
+<TabItem label="User Service">
+```python
+import fraiseql
+from fraiseql.scalars import ID, DateTime
+
+@fraiseql.type
+class User:
+    """User record owned by the user service."""
+    id: ID
+    name: str
+    email: str
+    created_at: DateTime
+
+@fraiseql.query
+def user(id: ID) -> User | None:
+    """Fetch a user by ID."""
+    return fraiseql.config(sql_source="v_user")
+
+@fraiseql.query
+def users(limit: int = 20, offset: int = 0) -> list[User]:
+    """List users."""
+    return fraiseql.config(sql_source="v_user")
+
+if __name__ == "__main__":
+    fraiseql.export_schema(
+        "schema.json",
+        federation=fraiseql.Federation(service_name="user-service"),
+    )
+```
+</TabItem>
+<TabItem label="Order Service">
+```python
+import fraiseql
+from fraiseql.scalars import ID, DateTime, Decimal
+
+@fraiseql.type
+class Order:
+    """Order record owned by the order service."""
+    id: ID
+    total: Decimal
+    status: str
+    created_at: DateTime
+
+# Compound key example — most types just use the default ["id"]
+@fraiseql.type(key_fields=["id", "region"])
+class RegionalOrder:
+    """An order with a compound federation key."""
+    id: ID
+    region: str
+    total: Decimal
+
+@fraiseql.query
+def order(id: ID) -> Order | None:
+    """Fetch an order by ID."""
+    return fraiseql.config(sql_source="v_order")
+
+@fraiseql.query
+def orders(limit: int = 20, offset: int = 0) -> list[Order]:
+    """List orders."""
+    return fraiseql.config(sql_source="v_order")
+
+if __name__ == "__main__":
+    fraiseql.export_schema(
+        "schema.json",
+        federation=fraiseql.Federation(service_name="order-service"),
+    )
+```
+</TabItem>
+</Tabs>
+
+The exported `schema.json` includes a `"federation"` block with `enabled: true` and the auto-derived entity list. The Rust compiler reads this directly — no manual `[[federation.entities]]` TOML needed.
+
+<Aside type="tip">
+The `key_fields` parameter is available on the type decorator/annotation in all 11 SDKs (Python, TypeScript, Go, Java, C#, F#, Elixir, PHP, Ruby, Dart, Rust). The `extends` parameter marks types that extend a type from another subgraph.
+</Aside>
+
+### TOML-based (alternative)
+
+You can also declare entities manually in `fraiseql.toml`. This is useful when you use `export_types()` instead of `export_schema()`, or when federation config needs to live separately from the schema code.
 
 <Tabs>
 <TabItem label="User Service">

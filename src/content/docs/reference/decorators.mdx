@@ -101,6 +101,8 @@ type User {
 | `crud` | `bool` or `list[str]` | Auto-generate CRUD queries/mutations. `True` = all ops, or list: `["create", "read", "list", "update", "delete"]` |
 | `tenant_scoped` | `bool` | Auto-inject `tenant_id` from JWT on all queries/mutations for this type |
 | `sql_source` | `str` | Override the default view name (default: `v_{snake_case_name}`) |
+| `key_fields` | `list[str]` | Federation key fields for entity resolution. When `export_schema(federation=...)` is used, types without explicit `key_fields` default to `["id"]` |
+| `extends` | `bool` | Marks this type as extending a type defined in another subgraph (Apollo Federation `extend type`) |
 
 When `relay=True`, the type implements the `Node` interface, the global `node(id: ID!)` query is added to the schema, and `fraiseql compile` validates that `pk_{entity}` is present in the corresponding SQL view.
 
@@ -340,6 +342,7 @@ type Mutation {
 | `requires_scope` | `str` | — | Required scope |
 | `invalidates_views` | `list[str]` | — | View names to purge from response cache after the mutation runs (e.g. `["v_post", "v_comment"]`). |
 | `invalidates_fact_tables` | `list[str]` | — | Fact table names to invalidate after the mutation (e.g. `["tf_sales"]`). |
+| `cascade` | `bool` | `None` | Expose [GraphQL Cascade](/features/function-shapes#graphql-cascade-advanced-mutations-with-side-effects) data in the mutation response. When `True`, the `cascade` field from `mutation_response` is included in the GraphQL response and fed into the cache invalidation pipeline. When `None` (default), falls back to the `[cascade].enabled` TOML setting. |
 | `rest_path` | `str \| None` | `None` | REST endpoint path override (e.g. `"/users"`). When absent, REST auto-derives endpoints from mutation names. |
 | `rest_method` | `str \| None` | `"POST"` | HTTP method override for the REST endpoint. Defaults to `"POST"` for mutations. |
 
@@ -702,7 +705,7 @@ class User:
 | `@type` | Define object type | `implements`, `relay`, `requires_role` |
 | `@input` | Define input type | — |
 | `@query` | Define query | `sql_source`, `auto_params`, `cache_ttl_seconds`, `rest_path` |
-| `@mutation` | Define mutation | `sql_source`, `operation`, `requires_scope`, `rest_path` |
+| `@mutation` | Define mutation | `sql_source`, `operation`, `requires_scope`, `cascade`, `rest_path` |
 | `@subscription` | Define subscription | `entity_type`, `topic`, `operation` |
 | `@enum` | Define enum | — |
 | `@interface` | Define interface | — |
