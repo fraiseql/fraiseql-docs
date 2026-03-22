@@ -42,6 +42,7 @@ FraiseQL uses a single `fraiseql.toml` file for all project configuration. Secre
 | `[grpc]` | v2.1 | Stable |
 | `[session_variables]` | v2.1 | Stable |
 | `[inject_defaults]` | v2.1 | Stable |
+| `[cascade]` | v2.1 | Stable |
 | `[dev]` | v2.2 | Stable |
 | `[gateway]` | v2.2 | Beta |
 
@@ -1042,6 +1043,29 @@ Per-decorator `inject=` overrides take precedence over defaults. This is particu
 
 ---
 
+### [cascade]
+
+Controls the [GraphQL Cascade](/features/function-shapes#graphql-cascade-advanced-mutations-with-side-effects) protocol — automatic cache consistency through mutation responses that include all affected entities.
+
+When enabled, mutations whose SQL functions return cascade data in `mutation_response.cascade` will expose it in the GraphQL response. The server also feeds cascade entities into the cache invalidation pipeline, evicting stale entries automatically.
+
+```toml
+[cascade]
+enabled = true   # expose cascade data in mutation responses (default: false)
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Global default: include `cascade` field in mutation responses when the SQL function returns cascade data. Per-mutation overrides via `cascade=True` on the `@fraiseql.mutation` decorator take precedence. |
+
+When `enabled = true`, the compiler auto-generates Cascade GraphQL types (`Cascade`, `CascadeEntity`, `CascadeInvalidation`, `CascadeMetadata`) and adds a `cascade: Cascade` field to every mutation success type. When `enabled = false` (default), you can still opt in per-mutation using the decorator parameter.
+
+<Aside type="tip">
+Even without `[cascade]`, the server-side cache invalidation pipeline uses cascade data internally when present. The `[cascade]` toggle only controls whether clients can *see* the cascade payload in GraphQL responses.
+</Aside>
+
+---
+
 ### [dev]
 
 Development-only settings. Ignored when `FRAISEQL_ENV=production`.
@@ -1204,6 +1228,9 @@ max_query_complexity = 100
 
 [subscriptions]
 max_subscriptions_per_connection = 10
+
+[cascade]
+enabled = true
 ```
 
 Run in production:

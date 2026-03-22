@@ -414,7 +414,7 @@ mutation CreatePost {
 1. FraiseQL validates the authenticated token against the configured JWT settings.
 2. FraiseQL calls `fn_create_post('{"title":"Hello World","content":"My first post","authorId":"550e8400-e29b-41d4-a716-446655440000"}'::jsonb)`.
 3. The function inserts into `tb_post`, then returns `ROW('success', ..., (SELECT data FROM v_post WHERE id = v_post_id), ...)::mutation_response`.
-4. FraiseQL reads the `entity` JSONB column from the `mutation_response` row and shapes the GraphQL response.
+4. FraiseQL reads the `entity` JSONB column from the `mutation_response` row and shapes the GraphQL response. If the mutation has [cascade enabled](/features/function-shapes#graphql-cascade-advanced-mutations-with-side-effects) and the function returned cascade data, it is included in the response and fed into the cache invalidation pipeline.
 
 **JSON response:**
 

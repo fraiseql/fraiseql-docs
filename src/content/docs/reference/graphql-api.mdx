@@ -214,6 +214,112 @@ mutation PublishPost($id: ID!) {
 }
 ```
 
+### Mutations with Cascade
+
+When a mutation has [cascade enabled](/features/function-shapes#graphql-cascade-advanced-mutations-with-side-effects), the response includes all affected entities for automatic client-side cache updates:
+
+```graphql
+mutation CreatePost($input: CreatePostInput!) {
+    createPost(input: $input) {
+        id
+        title
+        cascade {
+            updated {
+                id
+                operation
+                entity
+            }
+            deleted {
+                id
+                operation
+                entity
+            }
+            invalidations {
+                queryName
+                strategy
+                scope
+            }
+            metadata {
+                timestamp
+                affectedCount
+                depth
+                transactionId
+            }
+        }
+    }
+}
+```
+
+**Response:**
+```json
+{
+    "data": {
+        "createPost": {
+            "id": "550e8400-e29b-41d4-a716-446655440001",
+            "title": "Hello World",
+            "cascade": {
+                "updated": [
+                    {
+                        "id": "550e8400-e29b-41d4-a716-446655440001",
+                        "operation": "CREATED",
+                        "entity": { "id": "550e8400-...", "title": "Hello World" }
+                    },
+                    {
+                        "id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+                        "operation": "UPDATED",
+                        "entity": { "id": "6ba7b810-...", "name": "Alice", "postCount": 5 }
+                    }
+                ],
+                "deleted": [],
+                "invalidations": [
+                    { "queryName": "posts", "strategy": "INVALIDATE", "scope": "all" }
+                ],
+                "metadata": {
+                    "timestamp": "2025-01-15T10:30:00Z",
+                    "affectedCount": 2,
+                    "depth": 1,
+                    "transactionId": null
+                }
+            }
+        }
+    }
+}
+```
+
+#### Auto-Generated Cascade Types
+
+When any mutation enables cascade, the compiler adds these types to the schema:
+
+```graphql
+type Cascade {
+    updated: [CascadeEntity!]!
+    deleted: [CascadeEntity!]!
+    invalidations: [CascadeInvalidation!]!
+    metadata: CascadeMetadata!
+}
+
+type CascadeEntity {
+    id: String!
+    operation: String!
+    entity: JSON!
+}
+
+type CascadeInvalidation {
+    queryName: String!
+    strategy: String!
+    scope: String!
+}
+
+type CascadeMetadata {
+    timestamp: String!
+    affectedCount: Int!
+    depth: Int!
+    transactionId: String
+}
+```
+
+These types are generated once and shared across all cascade-enabled mutations. The `cascade` field is only present on mutation success types that have cascade enabled — either globally via `[cascade] enabled = true` in TOML or per-mutation via `cascade=True` on the decorator.
+
 ## Subscriptions
 
 ### Entity Created

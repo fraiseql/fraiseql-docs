@@ -123,6 +123,32 @@ GraphQL Cascade is the recommended pattern for production mutations because it:
 - Provides automatic cache invalidation hints to clients
 - Tracks side effects across related entities
 - Eliminates the need for follow-up queries
+- Feeds entity-level cache invalidation on the server side
+
+### Enabling Cascade
+
+Enable cascade globally in TOML or per-mutation on the decorator. The SQL function pattern is the same either way — the toggle controls whether clients see the `cascade` field in GraphQL responses.
+
+**Global (TOML):**
+
+```toml
+[cascade]
+enabled = true
+```
+
+**Per-mutation (decorator):**
+
+```python
+@fraiseql.mutation(sql_source="fn_create_post", operation="CREATE", cascade=True)
+def create_post(input: CreatePostInput) -> Post:
+    pass
+```
+
+Per-mutation `cascade=True` or `cascade=False` overrides the global TOML setting. When cascade is enabled for a mutation, the compiler adds a `cascade: Cascade` field to its success response type.
+
+<Aside type="note">
+Even when cascade is disabled for clients, the server still uses cascade data internally for cache invalidation when the SQL function returns it. The toggle only controls GraphQL response exposure.
+</Aside>
 
 ### When to Use Cascade
 
