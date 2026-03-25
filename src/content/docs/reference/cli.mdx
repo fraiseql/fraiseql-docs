@@ -62,8 +62,13 @@ fraiseql run [OPTIONS] [INPUT]
 | `--introspection` | off | Enable GraphQL introspection endpoint |
 | `--rest-path <PATH>` | `"/rest/v1"` | REST URL path prefix. Overrides `[rest].path` in the schema TOML. Requires the `rest-transport` feature. |
 | `--dev-claims <JSON>` | — | JSON string of default JWT claims for dev mode. Enables dev mode automatically. See [Dev Mode](/guides/dev-mode). |
+| `--read-only` | off | Disable all mutations. The server will reject any mutation request with a clear error. Useful for demo instances and read replicas. Also configurable via `FRAISEQL_READ_ONLY=true` env var or `read_only = true` in `[server]` TOML. |
 
 `fraiseql run` serves all enabled transports (GraphQL, REST, gRPC) on the same port. There is no separate process or port for each transport. gRPC is distinguished from HTTP by content-type negotiation (`application/grpc`).
+
+<Aside type="tip">
+`fraiseql serve` is an alias for `fraiseql run` — it accepts the same arguments and options. Use whichever name fits your deployment scripts.
+</Aside>
 
 **Examples:**
 

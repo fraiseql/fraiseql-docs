@@ -127,7 +127,7 @@ Replace `db/schema/02_read/v_post.sql`:
   </TabItem>
 
   <TabItem label="SQLite">
-    SQLite uses an FTS5 virtual table alongside the main table. The view joins to it.
+    FraiseQL does not expose SQLite FTS5 through its built-in `search` operator, but you can wire it manually using an FTS5 virtual table alongside the main table. The view joins to it.
 
     ```sql title="db/schema/01_write/fts_post.sql"
     CREATE VIRTUAL TABLE fts_post USING fts5(

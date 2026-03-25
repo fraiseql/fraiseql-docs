@@ -168,6 +168,7 @@ keep_alive_secs    = 75
 admin_token = "${FRAISEQL_ADMIN_TOKEN}"  # protects RBAC management + admin API
 admin_api_enabled = true                 # enable /api/v1/admin/* endpoints
 admin_readonly_token = "${FRAISEQL_ADMIN_READONLY_TOKEN}"  # optional: read-only admin access
+read_only = false                        # reject all mutations when true
 ```
 
 | Field | Type | Default | Description |
@@ -176,6 +177,7 @@ admin_readonly_token = "${FRAISEQL_ADMIN_READONLY_TOKEN}"  # optional: read-only
 | `port` | integer | `8080` | Listen port |
 | `request_timeout_ms` | integer | `30000` | Request timeout in ms |
 | `keep_alive_secs` | integer | `75` | TCP keep-alive in seconds |
+| `read_only` | bool | `false` | Reject all mutations with a clear error. Useful for demo instances, read replicas, and staging environments that should never write. Also settable via `FRAISEQL_READ_ONLY=true` env var or `--read-only` CLI flag. |
 | `admin_token` | string | — | Bearer token protecting `/api/rbac/*` and `/api/v1/admin/*` write endpoints. If not set, both the RBAC management API and admin API are disabled entirely (endpoints return 404). Use `FRAISEQL_ADMIN_TOKEN` env var. Minimum 32 characters. |
 | `admin_api_enabled` | bool | `false` | Enable admin API endpoints (`/api/v1/admin/*`) for schema reload, cache management, and diagnostics. Requires `admin_token` to be set. |
 | `admin_readonly_token` | string | — | Separate bearer token for admin read-only endpoints (cache stats, config, explain). Falls back to `admin_token` if not set. Use `FRAISEQL_ADMIN_READONLY_TOKEN` env var. Minimum 32 characters. |

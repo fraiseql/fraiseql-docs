@@ -57,7 +57,7 @@ Enterprise-grade relational database with advanced features.
 | **Performance** | Excellent | Very Good | Good (single-user) | Excellent |
 | **Features** | Extensive | Good | Basic | Extensive |
 | **JSON Support** | Native JSONB | JSON type | JSON functions | JSON support |
-| **Full-Text Search** | Native | Native | FTS5 extension | Native |
+| **Full-Text Search** | Native | Native | Not exposed by FraiseQL | Native |
 | **Scalability** | Very High | Very High | Single machine | Very High |
 | **Production Ready** | Yes | Yes | With caveats | Yes |
 | **Cost** | Free | Free | Free | Expensive (licensing) |
@@ -66,14 +66,14 @@ Enterprise-grade relational database with advanced features.
 
 | FraiseQL Feature | PostgreSQL | MySQL | SQLite | SQL Server |
 |-----------------|-----------|-------|--------|-----------|
-| **Relay cursor pagination** | ✅ | ✅ | ✅ | ✅ |
+| **Relay cursor pagination** | ✅ | ✅ | ❌ | ✅ |
 | **Offset pagination** | ✅ | ✅ | ✅ | ✅ |
 | **Rich filters** | ✅ | ✅ | ✅ | ✅ |
 | **JSON field filters** | ✅ JSONB operators | ✅ | ✅ | ✅ JSON_VALUE |
-| **Full-text search** | ✅ | ✅ | ✅ FTS5 | ✅ CONTAINS/FREETEXT |
+| **Full-text search** | ✅ | ⚠️ Limited | ❌ | ⚠️ CONTAINS/FREETEXT |
 | **Mutations** | ✅ | ✅ | ✅ DirectSql | ✅ |
 | **Row-level security** | ✅ native RLS | via views | via views | ✅ native RLS |
-| **Subscriptions** | ✅ | ❌ | ❌ | ✅ |
+| **Subscriptions** | ✅ | ⚠️ Polling bridge | ❌ | ⚠️ Polling bridge |
 | **Windows Authentication** | ❌ | ❌ | ❌ | ✅ native |
 | **Azure AD / Entra ID** | via extension | ❌ | ❌ | ✅ native |
 | **Always On / HA** | via streaming replication | via replication | ❌ | ✅ Always On AG |
