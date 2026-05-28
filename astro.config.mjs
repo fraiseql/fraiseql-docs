@@ -1,4 +1,9 @@
 // @ts-check
+// Note: `_internal/` lives at the repo root, outside `src/`, so Astro and the
+// Starlight content collection never pick it up. The pagefind search index
+// is built from rendered pages only, so it cannot leak either. If anything
+// inside `_internal/` ever needs to move under `src/`, prefix it with an
+// underscore (Astro convention) to keep it out of the build.
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import tailwindcss from '@tailwindcss/vite';
