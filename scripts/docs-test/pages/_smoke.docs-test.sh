@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 #
+# Phase 00 / Cycle 6 RED — this break is reverted in CLEANUP.
+# A deliberate `deliberate-RED-marker` assertion at the tail of the PG
+# iteration proves the docs-test CI workflow catches a real failure on
+# a real assertion. Do not propagate this break beyond Cycle 6.
+#
 # _smoke.docs-test.sh — Phase 00 Cycle 5 smoke reproduction.
 #
 # Reproduces the happy path of `src/content/docs/getting-started/quickstart.mdx`
@@ -262,6 +267,10 @@ smoke_postgres() {
     assert_json_shape "$body" '.data.posts[0].title == "Hello FraiseQL"'           "post[0].title"
     assert_json_shape "$body" '.data.posts[0].author.name == "Alice Smith"'        "post[0].author.name"
     assert_json_shape "$body" '.data.posts[0].author.email == "alice@example.com"' "post[0].author.email"
+
+    # Phase 00 / Cycle 6 RED — deliberate failure to prove the docs-test CI
+    # gate catches a real assertion miss. Reverted in CLEANUP.
+    assert_eq "deliberate-RED-marker" "1" "2" || return 1
 
     tear_down
     step "stack down clean"
