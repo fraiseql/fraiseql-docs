@@ -223,9 +223,12 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ env.FRAISEQL_SHA }}-${{ hashFiles('../fraiseql/Cargo.lock') }}
+          # `hashFiles()` only resolves paths inside `GITHUB_WORKSPACE`, and the
+          # fraiseql checkout is at `${GITHUB_WORKSPACE}/../fraiseql` (sibling
+          # layout per Cycle 6 option (a)). The frozen SHA already pins
+          # `Cargo.lock` content, so keying on the SHA alone is sufficient.
+          key: ${{ runner.os }}-cargo-${{ env.FRAISEQL_SHA }}
           restore-keys: |
-            ${{ runner.os }}-cargo-${{ env.FRAISEQL_SHA }}-
             ${{ runner.os }}-cargo-
 
       # -----------------------------------------------------------------------
