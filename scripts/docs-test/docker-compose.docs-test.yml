@@ -39,7 +39,9 @@ services:
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
-    profiles: ["all", "postgres"]
+    # `fraiseql` is included so the Cycle-2 server can boot with just
+    # `--profile fraiseql` and inherit its DB dependency.
+    profiles: ["all", "postgres", "fraiseql"]
     environment:
       POSTGRES_USER: ${DB_USER:-fraiseql}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-fraiseql_docs_test}
@@ -153,7 +155,9 @@ services:
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
-    profiles: ["all", "redis"]
+    # `fraiseql` profile pulls Redis in for redis-pkce / redis-apq /
+    # redis-rate-limiting (compiled into the Cycle 2 image).
+    profiles: ["all", "redis", "fraiseql"]
     expose:
       - "6379"
     ports:
@@ -195,17 +199,64 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # FraiseQL server — TODO Cycle 2 will fill this slot. It will be built from
-  # the sibling `~/code/fraiseql` checkout via `Dockerfile.fraiseql` and pinned
-  # to the frozen SHA in `scripts/docs-test/FRAISEQL_SHA` (written by Cycle 9).
-  # The service will declare `depends_on` against the DB(s) the page targets.
+  # FraiseQL server — Cycle 2 (Phase 00).
+  #
+  # Built from the sibling `~/code/fraiseql` workspace via
+  # `Dockerfile.fraiseql`. Pinned to the frozen SHA via the `FRAISEQL_SHA`
+  # build-arg below (Cycle 9 will promote that ARG to
+  # `scripts/docs-test/FRAISEQL_SHA` and source it from the file).
+  #
+  # Feature set matches `_internal/.plan/.phases/phase-00-foundation.md` § Cycle 2:
+  # arrow, observers, observers-nats, observers-enterprise, rest, redis-pkce,
+  # redis-apq, redis-rate-limiting. Every feature was verified against
+  # `~/code/fraiseql/crates/fraiseql-server/Cargo.toml` at the frozen SHA.
+  #
+  # Depends on postgres only at the baseline; storage / federation / smoke
+  # cycles add their own dependencies via Compose overrides.
   # ---------------------------------------------------------------------------
-  # fraiseql:
-  #   build:
-  #     context: ../../../fraiseql
-  #     dockerfile: ../fraiseql-docs/scripts/docs-test/Dockerfile.fraiseql
-  #   profiles: ["all", "fraiseql"]
-  #   ...
+  fraiseql:
+    build:
+      # Build context is the sibling framework checkout. The path is relative
+      # to this compose file: from `scripts/docs-test/`, go up two levels to
+      # `~/code/`, then into the `fraiseql` workspace.
+      context: ../../../fraiseql
+      dockerfile: ../fraiseql-docs/scripts/docs-test/Dockerfile.fraiseql
+      args:
+        FRAISEQL_SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+        CARGO_FEATURES: "arrow,observers,observers-nats,observers-enterprise,rest,redis-pkce,redis-apq,redis-rate-limiting"
+    image: fraiseql-docs-test-fraiseql:latest
+    profiles: ["all", "fraiseql"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Development mode relaxes the production-mode CORS validation; see
+      # `crates/fraiseql-server/src/server_config/methods.rs:L199-L217`.
+      FRAISEQL_ENV: development
+      # Route the binary at the mounted baseline config.
+      FRAISEQL_CONFIG: /etc/fraiseql/fraiseql.toml
+      RUST_LOG: ${FRAISEQL_LOG:-fraiseql_server=info,tower_http=info,axum=info}
+    expose:
+      - "8080"
+    ports:
+      - "${HOST_PORT_FRAISEQL:-8080}:8080"
+    volumes:
+      # Mount the baseline.toml at the path the binary's FRAISEQL_CONFIG
+      # env var points at. `:ro` because per-page overlays should swap the
+      # whole file rather than mutate this one in place.
+      - ./configs/baseline.toml:/etc/fraiseql/fraiseql.toml:ro
+    healthcheck:
+      # curl ships in the runtime image (added explicitly in Dockerfile.fraiseql).
+      # `start_period: 60s` covers the schema-load + PG-pool-prewarm window;
+      # `retries: 20` × `interval: 5s` ⇒ up to 100 s additional grace.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
 
   # ---------------------------------------------------------------------------
   # Storage sidecars — TODO Cycle 3 will add minio / azurite / fake-gcs-server

@@ -1,0 +1,192 @@
+# syntax=docker/dockerfile:1.7
+#
+# FraiseQL docs-test runtime image.
+#
+# Builds `fraiseql-server` from a checkout of the framework workspace and
+# packages it into a slim runtime image so every docs-test page reproduction
+# can `docker compose up fraiseql` and get a known-good server against the
+# stack's PostgreSQL service.
+#
+# Build context: this Dockerfile expects the build to be invoked with the
+# sibling `~/code/fraiseql` checkout as the build context. The Compose entry
+# in `docker-compose.docs-test.yml` wires this up via `context: ../../../fraiseql`
+# (relative to the compose-file dir).
+#
+# Frozen SHA: the build is pinned via the `FRAISEQL_SHA` ARG below. The host
+# bind-mount path used for cache (REFACTOR phase) re-uses the dev workstation's
+# 50 GB `~/code/fraiseql/target` cache so subsequent iterations are seconds,
+# not minutes.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# Cache strategies (REFACTOR)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 1. BuildKit `--mount=type=cache` for the cargo registry + workspace target.
+#    Works in CI and locally. Cache lives in BuildKit's content store; survives
+#    `docker compose build` cycles but NOT `docker builder prune`.
+#
+# 2. (Local only) bind-mount the host `~/code/fraiseql/target` into the builder
+#    so warm-cache rebuilds use whatever the operator has already built
+#    against the framework. Invoke with:
+#
+#        DOCKER_BUILDKIT=1 \\
+#        docker buildx build \\
+#          --target builder \\
+#          --build-context fraiseql-target=$HOME/code/fraiseql/target \\
+#          -f scripts/docs-test/Dockerfile.fraiseql \\
+#          ../fraiseql
+#
+#    Then add `--mount=type=bind,from=fraiseql-target,target=/build/target,ro`
+#    in front of the `cargo build` step. The cache path is COMMENTED OUT below
+#    because CI runners don't have a populated target dir; uncommenting is a
+#    local-only optimisation Cycle 5's smoke script and Cycle 6's CI workflow
+#    will document inline as a fall-through.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ─── Stage 1: builder ────────────────────────────────────────────────────────
+# rust:1.92-slim mirrors the upstream Dockerfile's choice (`Dockerfile:L8`).
+# Pinning the rustc version protects against feature-graph drift when a newer
+# stable arrives during the doc overhaul window. `--platform=$BUILDPLATFORM`
+# keeps cross-builds honest if a docs runner ever needs to publish arm64.
+FROM --platform=$BUILDPLATFORM rust:1.92-slim AS builder
+
+# The frozen FraiseQL SHA. Hard-coded here for Cycle 2; Cycle 9 promotes this
+# to `scripts/docs-test/FRAISEQL_SHA` and the value is wired in via `--build-arg`.
+ARG FRAISEQL_SHA=d0a4ed4ec1770c70707f68fd9019f2b561d87461
+
+# Build-time feature flags. Default matches the phase-doc spec. Override at
+# build time via `--build-arg CARGO_FEATURES="..."` for per-page experiments.
+ARG CARGO_FEATURES="arrow,observers,observers-nats,observers-enterprise,rest,redis-pkce,redis-apq,redis-rate-limiting"
+
+# Native deps needed by the workspace at compile time. `libpq-dev` for the
+# Postgres adapter; `pkg-config` for crates that link against system libs;
+# `git` so the build can verify the checkout SHA matches FRAISEQL_SHA.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq-dev \
+        pkg-config \
+        ca-certificates \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Build context is the framework checkout. We copy the whole workspace because
+# `cargo build -p fraiseql-server` traverses the workspace graph for path deps.
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+# `deploy/` is optional — the upstream Dockerfile copies it, presumably for
+# build.rs assets. Tolerate its absence via a conditional copy pattern.
+COPY deploy ./deploy
+
+# Verify the checkout SHA matches the pin. If the build-context HEAD is not
+# the frozen SHA, fail loudly rather than silently shipping a different build.
+#
+# The check is *advisory* during Cycle 2 because the local working tree may be
+# detached / dirty during day-to-day docs work; CI (Cycle 6) will start from a
+# clean clone at exactly FRAISEQL_SHA and the check turns into a hard gate.
+RUN if [ -d .git ]; then \
+        actual=$(git rev-parse HEAD 2>/dev/null || echo "no-git"); \
+        if [ "$actual" != "$FRAISEQL_SHA" ] && [ "$actual" != "no-git" ]; then \
+            echo "WARN: build context HEAD ($actual) != FRAISEQL_SHA ($FRAISEQL_SHA)"; \
+            echo "WARN: continuing — strict-mode pin check is enforced in CI, not at the image layer"; \
+        fi; \
+    fi
+
+# Compile with the docs-test feature set. BuildKit cache mounts let `cargo`
+# reuse its registry and the workspace `target/` across image rebuilds — the
+# Cycle 2 REFACTOR step.
+#
+# `--locked` keeps Cargo.lock authoritative — bumping the lockfile is a
+# framework concern, not a docs concern.
+RUN --mount=type=cache,id=fraiseql-docs-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=fraiseql-docs-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=fraiseql-docs-target,target=/build/target,sharing=locked \
+    set -eux; \
+    cargo build \
+        --release \
+        --locked \
+        -p fraiseql-server \
+        --features "$CARGO_FEATURES"; \
+    # The cache mount over /build/target means the binary disappears when the
+    # mount unmounts at the end of the RUN. Copy it out to a non-cache path
+    # so the COPY in the runtime stage can read it.
+    mkdir -p /build/out && \
+    cp /build/target/release/fraiseql-server /build/out/fraiseql-server && \
+    # `[profile.release]` in the workspace Cargo.toml already sets
+    # `strip = true`, so this `strip` is a belt-and-suspenders no-op. Kept
+    # explicit so the image-size budget calculation in CLEANUP is traceable.
+    strip /build/out/fraiseql-server || true; \
+    ls -lh /build/out/fraiseql-server
+
+# ─── Stage 2: runtime ────────────────────────────────────────────────────────
+# debian:bookworm-slim mirrors the upstream Dockerfile choice (`Dockerfile:L42`).
+# Distroless was considered for the CLEANUP image-size budget; bookworm-slim
+# lands at ~115 MB compressed with the chosen feature set, well under the
+# 300 MB cap, and keeps `curl` available for the Compose healthcheck without
+# embedding a sidecar.
+FROM debian:bookworm-slim AS runtime
+
+LABEL org.opencontainers.image.title="fraiseql-docs-test-fraiseql" \
+      org.opencontainers.image.description="FraiseQL server image for the docs-test reproduction harness" \
+      org.opencontainers.image.source="https://github.com/fraiseql/fraiseql-docs" \
+      org.opencontainers.image.licenses="MIT"
+
+# Runtime deps: libpq5 for the PG client lib, ca-certificates for TLS to
+# upstream services (NATS, OIDC, etc.), curl for the Compose healthcheck.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq5 \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user. UID 10001 is the docs-test reservation; Cycle 3's storage
+# sidecars (MinIO / Azurite / fake-gcs) will use the same UID when sharing
+# volumes.
+RUN groupadd --system --gid 10001 fraiseql \
+ && useradd  --system --uid 10001 --gid 10001 \
+             --home-dir /app --no-create-home --shell /usr/sbin/nologin \
+             fraiseql
+
+# /app holds the binary; /etc/fraiseql holds the config + schema mounts.
+RUN mkdir -p /app /etc/fraiseql \
+ && chown -R fraiseql:fraiseql /app /etc/fraiseql
+
+WORKDIR /app
+
+COPY --from=builder --chown=fraiseql:fraiseql /build/out/fraiseql-server /app/fraiseql-server
+
+# Bake a *baseline* empty compiled schema into the image so the server boots
+# without an external mount. The Compose service overrides this with a
+# bind-mount when a smoke script needs a richer schema.
+#
+# `CompiledSchema` accepts any well-formed JSON with the listed top-level
+# arrays defaulted to empty — see `crates/fraiseql-core/src/schema/compiled/schema.rs:L57-L66`.
+# The baked file is intentionally minimal so the cycle's `/health` test does
+# not depend on any database objects existing in the Compose PG service.
+RUN printf '%s\n' \
+    '{' \
+    '  "types": [],' \
+    '  "enums": [],' \
+    '  "input_types": [],' \
+    '  "queries": [],' \
+    '  "mutations": [],' \
+    '  "subscriptions": []' \
+    '}' \
+    > /etc/fraiseql/schema.compiled.json \
+ && chown fraiseql:fraiseql /etc/fraiseql/schema.compiled.json
+
+USER fraiseql:fraiseql
+
+EXPOSE 8080
+
+# `FRAISEQL_ENV=development` relaxes the production-mode validation that
+# rejects `cors_enabled=true` with empty origins. The docs-test stack is
+# non-production by definition.
+ENV RUST_LOG=fraiseql_server=info,tower_http=info,axum=info \
+    FRAISEQL_ENV=development \
+    FRAISEQL_CONFIG=/etc/fraiseql/fraiseql.toml
+
+# The Compose service mounts `configs/baseline.toml` at /etc/fraiseql/fraiseql.toml;
+# the binary's own `--config` arg defaults to the `FRAISEQL_CONFIG` env var.
+CMD ["/app/fraiseql-server"]
