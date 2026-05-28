@@ -90,3 +90,26 @@ Human responses to gates are appended *inline under the gate bullet* by the huma
 - **Open gates:** none new. G2 (SHA bump) and Cycle 1's local `up --wait` re-validation are deferred to Cycle 2's start — not a human gate, just a Docker daemon recycle.
 
 ---
+
+### Phase 00 / Cycle 1 finishing — orchestrator — 2026-05-28
+
+Closes the deferred `up --wait` validation from the prior entry. Docker daemon was recycled by the human (authorised "restart for me with safeguards"; passwordless sudo unavailable so the human ran `sudo systemctl restart containerd docker.service` themselves). `docker run --rm hello-world` returned clean post-restart, confirming the `Yunix` shim mismatch is gone. State snapshots from before the restart are retained at `/tmp/docker-restart-2026-05-28/` (running-names-before.txt, restart-policies.txt, networks.txt, volumes.txt) so the 4 996-volume / 4 995-container cruft can be pruned later with `docker container prune -f && docker volume prune -af`. The Cycle-1 image pulls are not affected — they remain cached by digest.
+
+Two real Cycle-1 bugs surfaced and were fixed in commit `9adb4eb` (on top of the Writer's `396c1b2`):
+
+1. **MSSQL healthcheck path wrong.** The 2022-CU13-ubuntu-22.04 image bundles the legacy mssql-tools at `/opt/mssql-tools/bin/sqlcmd`, not the modern `/opt/mssql-tools18/bin/sqlcmd` the Writer had configured. The legacy sqlcmd also does not accept `-C` or `-N` (those are mssql-tools18 flags). The previous healthcheck failed with exit 127 (file not found) on 23 consecutive probes. Fixed to use the legacy path and drop the unsupported flags. Container went healthy in ~10 s post-fix on the re-validation run.
+
+2. **`sqlite-init` in `--profile all` broke `up --wait`.** A one-shot service that exits 0 is treated as failure by `docker compose up --wait`. The cold-start `--profile all up --wait` aborted in 1 s when `sqlite-init` exited (0). Fixed by dropping `sqlite-init` from the `all` profile (it stays on the `sqlite` profile). The idiomatic invocation is now `docker compose run --rm sqlite-init` or `docker compose --profile sqlite up sqlite-init`. Cycle 5's smoke test will follow that pattern. The compose-file header for `sqlite-init` now documents this explicitly. This is a *design correction* against the literal phase-doc text (which lists `sqlite-init` alongside the long-running services in the `--wait` set); the phase doc's success criterion remains met — `up --wait` returns 0 — just over the five long-running services, with SQLite materialised via a separate idiomatic command.
+
+After the fix, on a cold start (volumes pruned):
+
+- `docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile all up --wait --wait-timeout 240` → **exit 0 in 21.6 s**, all five services (postgres, mysql, mssql, redis, nats) healthy. Full transcript at `_internal/.plan/red-evidence/cycle-01-up-wait-cold-start.transcript`.
+- `docker compose -f scripts/docs-test/docker-compose.docs-test.yml run --rm sqlite-init` → exit 0, materialises `/data/fraiseql.db`, prints `main: /data/fraiseql.db r/w`.
+- `docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile <p> config -q` clean for every profile (`all`, `postgres`, `mysql`, `sqlite`, `mssql`, `redis`, `nats`).
+- `docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile all --profile sqlite down -v --remove-orphans` removes every named volume and the default network with zero orphans.
+
+Cycle 1 is materially complete. Branch `phase-00/foundation` now has three commits on top of `origin/main` (`4e3dbdb`): `8d92678` Cycle 0 plan seed → `396c1b2` Compose stack → `9adb4eb` healthcheck + profile fix. Not pushed (no CI yet; pushing deferred). Next persona: Writer (Opus 4.7) for Cycle 2 — `Dockerfile.fraiseql` multi-stage build with the framework's full docs-relevant feature set.
+
+Docs-test suite: 0/0 pages (Cycles 2–8 produce pages; Cycle 6 wires the CI). Framework issues filed: 0. Open gates: none.
+
+---
