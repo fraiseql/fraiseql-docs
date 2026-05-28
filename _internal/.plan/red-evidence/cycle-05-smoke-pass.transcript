@@ -1,0 +1,145 @@
+====================================================================
+Cycle 5 GREEN evidence — _smoke.docs-test.sh full run
+Date: 2026-05-28T11:25:28Z
+Host: archbox — Linux 7.0.3-arch1-1 x86_64
+Time budget: <240s (Cycle 5 CLEANUP gate)
+Total elapsed: 40.05s (16.7% of budget)
+====================================================================
+
+
+=== smoke: postgres ===
+ Network fraiseql-docs-test_default Creating 
+ Network fraiseql-docs-test_default Created 
+ Volume fraiseql-docs-test_postgres-data Creating 
+ Volume fraiseql-docs-test_postgres-data Created 
+ Volume fraiseql-docs-test_redis-data Creating 
+ Volume fraiseql-docs-test_redis-data Created 
+ Container fraiseql-docs-test-postgres-1 Creating 
+ Container fraiseql-docs-test-redis-1 Creating 
+ Container fraiseql-docs-test-redis-1 Created 
+ Container fraiseql-docs-test-postgres-1 Created 
+ Container fraiseql-docs-test-fraiseql-1 Creating 
+ Container fraiseql-docs-test-fraiseql-1 Created 
+ Container fraiseql-docs-test-redis-1 Starting 
+ Container fraiseql-docs-test-postgres-1 Starting 
+ Container fraiseql-docs-test-redis-1 Started 
+ Container fraiseql-docs-test-postgres-1 Started 
+ Container fraiseql-docs-test-postgres-1 Waiting 
+ Container fraiseql-docs-test-redis-1 Waiting 
+ Container fraiseql-docs-test-postgres-1 Healthy 
+ Container fraiseql-docs-test-redis-1 Healthy 
+ Container fraiseql-docs-test-fraiseql-1 Starting 
+ Container fraiseql-docs-test-fraiseql-1 Started 
+ Container fraiseql-docs-test-fraiseql-1 Waiting 
+ Container fraiseql-docs-test-redis-1 Waiting 
+ Container fraiseql-docs-test-postgres-1 Waiting 
+ Container fraiseql-docs-test-postgres-1 Healthy 
+ Container fraiseql-docs-test-redis-1 Healthy 
+ Container fraiseql-docs-test-fraiseql-1 Healthy 
+  ✓ stack up exit code (= 0)
+  · stack up (11s)
+  ✓ schema installed (postgres) (= 0)
+ Container fraiseql-docs-test-fraiseql-1 Restarting 
+ Container fraiseql-docs-test-fraiseql-1 Started 
+  ✓ /health (HTTP 200)
+  ✓ health.status == healthy
+  ✓ health.database.connected
+  ✓ health.database.database_type
+  ✓ graphql query exit code (= 0)
+  ✓ no graphql errors
+  ✓ data.posts is array
+  ✓ data.posts has 1 element
+  ✓ post[0].title
+  ✓ post[0].author.name
+  ✓ post[0].author.email
+  · stack down clean
+
+=== smoke: mysql ===
+ Network fraiseql-docs-test_default Creating 
+ Network fraiseql-docs-test_default Created 
+ Volume fraiseql-docs-test_mysql-data Creating 
+ Volume fraiseql-docs-test_mysql-data Created 
+ Container fraiseql-docs-test-mysql-1 Creating 
+ Container fraiseql-docs-test-mysql-1 Created 
+ Container fraiseql-docs-test-mysql-1 Starting 
+ Container fraiseql-docs-test-mysql-1 Started 
+ Container fraiseql-docs-test-mysql-1 Waiting 
+ Container fraiseql-docs-test-mysql-1 Healthy 
+  · stack up (10s)
+mysql: [Warning] Using a password on the command line interface can be insecure.
+  ✓ schema installed (mysql) (= 0)
+mysql: [Warning] Using a password on the command line interface can be insecure.
+  ✓ data.posts is array
+  ✓ data.posts has 1 element
+  ✓ post[0].title
+  ✓ post[0].author.name
+  · stack down clean
+
+=== smoke: sqlite ===
+ Network fraiseql-docs-test_default Creating 
+ Network fraiseql-docs-test_default Created 
+ Volume fraiseql-docs-test_sqlite-data Creating 
+ Volume fraiseql-docs-test_sqlite-data Created 
+ Container fraiseql-docs-test-sqlite-init-run-8134af294cb9 Creating 
+ Container fraiseql-docs-test-sqlite-init-run-8134af294cb9 Created 
+  · sqlite volume materialised
+ Container fraiseql-docs-test-sqlite-init-run-c0642f05ae1f Creating 
+ Container fraiseql-docs-test-sqlite-init-run-c0642f05ae1f Created 
+  ✓ schema installed (sqlite) (= 0)
+  ✓ data.posts is array
+  ✓ data.posts has 1 element
+  ✓ post[0].title
+  ✓ post[0].author.name
+  · stack down clean
+
+=== smoke: mssql ===
+ Network fraiseql-docs-test_default Creating 
+ Network fraiseql-docs-test_default Created 
+ Volume fraiseql-docs-test_mssql-data Creating 
+ Volume fraiseql-docs-test_mssql-data Created 
+ Container fraiseql-docs-test-mssql-1 Creating 
+ Container fraiseql-docs-test-mssql-1 Created 
+ Container fraiseql-docs-test-mssql-1 Starting 
+ Container fraiseql-docs-test-mssql-1 Started 
+ Container fraiseql-docs-test-mssql-1 Waiting 
+ Container fraiseql-docs-test-mssql-1 Healthy 
+  · stack up (5s)
+  ✓ schema installed (mssql) (= 0)
+  ✓ data.posts is array
+  ✓ data.posts has 1 element
+  ✓ post[0].title
+  ✓ post[0].author.name
+  · stack down clean
+
+=== summary ===
+  ✓ postgres  14.645s
+  ✓ mysql     13.666s
+  ✓ sqlite    4.714s
+  ✓ mssql     7.014s
+  total      40.050s (budget: <240s)
+
+====================================================================
+## Per-DB outcomes (from above):
+##   ✓ postgres  14.645s  (full path through fraiseql-server HTTP API)
+##   ✓ mysql     13.666s  (page SQL verified against MySQL 8.4 directly)
+##   ✓ sqlite     4.714s  (page SQL verified against SQLite 3.x; bug)
+##   ✓ mssql      7.014s  (page SQL verified against MSSQL 2022 directly; bug)
+##   total       40.05s   (cold-cache, all volumes pruned per iter)
+
+## Page-vs-framework gaps surfaced this cycle:
+##   1. fraiseql-server binary is hardcoded to PostgresAdapter at the
+##      frozen SHA (~/code/fraiseql/crates/fraiseql-server/src/main.rs
+##      :L240-L260). Per-DB tabs in quickstart.mdx imply runtime
+##      multi-DB support that does not exist in the server binary today.
+##   2. quickstart.mdx SQLite tab v_post: `'author', vu.data` should be
+##      `'author', json(vu.data)` — otherwise SQLite embeds the inner
+##      view's JSON as a string with escaped quotes.
+##   3. quickstart.mdx SQL Server tab v_post: `vu.data AS author`
+##      should be `JSON_QUERY(vu.data) AS author` for the same reason.
+##   4. quickstart.mdx SQL Server tab uses WITH SCHEMABINDING but the
+##      view-on-view relationship (v_post references v_user) is
+##      incompatible with SCHEMABINDING.
+##
+## All four gaps are PAGE bugs, not framework bugs — Phase 01/02 IA
+## owners will address them when the quickstart is rewritten.
+====================================================================

@@ -1,0 +1,89 @@
+====================================================================
+Cycle 5 RED evidence — no smoke reproduction
+Date: 2026-05-28T11:14:38Z
+Host: archbox — Linux 7.0.3-arch1-1 x86_64
+====================================================================
+
+## STATE: harness pieces exist (Cycles 1–4), but nothing proves
+## that the documented quickstart flow runs end-to-end.
+
+## Step 1: confirm scripts/docs-test/pages/ is empty.
+----- $ ls scripts/docs-test/pages/ -----
+-----
+
+## Step 2: confirm scripts/docs-test/lib/assert.sh is absent.
+----- $ ls scripts/docs-test/lib/ -----
+storage-smoke.sh
+-----
+
+## Step 3: confirm per-DB fixtures are absent.
+----- $ find scripts/docs-test/fixtures -type f -----
+-----
+(no files)
+
+====================================================================
+## Step 4: boot fraiseql + postgres via operator CLI and probe.
+====================================================================
+docs-test: up --wait --wait-timeout 240 (profiles: fraiseql)...
+ Network fraiseql-docs-test_default Creating 
+ Network fraiseql-docs-test_default Created 
+ Volume fraiseql-docs-test_redis-data Creating 
+ Volume fraiseql-docs-test_redis-data Created 
+ Volume fraiseql-docs-test_postgres-data Creating 
+ Volume fraiseql-docs-test_postgres-data Created 
+ Container fraiseql-docs-test-redis-1 Creating 
+ Container fraiseql-docs-test-postgres-1 Creating 
+ Container fraiseql-docs-test-postgres-1 Created 
+ Container fraiseql-docs-test-redis-1 Created 
+ Container fraiseql-docs-test-fraiseql-1 Creating 
+ Container fraiseql-docs-test-fraiseql-1 Created 
+ Container fraiseql-docs-test-redis-1 Starting 
+ Container fraiseql-docs-test-postgres-1 Starting 
+ Container fraiseql-docs-test-redis-1 Started 
+ Container fraiseql-docs-test-postgres-1 Started 
+ Container fraiseql-docs-test-postgres-1 Waiting 
+ Container fraiseql-docs-test-redis-1 Waiting 
+ Container fraiseql-docs-test-postgres-1 Healthy 
+ Container fraiseql-docs-test-redis-1 Healthy 
+ Container fraiseql-docs-test-fraiseql-1 Starting 
+ Container fraiseql-docs-test-fraiseql-1 Started 
+ Container fraiseql-docs-test-redis-1 Waiting 
+ Container fraiseql-docs-test-postgres-1 Waiting 
+ Container fraiseql-docs-test-fraiseql-1 Waiting 
+ Container fraiseql-docs-test-postgres-1 Healthy 
+ Container fraiseql-docs-test-redis-1 Healthy 
+ Container fraiseql-docs-test-fraiseql-1 Healthy 
+
+## Step 5: /health is up — but the documented quickstart query fails.
+##         The page documents `{ posts { id title } }` returning
+##         `{ "data": { "posts": [] } }`. Run it now:
+
+----- $ curl -sS http://localhost:8080/graphql ... ({ posts ... }) -----
+{"errors":[{"message":"Validation error: Query 'posts' not found in schema","code":"VALIDATION_ERROR"}]}
+-----
+
+## Step 6: even the simplest documented query fails because no schema
+##         has been compiled or installed — the image ships an empty
+##         CompiledSchema.
+
+----- $ curl ... ({ __typename }) -----
+{"errors":[{"message":"Validation error: Query '__typename' not found in schema","code":"VALIDATION_ERROR"}]}
+-----
+
+## Step 7: tear down — leaves no evidence the flow ever worked.
+
+ Network fraiseql-docs-test_default Removing 
+ Volume fraiseql-docs-test_redis-data Removed 
+ Volume fraiseql-docs-test_postgres-data Removing 
+ Volume fraiseql-docs-test_postgres-data Removed 
+ Network fraiseql-docs-test_default Removed 
+
+====================================================================
+## CONCLUSION (RED):
+##   - stack runs
+##   - server runs
+##   - /health returns 200
+##   - BUT no executable proof the documented quickstart flow works.
+##   - 0/4 databases have a smoke. 0/1 quickstart pages have a
+##     reproduction. The harness has no end-to-end guarantee.
+====================================================================
