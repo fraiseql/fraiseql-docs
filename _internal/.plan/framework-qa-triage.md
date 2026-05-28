@@ -6,7 +6,7 @@ Format: one row per bug. Update the **Triage** column in phase 09; do not edit o
 
 | ID | Filed in phase / cycle | Issue URL | Severity (blocker / regression / qol) | Affects page(s) | Repro script | Workaround in docs? | Triage (fix-now / accept-limitation / wrong-as-filed) | Resolution PR |
 |----|------------------------|-----------|---------------------------------------|-----------------|--------------|--------------------|-------------------------------------------------------|---------------|
-| _(none yet)_ | | | | | | | | |
+| FW-1 | Phase 00 / Cycle 3 | https://github.com/fraiseql/fraiseql/issues/326 | qol | (future) `concepts/storage`, `guides/storage-backends` | `scripts/docs-test/lib/storage-smoke.sh` exercises sidecars; the FraiseQL server cannot reach Azurite/fake-gcs through configuration | Pending — overlays `configs/overlays/storage-azure.toml` and `storage-gcs.toml` document the limitation in their leading comment block; Cycle 5's smoke covers only the S3 backend end-to-end | _(open)_ | _(open)_ |
 
 ---
 
