@@ -172,3 +172,52 @@ Docs-test suite: 0/0 pages (Cycles 2–8 produce pages; Cycle 6 wires the CI). F
 - **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
 
 ---
+
+### Phase 00 / Cycle 4 close — Writer (Opus 4.7) — 2026-05-28
+
+- **Landed under `scripts/docs-test/`:**
+  - `docs-test.sh` (782 lines) — single-file Bash 4.4+ operator CLI with seven subcommands per spec: `up`, `down`, `reset`, `exec`, `status`, `logs`, `sha`. Sets `HERE` via `BASH_SOURCE`+`cd` so cwd-independence is achieved (constraint #2). Sources `.env` automatically; warns once on stderr when only `.env.example` exists (constraint #3, "no `.env` — using compose defaults"). `--help` works at the top level and on every one of the seven subcommands (constraint #9; verified via the walkthrough transcript).
+  - `completions/docs-test.bash` (~80 lines) — Bash completion: position-1 subcommand list, `--profile <p>` completion against the nine known profiles (`all postgres mysql sqlite mssql redis nats fraiseql storage`), per-subcommand flag completion. Loads via `source scripts/docs-test/completions/docs-test.bash`.
+  - `completions/docs-test.zsh` (~80 lines) — Zsh `_arguments`-style completion with descriptions on each subcommand and flag. Loads via `source scripts/docs-test/completions/docs-test.zsh`. Has the `#compdef docs-test.sh` header so it can also be dropped into a `$fpath` dir as `_docs-test.sh` for autoload.
+  - Each completion file carries the documented "how to source me" header so users do not have to read source to figure out wiring (constraint #11 anti-scope: no global PATH or rc-file modification).
+- **`.gitignore` change:** added `scripts/docs-test/.last-profiles` (the new `reset` memory file).
+- **Design decisions worth surfacing:**
+  - **`up --profile sqlite` semantics:** the cycle spec asked us to "decide and document". Implementation triggers `docker compose run --rm sqlite-init` (one-shot, exit-0 semantics) rather than `up --wait`. When mixed with long-running profiles (e.g. `--profile postgres,sqlite`) the script materialises SQLite first, then runs `up --wait` on the remaining profiles. This is documented inline in `up --help` and the inline comment block. Matches the Cycle 1 fix in commit `9adb4eb` and avoids `up --wait`'s "exit 0 = failure" trap.
+  - **`logs --follow` signal handling:** the cycle spec required Ctrl-C to "not require interrupting the script ungracefully" and to "exit 0". First attempt used `setsid` + a SIGINT trap that killed the child's process group; this left orphan `docker compose logs -f` processes when SIGINT arrived via `kill -INT $pid` (parent only) because the setsid'd child no longer shared the parent's group. Replaced with the simpler robust pattern: run `docker compose logs -f` in the foreground (sharing the script's controlling tty and process group), let the kernel deliver SIGINT to every member of the group on real Ctrl-C, then translate exit codes 130 (SIGINT) / 143 (SIGTERM) / 0 → 0. Verified via `/tmp/test-logs-follow2.sh`: `setsid docs-test.sh logs redis --follow & sleep 2 ; kill -INT -$pid ; wait $pid` → exit 0, zero orphans.
+  - **`down` profile enumeration:** always passes `--profile all --profile storage --profile fraiseql --profile sqlite --remove-orphans`. Cycle 3 explicitly surfaced that `docker compose down` without enumerating storage-profiled containers leaves them running; the CLI now forces the comprehensive teardown. `--volumes` (`-v`) is opt-in for the data wipe.
+  - **`reset` last-used recovery:** `.last-profiles` is written one profile per line on every `up`, and read back on `reset`. Absent → falls back to `--profile all` (constraint #5). The reset path re-invokes `cmd_up` so it inherits the sqlite special-casing.
+  - **`exec` argv quoting:** the `--` terminator is mandatory (`exec` errors with a helpful message if omitted). Everything after `--` is passed verbatim via `"$@"`. Verified end-to-end with `docs-test.sh exec postgres -- psql -U fraiseql -d fraiseql -c "SELECT 1 AS sentinel"` (multi-token quoted argument) and `docs-test.sh exec redis -- redis-cli ping` (single-token).
+  - **`status` header:** prints working tree path, branch, short SHA, frozen SHA (or `(unset -- set in phase 00 cycle 9)` when the file is absent — constraint #6, gracefully handles pre-Cycle-9 state), `~/code/fraiseql` HEAD, and a comparison flag (`(matched)`, `MISMATCH`, or `(frozen SHA unset; comparison skipped)`). Then enumerates every profile when calling `docker compose ps` so storage / fraiseql / sqlite containers also appear if running.
+  - **`sha` exit codes:** 0 when matched OR when the FRAISEQL_SHA file is absent (pre-Cycle-9); 1 with a loud multi-line warning when both are present and differ. Verified both paths against a synthetic `FRAISEQL_SHA` file (the user's `~/code/fraiseql` worktree is unrelated to the frozen value, so the mismatch path was easy to exercise; the match path was verified by writing the live HEAD into the file).
+- **RED evidence:** `_internal/.plan/red-evidence/cycle-04-no-operator-cli.transcript` — side-by-side "today vs. post-Cycle-4" stanza per the cycle-spec format. The ~30-line plumbing block (Compose file path resolution, env loading, profile enumeration, teardown trap, frozen-SHA drift check) collapses to ~6 lines once the CLI exists. With ~25 pages projected by Phase 02 the saving compounds to ~600 lines and, more importantly, gives the harness a single audit surface for env loading / teardown / SHA drift policies.
+- **GREEN evidence:** `_internal/.plan/red-evidence/cycle-04-operator-cli-walkthrough.transcript` — thirteen-section transcript exercising every subcommand against a live stack: `--help`, `sha` (pre-Cycle-9 path), `up --profile postgres,redis`, `status` (header + healthy services), `exec postgres -- psql` (multi-token), `exec redis -- redis-cli ping` (single-token), `logs redis` (non-follow), `logs redis --follow` (signal handling verified separately), `up --profile sqlite` (one-shot), `reset` precondition (`.last-profiles` content), `down --volumes` (full teardown), zero-state verification (0 containers / 0 volumes), and final shellcheck pass.
+- **`--help` coverage matrix:**
+  | Surface                          | Exit | Output ?            |
+  |----------------------------------|------|---------------------|
+  | `docs-test.sh --help`            | 0    | subcommand list     |
+  | `docs-test.sh` (no args)         | 0    | subcommand list     |
+  | `docs-test.sh help`              | 0    | subcommand list     |
+  | `docs-test.sh up --help`         | 0    | up options          |
+  | `docs-test.sh down --help`       | 0    | down options        |
+  | `docs-test.sh reset --help`      | 0    | reset description   |
+  | `docs-test.sh exec --help`       | 0    | exec usage          |
+  | `docs-test.sh status --help`     | 0    | status description  |
+  | `docs-test.sh logs --help`       | 0    | logs options        |
+  | `docs-test.sh sha --help`        | 0    | sha description     |
+  | `docs-test.sh <unknown>`         | 2    | error + hint to --help |
+- **Shellcheck:** `shellcheck -s bash scripts/docs-test/docs-test.sh` → exit 0, clean (no SC ignores in source).
+- **Completion file paths:**
+  - `scripts/docs-test/completions/docs-test.bash`
+  - `scripts/docs-test/completions/docs-test.zsh`
+  Both load without error (verified `bash -c 'source ...'` and `zsh -c 'autoload -Uz compinit && compinit -u; source ...'`).
+- **Anti-scope held to:** no `_smoke.docs-test.sh` and no `pages/*.docs-test.sh` (Cycle 5), no CI workflow (Cycle 6), no edits under `src/content/docs/`, no `FRAISEQL_SHA` file (Cycle 9 — `sha` and `status` handle its absence gracefully), no subcommands beyond the seven specified, no global PATH or rc-file modification (completions sourced by hand).
+- **Framework issues filed:** 0. The `status` SHA comparison is host-side only and exercised no framework behaviour.
+- **Known issues / wishlist surfaced for Cycle 5+:**
+  - `docs-test.sh build` (for the Cycle-2 Dockerfile.fraiseql) is NOT in scope per the cycle spec's seven-subcommand cap. Cycle 5's smoke can either `docker compose -f … build fraiseql` directly or call `docs-test.sh exec` after manually building. If wanted, Cycle 6's CI workflow may want a `build` subcommand to centralise the `CARGO_FEATURES`-aware build invocation; flagging here per spec instruction.
+  - `docs-test.sh ps` (alias for `status` minus the header) is sometimes nice in a tight loop. Not added now; flag for Cycle 5+ if it gets called for.
+  - When `--profile fraiseql` is passed, the `fraiseql` service's image must already be built. The CLI does not auto-build (it would silently slow down a `up` for users who never modified the Dockerfile). Cycle 5's smoke must `docker compose build fraiseql` once before its first `up --profile fraiseql`.
+  - The `--profile sqlite + others` mixed case: `docs-test.sh up --profile sqlite --profile postgres` materialises sqlite first (synchronously), then `up --wait`s postgres. If the postgres `up --wait` fails, the sqlite volume is still materialised — not strictly idempotent if the caller assumed all-or-nothing. Documented in `up --help`; harmless in practice because sqlite-init is idempotent itself.
+- **Push posture:** branch `phase-00/foundation` will gain one Cycle 4 commit on top of `1356d55` (Cycle 3 close). Not pushed (Cycle 6 owns the CI gate; pushing optional per spec). Cycle 5 author can push the chain when convenient.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. The Cycle 4 CLI's `sha` subcommand will be the operator-side mechanism for surfacing SHA drift to whoever proposes a G2 bump later.
+
+---
