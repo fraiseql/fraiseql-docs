@@ -90,10 +90,15 @@ services:
   # documented reproduction) can attach to the same file. It exits 0 once the
   # file is created and is intentionally NOT depended on by other services'
   # healthchecks — sqlite is per-page opt-in.
+  #
+  # It is deliberately NOT in the `all` profile: a one-shot exit confuses
+  # `docker compose up --wait`, which treats any exiting container as failure.
+  # Callers materialise the SQLite file via `docker compose run --rm
+  # sqlite-init` or `docker compose --profile sqlite up sqlite-init`.
   # ---------------------------------------------------------------------------
   sqlite-init:
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-    profiles: ["all", "sqlite"]
+    profiles: ["sqlite"]
     command:
       - /bin/sh
       - -c
@@ -127,12 +132,14 @@ services:
     volumes:
       - mssql-data:/var/opt/mssql
     healthcheck:
-      # `sqlcmd` ships at /opt/mssql-tools18/bin/sqlcmd in the 2022-CU13 image;
-      # `-C` trusts the self-signed cert; `-N` is the modern flag.
+      # The 2022-CU13-ubuntu-22.04 image bundles the legacy mssql-tools at
+      # /opt/mssql-tools/bin/sqlcmd (not the newer mssql-tools18). That legacy
+      # sqlcmd does not accept -C or -N — encryption is off by default and the
+      # self-signed cert is implicitly trusted on loopback.
       test:
         - "CMD-SHELL"
         - >-
-          /opt/mssql-tools18/bin/sqlcmd -C -N -S localhost
+          /opt/mssql-tools/bin/sqlcmd -S localhost
           -U sa -P "$$MSSQL_SA_PASSWORD" -Q 'SELECT 1' -t 3
       interval: 5s
       timeout: 5s
