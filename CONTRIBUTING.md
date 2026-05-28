@@ -1,5 +1,11 @@
 # Contributing to FraiseQL Documentation
 
+> Opening a PR for a documentation page rewrite? Use the docs-page PR
+> template: append `?template=docs-page.md` to your PR-create URL, or
+> select it from the GitHub PR template picker. The template carries
+> the 15-point adversarial-review checklist and the persona-handoff
+> contract.
+
 ## Development Setup
 
 ```bash
