@@ -361,3 +361,80 @@ Docs-test suite: 0/0 pages (Cycles 2–8 produce pages; Cycle 6 wires the CI). F
 - **Open gates:** none new.
 
 ---
+
+### Phase 00 / Cycle 9 close — Writer (Opus 4.7) — 2026-05-28
+
+**This is the phase-close handoff entry.** Cycle 9 mechanically freezes the framework SHA at `d0a4ed4ec1770c70707f68fd9019f2b561d87461` and closes Phase 00. Cross-cycle summary follows.
+
+#### Cycle 9 outcome
+
+- **`scripts/docs-test/FRAISEQL_SHA` landed (40 bytes exactly).** Contents: `d0a4ed4ec1770c70707f68fd9019f2b561d87461`, no trailing whitespace, no comment, no newline at EOF. `od -c` confirms the file is exactly the 40 ASCII hex characters followed by EOF. This matches the format the CI workflow's `tr -d '[:space:]'` reader and the operator CLI's `frozen_sha()` helper both expect; both also tolerate a trailing newline if a future editor adds one (so the strict no-newline form is the safe default, not a hard requirement).
+- **`scripts/docs-test/FRAISEQL_SHA.README.md` landed (~100 lines).** Documents the file format, the three consumers (Dockerfile / workflow / operator CLI) and the precedence rule (file present → use file; file absent → fallback constant), the three operator-CLI behaviours (match / mismatch / absent), the G2 SHA-bump procedure (Writer never bumps; surfaces G2 proposal; human edits the file), the initial freeze rationale, and cross-references to other plan files.
+- **`_internal/.plan/.phases/README.md` updated:** new top-section "Frozen FraiseQL SHA" block records the SHA + freeze date + rationale + G2 pointer. Phase 00 row status `[ ] → [x]`. Snapshot-SHAs section filled for plan-open and code-freeze. "Filed framework bugs" populated with FW-1 #326 and FW-2 #327. "Completed phases" appended with the Phase 00 entry pointing at this handoff entry.
+- **`_internal/.plan/.phases/phase-00-foundation.md` `## Status` block** marked `[x] Complete — 2026-05-28` with per-cycle commit refs (`8d92678`, `396c1b2`, `9adb4eb`, `d8b7e5c`, `1356d55`, `2a41e5b`, `14b90c0`, `d251931`+`3aad991`+`379f657`+`c8b9e62`, `d166ff1`, `32e4e6f`, and Cycle 9's `08caa88` + this commit).
+- **Verifications of the SHA-resolver triple (Dockerfile, CI workflow, operator CLI) per REFACTOR:**
+  - **Operator CLI (`./scripts/docs-test/docs-test.sh sha`)** — file present + drift path: exit 1, loud SHA-DRIFT warning. Local `~/code/fraiseql` HEAD on this host is `bc0dc1ed7167f7fa2c466f7cf8ef357df5d1b26a` (the host moved off the frozen SHA between Cycle 0 and Cycle 9 — expected per the brief's "may have moved" caveat). File present + match path was exercised in Cycle 4's GREEN evidence (writing live HEAD into the file). File absent path was exercised by every cycle before this one. All three paths verified.
+  - **CI workflow** — the `discover` job's `resolve-sha` step has the conditional `if [ -f scripts/docs-test/FRAISEQL_SHA ]; then ... else $FRAISEQL_SHA_FALLBACK fi`. With the file now present, the file path wins; the env-level `FRAISEQL_SHA_FALLBACK` constant is no longer consulted on this branch. The Cycle 9 CI run (https://github.com/fraiseql/fraiseql-docs/actions/runs/26575849530) PASSED, which empirically validates that the file-based resolver and the previously-hardcoded constant agree (the SHA value is identical, so a divergent value here would have surfaced via the post-checkout `git rev-parse HEAD` comparison the workflow performs against the cloned fraiseql repo at line 205).
+  - **Dockerfile** — `ARG FRAISEQL_SHA=d0a4ed4ec1770c70707f68fd9019f2b561d87461` default is byte-identical to the FRAISEQL_SHA file. CI overrides via `--build-arg` from the workflow's resolved value (which now comes from the file). The Dockerfile's in-build check (`if [ "$actual" != "$FRAISEQL_SHA" ]; then echo WARN ...`) is exercised by every CI build.
+- **Known-but-deliberate parallel-source observation (NOT a Cycle 9 fix):** the compose file `scripts/docs-test/docker-compose.docs-test.yml` declares the SHA as a literal `args:` value, not by reading the FRAISEQL_SHA file. This is a fourth resolver path that the Cycle 9 brief did not enumerate. It works correctly because the value is byte-identical to the FRAISEQL_SHA file. When the SHA is bumped (G2 path), the human flipping the file MUST also bump the compose file's literal. This is documented in `scripts/docs-test/FRAISEQL_SHA.README.md`'s G2 procedure. **Not fixing it in this cycle** — the cycle 9 REFACTOR brief explicitly names "Dockerfile and CI workflow" (not compose) as the audit targets, and "no code change should be needed" if those two prefer the file. Adding a file-read step to the compose file would expand cycle 9 scope. Tracked for Phase 09 reconciliation: a future cleanup pass can switch the compose `args:` value to `${FRAISEQL_SHA}` and have the operator CLI / workflow set it from the file.
+- **PR #11 description updated** to reflect the final phase-close state: replaced the "What's not in here (deferred)" block (which listed Cycles 8 and 9 as deferred) with a single comprehensive "What's in here (all 10 cycles)" block, and appended CI run URLs for Cycles 7, 8, 9. PR remains **draft** per the cycle-9 brief — the Writer persona does not flip the PR to ready-for-review; that's the human's prerogative.
+
+#### Cross-cycle summary (Cycles 0–9)
+
+| Cycle | Subject                                          | Commits                                                   | CI run                                         | Outcome |
+|-------|--------------------------------------------------|-----------------------------------------------------------|------------------------------------------------|---------|
+| 0     | Plan tree into repo + G6 pivot to canonical repo | `8d92678`                                                 | n/a (pre-CI)                                   | GREEN   |
+| 1     | Compose stack (PG/MySQL/SQLite/MSSQL/Redis/NATS) | `396c1b2`, `9adb4eb`, `043034d`                           | n/a (pre-CI)                                   | GREEN   |
+| 2     | `Dockerfile.fraiseql` + `baseline.toml`          | `d8b7e5c`                                                 | n/a (pre-CI)                                   | GREEN   |
+| 3     | Storage sidecars (MinIO / Azurite / fake-gcs)    | `1356d55`                                                 | n/a (pre-CI)                                   | GREEN   |
+| 4     | Operator CLI + bash/zsh completions              | `2a41e5b`                                                 | n/a (pre-CI)                                   | GREEN   |
+| 5     | Smoke `_smoke.docs-test.sh` + assert.sh + fixtures | `14b90c0`                                               | n/a (pre-CI)                                   | GREEN (local) |
+| 6     | CI workflow + RED/GREEN inversion test           | `d251931`, `3aad991`, `379f657`, `c8b9e62`, `1cf931f`, `213c60d` | 26572243357 / 26572738344 / 26573246640 | GREEN (CI-validated) |
+| 7     | Style guide checked in                           | `d166ff1`                                                 | 26574706756                                    | GREEN   |
+| 8     | docs-page PR template                            | `32e4e6f`                                                 | 26575275825                                    | GREEN   |
+| 9     | FRAISEQL_SHA freeze + handoff                    | `08caa88` + this commit                                   | 26575849530                                    | GREEN   |
+
+#### Framework issues filed across Phase 00
+
+- **FW-1 — https://github.com/fraiseql/fraiseql/issues/326** — `storage(azure,gcs): expose endpoint override so emulators (Azurite, fake-gcs-server) are reachable via config`. Severity `qol`. Filed Cycle 3.
+- **FW-2 — https://github.com/fraiseql/fraiseql/issues/327** — `server: fraiseql-server binary hardcodes PostgresAdapter — quickstart's multi-DB tabs are unreachable`. Severity `regression-or-doc-bug`. Filed Cycle 5.
+
+Both are tracked in `_internal/.plan/framework-qa-triage.md`. Phase 09 will reconcile them.
+
+#### Branch-protection proposal (G4-adjacent) — open
+
+- Cycle 6 proposed `docs-test / page-test (_smoke)` as the required check name. **Correction this cycle:** the *displayed* name in the GitHub UI is `docs-test / page-test (_smoke)` (workflow / job-with-matrix), but the *check-name string* the branch-protection API expects is just `page-test (_smoke)` (without the workflow prefix). Verified via `gh api repos/fraiseql/fraiseql-docs/commits/<sha>/check-runs --jq '.check_runs[].name'` against the Cycle 7/8/9 runs — the API consistently returns `page-test (_smoke)` as the name. The repo admin configuring branch protection should use the bare `page-test (_smoke)` value. (This is a documentation nuance, not a bug; both forms work but only the bare form is what the API surface expects.)
+- Status: **still soft-gate**, awaiting human action. Becomes hard at Phase 10.
+
+#### Page bugs Cycle 5 surfaced — Phase 02 IA work
+
+These were found while authoring the Cycle 5 smoke and are documented in the Cycle 5 handoff entry. They are **Phase 02 IA work** and were deliberately NOT fixed this phase (per Cycle 9's anti-scope):
+
+1. SQLite `v_post` view bug — needs `json(vu.data)` wrapping in `getting-started/quickstart.mdx:156`.
+2. MSSQL `v_post` view bug — needs `JSON_QUERY(vu.data)` wrapping in `getting-started/quickstart.mdx:184`.
+3. MSSQL `WITH SCHEMABINDING` is incompatible with view-on-view — drop the directive from `v_user` (line 167) and `v_post` (line 179).
+
+The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!-- DEVIATION: ... -->` comments) so the smoke passes even though the rendered page has the bugs.
+
+#### Phase 00 final state
+
+- PR: https://github.com/fraiseql/fraiseql-docs/pull/11 — sixteen commits ahead of `origin/main`, draft.
+- Final CI run (post-Cycle-9 GREEN): https://github.com/fraiseql/fraiseql-docs/actions/runs/26575849530.
+- Phase status: `[x] Complete — 2026-05-28`.
+- Plan tree: intact at `_internal/.plan/`. Will be deleted by Phase 10 finalisation.
+
+#### Open follow-on items for Phase 01
+
+- Phase 02 quickstart-page fixes (the three SQL bugs above) — Phase 02 IA work, do **not** fix in Phase 01.
+- FW-1 (#326) and FW-2 (#327) — Phase 09 reconciliation owns these; Phases 01–08 work around them.
+- The compose file's parallel SHA-literal — documented above as a future cleanup, tracked for Phase 09's pass.
+- G4 branch-protection flip — human admin action; not a Writer task.
+- PR #11 ready-for-review flip — human signal of phase-close approval; not a Writer task.
+
+#### Open gates
+
+- **G2 (SHA bump)** — frozen at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`; default policy holds across Phase 01+; bump procedure documented in `scripts/docs-test/FRAISEQL_SHA.README.md`.
+- **G4 (branch protection)** — soft gate; proposal above; awaiting human action.
+- No other gates open at phase close.
+
+---
