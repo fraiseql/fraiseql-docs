@@ -1,0 +1,363 @@
+# docs-test.yml — Phase 00 Cycle 6 — the CI gate for the FraiseQL docs-test
+# harness.
+#
+# Methodology § 6.1 ("CI is the only GREEN gate") activates with this workflow.
+# From this commit forward, any cycle whose RED/GREEN/REFACTOR/CLEANUP loop
+# exercises framework behaviour gates on this workflow's success.
+#
+# Design notes (mirrored from the Cycle 6 brief):
+#
+#   - Per-page matrix: one job per `scripts/docs-test/pages/*.docs-test.sh`.
+#     Cycle 5 ships exactly one (`_smoke`); future cycles append pages and the
+#     matrix grows automatically via the `discover` job's `fromJson` output.
+#
+#   - Sibling layout: the Cycle 2 Dockerfile expects
+#     `context: ../../../fraiseql` (sibling `~/code/fraiseql` checkout on the
+#     dev workstation). Option (a) of the brief is taken: clone the fraiseql
+#     framework into `${GITHUB_WORKSPACE}/../fraiseql` at the frozen SHA and
+#     also symlink `${HOME}/code/fraiseql -> $GITHUB_WORKSPACE/../fraiseql` so
+#     local-only references continue to work. No changes to the Cycle 2
+#     Dockerfile are required by this approach. Rationale: minimal risk to
+#     Cycles 1–5 outputs, no diff to the Dockerfile that already shipped GREEN.
+#
+#   - Frozen SHA precedence: read `scripts/docs-test/FRAISEQL_SHA` if present
+#     (Cycle 9 creates it); otherwise fall back to the in-workflow constant
+#     `FRAISEQL_SHA_FALLBACK`. Cycle 9 will retire the fallback when the file
+#     lands.
+#
+#   - The CI workflow uses the Cycle 4 operator CLI (`docs-test.sh`), not raw
+#     `docker compose`. The smoke script in turn drives `docs-test.sh up`,
+#     `down`, and `exec`.
+#
+#   - Disk-usage discipline: GitHub-hosted `ubuntu-latest` ships ~14 GB free
+#     on the root volume. The fraiseql cargo build + container images push
+#     this close to the limit. A pre-flight `df -h` step records baseline,
+#     and a `docker system prune -f` runs on every job termination (success
+#     or failure) via an `always()` step. No retry-on-failure at the workflow
+#     level — § 8 of the brief forbids that.
+#
+#   - Per-page job artifacts: each matrix job writes its run URL to
+#     `ci-run-url.txt` and uploads it under the artifact name `ci-run-url`.
+#     The Writer persona of future cycles consumes the artifact via
+#     `gh run download <run-id> -n ci-run-url` to populate PR descriptions
+#     without confabulation.
+#
+# References:
+#   - _internal/.plan/.phases/phase-00-foundation.md § Cycle 6
+#   - _internal/.plan/methodology.md § 6.1 (CI is the only GREEN gate)
+#   - _internal/.plan/handoff.md (Cycles 1–5 close notes)
+
+name: docs-test
+
+on:
+  pull_request:
+    paths:
+      - 'src/content/docs/**'
+      - 'scripts/docs-test/**'
+      - '.github/workflows/docs-test.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel stale runs on the same PR / branch so newer pushes do not queue
+# behind older ones. Methodology § 6.1 ("CI is the only GREEN gate") wants
+# the most recent run to be authoritative.
+concurrency:
+  group: docs-test-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Fallback frozen FraiseQL SHA. Cycle 9 will introduce
+  # `scripts/docs-test/FRAISEQL_SHA` as the authoritative source; the
+  # `discover` job below prefers the file when present and falls back to this
+  # constant otherwise. Keep in sync with `Dockerfile.fraiseql`'s ARG default.
+  FRAISEQL_SHA_FALLBACK: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+  # Public clone URL for the fraiseql framework. Sibling-cloned per Cycle 6
+  # option (a) so the Dockerfile's relative `context: ../../../fraiseql`
+  # resolves without modification.
+  FRAISEQL_REPO_URL: https://github.com/fraiseql/fraiseql.git
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # discover — emit two outputs the per-page job depends on:
+  #   1. `pages`: a JSON array of page slugs ([ "_smoke" ] today), one element
+  #      per `scripts/docs-test/pages/*.docs-test.sh`. Each becomes one job in
+  #      the per-page matrix.
+  #   2. `fraiseql_sha`: the resolved frozen SHA — from
+  #      `scripts/docs-test/FRAISEQL_SHA` if present, else
+  #      `${FRAISEQL_SHA_FALLBACK}`.
+  # ---------------------------------------------------------------------------
+  discover:
+    name: discover pages and frozen SHA
+    runs-on: ubuntu-latest
+    outputs:
+      pages: ${{ steps.list-pages.outputs.pages }}
+      fraiseql_sha: ${{ steps.resolve-sha.outputs.fraiseql_sha }}
+    steps:
+      - name: Checkout docs repo
+        uses: actions/checkout@v4
+
+      - name: List page slugs
+        id: list-pages
+        # Find every `*.docs-test.sh` under `scripts/docs-test/pages/`, strip
+        # the suffix, and emit a JSON array. Cycle 5 ships exactly `_smoke`;
+        # the matrix grows automatically as future cycles add pages.
+        run: |
+          set -euo pipefail
+          pages=$(find scripts/docs-test/pages -maxdepth 1 -type f -name '*.docs-test.sh' -printf '%f\n' \
+            | sed 's/\.docs-test\.sh$//' \
+            | sort -u \
+            | jq -R . | jq -sc .)
+          if [ "$pages" = "[]" ]; then
+            echo "::error::no scripts/docs-test/pages/*.docs-test.sh found"
+            exit 1
+          fi
+          echo "pages=$pages" >> "$GITHUB_OUTPUT"
+          echo "Discovered pages: $pages"
+
+      - name: Resolve frozen FraiseQL SHA
+        id: resolve-sha
+        # Cycle 9 will land `scripts/docs-test/FRAISEQL_SHA`. Until then, this
+        # step prefers the file when present and falls back to the env-level
+        # constant otherwise. The resolved value flows into all downstream
+        # matrix jobs via the job output.
+        run: |
+          set -euo pipefail
+          if [ -f scripts/docs-test/FRAISEQL_SHA ]; then
+            sha=$(tr -d '[:space:]' < scripts/docs-test/FRAISEQL_SHA)
+            source="scripts/docs-test/FRAISEQL_SHA"
+          else
+            sha="${FRAISEQL_SHA_FALLBACK}"
+            source="workflow fallback (Cycle 9 will introduce the file)"
+          fi
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::frozen SHA does not look like a 40-char git SHA: '$sha' (source: $source)"
+            exit 1
+          fi
+          echo "fraiseql_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Resolved frozen SHA = $sha (source: $source)"
+
+  # ---------------------------------------------------------------------------
+  # page-test — one job per discovered page slug.
+  #
+  # For Cycle 6 the matrix has a single axis (`page`). Cycle-spec § Anti-scope
+  # forbids additional axes (DB OS, runner OS, etc.).
+  # ---------------------------------------------------------------------------
+  page-test:
+    name: page-test (${{ matrix.page }})
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        page: ${{ fromJson(needs.discover.outputs.pages) }}
+    env:
+      FRAISEQL_SHA: ${{ needs.discover.outputs.fraiseql_sha }}
+    steps:
+      - name: Checkout docs repo
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Pre-flight: record baseline disk usage. GH-hosted `ubuntu-latest`
+      # provides ~14 GB free. The cargo build + container images can push
+      # close to the limit; this surface helps diagnose any future OOD.
+      # -----------------------------------------------------------------------
+      - name: Pre-flight disk usage
+        run: |
+          set -euo pipefail
+          echo "=== df -h ==="
+          df -h
+          echo "=== free -h ==="
+          free -h
+          echo "=== docker info (cache state) ==="
+          docker info --format 'Containers: {{.Containers}} Images: {{.Images}}' || true
+
+      # -----------------------------------------------------------------------
+      # Set up Docker buildx. GH `ubuntu-latest` images include the buildx CLI
+      # plugin, but pinning to the action ensures a consistent buildkit instance
+      # and gives the cache mounts a predictable scope.
+      # -----------------------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # -----------------------------------------------------------------------
+      # Sibling-clone the fraiseql framework so the Dockerfile's relative
+      # `context: ../../../fraiseql` (Cycle 2) resolves on the runner. Cycle 6
+      # option (a) — no Dockerfile diff, minimal risk to Cycles 1–5 outputs.
+      #
+      # We also symlink ${HOME}/code/fraiseql to the same checkout for parity
+      # with the dev workstation layout that operators rely on locally.
+      # -----------------------------------------------------------------------
+      - name: Clone fraiseql framework at frozen SHA
+        run: |
+          set -euo pipefail
+          parent="$(dirname "${GITHUB_WORKSPACE}")"
+          mkdir -p "${parent}"
+          # Best-effort full clone (the Dockerfile checks out a specific SHA
+          # via git checkout; partial / shallow clones complicate this).
+          git clone "${FRAISEQL_REPO_URL}" "${parent}/fraiseql"
+          git -C "${parent}/fraiseql" checkout "${FRAISEQL_SHA}"
+          # Sanity check: the resolved HEAD must equal the frozen SHA.
+          got=$(git -C "${parent}/fraiseql" rev-parse HEAD)
+          if [ "$got" != "${FRAISEQL_SHA}" ]; then
+            echo "::error::expected frozen SHA ${FRAISEQL_SHA}, fraiseql HEAD is $got"
+            exit 1
+          fi
+          # Mirror the dev-workstation `~/code/fraiseql` layout so anything
+          # that references the home path still works on the runner.
+          mkdir -p "${HOME}/code"
+          ln -snf "${parent}/fraiseql" "${HOME}/code/fraiseql"
+          echo "Cloned fraiseql at ${parent}/fraiseql, HEAD = ${got}"
+
+      # -----------------------------------------------------------------------
+      # Cargo registry / git cache. Persists across runs keyed by Cargo.lock so
+      # the rust:1.92-slim builder stage's `cargo build --release` skips the
+      # dep-fetch phase on warm hits.
+      # -----------------------------------------------------------------------
+      - name: Cache cargo registry + git refs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ env.FRAISEQL_SHA }}-${{ hashFiles('../fraiseql/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ env.FRAISEQL_SHA }}-
+            ${{ runner.os }}-cargo-
+
+      # -----------------------------------------------------------------------
+      # Fraiseql target dir cache. The Dockerfile uses BuildKit
+      # `--mount=type=cache,id=fraiseql-docs-cargo-target,target=/build/target`
+      # which is independent of `actions/cache`; on first CI run the cache is
+      # cold and the build takes ~5–8 min. Subsequent runs reuse BuildKit's
+      # in-process cache. This `actions/cache` entry persists the
+      # `/tmp/buildx-cache` dir between runs as belt-and-suspenders so a fresh
+      # runner is not strictly first-build cold.
+      # -----------------------------------------------------------------------
+      - name: Cache BuildKit layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/buildx-cache
+          key: ${{ runner.os }}-buildx-${{ env.FRAISEQL_SHA }}-${{ hashFiles('scripts/docs-test/Dockerfile.fraiseql') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ env.FRAISEQL_SHA }}-
+            ${{ runner.os }}-buildx-
+
+      # -----------------------------------------------------------------------
+      # Build the fraiseql docs-test image. Calls into the Cycle-2 build
+      # via `docker compose -f docker-compose.docs-test.yml build fraiseql`
+      # so the Cycle-2 build args (FRAISEQL_SHA, CARGO_FEATURES) are honoured
+      # exactly.
+      # -----------------------------------------------------------------------
+      - name: Build fraiseql docs-test image
+        working-directory: scripts/docs-test
+        env:
+          DOCKER_BUILDKIT: "1"
+          COMPOSE_DOCKER_CLI_BUILD: "1"
+        # The image build can be slow on a cold cache. The Cycle 5 smoke
+        # `preflight()` requires `fraiseql-docs-test-fraiseql:latest` to be
+        # present, so this step is mandatory before any matrix job that uses
+        # the smoke runs.
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.docs-test.yml build fraiseql
+
+      # -----------------------------------------------------------------------
+      # Run the page docs-test script.
+      #
+      # The smoke (and every future page script) is self-contained: it brings
+      # up the stack via the Cycle-4 operator CLI (`docs-test.sh up`), applies
+      # the fixture, asserts, and tears down on EXIT. Any failure surfaces as
+      # a non-zero exit code which fails this step.
+      #
+      # We bound the script with `timeout` so a hang surfaces clearly rather
+      # than waiting for the GH default 6 h cap. 600 s ≫ Cycle 5's measured
+      # ~40 s local; CI cold pull + build pushes this budget to ~10 min on the
+      # first run.
+      # -----------------------------------------------------------------------
+      - name: Run page docs-test (${{ matrix.page }})
+        env:
+          # Surface the resolved SHA inside the test process so per-page
+          # scripts can self-check if needed.
+          FRAISEQL_SHA: ${{ env.FRAISEQL_SHA }}
+        run: |
+          set -euo pipefail
+          script="scripts/docs-test/pages/${{ matrix.page }}.docs-test.sh"
+          if [ ! -x "$script" ]; then
+            echo "::error::page test script missing or not executable: $script"
+            exit 1
+          fi
+          # 10 min hard cap. Cycle 5 measured ~40 s locally; CI cold first run
+          # budgets 10 min per the brief. Subsequent warm runs target <4 min.
+          timeout 600 bash "$script"
+
+      # -----------------------------------------------------------------------
+      # On failure, dump diagnostic surfaces so a Reviewer in a fresh context
+      # can read why the job failed without re-running it. § 6.1 of the
+      # methodology requires Reviewers to consume CI output, not Writer
+      # narration.
+      # -----------------------------------------------------------------------
+      - name: Diagnostics on failure
+        if: failure()
+        working-directory: scripts/docs-test
+        run: |
+          set +e
+          echo "=== docker compose ps -a (all profiles) ==="
+          docker compose -f docker-compose.docs-test.yml \
+            --profile all --profile storage --profile fraiseql --profile sqlite \
+            ps -a
+          echo "=== docker compose logs (last 200 lines per service) ==="
+          docker compose -f docker-compose.docs-test.yml \
+            --profile all --profile storage --profile fraiseql --profile sqlite \
+            logs --tail 200
+          echo "=== docker container ls -a ==="
+          docker container ls -a
+          echo "=== df -h (post-failure) ==="
+          df -h
+
+      # -----------------------------------------------------------------------
+      # Write the run URL for Writer consumption (per Cycle 6 spec § GREEN /
+      # § Constraint 9). Single-line file, stable artifact name. Future
+      # cycles invoke `gh run download <run-id> -n ci-run-url`.
+      # -----------------------------------------------------------------------
+      - name: Emit run-URL artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          printf '%s\n' "$url" > ci-run-url.txt
+          # Also append to the per-job step summary so a human can copy it
+          # from the GH UI without downloading an artifact.
+          {
+            echo "## docs-test page: \`${{ matrix.page }}\`"
+            echo ""
+            echo "- Run URL: $url"
+            echo "- Frozen FraiseQL SHA: \`${FRAISEQL_SHA}\`"
+            echo "- Page script: \`scripts/docs-test/pages/${{ matrix.page }}.docs-test.sh\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload run-URL artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-run-url-${{ matrix.page }}
+          path: ci-run-url.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      # -----------------------------------------------------------------------
+      # Cleanup. Always-run so a failed assertion (RED) does not leak a
+      # half-up stack into other matrix jobs on the same runner. Also gives
+      # the runner back its disk before the next matrix entry boots.
+      # -----------------------------------------------------------------------
+      - name: Teardown stack
+        if: always()
+        working-directory: scripts/docs-test
+        run: |
+          set +e
+          ./docs-test.sh down --volumes
+          docker system prune -f
+          df -h
