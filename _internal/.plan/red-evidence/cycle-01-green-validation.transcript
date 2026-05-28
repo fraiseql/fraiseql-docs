@@ -1,0 +1,59 @@
+# Cycle 1 GREEN validation evidence — partial
+
+Captured: 2026-05-28
+
+## What passed
+
+### docker compose --profile all config -q
+EXIT=0
+
+### Profile selection (services activated per --profile)
+--- --profile postgres ---
+postgres
+--- --profile mysql ---
+mysql
+--- --profile sqlite ---
+sqlite-init
+--- --profile mssql ---
+mssql
+--- --profile redis ---
+redis
+--- --profile nats ---
+nats
+--- --profile all (full stack) ---
+sqlite-init
+mssql
+mysql
+nats
+postgres
+redis
+--- no profile (selects nothing) ---
+
+## What blocked
+
+Host Docker daemon (29.4.1 / containerd 2.2.3) returns:
+    failed to create task for container: failed to start shim:
+    start failed: failed to create TTRPC connection:
+    unsupported protocol: Yunix
+
+on *every* container start, including `docker run --rm hello-world`.
+Confirmed against a clean image pull at 2026-05-28T08:47:27+00:00.
+
+This is a host-level containerd/docker integration fault unrelated to
+the compose file. The daemon has been up 2 weeks 3 days with ~750
+running containers and 9094 containerd tasks; resource/state exhaustion
+is the likely cause. Recovery requires `systemctl restart containerd
+docker.service` which the agent must not perform unilaterally — there
+are 750 running user workloads on this host.
+
+## Tear-down evidence
+
+`docker compose ... down -v` ran clean (containers, network, and all
+volumes removed) per the cycle's CLEANUP/tear-down gate. Output:
+
+    Volume fraiseql-docs-test_mssql-data Removed
+    Volume fraiseql-docs-test_sqlite-data Removed
+    Volume fraiseql-docs-test_redis-data Removed
+    Volume fraiseql-docs-test_mysql-data Removed
+    Volume fraiseql-docs-test_postgres-data Removed
+    Network fraiseql-docs-test_default Removed

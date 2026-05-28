@@ -61,3 +61,32 @@ Human responses to gates are appended *inline under the gate bullet* by the huma
 - Open gates: none. (G6 resolved.)
 
 ---
+
+### Phase 00 / Cycle 1 close — Writer (Opus 4.7) — 2026-05-28
+
+- **Landed under `scripts/docs-test/`:**
+  - `docker-compose.docs-test.yml`: services `postgres`, `mysql`, `sqlite-init`, `mssql`, `redis`, `nats`. Each carries its own profile label plus the shared `all` profile. The `fraiseql` service slot and `minio` / `azurite` / `fake-gcs-server` storage sidecars are left as TODO comment blocks (Cycle 2 and Cycle 3 respectively) — no implementation, no profile leakage.
+  - `.env.example`: centralised credentials. `DB_USER=fraiseql`, `DB_PASSWORD=fraiseql_docs_test`, `DB_NAME=fraiseql` (the DB name matches the framework default in `crates/fraiseql-server/src/server_config/defaults.rs:9`, `postgresql://localhost/fraiseql`). MSSQL gets its own `Fraiseql_docs_test1!` to satisfy the SA password policy. Host port overrides exposed for the operator-CLI cycle to consume.
+  - Image digests pinned (all `linux/amd64`, resolved 2026-05-28 via local pull → `RepoDigests[0]`):
+    - `postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229`
+    - `mysql:8.4@sha256:c36050afdca850f23cef85703f84c7531a5ae155a11b5ee1c60acb09937c4084`
+    - `alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc` (sqlite-init shell)
+    - `mcr.microsoft.com/mssql/server:2022-CU13-ubuntu-22.04@sha256:c4369c38385eba011c10906dc8892425831275bb035d5ce69656da8e29de50d8`
+    - `redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99`
+    - `nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927`
+  - Healthchecks: PG via `pg_isready`; MySQL via `mysqladmin ping`; MSSQL via `sqlcmd … -Q 'SELECT 1'` with `start_period: 90s`; Redis via `redis-cli ping`; NATS via the `/healthz` monitoring endpoint. SQLite is a one-shot `restart: "no"` job that materialises the DB file under a named volume.
+  - Host ports: `54320/PG`, `13306/MySQL`, `14330/MSSQL`, `63790/Redis`, `42220/NATS`. (The phase doc suggested `33060` for MySQL but that host port is taken by an existing user workload, hence the bump to `13306`.)
+- **`.gitignore` change:** added `scripts/docs-test/.env` only; nothing else touched.
+- **RED evidence:** `_internal/.plan/red-evidence/cycle-01-empty-compose.transcript` — empty file fails all of `up`, `up --wait`, `config -q`, `ps` with exit 1 and stderr `empty compose file`.
+- **GREEN validation (partial — see blocker below):** `_internal/.plan/red-evidence/cycle-01-green-validation.transcript`.
+  - `docker compose … --profile all config -q` → **EXIT 0**.
+  - Profile selection verified for every profile (`postgres`, `mysql`, `sqlite`, `mssql`, `redis`, `nats`, `all`, none). Each selects exactly the intended service set.
+  - `down -v` tears down cleanly (network + all named volumes removed).
+- **Blocker on the `up --wait` gate (host environmental, not docs-side):** the workstation Docker daemon (29.4.1 / containerd 2.2.3) returns `failed to create task for container: failed to start shim: start failed: failed to create TTRPC connection: unsupported protocol: Yunix` on every container start, including `docker run --rm hello-world`. The daemon has been up 2 weeks 3 days with ~750 running containers and ~9094 containerd tasks; shim/runtime state is corrupted. Recovery is `systemctl restart containerd docker.service` which **I deliberately did not run** — those 750 containers are user workloads. Local `up --wait` validation cannot complete on this host until the daemon is recycled. The compose file itself parses, validates, and tears down cleanly; the issue is strictly at the container-runtime layer.
+- **Suggested next step before Cycle 2:** human (or Cycle 2 persona) restarts the Docker daemon on this host and re-runs `docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile all up --wait`. If healthchecks pass, Cycle 1's CLEANUP gate is materially met and Cycle 2 can proceed against a known-good stack. If any healthcheck fails, file a bug here before Cycle 2 builds on top.
+- **Anti-scope held to:** no `Dockerfile.fraiseql` (Cycle 2), no MinIO/Azurite/fake-gcs (Cycle 3), no `docs-test.sh` (Cycle 4), no `_smoke.docs-test.sh` (Cycle 5), no CI workflow (Cycle 6), no fixtures/init schemas (Cycle 5), no `src/content/docs/` edits.
+- **Framework issues filed:** 0. No framework behaviour was exercised this cycle — only image pinning, host ports, and healthcheck wiring.
+- **Push posture:** branch `phase-00/foundation` has the new Cycle 1 commit on top of Cycle 0's `8d92678`. Not pushed — no CI exists yet to gate against, and the cycle spec's "pushing is optional this cycle" guidance applies. Cycle 2 author can push if convenient.
+- **Open gates:** none new. G2 (SHA bump) and Cycle 1's local `up --wait` re-validation are deferred to Cycle 2's start — not a human gate, just a Docker daemon recycle.
+
+---
