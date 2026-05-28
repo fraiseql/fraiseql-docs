@@ -1,0 +1,66 @@
+# Phase 00 / Cycle 6 — RED-fail CI transcript
+#
+# Run URL:    https://github.com/fraiseql/fraiseql-docs/actions/runs/26572738344
+# Commit:     379f657 (RED — deliberate smoke failure)
+# Branch:     phase-00/foundation
+# Job:        page-test (_smoke)
+# Conclusion: FAILURE (expected)
+# Reason:     'deliberate-RED-marker' assertion failed at the tail of
+#             the PG iteration of scripts/docs-test/pages/_smoke.docs-test.sh.
+# Duration:   ~13 min wall-clock (cold cache; baseline GREEN was ~10 min).
+#
+# Captured via: gh run view 26572738344 --log
+
+=== Run page docs-test (_smoke) — final assertions ===
+
+2026-05-28T11:56:00.4447901Z === smoke: postgres ===
+2026-05-28T11:56:00.6225324Z  postgres Pulling 
+2026-05-28T11:56:05.3046781Z  postgres Pulled 
+2026-05-28T11:56:05.3439862Z  Volume "fraiseql-docs-test_postgres-data"  Creating
+2026-05-28T11:56:05.3447588Z  Volume "fraiseql-docs-test_postgres-data"  Created
+2026-05-28T11:56:05.3452641Z  Container fraiseql-docs-test-postgres-1  Creating
+2026-05-28T11:56:05.3807650Z  Container fraiseql-docs-test-postgres-1  Created
+2026-05-28T11:56:05.3916729Z  Container fraiseql-docs-test-postgres-1  Starting
+2026-05-28T11:56:05.5716900Z  Container fraiseql-docs-test-postgres-1  Started
+2026-05-28T11:56:05.5719238Z  Container fraiseql-docs-test-postgres-1  Waiting
+2026-05-28T11:56:11.0737544Z  Container fraiseql-docs-test-postgres-1  Healthy
+2026-05-28T11:56:11.1971369Z  Container fraiseql-docs-test-postgres-1  Waiting
+2026-05-28T11:56:11.6988622Z  Container fraiseql-docs-test-postgres-1  Healthy
+2026-05-28T11:56:16.7022504Z   ✓ stack up exit code (= 0)
+2026-05-28T11:56:16.8645987Z   ✓ schema installed (postgres) (= 0)
+2026-05-28T11:56:18.2046131Z   ✓ /health (HTTP 200)
+2026-05-28T11:56:18.2078716Z   ✓ health.status == healthy
+2026-05-28T11:56:18.2111317Z   ✓ health.database.connected
+2026-05-28T11:56:18.2143359Z   ✓ health.database.database_type
+2026-05-28T11:56:18.2248937Z   ✓ graphql query exit code (= 0)
+2026-05-28T11:56:18.2282039Z   ✓ no graphql errors
+2026-05-28T11:56:18.2313993Z   ✓ data.posts is array
+2026-05-28T11:56:18.2345717Z   ✓ data.posts has 1 element
+2026-05-28T11:56:18.2377861Z   ✓ post[0].title
+2026-05-28T11:56:18.2410452Z   ✓ post[0].author.name
+2026-05-28T11:56:18.2442706Z   ✓ post[0].author.email
+2026-05-28T11:56:18.2443295Z   ✗ deliberate-RED-marker
+2026-05-28T11:56:18.2497956Z === smoke: mysql ===
+2026-05-28T11:56:41.7977020Z   ✓ schema installed (mysql) (= 0)
+2026-05-28T11:56:41.9271908Z   ✓ data.posts is array
+2026-05-28T11:56:41.9305224Z   ✓ data.posts has 1 element
+2026-05-28T11:56:41.9337342Z   ✓ post[0].title
+2026-05-28T11:56:41.9369698Z   ✓ post[0].author.name
+2026-05-28T11:56:43.3865287Z === smoke: sqlite ===
+2026-05-28T11:56:47.7357873Z   ✓ schema installed (sqlite) (= 0)
+2026-05-28T11:56:48.6331123Z   ✓ data.posts is array
+2026-05-28T11:56:48.6364431Z   ✓ data.posts has 1 element
+2026-05-28T11:56:48.6397800Z   ✓ post[0].title
+2026-05-28T11:56:48.6431158Z   ✓ post[0].author.name
+2026-05-28T11:56:48.8104953Z === smoke: mssql ===
+2026-05-28T11:57:07.4722111Z   ✓ schema installed (mssql) (= 0)
+2026-05-28T11:57:07.6259888Z   ✓ data.posts is array
+2026-05-28T11:57:07.6293423Z   ✓ data.posts has 1 element
+2026-05-28T11:57:07.6325702Z   ✓ post[0].title
+2026-05-28T11:57:07.6358323Z   ✓ post[0].author.name
+2026-05-28T11:57:08.0236124Z === summary ===
+2026-05-28T11:57:08.0236778Z   ✗ postgres  0.000s
+2026-05-28T11:57:08.0237161Z   ✓ mysql     25.136s
+2026-05-28T11:57:08.0237556Z   ✓ sqlite    5.423s
+2026-05-28T11:57:08.0237818Z   ✓ mssql     19.211s
+2026-05-28T11:57:08.0238417Z _smoke: FAILURES — see stderr above

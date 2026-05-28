@@ -264,3 +264,58 @@ Docs-test suite: 0/0 pages (Cycles 2–8 produce pages; Cycle 6 wires the CI). F
 - **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. **G3 (Phase 09 triage threshold)** now has two registered items (FW-1, FW-2) — the proposal text in `framework-qa-triage.md` still stands as the default.
 
 ---
+
+### Phase 00 / Cycle 6 close — Writer (Opus 4.7) — 2026-05-28
+
+- **PR opened (first push of this overhaul):** https://github.com/fraiseql/fraiseql-docs/pull/11 — draft, base `main`, head `phase-00/foundation`. Title: "docs: Phase 00 foundation — docs-test harness". Branch pushed cleanly (new branch on remote — no force, no rejected-non-fast-forward; the G6 pivot to `~/code/fraiseql-docs/` paid off here).
+- **Workflow landed:** `.github/workflows/docs-test.yml` (363 lines). Triggers `pull_request` against `src/content/docs/**`, `scripts/docs-test/**`, `.github/workflows/docs-test.yml`; `push` to `main`; `workflow_dispatch`. Concurrency group `docs-test-${{ github.head_ref || github.ref }}` with `cancel-in-progress: true`. Permissions `contents: read` only. `actionlint` 1.7.12 clean.
+- **Job topology:** two jobs.
+  - `discover`: enumerates `scripts/docs-test/pages/*.docs-test.sh` and resolves the frozen SHA. Output `pages` is a JSON array (`[ "_smoke" ]` today; auto-grows as future cycles add pages). Output `fraiseql_sha` reads `scripts/docs-test/FRAISEQL_SHA` if present (Cycle 9 creates it), else the workflow-level `FRAISEQL_SHA_FALLBACK=d0a4ed4ec1770c70707f68fd9019f2b561d87461`. Validates the SHA is 40 hex chars before emitting.
+  - `page-test`: `strategy.matrix.page` over the `discover` output; one job per page. Cycle 6 ships one matrix entry (`_smoke`). `fail-fast: false`. **Anti-scope per brief: no additional matrix axes** (DB OS, runner OS, etc.).
+- **Sibling-layout strategy:** option (a) per the brief. The workflow `git clone`s `fraiseql` into `${GITHUB_WORKSPACE}/../fraiseql`, `git checkout`s the frozen SHA, then `ln -snf` symlinks `${HOME}/code/fraiseql → ../fraiseql` so the Cycle-2 Dockerfile's relative `context: ../../../fraiseql` resolves without modification. **No diff to `Dockerfile.fraiseql` or the compose file** — minimum risk to the GREEN outputs of Cycles 1–5. Rationale recorded inline in the workflow.
+- **CI workflow uses the operator CLI:** the build step calls `docker compose -f docker-compose.docs-test.yml build fraiseql`; the test step calls `bash scripts/docs-test/pages/_smoke.docs-test.sh`; the teardown step calls `./docs-test.sh down --volumes`. The smoke script itself uses the Cycle-4 CLI (`up`, `down`, `exec`) per Cycle 5's commit.
+- **Caches:** `~/.cargo/registry` + `~/.cargo/git` keyed by `${{ runner.os }}-cargo-${{ env.FRAISEQL_SHA }}` (no `hashFiles()` — the frozen SHA pins `Cargo.lock` content); BuildKit layers via `/tmp/buildx-cache` keyed by SHA + Dockerfile hash. No `~/code/fraiseql/target` cache attempt — that path is outside the workspace and `hashFiles()` would refuse it (lesson learned this cycle, see "infrastructure-class fix" below).
+- **Diagnostics on failure:** `docker compose ps -a` (across all four profiles), `docker compose logs --tail 200`, `docker container ls -a`, `df -h`. Runs under `if: failure()` so the Reviewer persona in a fresh context can read why the job failed without re-running it (methodology § 6.1 requirement).
+- **Run-URL artifact:** every page-test matrix job writes `ci-run-url.txt` (single-line URL) and uploads as `ci-run-url-<page>` (`retention-days: 14`). Also appends a markdown block to `${GITHUB_STEP_SUMMARY}`. Future cycles consume via `gh run download <run-id> -n ci-run-url-<page>` — Writer personas will not need to confabulate URLs.
+- **Disk hygiene:** pre-flight `df -h`; `docker system prune -f` on `if: always()` cleanup; `timeout 600` hard cap on the page test (10 min cold-cache budget per brief; warm runs target <4 min).
+- **No retry-on-failure:** the workflow has zero auto-retries (brief § 10). If CI flakes on infrastructure, the right fix is a real fix, not silent retries.
+
+- **CI evidence (the three commits this cycle):**
+  - **Workflow GREEN landing** — `d251931` ("docs(infra): land docs-test CI workflow (phase 00 cycle 6 GREEN)"). **First** run 26572171337 **failed** in 40 s at template-parse: `hashFiles('../fraiseql/Cargo.lock') failed. Fail to hash files under directory '/home/runner/work/fraiseql-docs/fraiseql-docs'`. **Infrastructure-class fix** (commit `3aad991`, "fix(ci/docs-test): drop hashFiles() over out-of-workspace path"): the cargo cache key drops the `hashFiles()` component; the frozen SHA already pins `Cargo.lock` content so keying on the SHA alone is sufficient. Re-run **26572243357 PASSED in 615 s (~10m 15s)** wall-clock against the unbroken smoke. This run is the "baseline" — proof that the workflow as authored can actually pass.
+  - **RED** — `379f657` ("chore(docs-test): Cycle 6 RED — deliberate smoke failure to validate CI gate"). Inserts `assert_eq "deliberate-RED-marker" "1" "2" || return 1` at the tail of the smoke's PG iteration, with a top-of-file banner naming the break. shellcheck-clean. Run **26572738344 FAILED in 615 s** with the explicit reason `✗ deliberate-RED-marker` on the smoke's stderr output (verified by `gh run view --log-failed`). Infrastructure ran clean — no Docker pull rate-limit, no daemon timeout, no buildx setup failure. The PG iteration aborted at the marker; the MySQL/SQLite/MSSQL iterations still ran (they don't depend on PG) and exited successfully — the smoke's `overall_rc=1` flagged only the PG path. Transcript at `_internal/.plan/red-evidence/cycle-06-ci-red-fail.transcript`.
+  - **CLEANUP** — `c8b9e62` (clean `git revert --no-edit 379f657`, no amend). Run **26573246640 PASSED in 616 s (~10m 16s)** wall-clock. Smoke-internal: postgres 17.572s + mysql 22.665s + sqlite 4.462s + mssql 18.429s ≈ 63 s. Transcript at `_internal/.plan/red-evidence/cycle-06-ci-green-pass.transcript`.
+
+- **Time-budget verdict:** brief allowed up to 10 min for the cold first CI run, target <4 min on subsequent warm runs. Three full CI runs landed this cycle, all hot-on-the-heels of each other; each took ~10 min because BuildKit's `--mount=type=cache,id=…` is **scoped to the individual `docker buildx build` invocation** (not persisted by `actions/cache` directly, and not re-used across separate runner instances). The `actions/cache` entry for `/tmp/buildx-cache` is wired but only kicks in if a future step exports there (`docker buildx --cache-to type=local,dest=/tmp/buildx-cache`), which the brief did not require this cycle and which the Cycle-2 Dockerfile does not invoke. **Recommendation for Cycle 7+:** if cold-build wall-clock becomes painful, wire `--cache-to type=local,dest=/tmp/buildx-cache,mode=max` + `--cache-from type=local,src=/tmp/buildx-cache` into the build step. Out of scope this cycle.
+
+- **Framework issues filed:** 0 this cycle. CI exercised the framework's `fraiseql-server` binary at the frozen SHA but found no new bugs beyond FW-1 / FW-2 (Cycle 3 / Cycle 5).
+
+- **Branch protection proposal (G4-adjacent — human action, not Writer-driven):**
+  - Once PR #11 merges, add **`docs-test / page-test (_smoke)`** as a required status check on the `main` branch. The check name is the GH-rendered combination of `workflow_name / job_name_with_matrix_value` — verified by inspecting the three runs above (each shows `docs-test / page-test (_smoke)` in the `gh pr checks` and PR-status-API surfaces).
+  - This is a **soft gate** per the brief — Cycle 7 can proceed without it. The gate becomes **hard** at Phase 10 (release) when the main branch needs to be guarded against direct push.
+  - Suggested branch-protection settings (for the human admin): "Require status checks to pass" + "Require branches to be up to date before merging" + the single required check named above. Do **not** add code-owner review enforcement at this stage; the overhaul is single-writer.
+
+- **Known issues / wishlist surfaced for Cycle 7+ to be aware of:**
+  - **CI cold-build cost.** Every full CI run is ~10 min. Three runs this cycle ≈ 30 min of CI time. Cycle 7 (style-guide check-in) won't trigger the docs-test workflow because the path filter excludes `src/content/docs/_internal/`; future content cycles will. If cold-build becomes a bottleneck, wire BuildKit cache export (above).
+  - **GH Actions cache key sharing.** The cargo cache key is `${{ runner.os }}-cargo-${{ env.FRAISEQL_SHA }}` — when Cycle 9 advances the frozen SHA, the cache resets. That's intentional (different SHA may carry a different `Cargo.lock`).
+  - **Compose `pull` on `up`.** The smoke calls `docs-test.sh up` which invokes `docker compose up`; Compose pulls images on first reference even when the image is locally cached by digest. GH cached or not, the PG/MySQL/MSSQL/Redis/NATS images are pulled per run (~30–60 s total at the warm CI cache). Not fixable from within the workflow without an explicit `docker pull` warmup before `up`, which adds wall-clock without reducing it.
+  - **`gh run view --log` line ANSI codes.** The transcript-capture sed pipeline strips ANSI escape codes; if the action runner switches log format the sed may need updating. Out of scope.
+  - **One-jobs-per-page matrix is correct shape for ≤25 pages** (the Phase 02 projection). If the matrix balloons past 25, GH Actions imposes a 256-job cap and the parallelism gets choppy — at that point the discover step can chunk pages into batches. Documented for Phase 02 IA.
+
+- **Files added this cycle:**
+  - `.github/workflows/docs-test.yml` — the CI gate.
+  - `_internal/.plan/red-evidence/cycle-06-ci-red-fail.transcript` — RED-fail transcript.
+  - `_internal/.plan/red-evidence/cycle-06-ci-green-pass.transcript` — CLEANUP-pass transcript.
+
+- **Commits this cycle (four, not three — see infrastructure-class fix above):**
+  - `d251931` — workflow GREEN landing.
+  - `3aad991` — infrastructure fix (drop `hashFiles()` over out-of-workspace path).
+  - `379f657` — RED.
+  - `c8b9e62` — CLEANUP revert.
+
+- **Anti-scope held to:** no PR template (Cycle 8), no `FRAISEQL_SHA` file (Cycle 9; the workflow has the fallback wired), no edits under `src/content/docs/`, no Slack/Discord notifications, no path filter beyond the three required, no push to `main`. Branch-protection flip is human-owned (G4-adjacent).
+
+- **Push posture:** branch `phase-00/foundation` is on `origin`, twelve commits ahead of `origin/main` (eight from Cycles 0–5 plus four this cycle: `d251931 → 3aad991 → 379f657 → c8b9e62`). Draft PR #11 exists. **PR is still draft** — promote to ready-for-review with `gh pr ready 11` only after the Reviewer persona's pass in a fresh context (per the brief — Writer does not declare full GREEN; the Reviewer does). The CLEANUP CI run on the head commit is GREEN; that satisfies methodology § 6.1 "CI is the only GREEN gate" rule for this cycle.
+
+- **Open gates:** none new. **G4 branch-protection** is surfaced above as a proposal — soft this cycle, hard at Phase 10. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
