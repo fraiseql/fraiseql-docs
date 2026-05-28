@@ -4,6 +4,29 @@ Live status board. Update this file as phases progress.
 
 ---
 
+## Frozen FraiseQL SHA
+
+**`d0a4ed4ec1770c70707f68fd9019f2b561d87461`**
+
+Frozen by Phase 00 close on 2026-05-28. This is the FraiseQL framework
+commit that every documentation page in the overhaul validates against:
+source citations, docs-test reproductions, the CI workflow's build
+context, and the operator CLI's drift check all consult this SHA.
+
+The single source of truth is `scripts/docs-test/FRAISEQL_SHA` (40
+bytes, no trailing whitespace). The CI workflow and the operator CLI
+prefer the file and fall back to a hard-coded constant only when the
+file is absent (pre-Cycle-9 history).
+
+**Bumping the SHA is human gate G2.** The Writer persona never bumps
+it; if a bump becomes necessary mid-plan, the Writer surfaces a
+`**G2 (SHA bump proposed)**` bullet in `_internal/.plan/handoff.md`
+and stops. Default policy at Phase 00 close: hold to the frozen SHA;
+the bump decision belongs to Phase 09 or Phase 10. See
+`scripts/docs-test/FRAISEQL_SHA.README.md` for the full procedure.
+
+---
+
 ## Status legend
 
 - `[ ]` Not started
@@ -16,7 +39,7 @@ Live status board. Update this file as phases progress.
 
 | #  | File                                       | Theme                                                          | Effort | Status | Gates |
 |----|--------------------------------------------|----------------------------------------------------------------|-------:|--------|-------|
-| 00 | `phase-00-foundation.md`                   | Container harness, CI gating, style guide, SHA freeze, plan-into-repo move | 2.0 | `[ ]`  | G2 (contingent) |
+| 00 | `phase-00-foundation.md`                   | Container harness, CI gating, style guide, SHA freeze, plan-into-repo move | 2.0 | `[x]`  | G2 (contingent) |
 | 01 | `phase-01-triage-and-ia.md`                | Stale-fact sweep, sidebar IA (G1), link audit, sweep matrix    | 1.0 | `[ ]`  | **G1** |
 | 02 | `phase-02-migration-and-changelog.md`      | Release-notes hub, v2.0→v2.3 migration pages, breaking matrix  | 1.0 | `[ ]`  | — |
 | 03 | `phase-03-critical-rewrites.md`            | multi-tenancy, file-storage, observers, authentication         | 2.0 | `[ ]`  | — |
@@ -47,18 +70,19 @@ Phases 04, 05, 06 can run in parallel if multiple writers are available — they
 
 *(append one line per phase as it merges)*
 
-- *(none yet)*
+- **Phase 00** — 2026-05-28 — container harness (Compose + Dockerfile + storage sidecars + operator CLI + smoke + CI), style guide check-in, docs-page PR template, frozen FraiseQL SHA. PR #11 (draft until human marks ready-for-review). Final cycle commit: see Phase 00 / Cycle 9 close entry in `_internal/.plan/handoff.md`.
 
 ## Filed framework bugs
 
 *(append issue references as they're filed during doc work — phase 09 walks this list)*
 
-- *(none yet)*
+- **FW-1** — https://github.com/fraiseql/fraiseql/issues/326 — `storage(azure,gcs): expose endpoint override so emulators (Azurite, fake-gcs-server) are reachable via config`. Severity `qol`. Filed during Phase 00 / Cycle 3 (storage sidecars). Tracked in `_internal/.plan/framework-qa-triage.md`.
+- **FW-2** — https://github.com/fraiseql/fraiseql/issues/327 — `server: fraiseql-server binary hardcodes PostgresAdapter — quickstart's multi-DB tabs are unreachable`. Severity `regression-or-doc-bug`. Filed during Phase 00 / Cycle 5 (smoke). Tracked in `_internal/.plan/framework-qa-triage.md`.
 
 ## Snapshot SHAs
 
-- Codebase SHA at plan open: *(filled during phase 00)*
-- Codebase SHA at code-freeze (phase 00 exit): *(filled during phase 00)*
+- Codebase SHA at plan open: `d0a4ed4ec1770c70707f68fd9019f2b561d87461` (frozen 2026-05-28 by Phase 00 close — see "Frozen FraiseQL SHA" section above)
+- Codebase SHA at code-freeze (phase 00 exit): `d0a4ed4ec1770c70707f68fd9019f2b561d87461` (same — Phase 00 froze it as the initial baseline)
 - Codebase SHA at finalize: *(filled during phase 10)*
 
 ## Cross-phase risks register

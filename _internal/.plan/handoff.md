@@ -320,3 +320,44 @@ Docs-test suite: 0/0 pages (Cycles 2–8 produce pages; Cycle 6 wires the CI). F
 - **Open gates:** none new. **G4 branch-protection** is surfaced above as a proposal — soft this cycle, hard at Phase 10. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
 
 ---
+
+### Phase 00 / Cycle 7 close — Writer (Opus 4.7) — 2026-05-28
+
+- **Style guide landed in the docs tree at `src/content/docs/_internal/_style-guide.md`.** Content is byte-identical to `_internal/.plan/templates/style-guide.md` (verified via `diff`). The leading-underscore directory `_internal/` signals "planning-internal" to humans; the actual exclusion mechanism is the **leading underscore on the filename** (`_style-guide.md`), not the directory name.
+- **Deviation from the cycle-7 brief (filename `_style-guide.md` instead of `style-guide.md`):** the brief asserted that "the leading underscore in the directory name keeps it out of the build by Astro convention". Verification via `bun run astro build` revealed this is incorrect at Astro 5.17.3 + Starlight 0.37.6. Starlight's `docsLoader` uses the tinyglobby pattern `**/[^_]*.{md,mdx,...}` (`node_modules/@astrojs/starlight/loaders.ts:57`); the `[^_]*` character class only filters the **leaf filename**, not intermediate path segments. The literal `_internal/style-guide.md` was picked up by the loader and failed the `docsSchema` (missing `title:` frontmatter) because Starlight still tried to index it as a renderable page. Confirmed by running the loader's exact glob directly:
+  ```
+  $ node -e "require('tinyglobby').glob({patterns:['**/[^_]*.{md,mdx}'],cwd:'src/content/docs'}).then(f=>console.log(f.filter(x=>x.startsWith('_internal/'))))"
+  [ '_internal/style-guide.md' ]
+  ```
+  This matches the convention already documented at the top of `astro.config.mjs` by Cycle 0 ("If anything inside `_internal/` ever needs to move under `src/`, prefix it with an underscore (Astro convention) to keep it out of the build."). The fix is one character — prefix the filename with `_`. The directory name is retained as `_internal/` for human readability.
+- **GREEN proof:** `bun run astro build` → exit 0; 197 pages built in 14.40 s. `find dist -path '*internal*'` → 0 hits. `grep -r "FraiseQL docs style guide" dist` → 0 hits (the style-guide title doesn't appear anywhere in the rendered output, nor in the pagefind index). `find dist/pagefind -name "*.pf_fragment" | xargs strings | grep style.guide` → 0 hits.
+- **REFACTOR: `STYLE.md` symlink at repo root.** Created via `ln -sr src/content/docs/_internal/_style-guide.md STYLE.md`. The `-r` flag makes the link relative (`src/content/docs/_internal/_style-guide.md`, not absolute) so it resolves regardless of clone path. `ls -la STYLE.md` → `STYLE.md -> src/content/docs/_internal/_style-guide.md`. `head -3 STYLE.md` → reads through the symlink to the style guide's title line.
+- **CLEANUP:** Astro build verification per above. Pagefind index does not contain the style-guide content (verified by grep against the `.pf_fragment` shards).
+- **Commit and push:** `d166ff1` on top of `213c60d`. Pushed to `origin/phase-00/foundation`. CI run **26574706756 PASSED in 11m 6s** wall-clock. (An earlier in-progress run for the prior commit `213c60d` (`26574434818`) was cancelled by the workflow's `concurrency: cancel-in-progress` rule when the Cycle 7 push superseded it; that cancellation is not a Cycle 7 failure, just normal concurrency behaviour.)
+- **Anti-scope held to:** no PR template (Cycle 8), no FRAISEQL_SHA file (Cycle 9), no Astro-config changes (the comment at the top of astro.config.mjs from Cycle 0 already documents the convention correctly — no edit needed), no edits to any rendered page under `src/content/docs/` beyond the new `_internal/` directory.
+- **Framework issues filed:** 0.
+- **Push posture:** PR #11 now thirteen commits ahead of `origin/main`. Still draft.
+- **Open gates:** none new.
+
+---
+
+### Phase 00 / Cycle 8 close — Writer (Opus 4.7) — 2026-05-28
+
+- **PR template landed at `.github/PULL_REQUEST_TEMPLATE/docs-page.md`** (116 lines). The body has four sections: a "Summary" stub, the four mandatory cross-persona fields, the verbatim 15-point adversarial-review checklist, and a "Per-persona expectations" handoff-contract block.
+- **15-point checklist is byte-identical to `_internal/.plan/methodology.md` § 5 lines 180-194.** Verified by `diff` after normalising the bullet prefix (`[ ]` in methodology vs `- [ ]` in markdown task lists — the items themselves are identical character-for-character).
+- **Mandatory fields surfaced (empty values block merge per the cycle-8 brief):**
+  - `CI docs-test run URL:` (Writer fills)
+  - `Reviewer persona session:` (Reviewer fills)
+  - `Source-Citation Verifier outcome:` (Verifier fills)
+  - `Frozen FraiseQL SHA:` (Writer fills; mismatch with `scripts/docs-test/FRAISEQL_SHA` blocks merge once Cycle 9 lands)
+- **HTML "How to use this template" comment block** at the top documents three discovery paths (`?template=docs-page.md` URL suffix, GitHub web-UI template picker, `gh pr create --template docs-page.md`) and points the reader at `_internal/.plan/personas.md § Writer`.
+- **Per-persona expectations block** captures the handoff contract in miniature — three sub-sections (Reviewer expects from Writer, Source-Citation Verifier expects from Writer, next-phase Writer expects from this Writer), each surfacing the downstream persona's expectations as checklist items the upstream persona must satisfy. This addresses the cycle-8 REFACTOR requirement that "each downstream persona's expectations are surfaced as a checklist item the upstream persona must satisfy".
+- **REFACTOR: CONTRIBUTING.md** already existed at the repo root (welcoming, dev-focused). Added a one-line `?template=docs-page.md` pointer block above the "Development Setup" section — six-line callout, no new top-level files. The cycle-8 anti-scope said "do not create new top-level files this cycle" and that constraint was held.
+- **CLEANUP:** `gh pr create --help | grep -A2 template` confirmed the `-T file` / `--template file` flag and the `pull_request_template.md` example. GitHub surfaces the file in the web-UI template picker because it lives under `.github/PULL_REQUEST_TEMPLATE/` (plural). The template cannot be validated end-to-end without opening a fresh PR through the picker UI, but the file is at the canonical path and markdown is well-formed.
+- **Commit and push:** `32e4e6f` on top of `d166ff1`. Pushed to `origin/phase-00/foundation`. CI run **26575275825** triggered (waited for completion before pushing Cycle 9). Same `concurrency: cancel-in-progress` semantics; the prior-commit run was cancelled cleanly by GH Actions when this push superseded it.
+- **Anti-scope held to:** no `FRAISEQL_SHA` file (Cycle 9), no edits to the docs-test workflow YAML, no edits to the operator CLI, no rendered-page edits under `src/content/docs/`, no new top-level files. The 15-point checklist was copied verbatim from methodology.md § 5 — no editorial deviation.
+- **Framework issues filed:** 0.
+- **Push posture:** PR #11 fourteen commits ahead of `origin/main`. Still draft.
+- **Open gates:** none new.
+
+---

@@ -181,9 +181,16 @@ The harness itself gets adversarially reviewed by a different person:
 ## Status
 
 - [x] Cycle 0 complete (plan tree in `_internal/.plan/`; Astro build verified clean; gate G6 resolved by pivot)
-- [ ] Cycle 1 (Compose stack) — next
-- [ ] Cycles 2–9
-- [ ] Complete
+- [x] Cycle 1 (Compose stack) — `396c1b2` + `9adb4eb`
+- [x] Cycle 2 (FraiseQL container) — `d8b7e5c`
+- [x] Cycle 3 (Storage backend sidecars) — `1356d55`
+- [x] Cycle 4 (Operator CLI) — `2a41e5b`
+- [x] Cycle 5 (Smoke reproduction) — `14b90c0`
+- [x] Cycle 6 (CI workflow gating) — `d251931` + `3aad991` + `379f657` (RED) + `c8b9e62` (CLEANUP revert)
+- [x] Cycle 7 (Style guide checked in) — `d166ff1`
+- [x] Cycle 8 (docs-page PR template) — `32e4e6f`
+- [x] Cycle 9 (FraiseQL SHA freeze) — see commit landing this entry
+- [x] **Complete — 2026-05-28**. Final phase-close commit lands with the Cycle-9 handoff entry. PR #11 remains draft until the human flips it ready-for-review.
 
 ## Owner
 
