@@ -135,7 +135,7 @@ The runtime-library guarantees, in order of importance, are:
   <!-- source: crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L140-L165 -->
   <!-- source: crates/fraiseql-server/src/routes/graphql/handler.rs:L577-L583 -->
 - **Suspended tenants return `FraiseQLError::ServiceUnavailable` with `retry_after = Some(60)`.** Read by the registry's `require_active` check on every request.
-  <!-- source: crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L99 -->
+  <!-- source: crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L103-L104 -->
   <!-- source: crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L167-L182 -->
 - **Strict cross-source validation when RLS is configured.** Schemas declaring RLS toggle the resolver's `strict` flag at the GraphQL handler. Conflicting tenant identifiers from JWT, `X-Tenant-ID`, and `Host` return `FraiseQLError::Validation` with the conflicting sources enumerated.
   <!-- source: crates/fraiseql-server/src/routes/graphql/handler.rs:L506-L520 -->

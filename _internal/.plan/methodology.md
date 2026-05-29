@@ -163,6 +163,8 @@ While drafting, every non-trivial factual claim is annotated:
 
 The Source-Citation Verifier persona accepts either form — its scan keys on the literal `source:` token, not on the comment delimiters. Plain `.md` files keep the HTML form. The amendment was driven by the Phase 01 Cycle 1 Writer's MDX-3 finding (confirmed by `bun run build` failure on the HTML form inside `.mdx` and clean pass on the JSX form) and re-flagged by the Cycle 1, Cycle 5, and Cycle 6 Reviewers as a methodology gap to close at phase end.
 
+**Posture B uniformity (amended Phase 03 / Cycle 1, 2026-05-29; resolves human gate G7):** Astro's JSX-comment stripping protects Posture B on `.mdx` pages but not on `.md`, where HTML-comment-form citations otherwise pass through to `dist/` HTML as live `<!-- source: ... -->` comments (invisible to readers but visible in View Source). To keep Posture B uniformly safe, the docs site runs a `stripSourceCitationsIntegration` Astro hook (`astro.config.mjs`) that strips every `<!--\s*source:\s*[^>]*-->` from rendered HTML during the `astro:build:done` phase. The Source-Citation Verifier persona continues to verify citations in source and continues to leave them in source (Posture B). The verifier's `dist/` leak scan should treat any non-zero count as a regression of the strip integration, not as a content issue. The post-build strip is logged with a count line (`scanned N HTML files, modified M, stripped K source-citation comments`) — the integration's own visibility is its own greppable artefact.
+
 The Source-Citation Verifier persona runs before the page leaves CLEANUP. It:
 
 1. Greps the cited file:line range at the frozen FraiseQL SHA.

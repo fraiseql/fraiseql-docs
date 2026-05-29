@@ -2820,3 +2820,44 @@ Per Posture B instructions, no citations were stripped. The page source is uncha
 - G1 closed. G2 default-hold. G3/G4/G5 downstream.
 
 **Verdict: KICK-BACK.** One citation failure (L99) and one methodology question (G7) must be resolved before the Reviewer is invoked. The Reviewer does not run until the Writer delivers a fixed GREEN draft.
+
+---
+
+### Phase 03 / Cycle 1 GREEN — orchestrator follow-on (L99 + G7) — 2026-05-29
+
+User authorised orchestrator to address both Verifier blockers mechanically before re-invoking Reviewer.
+
+#### L99 citation fix
+
+- Page line 138 citation `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L99` → `:L103-L104`.
+- Re-verified at frozen SHA `d0a4ed4ec`: L103-L104 carry `/// Default retry hint (seconds) when a suspended tenant is accessed.` + `const SUSPENDED_RETRY_AFTER_SECS: u64 = 60;`. Prose claim "`retry_after = Some(60)`" now resolves directly. The paired `L167-L182` citation on the same bullet is unchanged.
+- Single-line edit; no other content touched.
+
+#### G7 resolution — user picked **Option D (build-time HTML-comment strip)**
+
+- **Implementation:** new `stripSourceCitationsIntegration` in `astro.config.mjs` registers an `astro:build:done` hook that walks every `.html` under `dist/`, replaces `/<!--\s*source:\s*[^>]*-->\s*/g` with the empty string, and logs `scanned N HTML files, modified M, stripped K source-citation comments`.
+- **Pipeline-stage rationale (recorded so future cycles know not to re-litigate):** an inline rehype plugin was tried first via `markdown.rehypePlugins`. It runs (confirmed by `console.log`) but never sees the citation comments — Starlight's markdown pipeline emits them at a stage downstream of user-supplied rehype plugins. The post-build hook is the predictable level: it operates on serialized HTML, runs uniformly on `.md` and `.mdx`, and the strip log is its own greppable artefact.
+- **Methodology amendment:** `_internal/.plan/methodology.md § 4` extended with the "Posture B uniformity" paragraph stating that (a) Verifier still leaves citations in source (Posture B), (b) the strip integration removes them from `dist/`, (c) any non-zero `dist/` leak count is a regression of the strip integration, not a content issue.
+- **Verifier scan re-baselined for `.md`:** after build, `grep -rE '<!--\s*source:' dist/` returns 0 hits. The multi-tenancy build log line for this cycle reads `scanned 281 HTML files, modified 1, stripped 56 source-citation comments` (multi-tenancy.md is the only page in this commit set carrying HTML-comment citations).
+- **No page source changes** beyond the L99 fix. Citations remain in source for grep / future Phase 09 reconciliation.
+
+#### Build state after both fixes
+
+- `bun run build` exit 0 — 205 pages built; strip integration log line present.
+- Multi-tenancy page render check: `grep -c "level-h2" dist/building/multi-tenancy/index.html` → 14 (matches Writer-GREEN's 14 H2 sections; no content regression from the strip).
+
+#### Files touched this follow-on
+
+- `src/content/docs/building/multi-tenancy.md` — single-line L99 → L103-L104 swap.
+- `astro.config.mjs` — added `stripSourceCitationsIntegration` integration (+ hoisted `node:fs/promises` / `node:path` imports). Registered as the first entry in `integrations:` so the strip log appears before Starlight's pagefind log.
+- `_internal/.plan/methodology.md` — § 4 "Posture B uniformity" amendment.
+- `_internal/.plan/handoff.md` — this entry.
+
+#### Open gates
+
+- **G7 — RESOLVED.** Option D (build-time strip). Methodology amended. Posture B is uniformly safe on `.md` and `.mdx` going forward.
+- G1 closed. G2 default-hold. G3/G4/G5 downstream. No novel gates.
+
+#### Pointer
+
+Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 1 GREEN — once CI is green on the orchestrator follow-on commit. The Verifier already verified 55/56 citations PASS on the prior `2d1ce56`; the L99 fix is mechanical and was independently verified at the frozen SHA in this entry. The Reviewer should treat this entry as Verifier-PASS-equivalent for the L99 citation; the other 55 stand. The strip integration is build-tooling — the Reviewer should confirm the build log shows the strip line on their CI run, and confirm `dist/` is leak-free.
