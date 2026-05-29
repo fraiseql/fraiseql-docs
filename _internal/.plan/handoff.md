@@ -801,3 +801,310 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - **Sign-off:** APPROVE for merge. CI green, classification confirmed, citations resolve, scope clean.
 
 ---
+
+### Phase 01 / Cycle 6 close — Writer (Opus 4.7) — 2026-05-29 — G1 PROPOSAL (awaiting human)
+
+**This is a human gate (G1).** The Writer drafts all three options with current evidence and recommends one. The Writer does NOT pick or implement. The human resolves G1 by writing their choice inline below before Cycle 7 begins.
+
+#### 1. State of the docs site today (facts before the decision)
+
+**Top-level directories under `src/content/docs/`** (`ls src/content/docs/`):
+`_internal/` (planning, not built), `ai/`, `blog/`, `community/`, `concepts/`, `confiture/`, `databases/`, `deployment/`, `examples/`, `features/`, `getting-started/`, `guides/`, `migrations/`, `operations/`, `reference/`, `sdk/`, `tools/`, `transports/`, `troubleshooting/`, `use-cases/`, `vs/`. Plus top-level files: `changelog.mdx`, `index.mdx`, `playground.mdx`.
+
+**Page count by directory** (`find src/content/docs/<dir> -name '*.md*' | wc -l`):
+
+| Directory       | Pages |
+|-----------------|------:|
+| guides          | 27 |
+| features        | 26 |
+| reference       | 13 |
+| sdk             | 12 |
+| concepts        | 11 |
+| examples        | 10 |
+| troubleshooting | 9  |
+| databases       | 7  |
+| deployment      | 7  |
+| getting-started | 7  |
+| migrations      | 7  |
+| blog            | 7  |
+| ai              | 6  |
+| confiture       | 5  |
+| vs              | 5  |
+| use-cases       | 4  |
+| community       | 3  |
+| operations      | 1  |
+| tools           | 1  |
+| transports      | 1  |
+| top-level (`index.mdx`, `changelog.mdx`, `playground.mdx`) | 3 |
+| **total (excl. `_internal/`)** | **172** |
+
+**Current sidebar structure** (`astro.config.mjs:L56-L388`): 18 top-level groups in this order — Getting Started, AI-Assisted, Core Concepts, Confiture, Guides (with 4 nested sub-groups: Fundamentals, Patterns & Architecture, Federation & Integration, Operations), Databases, Features (with 6 nested sub-groups: Query & Data, Performance, Security, Transports, Integration, Observability), Reference, Examples, SDKs, Deployment, Troubleshooting, Migrations, Tools, Use Cases, Comparisons, Blog, Community. {/* source: astro.config.mjs:L56-L388 */}
+
+**Sidebar pain points (overlap evidence from `ls`):**
+
+- **`concepts/observers.mdx` + `guides/observers.mdx` + `operations/observer-runbook.mdx`** — the same noun lives three places under three different lenses (what / how / run). A reader searching "observers" today sees three matches and must guess which to open. {/* source: src/content/docs/{concepts,guides,operations}/ */}
+- **`concepts/mutations.mdx` + `getting-started/adding-mutations.mdx`** — overlap on the same concept (intro vs. concept).
+- **`features/federation.mdx` + `guides/federation-gateway.mdx` + `guides/federation-configuration.mdx` + `guides/federation-nats-integration.mdx` + `guides/advanced-federation.mdx`** — five federation pages distributed between `features/` (1) and `guides/` (4). The "Federation & Integration" sub-group inside Guides was a Cycle-3 attempt to corral this; it still leaves the top-level federation feature page disconnected. Cycle 1 Reviewer flagged "federation prose partial" as a follow-on (Phase 01 / Cycle 1 review entry).
+- **`guides/performance.mdx` + `guides/performance-benchmarks.mdx` + `deployment/scaling.mdx` + `troubleshooting/performance-issues.mdx`** — four performance pages across three groups; the "how do I make it fast" / "is it fast" / "scaling architecture" / "it isn't fast, fix it" split is real but the sidebar surfaces it as four scattered entries.
+- **`guides/troubleshooting.mdx` + `troubleshooting/` (9 pages) + `guides/faq.mdx`** — two top-level groups both labelled "troubleshooting", plus a FAQ that overlaps the same intent.
+- **`guides/deployment.mdx` + `deployment/` (7 pages)** — same noun, two homes.
+- **`transports/` (1 page) + `features/rest-transport.mdx` + `features/grpc-transport.mdx` + the "Transports" sub-group inside Features** — `transports/` is a near-empty top-level that exists alongside a Features sub-group with the same name.
+- **`operations/` (1 page)** — single-page top-level that the current sidebar already nests under Guides → Operations.
+- **`tools/` (1 page)** — single-page top-level (Schema Validator).
+- **`confiture/` (5 pages)** — a named subsystem (the schema-builder tool) that is already correctly grouped; the question for Options A/B/C is whether it becomes a `Subsystems` peer of `Features` (Option C) or absorbs into `Features` (Option A) or `Building` (Option B).
+
+**Pages added by Phases 02–08** — each has a natural home under each option. The phase docs name: Studio, Functions (WASM), Realtime, Auth Extensions, LTree, Schema Migrations (different from `migrations/` which is currently "from-X" framework-comparison content), REST (a deepening, the page already exists), MCP, Trusted Documents. Each lands in **one home under A**, two-or-more candidate homes under C, and under B distributes across Building / Running / Reference.
+
+**Cycle 4 Reviewer noted four deferred prose-rewrite items going to Phase 02/03** (`fraiseql/examples` repo URLs, `fraiseql/velocitybench`, `demo.fraiseql.dev`, `community/support.mdx:150` "coming soon"). These are content-level and **orthogonal to IA**; they survive any choice of A/B/C without affecting the sidebar move count.
+
+**Cycle 3 confirmed zero dead internal links** (Phase 01 / Cycle 3 close entry: 153 / 153 normalised targets resolve in `dist/`). This means any IA move that changes a slug MUST be paired with a Starlight `redirects` entry in `astro.config.mjs` to preserve the clean topology; the redirect-count column below reflects that.
+
+#### 2. The three options — fully fleshed
+
+##### Option A — by audience (the phase doc's default)
+
+**Proposed sidebar (10 top-level groups):**
+
+```
+- Getting Started        — "I am new; get me my first query"
+  - Introduction, 5-Minute Quickstart, Installation, Manual Setup, Your First API, Adding Mutations, Starter Templates, Playground
+  - moves IN: none
+  - keeps: 7 current pages + playground
+
+- Core Concepts          — "Why does this exist; how does it think"
+  - How It Works, Why FraiseQL, Developer-Owned SQL, CQRS Pattern, View Composition, Type System, Schema Definition, Configuration, Elo Validation
+  - moves OUT: Observers (→ Features), Mutations (→ Features — concept-only piece)
+  - keeps: 9 of current 11
+
+- Building               — "How do I do task X" (the current `guides/` minus its "Operations" sub-group)
+  - Fundamentals (Authentication, REST vs GraphQL, Schema Design, Error Handling, Custom Scalars, Custom Queries, Custom Resolvers, Testing, Dev Mode)
+  - Patterns (Observers-guide, Observer-Webhook Patterns, Projection Tables, Threaded Comments, Advanced Patterns, Multi-Tenancy)
+  - Federation (Federation Gateway, Multi-DB Federation, Federation+NATS, Advanced Federation, Apollo Sandbox Security) + Advanced NATS
+  - moves OUT: Operations sub-group (→ Operations top-level)
+  - keeps: 21 of current 27
+
+- Features               — "What can FraiseQL do"
+  - Query & Data, Performance (caching/APQ/Arrow/Wire Protocol), Security, Transports, Integration (Subscriptions/Webhooks/NATS/Federation/Multi-DB/File Storage), Observability
+  - moves IN: Observers (concept) — placed under Integration with the concept rolled into the existing features/observers entry. Mutations (concept).
+  - Phase 02-08 incoming: Studio, Functions (WASM), Realtime, Auth Extensions, LTree, MCP, Trusted Documents — each is one new entry under the appropriate sub-group.
+  - keeps: 26 current + ~7 new = ~33
+
+- Reference              — "Show me the surface" (unchanged)
+  - CLI, Admin API, TOML, GraphQL API, REST API, Decorators, Scalars, Semantic Scalars, Operators, Validation Rules, Naming, SQL Patterns, AuthoringIR
+  - keeps: 13 current
+
+- Operations             — "Run it in production"
+  - Deployment (Overview, Docker, K8s, AWS, GCP, Azure, Scaling)
+  - Observability runbook (Observer Operations Runbook moves here from Guides → Operations)
+  - Performance (guides/performance + guides/performance-benchmarks land here)
+  - Troubleshooting (the current top-level `troubleshooting/` 9 pages, plus guides/troubleshooting + guides/faq folded in)
+  - moves IN: guides/performance, guides/performance-benchmarks, guides/troubleshooting, guides/faq, guides/deployment (concept), operations/observer-runbook
+  - keeps: 7 deployment + 9 troubleshooting + 1 observer-runbook + 4 absorbed = ~21
+
+- Databases              — "What about my DB"
+  - keeps: 7 current (Overview, Compatibility, PG, MySQL, SQLite, SQL Server, SQL Server Enterprise)
+  - Phase 02-08 incoming: LTree per-DB notes get cross-linked here.
+
+- SDKs                   — "Which language"
+  - keeps: 12 current
+
+- Confiture              — separate subsystem (the schema-builder tool); the only "Subsystem" surfaced as its own top-level, because it is a distinct binary with its own CLI surface, not a feature flag of fraiseql-server.
+  - keeps: 5 current
+
+- Community              — "Help me, contribute"
+  - Contributing, Code of Conduct, Support, Changelog, plus absorbs Comparisons (vs/) and Use Cases (use-cases/), plus Blog and AI-Assisted (the 6 ai/ pages — they describe how to use FraiseQL with AI tooling, not framework features).
+  - moves IN: ai/ (6), use-cases/ (4), vs/ (5), blog/ (7)
+  - keeps: 3 current + 22 absorbed = ~25
+```
+
+**Examples** stays as a top-level peer of Getting Started (10 pages) — the cycle-doc lists 9 groups but Examples is too useful as a discoverable surface to fold into Community.
+
+**Pros:**
+- Resolves the observers triple-overlap cleanly: concept → Features (with the concept page absorbed into the existing features/observers entry), guide → Building, runbook → Operations.
+- Federation pages collapse from "1 feature + 4 guides" to "1 feature + 1 building sub-group" — readers find them in one of two predictable places.
+- Performance / troubleshooting consolidates under Operations — readers in "fix it" mode have one home.
+- Phase 02-08 incoming pages have one obvious home each (Studio → Features, Functions → Features, Realtime → Features → Integration, LTree → Features + Databases cross-link, MCP → Features → AI sub-group?, Trusted Documents → Features → Security).
+- 10 groups instead of 18 — half the visual scroll.
+- Top-level `operations/`, `tools/`, `transports/` single-page directories disappear (absorbed where they belong).
+
+**Cons:**
+- Largest mover: ~40 pages slugs change. SEO/inbound-link risk highest of the three options.
+- Requires the most thinking by the page authors who own each move (some pages are "concept AND feature AND guide" — call it).
+- `Community` becomes a kitchen sink (blog + AI + vs + use-cases + community).
+- The "AI-Assisted" group is currently a discoverable surface in its own right; demoting it to a Community sub-section may reduce visibility for AI-tooling readers.
+
+**Cost to implement:**
+- Files moved (git mv): ~40 (most under `guides/` → `building/`, several Phase 02 follow-ons into `operations/`, all of `ai|vs|use-cases|blog` into `community/`, two from `concepts/` to `features/`).
+- New `astro.config.mjs` sidebar shape: **complex** — 10 groups with nested sub-groups; ~150 lines.
+- Redirect rules needed: **~40** Starlight `redirects: { '/old/slug': '/new/slug', ... }` entries — one per moved page.
+- Risk to external deep links: **high** without redirects; **low** with the full redirect map in place. Cycle 3 confirmed 153 internal targets resolve; the same audit needs to be re-run post-move with the redirects active.
+
+**Reader-experience claim:** A reader looking for "how do I document my Slack webhook" today finds it at `guides/observer-webhook-patterns` (with concept noise at `concepts/observers` and feature noise at `features/observability`); under Option A they find it at `Building → Patterns → Observer-Webhook Patterns` with a clear "concept lives at Features → Integration → Observers" cross-link.
+
+##### Option B — by lifecycle stage
+
+**Proposed sidebar (5 top-level groups + Reference):**
+
+```
+- Quick Start            — "Get me running in 5 minutes"
+  - Introduction, 5-Minute Quickstart, Installation, Manual Setup, Your First API, Adding Mutations, Starter Templates
+  - keeps: 7 current pages
+  - moves OUT: Playground (→ standalone top-level or Community)
+
+- Building               — "I am writing my app"
+  - Authoring (Concepts How-It-Works, Why FraiseQL, Developer-Owned SQL, CQRS, View Composition, Mutations, Type System, Schema, Configuration, Elo)
+  - Features (everything currently under features/ EXCEPT operational concerns)
+  - Guides (everything currently under guides/ EXCEPT operational concerns)
+  - Confiture (5 pages)
+  - SDKs (12 pages)
+  - Examples (10 pages)
+  - Databases (7 pages)
+  - Phase 02-08 incoming: Studio, Functions, Realtime, Auth Extensions, LTree, MCP, Trusted Documents
+  - moves IN: most of concepts/, all of features/, most of guides/, confiture/, sdk/, examples/, databases/
+  - keeps: ~90 pages
+
+- Running                — "I am operating my app in dev or staging"
+  - Deployment (Docker, K8s, AWS, GCP, Azure, Overview)
+  - Observability (features/observability, features/analytics, features/resilience)
+  - Security (features/security, encryption, oauth-providers, audit-logging, rate-limiting, server-side-injection)
+  - Federation operations (federation-gateway, federation-nats-integration)
+  - moves IN: deployment/* (7), 6 features/security/* pages, federation operations
+  - keeps: ~25 pages
+
+- Scaling                — "I have traffic; tune it"
+  - Performance (features/caching, features/apq, features/arrow-dataplane, features/wire-protocol)
+  - Benchmarks (guides/performance-benchmarks)
+  - Performance guide (guides/performance)
+  - Scaling (deployment/scaling)
+  - Multi-tenancy (guides/multi-tenancy)
+  - Federation at scale (guides/advanced-federation, advanced-nats)
+  - keeps: ~12 pages
+
+- Troubleshooting        — "It broke"
+  - troubleshooting/* (9 pages), guides/troubleshooting, guides/faq
+  - keeps: ~12 pages
+
+- Reference              — flat reference (unchanged from today)
+  - 13 pages
+
+- Community              — Contributing, Code of Conduct, Support, Changelog, AI-Assisted, vs/, use-cases/, blog/
+  - keeps: ~25 pages
+```
+
+**Pros:**
+- Best fit for *new-user funnel* — matches the marketing site's "Try it → Build → Run → Scale" arc.
+- Phase 02-08 incoming Functions/Realtime/Studio land cleanly under Building.
+- Aligns with the `fraiseql.dev` hero copy framing (`Schema. Compile. Serve.`).
+- Two single-page top-levels (operations/, tools/, transports/) disappear naturally.
+
+**Cons:**
+- "Building" becomes enormous (~90 pages of 172). Bad scroll, bad menu UX.
+- Lifecycle phases are not how reference readers come in — most docs traffic is feature-search, not onboarding journey. Once a reader is past Quick Start they bounce between Building / Reference / Troubleshooting — the lifecycle metaphor stops paying off.
+- Forces a hard "is this a Build concern or a Run concern" choice on every page that touches both (federation, observers, security) — the same ambiguity Option A surfaces but bigger blast radius because the same page is genuinely in both.
+- Concepts get demoted into Building → Authoring, which makes the "what is FraiseQL philosophically" question harder to find.
+- High move count — slug churn similar to Option A.
+
+**Cost to implement:**
+- Files moved: ~45.
+- New `astro.config.mjs` sidebar shape: **moderate** — 6 top-level groups, but each contains nested sub-groups of ~15+ pages.
+- Redirect rules needed: **~45**.
+- Risk to external deep links: **high** without redirects; **low** with them.
+
+**Reader-experience claim:** A reader looking for "how do I document my Slack webhook" today finds it at `guides/observer-webhook-patterns`; under Option B they find it at `Building → Patterns → Observer-Webhook Patterns` (similar slug, but the path through the menu is longer).
+
+##### Option C — keep current shape, add a `Subsystems` group
+
+**Proposed sidebar (current 18 groups + 1 new = 19 groups):**
+
+```
+- Keep all 18 current top-level groups exactly as they are.
+
+- Add: Subsystems        — new group for distinct binaries/runtimes that ship alongside fraiseql-server
+  - Confiture (5 pages — moves from current top-level Confiture)
+  - Studio                  ← Phase 02-08 new
+  - Functions (WASM)        ← Phase 02-08 new
+  - Realtime                ← Phase 02-08 new
+  - MCP Server              ← Phase 02-08 new (and/or stays in AI-Assisted)
+```
+
+**Pros:**
+- Minimal move count — 5 Confiture pages relocate; ~0 other slugs change.
+- Zero risk to external deep links.
+- Phase 02-08 authors get one obvious place for net-new subsystem-level features (Studio, Functions, Realtime, MCP).
+- Cheapest cycle 7 (sweep matrix) — every existing page stays at its current slug.
+- Status quo is well-trodden — the overlap pain isn't catastrophic and may not justify a big move.
+
+**Cons:**
+- Does **not** resolve the observers triple-overlap, federation page sprawl, performance scatter, or single-page top-level directories (`operations/`, `tools/`, `transports/`).
+- 19 top-level groups is a lot of menu real estate; readers scroll past most of them.
+- Phase 02-08 authors who own LTree, Auth Extensions, Trusted Documents, Schema Migrations still have to decide each one between `features/` / `concepts/` / `guides/` — the disambiguation work that Options A/B do once is repeated per-page.
+- "Subsystems" peer to "Features" creates a new ambiguity: is Functions a feature or a subsystem? Studio? The page author must decide.
+- Long-term, the sidebar keeps drifting; this is "kick the can".
+
+**Cost to implement:**
+- Files moved (git mv): **5** (`confiture/*` → `subsystems/confiture/*`, optional).
+- New `astro.config.mjs` sidebar shape: **simple** — one new group entry; existing groups untouched.
+- Redirect rules needed: **5** (only if Confiture is moved; could also be 0 if Confiture stays at its current top-level and the Subsystems group only houses new Phase 02-08 content).
+- Risk to external deep links: **low** (0 if Confiture stays put).
+
+**Reader-experience claim:** A reader looking for "how do I document my Slack webhook" today finds it at `guides/observer-webhook-patterns`; under Option C they find it at exactly the same place. No improvement to the observers/federation/performance overlap.
+
+#### 3. Default proposal — Writer recommends **Option A**
+
+**Rationale (one paragraph, evidence-grounded):** The Cycle 1-5 audits made the IA pain points concrete, not abstract. The observers triple (`concepts/observers.mdx` + `guides/observers.mdx` + `operations/observer-runbook.mdx`) is real today and is the cleanest possible case for an audience-grouped sidebar — each page is genuinely a different lens on the same noun, and Option A's split (`Features → Integration → Observers` for what-it-is + `Building → Patterns → Observers` for how-to-use + `Operations → Observability` for how-to-run) puts each lens where the reader's intent already lives. The five federation pages similarly distribute 1 + 4 today and would distribute cleanly 1 + 1-sub-group under A. The Cycle 1 Reviewer's "federation prose partial" follow-on is, in IA terms, a request for exactly the Option A move (consolidate federation prose into one sub-group under Building). Option B's lifecycle framing matches the marketing copy but does not match how docs are actually consumed — once past Quick Start, readers bounce by topic, not by lifecycle stage. Option C avoids the cost but leaves the pain. The Phase 02-08 backlog (Studio, Functions, Realtime, Auth Extensions, LTree, Schema Migrations, REST, MCP, Trusted Documents) is also strong evidence for A — under A each has exactly one home; under C each forces the author to re-litigate `features/` vs `concepts/` vs `guides/`. **The cost of A (40 file moves + 40 redirect entries) is paid once during Phase 01 Cycle 7 + Phase 02 opening; under C the same disambiguation work is paid every cycle of every subsequent phase, by a different writer, with no shared memory.**
+
+#### 4. Decision-table summary
+
+| Dimension                                | A (by audience)                            | B (by lifecycle)                       | C (Subsystems-add)                  |
+|------------------------------------------|--------------------------------------------|----------------------------------------|-------------------------------------|
+| Reader mental model                      | by audience (what / how / run)             | by lifecycle (try / build / run / scale) | unchanged                          |
+| Phases 04-06 home for Studio             | Features (new sub-group or Integration)    | Building                               | Subsystems                          |
+| Phases 04-06 home for Functions (WASM)   | Features → Integration or new sub-group    | Building                               | Subsystems                          |
+| Phases 04-06 home for Realtime           | Features → Integration                     | Building                               | Subsystems                          |
+| Top-level groups (count)                 | 10                                         | 6 (+ Reference)                        | 19                                  |
+| Pages moved (slug change)                | ~40                                        | ~45                                    | 0–5                                 |
+| New redirects required                   | ~40                                        | ~45                                    | 0–5                                 |
+| External deep link risk (before redirects) | high                                     | high                                   | low                                 |
+| External deep link risk (with redirects) | low                                        | low                                    | low                                 |
+| Implementation effort (Cycle 7+)         | high                                       | high                                   | low                                 |
+| Resolves observers triple                | yes                                        | partial (Building absorbs concepts + guides; runbook stays Run) | no |
+| Resolves federation sprawl               | yes (1 + 1-subgroup)                       | partial (Build + Run split)            | no                                  |
+| Resolves single-page top-levels (`operations/`, `tools/`, `transports/`) | yes (all absorbed) | yes (all absorbed) | no                                |
+| Phase 02-08 author decision cost         | one-time at this phase                     | one-time at this phase                 | per-page, per cycle                 |
+| Long-term clarity                        | high                                       | medium                                 | low (drift continues)               |
+| Cycle 7 (sweep matrix) effort delta      | matrix authored against new shape          | matrix authored against new shape       | matrix authored against current shape (cheapest) |
+
+#### 5. Open questions for the human
+
+These are decisions the Writer cannot make alone:
+
+1. **Inbound-SEO traffic data.** Does `fraiseql.dev`'s analytics show meaningful inbound to specific deep-linked pages today (e.g., `concepts/observers`, `features/federation`)? If yes, the redirect map MUST cover those exact slugs before any move; if no (low traffic), the move cost goes down. Writer has no analytics access.
+2. **Is `vs/` "Concepts" or "Marketing"?** The five comparison pages (`vs/hasura`, `vs/apollo`, `vs/prisma`, `vs/postgrest`, `vs/hasura-sqlserver`) read as marketing copy today. Option A folds them into Community; that may not match marketing intent. The phase doc Cycle 1 RED entry noted these as candidates for Phase 02 IA classification rather than Cycle 6.
+3. **Should `ai/` stay as its own top-level visibility surface?** Six pages dedicated to AI-tooling integration is small but distinct. Option A folds into Community; that may reduce AI-developer discoverability.
+4. **`Examples` placement under Option A.** Writer kept Examples as a top-level group (the phase doc lists 9 groups; this proposal counts 10). Alternative: fold Examples under each group's sub-section (each Example is genuinely cross-cutting — multi-tenant + federation + NATS). Decision deferred to human.
+5. **Phase 02 quickstart SQL bugs** (3 bugs from Phase 00 / Cycle 5) — does the IA decision affect their fix timing? Writer's read: no, those bugs live at `getting-started/quickstart.mdx` which stays in the same group under all three options. Confirm.
+6. **What about partial vs. staged migration?** Option A could be split: Phase 01 Cycle 7 lands the sidebar structure + redirects for groups that don't move (Reference, SDKs, Databases, Examples) and the moves get sequenced across Phases 02-08 as each phase opens its target group. The human may want this hybrid for risk reduction.
+7. **Redirect-map regression test.** The phase doc § Risks names this as a mitigation but Cycle 7 has not yet defined where it lives. Should it be a new docs-test page (e.g., `redirects.docs-test.sh`) or an Astro build-time check?
+
+#### Files added / modified this cycle
+
+- `_internal/.plan/handoff.md` — this entry (G1 proposal block).
+- `_internal/.plan/.phases/phase-01-triage-and-ia.md` — Status marked `[?]` awaiting human gate G1 (no `[x] Complete` flip — phase is not complete).
+- **NOT TOUCHED** (per Writer forbidden actions): `astro.config.mjs`, any page under `src/content/docs/`, the Cycle 4 audit MD, the Cycle 4 deferred-items list, the sweep matrix (Cycle 7 — depends on G1).
+
+#### Commit / push / CI
+
+- Commit SHA: see commit/push entries appended after this block.
+- CI: `_internal/` and `.phases/` paths are excluded from the docs-test workflow's `pull_request` path filter (Phase 00 Cycle 6 wiring). Expected behaviour: **no run triggered, path-filtered**.
+
+#### Phase status
+
+- Phase 01 status block in `_internal/.plan/.phases/phase-01-triage-and-ia.md` set to `[?] Awaiting human gate G1 (Cycle 6)`.
+
+#### HUMAN
+
+Please reply inline below this line with `> human:` your pick (A / B / C) and any modifications (e.g., "A but keep AI-Assisted as a top-level", "A but staged across phases", etc.). Cycle 7 (sweep matrix) and Phases 02-08 depend on this decision.
+
+> human:
+
+---

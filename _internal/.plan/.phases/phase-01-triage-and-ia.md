@@ -189,6 +189,7 @@ This phase doesn't usually need containers. Two exceptions:
 - [ ] REFACTOR in progress
 - [ ] CLEANUP in progress
 - [ ] Complete
+- [?] Awaiting human gate G1 (Cycle 6 — sidebar IA proposal). Cycles 1–5 closed and approved by Reviewer. Cycle 6 G1 proposal (Options A / B / C, default A) appended to `_internal/.plan/handoff.md`. Cycle 7 (sweep matrix) blocked until human picks A / B / C inline in the handoff.
 
 ## Owner
 
