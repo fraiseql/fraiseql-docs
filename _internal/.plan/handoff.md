@@ -1327,3 +1327,17 @@ Phases 04–08 slices documented in the matrix's by-phase view. Phase 09 reconci
 
 None new. G2 (default-hold) and G4 (soft) carry forward from Phase 00; G1 closed this phase. G3 and G5 are downstream.
 
+
+---
+
+### Phase 02 / Cycle 0 — orchestrator — 2026-05-29
+
+- **PR #12 squash-merged to main** as commit `f6d9e1c` per human authorisation (`/code/fraiseql-docs` `main` now at `f6d9e1c`).
+- Branch `phase-02/migration-and-changelog` cut off `f6d9e1c`. Working tree clean.
+- Phase 02 spec opened to `[~] RED in progress` (Cycle 1).
+- Phases README updated: Phase 02 row `[ ] → [~]`.
+- Framework SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461` continues to anchor. Source survey at frozen SHA:
+  - `docs/migration/v2.2-to-v2.3.md` exists (blob `9b9d5e4`) — source for Cycle 4.
+  - CHANGELOG.md sections: `[2.3.2] 2026-05-28`, `[2.3.1] 2026-05-27`, `[2.3.0] 2026-05-25`, `[2.2.0] 2026-05-02`, `[2.1.6] 2026-04-14`, `[2.1.5]`, `[2.1.4]`, `[2.1.3]`, `[2.1.0] 2026-03-30`. No `[2.0.x]` section in the present file — Cycle 1 Writer must confirm whether v2.0 release notes can be authored from earlier-tag content or whether the v2.0 row in the release-notes hub is `unreleased on this CHANGELOG` and links to earlier history.
+- Next persona: **Writer (Opus 4.7) for Cycle 1** (release-notes index + v2.0 + v2.1).
+- Open gates: none new. G1 closed (Phase 01). G2 default-hold on the frozen SHA continues.

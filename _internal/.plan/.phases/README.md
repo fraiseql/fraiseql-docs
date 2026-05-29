@@ -41,7 +41,7 @@ the bump decision belongs to Phase 09 or Phase 10. See
 |----|--------------------------------------------|----------------------------------------------------------------|-------:|--------|-------|
 | 00 | `phase-00-foundation.md`                   | Container harness, CI gating, style guide, SHA freeze, plan-into-repo move | 2.0 | `[x]`  | G2 (contingent) |
 | 01 | `phase-01-triage-and-ia.md`                | Stale-fact sweep, sidebar IA (G1), link audit, sweep matrix    | 1.0 | `[x]`  | G1 (resolved 2026-05-29 → Option A) |
-| 02 | `phase-02-migration-and-changelog.md`      | Release-notes hub, v2.0→v2.3 migration pages, breaking matrix  | 1.0 | `[ ]`  | — |
+| 02 | `phase-02-migration-and-changelog.md`      | Release-notes hub, v2.0→v2.3 migration pages, breaking matrix  | 1.0 | `[~]`  | — |
 | 03 | `phase-03-critical-rewrites.md`            | multi-tenancy, file-storage, observers, authentication         | 2.0 | `[ ]`  | — |
 | 04 | `phase-04-new-features-part1.md`           | Studio, Functions (WASM), Realtime subsystem                   | 2.0 | `[ ]`  | — |
 | 05 | `phase-05-new-features-part2.md`           | Auth extensions, LTree, partial-period, native aggregations    | 2.0 | `[ ]`  | — |

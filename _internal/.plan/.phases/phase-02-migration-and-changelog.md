@@ -172,11 +172,13 @@ Persona: Style Auditor (Sonnet 4.6) → Cleanup (Sonnet 4.6).
 ## Status
 
 - [ ] Not started
-- [ ] RED in progress
+- [~] RED in progress (Cycle 1 — release-notes index + v2.0 + v2.1 pages)
 - [ ] GREEN in progress
 - [ ] REFACTOR in progress
 - [ ] CLEANUP in progress
 - [ ] Complete
+
+Opened 2026-05-29 against `main@f6d9e1c` (Phase 01 squash). Phase 02 worklist is the sweep matrix's `Owning phase = 02` slice (`src/content/docs/_internal/_sweep-matrix.md`).
 
 ## Owner
 
