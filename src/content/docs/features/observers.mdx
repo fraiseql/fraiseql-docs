@@ -198,7 +198,7 @@ The webhook action POSTs the rendered body to the configured URL. A `Mustache`-s
 
 The retry policy is configured per observer (not per action) via the `retry` field on the observer row. Supported strategies: `Exponential` (default), `Linear`, `Fixed`. Each strategy applies ±25 % jitter and saturating arithmetic. Non-2xx responses are classified: 4xx (except 429) → permanent → DLQ, 5xx and 429 → transient → retry.
 
-{/* source: crates/fraiseql-observers/src/executor/retry.rs:L17-L80 — BackoffStrategy variants */}
+{/* source: crates/fraiseql-observers/src/config/runtime.rs:L232-L239 — BackoffStrategy variants */}
 {/* source: crates/fraiseql-observers/src/executor/retry.rs:L80-L120 — jitter + saturating arithmetic */}
 {/* source: crates/fraiseql-observers/src/actions.rs:L185-L205 — permanent vs transient classification */}
 

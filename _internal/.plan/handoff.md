@@ -4408,3 +4408,35 @@ Per-citation log: `_internal/.plan/red-evidence/phase-03-cycle-03-citation-verif
 **Writer (Opus 4.7)** — fix page line 201 citation: change `retry.rs:L17-L80 — BackoffStrategy variants` to `config/runtime.rs:L232-L239 — BackoffStrategy variants`. Re-submit. Source-Citation Verifier re-runs on the amended page.
 
 **Handoff carries:** 11 framework bugs (FW-13..FW-23) open; FW-20 + FW-21 is the critical security combo; F056 + F014 confirmed HOLD; primary page at 67 citations / 16 sections / 4 478 words; three sibling pages scope-statement-only; A2 docs-test added with 6 assertions covering 8 bug repros + 4 source-grep invariants.
+
+---
+
+### Phase 03 / Cycle 3 GREEN — orchestrator follow-on (L201 citation fix) — 2026-05-30
+
+Single-line citation correction per orchestrator scope ("small citation/link fixes the Reviewer flags as 1-line BLOCKers"). Mechanical, no prose change.
+
+#### L201 fix
+
+- Before: `{/* source: crates/fraiseql-observers/src/executor/retry.rs:L17-L80 — BackoffStrategy variants */}`
+- After:  `{/* source: crates/fraiseql-observers/src/config/runtime.rs:L232-L239 — BackoffStrategy variants */}`
+- Independently re-verified at frozen SHA `d0a4ed4ec`: `config/runtime.rs:L232-L239` contains `pub enum BackoffStrategy { Exponential, Linear, Fixed }` with `#[serde(rename_all = "snake_case")]` + `#[non_exhaustive]` + `#[default]` Exponential. Matches the prose claim.
+- Paired L202 citation (`retry.rs:L80-L120` jitter + saturating arithmetic) unchanged — Verifier confirmed it resolves.
+
+#### Verification after fix
+
+- `bun run build` → exit 0, 205 pages.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → 0.
+
+#### Anti-scope
+
+- No re-spawn of Writer-Opus for a 1-line citation correction.
+- No edits beyond L201.
+- No amend; new commit only.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved.
+
+#### Pointer
+
+Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 3 — fresh-context 15-point adversarial pass on `/features/observers.mdx`. Verifier's PASS on the other 66 citations stands; L201 is now in the same PASS state per the orchestrator's independent re-verification at frozen SHA.
