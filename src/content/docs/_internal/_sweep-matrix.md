@@ -59,17 +59,19 @@ The main matrix below is sorted by sidebar order. Each phase reads the slice tha
 - `/community/support` — replace "status page coming soon" with a definite Issues pointer (Cycle 4 Reviewer follow-on)
 - 5 `/community/vs/*` pages — comparison-prose rewrite
 
-### Phase 04 — New features part 1 (Studio, Functions WASM, Realtime). All `missing` — new pages.
+### Phase 04 — New features part 1 (Studio, Functions WASM, Realtime, Hierarchies, Schema Migrations CLI). All `missing` — new pages.
 
-- `/features/studio` — `missing` (lands under Features → Integration per `_sidebar-decision.md` §5)
-- `/features/functions-wasm` — `missing` (Features → Integration)
-- `/features/realtime` — `missing` (Features → Integration)
+- `/features/studio` — `missing` (lands under Features → Integration per `_sidebar-decision.md` §5). Links from /release-notes/v2-3.
+- `/features/functions-wasm` — `missing` (Features → Integration). Links from /release-notes/v2-3.
+- `/features/realtime` — `missing` (Features → Integration). Links from /release-notes/v2-3.
+- `/features/hierarchies` — `missing` (Features → Query & Data; v2.3 LTree-based hierarchy support). Links from /release-notes/v2-3.
+- `/features/schema-migrations-cli` — `missing` (Features → Integration or Building; v2.3 Schema Migrations CLI subsystem). Links from /release-notes/v2-3.
 - `/features/subscriptions` — likely needs-rewrite as Realtime / Subscriptions are reconciled
 - `/features/webhooks`, `/features/nats` — touch as adjacent to Realtime/Studio
 
 ### Phase 05 — New features part 2 (Auth extensions, LTree, partial-period, native aggregations).
 
-- `/features/auth-extensions` — `missing` (Features → Security)
+- `/features/auth-extensions` — `missing` (Features → Security). Links from /release-notes/v2-3.
 - `/features/ltree` — `missing` (Features → Query & Data; cross-link from `/databases/postgresql`)
 - `/features/partial-period` — `missing` (Features → Query & Data)
 - `/features/native-aggregations` — `missing` (Features → Performance)
@@ -213,7 +215,7 @@ The main matrix below is sorted by sidebar order. Each phase reads the slice tha
 | /features/audit-logging | needs-rewrite | 03 | n/a | n/a | — | Cycle 1 verified HISTORICAL version anchor. Cycle 4 pinned GH link to frozen SHA (`d0a4ed4.../docs/guides/production-security-checklist.md`). Phase 03 security cluster. |
 | /features/rate-limiting | needs-rewrite | 03 | n/a | n/a | — | Phase 03 security cluster. |
 | /features/transports | OK | 06 | n/a | n/a | redirected from `/transports` | Last surviving page of single-page top-level `transports/`; absorbed into Features → Transports. Phase 06 transport deepening. |
-| /features/rest-transport | needs-rewrite | **06** | n/a | n/a | — | Phase 06 REST deepening. |
+| /features/rest-transport | needs-rewrite | **06** | n/a | n/a | — | Phase 06 REST deepening. Links from /release-notes/v2-3. |
 | /features/grpc-transport | OK | 06 | n/a | n/a | — | Phase 06 transport polish. |
 | /features/observers | needs-rewrite | 03 | n/a | n/a | redirected from `/concepts/observers`; observers triple-overlap | Was `concepts/observers` — moved to Features. Phase 03 consolidates the observers triple (concept → here, guide → `/building/observers`, runbook → `/operations/observer-runbook`). |
 | /features/subscriptions | needs-rewrite | 04 | n/a | n/a | overlaps with future `/features/realtime` | Phase 04 (Realtime) consolidation. |

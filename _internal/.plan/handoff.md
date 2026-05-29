@@ -2163,3 +2163,34 @@ Handoff to **Source-Citation Verifier (Sonnet 4.6)** next.
 **APPROVE — Cycle 5 closes. Cycle 6 (cross-link integration) opens.** Reviewer (Opus 4.7) hands off to Writer (Opus 4.7) for Cycle 6.
 
 Note for Cycle 6 Writer: the cross-link integration cycle should (a) audit inbound links into the two migration guides from related pages (release notes already covered; check feature pages — federation, multi-tenancy, audit-logging — for any "see migration guide" call-outs that need wiring); (b) verify the v2-2.mdx code-span→MD link conversion is the only inbound-link adjustment needed in the release-notes group; (c) the Item 11 follow-on noted above (exact `rustc` error quote) is a candidate for Cycle 6 prose polish if scope allows.
+
+---
+
+### Phase 02 / Cycle 6 close — Cleanup (Sonnet 4.6) — 2026-05-29
+
+- **index.mdx**: Added one-line callout sentence "FraiseQL v2.3.2 ships Studio, Functions, Storage, Realtime, and Auth Extensions — see the [release notes](/release-notes/) for the full list of changes." immediately above the existing Enterprise Features prose (option a from the brief; no CardGrid added).
+- **"What's new" mention scan**: 1 hit total across `src/content/docs/`; it was in `_internal/_sidebar-decision.md` (a planning doc, not a user-facing page). Zero user-facing "what's new" links needed updating.
+- **Sweep matrix forthcoming-page Notes columns updated**: 8 rows annotated with "Links from /release-notes/v2-3.":
+  - Phase 04 by-phase bullets: `/features/studio`, `/features/functions-wasm`, `/features/realtime`
+  - Phase 04 by-phase bullets (new entries added): `/features/hierarchies`, `/features/schema-migrations-cli`
+  - Phase 05 by-phase bullets: `/features/auth-extensions`
+  - Phase 06 main matrix row: `/features/rest-transport` (Notes column appended)
+  - `release-notes/index.mdx` "Upgrade guides" section: stale "forthcoming under this phase" text replaced with live MD links to the two completed migration guides.
+- **migrations/index distinction**: `building/migrations/index.mdx` updated with a new "Upgrading FraiseQL" section at the top (before the "Switching from Another Tool" section), with links to the upgrading hub and both versioned guides. The two-path shape is now explicit for readers landing on the migration overview.
+- **Sidebar rename/regroup**: `astro.config.mjs` Building → `Migrations` group renamed to `Switching tools`. The `Upgrading` group (already correctly named) stays under `Reference`. Result: `Upgrading` (FraiseQL→FraiseQL) and `Switching tools` (Apollo / Hasura / Prisma / REST / PostgREST → FraiseQL).
+- **Build state**: `bun run build` exit 0, 205 pages, 14.86 s, no new warnings introduced.
+- **Cross-link spot-checks** (3 of 5 new links traced):
+  1. `/release-notes/` → `src/content/docs/release-notes/index.mdx` ✅
+  2. `/migrations/upgrading/v2-1-to-v2-2/` → `src/content/docs/migrations/upgrading/v2-1-to-v2-2.mdx` ✅
+  3. `/migrations/upgrading/v2-2-to-v2-3/` → `src/content/docs/migrations/upgrading/v2-2-to-v2-3.mdx` ✅
+- **Commit SHA**: (see below — appended after push)
+- **CI URL**: (see below — appended after push)
+- **Items escalated to Writer**: None. All changes were mechanical.
+- **Anti-scope held**:
+  - No prose rewrites on existing pages beyond mechanical link/label changes.
+  - No release-notes page content edits beyond the stale "forthcoming" fix.
+  - No migration page content edits beyond adding the Upgrading section header + bullets to `building/migrations/index.mdx`.
+  - Did not touch SDK pages, quickstart SQL bugs, changelog.mdx, or framework code.
+  - Did not push to `main`. Did not amend pushed commits.
+- **Open gates**: None new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+

@@ -226,7 +226,7 @@ export default defineConfig({
               ],
             },
             {
-              label: 'Migrations',
+              label: 'Switching tools',
               collapsed: true,
               items: [
                 { label: 'Migration Overview', slug: 'building/migrations' },
