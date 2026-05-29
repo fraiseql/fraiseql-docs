@@ -666,7 +666,7 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
   - `_internal/.plan/audits/external-links-phase-01.json` (size: 34543 bytes, 1222 lines)
   - `_internal/.plan/audits/external-links-phase-01.md` (size: 11065 bytes, 187 lines)
   - `scripts/docs-test/audit-external-links.sh` (reusable script for Phase 08 and Phase 10 re-audits)
-- **Commit SHA(s) and remote-confirmed push:** see below — SHA captured after commit.
+- **Commit SHA(s) and remote-confirmed push:** `d2a3062f78fc073a05b8bd42bb85d078f2e424ed` at `origin/phase-01/triage-and-ia` (confirmed via `git ls-remote`).
 - **CI run URL:** path-filtered; `_internal/` tree changes and `scripts/` changes do not trigger docs CI (docs-test CI is not yet wired — Phase 00 Cycle 6). No run triggered.
 - **Handoff to Cleanup for Cycle 4 GREEN — page edits.**
   - Priority 1: remove/replace all 22 must-fix URLs (dns/tls/404) per action list in audit md.
