@@ -53,6 +53,10 @@ export default defineConfig({
       editLink: {
         baseUrl: 'https://github.com/fraiseql/fraiseql/edit/main/docs/',
       },
+      // Sidebar restructured to the Option A 10-group shape (G1 resolved 2026-05-29).
+      // Step 1 of Cycle 6 REFACTOR: sidebar items still point at OLD slugs because
+      // page moves land in Step 2. See `src/content/docs/_internal/_sidebar-decision.md`
+      // for the full move map.
       sidebar: [
         {
           label: 'Getting Started',
@@ -68,17 +72,6 @@ export default defineConfig({
           ],
         },
         {
-          label: 'AI-Assisted',
-          items: [
-            { label: 'Overview', slug: 'ai' },
-            { label: 'Generating Views', slug: 'ai/generating-views' },
-            { label: 'Python Client', slug: 'ai/python-client' },
-            { label: 'MCP Server', slug: 'ai/mcp-server' },
-            { label: 'LangChain Integration', slug: 'ai/langchain' },
-            { label: 'LlamaIndex Integration', slug: 'ai/llamaindex' },
-          ],
-        },
-        {
           label: 'Core Concepts',
           items: [
             { label: 'How It Works', slug: 'concepts/how-it-works' },
@@ -86,8 +79,6 @@ export default defineConfig({
             { label: 'Developer-Owned SQL', slug: 'concepts/developer-owned-sql' },
             { label: 'CQRS Pattern', slug: 'concepts/cqrs' },
             { label: 'View Composition', slug: 'concepts/view-composition' },
-            { label: 'Mutations', slug: 'concepts/mutations' },
-            { label: 'Observers', slug: 'concepts/observers' },
             { label: 'Type System', slug: 'concepts/type-system' },
             { label: 'Schema Definition', slug: 'concepts/schema' },
             { label: 'Configuration', slug: 'concepts/configuration' },
@@ -95,17 +86,7 @@ export default defineConfig({
           ],
         },
         {
-          label: 'Confiture',
-          items: [
-            { label: 'Overview', slug: 'confiture' },
-            { label: 'Build from DDL', slug: 'confiture/build' },
-            { label: 'Incremental Migrations', slug: 'confiture/migrate' },
-            { label: 'Production Data Sync', slug: 'confiture/sync' },
-            { label: 'Schema-to-Schema', slug: 'confiture/schema-to-schema' },
-          ],
-        },
-        {
-          label: 'Guides',
+          label: 'Building',
           items: [
             { label: 'Overview', slug: 'guides' },
             {
@@ -124,10 +105,10 @@ export default defineConfig({
               ],
             },
             {
-              label: 'Patterns & Architecture',
+              label: 'Patterns',
               collapsed: true,
               items: [
-                { label: 'Observers', slug: 'guides/observers' },
+                { label: 'Observers (Guide)', slug: 'guides/observers' },
                 { label: 'Observer-Webhook Patterns', slug: 'guides/observer-webhook-patterns' },
                 { label: 'Projection Tables', slug: 'guides/projection-tables' },
                 { label: 'Threaded Comments', slug: 'guides/threaded-comments' },
@@ -136,7 +117,7 @@ export default defineConfig({
               ],
             },
             {
-              label: 'Federation & Integration',
+              label: 'Federation',
               collapsed: true,
               items: [
                 { label: 'Federation Gateway', slug: 'guides/federation-gateway' },
@@ -148,30 +129,25 @@ export default defineConfig({
               ],
             },
             {
-              label: 'Operations',
+              label: 'Migrations',
               collapsed: true,
               items: [
-                { label: 'Performance', slug: 'guides/performance' },
-                { label: 'Performance Benchmarks', slug: 'guides/performance-benchmarks' },
-                { label: 'Deployment', slug: 'guides/deployment' },
-                { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
-                { label: 'FAQ', slug: 'guides/faq' },
-                { label: 'Observer Operations Runbook', slug: 'operations/observer-runbook' },
+                { label: 'Migration Overview', slug: 'migrations' },
+                { label: 'Incremental Migration', slug: 'migrations/incremental' },
+                { label: 'From Prisma', slug: 'migrations/from-prisma' },
+                { label: 'From Apollo', slug: 'migrations/from-apollo' },
+                { label: 'From Hasura', slug: 'migrations/from-hasura' },
+                { label: 'From REST API', slug: 'migrations/from-rest' },
+                { label: 'From PostgREST', slug: 'migrations/from-postgrest' },
               ],
             },
-          ],
-        },
-        {
-          label: 'Databases',
-          collapsed: true,
-          items: [
-            { label: 'Database Overview', slug: 'databases' },
-            { label: 'Compatibility Matrix', slug: 'databases/compatibility' },
-            { label: 'PostgreSQL', slug: 'databases/postgresql' },
-            { label: 'MySQL', slug: 'databases/mysql' },
-            { label: 'SQLite', slug: 'databases/sqlite' },
-            { label: 'SQL Server', slug: 'databases/sqlserver' },
-            { label: 'SQL Server Enterprise', slug: 'databases/sqlserver-enterprise' },
+            {
+              label: 'Tools',
+              collapsed: true,
+              items: [
+                { label: 'Schema Validator', slug: 'tools/schema-validator' },
+              ],
+            },
           ],
         },
         {
@@ -187,6 +163,7 @@ export default defineConfig({
                 { label: 'Pagination', slug: 'features/pagination' },
                 { label: 'Function Shapes', slug: 'features/function-shapes' },
                 { label: 'Mutual Exclusivity', slug: 'features/mutual-exclusivity' },
+                { label: 'Mutations', slug: 'concepts/mutations' },
               ],
             },
             {
@@ -224,6 +201,7 @@ export default defineConfig({
               label: 'Integration',
               collapsed: true,
               items: [
+                { label: 'Observers', slug: 'concepts/observers' },
                 { label: 'Subscriptions', slug: 'features/subscriptions' },
                 { label: 'Webhooks', slug: 'features/webhooks' },
                 { label: 'NATS Integration', slug: 'features/nats' },
@@ -263,18 +241,67 @@ export default defineConfig({
           ],
         },
         {
-          label: 'Examples',
+          label: 'Operations',
           items: [
-            { label: 'Examples Overview', slug: 'examples' },
-            { label: 'Multi-Tenant SaaS', slug: 'examples/multi-tenant-saas' },
-            { label: 'SaaS Blog Platform', slug: 'examples/saas-blog' },
-            { label: 'Real-Time Collaboration', slug: 'examples/realtime-collaboration' },
-            { label: 'Real-Time Analytics', slug: 'examples/realtime-analytics' },
-            { label: 'Mobile Analytics Backend', slug: 'examples/mobile-analytics-backend' },
-            { label: 'Federation + E-Commerce', slug: 'examples/federation-ecommerce' },
-            { label: 'SaaS + Federation + NATS', slug: 'examples/saas-federation-nats' },
-            { label: 'Microservices Choreography', slug: 'examples/microservices-choreography' },
-            { label: 'NATS Event Pipeline', slug: 'examples/nats-event-pipeline' },
+            {
+              label: 'Deployment',
+              collapsed: true,
+              items: [
+                { label: 'Deployment Overview', slug: 'deployment' },
+                { label: 'Docker', slug: 'deployment/docker' },
+                { label: 'Kubernetes', slug: 'deployment/kubernetes' },
+                { label: 'AWS', slug: 'deployment/aws' },
+                { label: 'Google Cloud', slug: 'deployment/gcp' },
+                { label: 'Azure', slug: 'deployment/azure' },
+                { label: 'Scaling & Performance', slug: 'deployment/scaling' },
+                { label: 'Deployment Guide', slug: 'guides/deployment' },
+              ],
+            },
+            {
+              label: 'Performance',
+              collapsed: true,
+              items: [
+                { label: 'Performance', slug: 'guides/performance' },
+                { label: 'Performance Benchmarks', slug: 'guides/performance-benchmarks' },
+              ],
+            },
+            {
+              label: 'Observability',
+              collapsed: true,
+              items: [
+                { label: 'Observer Operations Runbook', slug: 'operations/observer-runbook' },
+              ],
+            },
+            {
+              label: 'Troubleshooting',
+              collapsed: true,
+              items: [
+                { label: 'Overview', slug: 'troubleshooting' },
+                { label: 'Common Issues', slug: 'troubleshooting/common-issues' },
+                { label: 'Performance Issues', slug: 'troubleshooting/performance-issues' },
+                { label: 'Security Issues', slug: 'troubleshooting/security-issues' },
+                { label: 'Federation & NATS', slug: 'troubleshooting/federation-nats' },
+                { label: 'PostgreSQL', slug: 'troubleshooting/by-database/postgresql' },
+                { label: 'MySQL', slug: 'troubleshooting/by-database/mysql' },
+                { label: 'SQLite', slug: 'troubleshooting/by-database/sqlite' },
+                { label: 'SQL Server', slug: 'troubleshooting/by-database/sqlserver' },
+                { label: 'Troubleshooting Guide', slug: 'guides/troubleshooting' },
+                { label: 'FAQ', slug: 'guides/faq' },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Databases',
+          collapsed: true,
+          items: [
+            { label: 'Database Overview', slug: 'databases' },
+            { label: 'Compatibility Matrix', slug: 'databases/compatibility' },
+            { label: 'PostgreSQL', slug: 'databases/postgresql' },
+            { label: 'MySQL', slug: 'databases/mysql' },
+            { label: 'SQLite', slug: 'databases/sqlite' },
+            { label: 'SQL Server', slug: 'databases/sqlserver' },
+            { label: 'SQL Server Enterprise', slug: 'databases/sqlserver-enterprise' },
           ],
         },
         {
@@ -296,84 +323,30 @@ export default defineConfig({
           ],
         },
         {
-          label: 'Deployment',
+          label: 'Confiture',
+          collapsed: true,
           items: [
-            { label: 'Deployment Overview', slug: 'deployment' },
-            { label: 'Docker', slug: 'deployment/docker' },
-            { label: 'Kubernetes', slug: 'deployment/kubernetes' },
-            { label: 'AWS', slug: 'deployment/aws' },
-            { label: 'Google Cloud', slug: 'deployment/gcp' },
-            { label: 'Azure', slug: 'deployment/azure' },
-            { label: 'Scaling & Performance', slug: 'deployment/scaling' },
+            { label: 'Overview', slug: 'confiture' },
+            { label: 'Build from DDL', slug: 'confiture/build' },
+            { label: 'Incremental Migrations', slug: 'confiture/migrate' },
+            { label: 'Production Data Sync', slug: 'confiture/sync' },
+            { label: 'Schema-to-Schema', slug: 'confiture/schema-to-schema' },
           ],
         },
         {
-          label: 'Troubleshooting',
+          label: 'Examples',
           collapsed: true,
           items: [
-            { label: 'Overview', slug: 'troubleshooting' },
-            { label: 'Common Issues', slug: 'troubleshooting/common-issues' },
-            { label: 'Performance Issues', slug: 'troubleshooting/performance-issues' },
-            { label: 'Security Issues', slug: 'troubleshooting/security-issues' },
-            { label: 'Federation & NATS', slug: 'troubleshooting/federation-nats' },
-            { label: 'PostgreSQL', slug: 'troubleshooting/by-database/postgresql' },
-            { label: 'MySQL', slug: 'troubleshooting/by-database/mysql' },
-            { label: 'SQLite', slug: 'troubleshooting/by-database/sqlite' },
-            { label: 'SQL Server', slug: 'troubleshooting/by-database/sqlserver' },
-          ],
-        },
-        {
-          label: 'Migrations',
-          collapsed: true,
-          items: [
-            { label: 'Migration Overview', slug: 'migrations' },
-            { label: 'Incremental Migration', slug: 'migrations/incremental' },
-            { label: 'From Prisma', slug: 'migrations/from-prisma' },
-            { label: 'From Apollo', slug: 'migrations/from-apollo' },
-            { label: 'From Hasura', slug: 'migrations/from-hasura' },
-            { label: 'From REST API', slug: 'migrations/from-rest' },
-            { label: 'From PostgREST', slug: 'migrations/from-postgrest' },
-          ],
-        },
-        {
-          label: 'Tools',
-          collapsed: true,
-          items: [
-            { label: 'Schema Validator', slug: 'tools/schema-validator' },
-          ],
-        },
-        {
-          label: 'Use Cases',
-          collapsed: true,
-          items: [
-            { label: '.NET Teams on SQL Server', slug: 'use-cases/dotnet-teams' },
-            { label: 'Python Teams', slug: 'use-cases/python-teams' },
-            { label: 'SaaS Companies', slug: 'use-cases/saas-companies' },
-            { label: 'Event-Driven Architectures', slug: 'use-cases/event-driven-teams' },
-          ],
-        },
-        {
-          label: 'Comparisons',
-          collapsed: true,
-          items: [
-            { label: 'vs Hasura', slug: 'vs/hasura' },
-            { label: 'vs Hasura (SQL Server)', slug: 'vs/hasura-sqlserver' },
-            { label: 'vs Apollo', slug: 'vs/apollo' },
-            { label: 'vs Prisma', slug: 'vs/prisma' },
-            { label: 'vs PostgREST', slug: 'vs/postgrest' },
-          ],
-        },
-        {
-          label: 'Blog',
-          collapsed: true,
-          items: [
-            { label: 'Blog', slug: 'blog' },
-            { label: 'Three Transports, One Binary', slug: 'blog/three-transports-one-binary' },
-            { label: 'Why Our gRPC Skips JSON', slug: 'blog/why-grpc-skips-json' },
-            { label: 'REST: Annotation-Driven', slug: 'blog/rest-annotation-driven' },
-            { label: '11 Languages, One Server', slug: 'blog/eleven-languages-one-server' },
-            { label: 'How Compilation Works', slug: 'blog/how-compilation-works' },
-            { label: 'REST vs GraphQL Benchmark', slug: 'blog/rest-direct-execution-benchmark' },
+            { label: 'Examples Overview', slug: 'examples' },
+            { label: 'Multi-Tenant SaaS', slug: 'examples/multi-tenant-saas' },
+            { label: 'SaaS Blog Platform', slug: 'examples/saas-blog' },
+            { label: 'Real-Time Collaboration', slug: 'examples/realtime-collaboration' },
+            { label: 'Real-Time Analytics', slug: 'examples/realtime-analytics' },
+            { label: 'Mobile Analytics Backend', slug: 'examples/mobile-analytics-backend' },
+            { label: 'Federation + E-Commerce', slug: 'examples/federation-ecommerce' },
+            { label: 'SaaS + Federation + NATS', slug: 'examples/saas-federation-nats' },
+            { label: 'Microservices Choreography', slug: 'examples/microservices-choreography' },
+            { label: 'NATS Event Pipeline', slug: 'examples/nats-event-pipeline' },
           ],
         },
         {
@@ -383,6 +356,52 @@ export default defineConfig({
             { label: 'Code of Conduct', slug: 'community/code-of-conduct' },
             { label: 'Getting Support', slug: 'community/support' },
             { label: 'Changelog', slug: 'changelog' },
+            {
+              label: 'AI-Assisted',
+              collapsed: true,
+              items: [
+                { label: 'Overview', slug: 'ai' },
+                { label: 'Generating Views', slug: 'ai/generating-views' },
+                { label: 'Python Client', slug: 'ai/python-client' },
+                { label: 'MCP Server', slug: 'ai/mcp-server' },
+                { label: 'LangChain Integration', slug: 'ai/langchain' },
+                { label: 'LlamaIndex Integration', slug: 'ai/llamaindex' },
+              ],
+            },
+            {
+              label: 'Use Cases',
+              collapsed: true,
+              items: [
+                { label: '.NET Teams on SQL Server', slug: 'use-cases/dotnet-teams' },
+                { label: 'Python Teams', slug: 'use-cases/python-teams' },
+                { label: 'SaaS Companies', slug: 'use-cases/saas-companies' },
+                { label: 'Event-Driven Architectures', slug: 'use-cases/event-driven-teams' },
+              ],
+            },
+            {
+              label: 'Comparisons',
+              collapsed: true,
+              items: [
+                { label: 'vs Hasura', slug: 'vs/hasura' },
+                { label: 'vs Hasura (SQL Server)', slug: 'vs/hasura-sqlserver' },
+                { label: 'vs Apollo', slug: 'vs/apollo' },
+                { label: 'vs Prisma', slug: 'vs/prisma' },
+                { label: 'vs PostgREST', slug: 'vs/postgrest' },
+              ],
+            },
+            {
+              label: 'Blog',
+              collapsed: true,
+              items: [
+                { label: 'Blog', slug: 'blog' },
+                { label: 'Three Transports, One Binary', slug: 'blog/three-transports-one-binary' },
+                { label: 'Why Our gRPC Skips JSON', slug: 'blog/why-grpc-skips-json' },
+                { label: 'REST: Annotation-Driven', slug: 'blog/rest-annotation-driven' },
+                { label: '11 Languages, One Server', slug: 'blog/eleven-languages-one-server' },
+                { label: 'How Compilation Works', slug: 'blog/how-compilation-works' },
+                { label: 'REST vs GraphQL Benchmark', slug: 'blog/rest-direct-execution-benchmark' },
+              ],
+            },
           ],
         },
       ],
