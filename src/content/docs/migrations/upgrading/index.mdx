@@ -1,0 +1,49 @@
+---
+title: Upgrading FraiseQL
+description: Step-by-step guides for moving between FraiseQL releases — error-taxonomy moves, breaking-API renames, and the sed lines that automate them.
+---
+
+This section covers **FraiseQL → FraiseQL** version upgrades: moving a
+service pinned at one minor release to the next. Each guide lists the
+release's breaking changes in numbered sections, with before / after
+code and the sed patterns that automate the mechanical rewrites.
+
+If you are coming from a different stack — Apollo, Hasura, Prisma,
+PostgREST, or a hand-rolled REST API — the [migration guides under
+`/building/migrations/`](/building/migrations) cover that shape of move
+instead.
+
+## Available guides
+
+- [v2.2 → v2.3](/migrations/upgrading/v2-2-to-v2-3/) — error-taxonomy
+  consolidation (`RuntimeError` removed; `FraiseQLError::Storage` →
+  `File(FileError::*)`), `ViewName` newtype, `ProjectionRequest` struct,
+  `KeyedRateLimiter<C: Clock>`, lock-free reads on five maps, `parking_lot`
+  swap, `MetricsCollector` flattened, `ParsedQuery.source: Arc<str>`,
+  `CompiledPattern`, workspace clippy denials, `CompiledSchema::from_json`
+  strict-integrity flag, `#[non_exhaustive]` rollout on six DTOs, removed
+  types. Roughly 16 breaking changes; the bulk of the work is sections 1
+  and 2.
+
+## When you don't need a guide
+
+If you build only against the umbrella `fraiseql` crate, never matched on
+`FraiseQLError::Storage { .. }` directly, never named `KeyedRateLimiter`
+in a struct field, and never pattern-matched on the six DTOs marked
+`#[non_exhaustive]` in v2.3, the upgrade is `cargo update` plus a
+recompile. The realistic minor-version upgrade for adopters in that shape
+is 5–15 minutes.
+
+The guides exist for the other shape: services with custom
+`DatabaseAdapter` impls, custom storage backends, custom federation
+`ConnectionManager` impls, or monitoring on stable error codes. Those
+adopters work through the guide section by section.
+
+## See also
+
+- [Release notes](/release-notes/) — what shipped in each release.
+- [Migrate from other tools](/building/migrations) — Apollo, Hasura,
+  Prisma, PostgREST, REST.
+- Framework
+  [CHANGELOG.md](https://github.com/fraiseql/fraiseql/blob/main/CHANGELOG.md)
+  — the authoritative per-release change log.

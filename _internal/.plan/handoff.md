@@ -1834,3 +1834,66 @@ All five are real CHANGELOG entries; none is fabricated; the adjacency selection
 - G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
 
 **Sign-off: APPROVE — Cycle 3 closes. Cycle 4 (v2.2 → v2.3 migration guide) opens.** Reviewer (Opus 4.7) hands off to Writer (Opus 4.7) for Cycle 4. Note for Cycle 4 Writer: re-read v2-3.mdx breaking-changes rows 1-16 before drafting the migration guide; the 16-row TL;DR table is deliberately row-ordered to make migration-guide cross-referencing trivial.
+
+---
+
+### Phase 02 / Cycle 4 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Pages created (2):**
+  - `src/content/docs/migrations/upgrading/v2-2-to-v2-3.mdx` (1205 lines, 79 JSX-comment-form citations).
+  - `src/content/docs/migrations/upgrading/index.mdx` (49 lines, hub page distinguishing `/migrations/upgrading/` from `/building/migrations/`).
+- **Sidebar:** new `Upgrading` group added under `Reference` → directly after the existing `Release Notes` group (`astro.config.mjs:L350-L357`). Two items: Overview + v2.2 → v2.3.
+- **TL;DR alignment:** the 16-row TL;DR table on the guide mirrors `release-notes/v2-3.mdx:L273-L290` breaking-changes table row ordering exactly. Each TL;DR row anchors-link to the per-section heading in the same page; the per-row Effort + Mechanical? columns are verbatim from upstream `docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L22-L39`. The Commit(s) column lives on `v2-3.mdx`; this guide omits it to avoid duplication (Reviewer can verify the source-of-truth alignment by spot-checking any TL;DR row against the corresponding `v2-3.mdx` row).
+- **16 numbered migration sections authored:**
+  1. `RuntimeError` → `FraiseQLError` (with subsystem-downcast edge case rolled in from upstream § 3; sed pattern in step 2).
+  2. `FraiseQLError::Storage` → `File(FileError::*)` (full code-string-to-variant table, two HTTP-status refinements documented, `#[non_exhaustive]` caveat).
+  3. `ServerError::RuntimeError` → `Engine` (sed).
+  4. `ViewName` newtype on cache-invalidation APIs (six method signatures enumerated).
+  5. `ProjectionRequest` struct argument (NOT `#[non_exhaustive]` by design).
+  6. `KeyedRateLimiter<C: Clock = SystemClock>` (with `<Aside type="caution">` on the closure-clock test-only seam, F059 policy).
+  7. `extract_root_field_names` → `impl Iterator`.
+  8. Lock-free reads on five maps + F056/F057 contract restorations + `TrustedDocumentStore::resolve` drops `async`. Two appended behaviour-only notes for upstream § 11 (JoinSet) and § 13 (Arrow Flight backpressure), per phase-doc-Cycle-4 "lock-free reads behaviour note" scope expansion.
+  9. `parking_lot::Mutex` swap (drop `.await` on `update_heartbeat`).
+  10. `MetricsCollector` flattened, no longer `Clone`.
+  11. `ParsedQuery.source: Arc<str>` (serde wire form preserved).
+  12. `ValidationRule::Pattern` → `CompiledPattern` (`try_from` preferred over `From`).
+  13. Workspace clippy denials promoted (12 lints enumerated) + Q4 `indexing_slicing` pilot.
+  14. `CompiledSchema::from_json(json, strict_integrity)` (sed pattern).
+  15. `#[non_exhaustive]` rollout on 6 public DTOs (full type/crate/constructor table).
+  16. Removed types (`MeEnrichmentConfig` + 2 dispatch types).
+  Plus: "Minor signature changes" coda (4 bullets: `compute_response_cache_key`, response-cache `Arc::unwrap_or_clone`, `UNSUPPORTED_OPERATION` → HTTP 501, `QueryParam::to_sql_param` removal) per upstream § 21.
+- **Per-section structure:** each section carries (a) what-changed paragraph; (b) before / after code blocks; (c) sed pattern in a `bash` fence where applicable; (d) two source citations — one to `CHANGELOG.md@d0a4ed4ec` and one to `docs/migration/v2.2-to-v2.3.md@d0a4ed4ec` — per orchestrator-mandated "one source citation per claim" rule. § 6 carries an additional Aside with verbatim `crates/fraiseql-auth/src/tests.rs` pattern recommendation (F059 policy).
+- **Before-you-start preamble (REFACTOR step done up-front):** MSRV 1.82+; backup-branch advice (`git checkout -b before-v2-3`); one-section-at-a-time philosophy; SDK out-of-scope note; workspace clippy heads-up. All five bullets cited to upstream guide line ranges.
+- **Container verification (CLEANUP step) — approach (A) succeeded.**
+  - Worktree: `git worktree add /tmp/fraiseql-v2.2 v2.2.0` → checked out `2c15bac95` (v2.2.0 tag).
+  - Sed 1 (RuntimeError rename): 8 files touched, 78 insertions / 78 deletions. Pattern produces the documented rewrite. Diffstat: `_internal/.plan/red-evidence/phase-02-cycle-04-sed-verification/sed-1-runtime-error-diffstat.txt`.
+  - Sed 2 (ServerError::RuntimeError → Engine): 0 files touched at v2.2.0. **Expected and correct outcome** — v2.2.0 has no call sites using the path-qualified `ServerError::RuntimeError` token; the variant is constructed exclusively via `#[from]` auto-conversion. Upstream commit `65491c2a9` commit message verbatim confirms: "No construction sites or match arms reference the variant directly — it is only ever constructed via the `#[from]` impl — so the rename is a single-site change." The sed pattern's adopter surface (path-qualified usage in foreign code) is correct; v2.2.0 just happens to have no such usage internally.
+  - Sed 3 (CompiledSchema::from_json strict_integrity): 29 files touched, all consistent rewrites adding `, false` as the second argument. Sample diffs (`crates/fraiseql-server/src/schema/loader.rs:L105-L108`, `crates/fraiseql-server/src/server/builder.rs:L70-L74`) match the page's documented semantics. Upstream commit `a27d8f1c5` touched 16 files; sed at v2.2.0 touches 29 because additional call sites accreted in v2.2.0 post-`a27d8f1c5` (the regex matches every `CompiledSchema::from_json(_)` token). Diffstat: `sed-3-compiled-schema-diffstat.txt`.
+  - **All three patterns ship as documented.** No surprises; no patterns failed; no manual rewrites flagged that the page does not already warn about. Approach-A verdict: PASS.
+  - Worktree left in place at `/tmp/fraiseql-v2.2` for follow-on verification.
+- **v2-3.mdx upgrade-hint section updated:** all three code-span references to `/migrations/upgrading/v2-2-to-v2-3/` on `v2-3.mdx:66`, `:271`, `:443` converted to MD links `[/migrations/upgrading/v2-2-to-v2-3/](/migrations/upgrading/v2-2-to-v2-3/)`. The "forthcoming under this docs phase" parenthetical was removed; the L443 prose was tightened. `v2-2.mdx:246` code-span reference to `/migrations/upgrading/v2-1-to-v2-2/` left as-is (target lands in Cycle 5).
+- **Build state:** `bun run build` exit 0. **204 pages built** (was 202 with Cycle 3 close), **280 HTML files** (was 278). Only the two pre-existing baseline warnings (`conf` lang in `building/federation-nats-integration.mdx`; `/[...slug]` vs `/` route conflict). No new warnings. `dist/migrations/upgrading/v2-2-to-v2-3/index.html` at 255,772 bytes; `dist/migrations/upgrading/index.html` at 85,034 bytes.
+- **Citation leakage scan in dist:** 0 JSX-comment-form citations (`{/* source:`) leaked. 7 plain `source:` hits in `dist/migrations/upgrading/v2-2-to-v2-3/index.html` — all are verbatim Rust struct field references inside code spans/blocks (`source: Arc`, `source: String`, `source: Some(Box::new(...))`, `source: keep doing it; the` is from prose `source: keep` — actually this last one is the prose phrase "If you `.clone()`d the source: keep doing it" — false positive on the trailing-colon detection, not a citation leak). Posture B operating as designed.
+- **Forbidden words scan:** 1 hit on `v2-2-to-v2-3.mdx:925` — the literal clippy lint name `` `todo` `` inside § 13's bullet enumeration of denied lints. Verbatim API surface (the lint is named `todo`, identical to the v2-3.mdx Cycle 3 precedent and the v2-2.mdx `tracing::info!` precedent). Zero `Phase N` archaeology; zero docs-overhaul codename references (the upstream guide's references to `POLICY_DECISIONS.md` Q1/Q2/Q3/Q4 were stripped during authoring, since those are upstream-only artefacts not visible to docs-site readers).
+- **Persona self-reference scan:** 0 hits.
+- **RED evidence:**
+  - `_internal/.plan/red-evidence/phase-02-cycle-04-upstream-migration.txt` (1176 lines) — full upstream migration guide extract at frozen SHA.
+  - `_internal/.plan/red-evidence/phase-02-cycle-04-section-map.md` (129 lines) — 404 verification, forward-dep slug map, phase-doc-16 → upstream-21 section mapping (including the 5 upstream sections rolled into other phase-doc sections), CHANGELOG line ranges, container-verification approach decision.
+  - `_internal/.plan/red-evidence/phase-02-cycle-04-sed-verification/` — 3 sed diffstat transcripts.
+- **Forward-dep slugs (Cycle 6 walks these):**
+  - `/migrations/upgrading/v2-1-to-v2-2/` — Cycle 5 target (referenced as code-span in the hub `index.mdx`? — no, the hub only references v2.2 → v2.3; v2.1 → v2.2 lands in Cycle 5 and will be added to the hub then).
+  - The hub `index.mdx` cross-links to `/release-notes/`, `/building/migrations`, and external GitHub — all existing slugs.
+- **Phase-doc scope adjustments (informational):**
+  - Phase-doc Cycle 4 § 8 ("Lock-free reads (no migration; behaviour note)") — expanded to include short behaviour-only notes for upstream § 11 (JoinSet drain) and § 13 (Arrow Flight backpressure) since they're "no migration needed" knock-ons that adopters benefit from knowing about. This is conservative scope expansion; flagged here for Reviewer.
+  - Upstream § 3 (Auth/Webhook/Observer downcast pattern) is folded into § 1's edge-cases rather than being a separate section. Phase-doc § 1 already maps to upstream § 1 + "the composition story" as a single conceptual unit.
+  - Upstream § 16 (`QueryParam::to_sql_param` removed) is folded into the "Minor signature changes" coda rather than as a separate § 17. Phase-doc 16-section list does not include this rename; the coda preserves it without expanding the numbered structure.
+- **Anti-scope held:**
+  - No v2.1 → v2.2 migration guide content (Cycle 5).
+  - No `index.mdx` Enterprise Features card grid (Cycle 6).
+  - No quickstart / install / CLI / SDK / changelog.mdx / framework code edits.
+  - No push to `main`; no commit amend.
+  - Did NOT edit `~/code/fraiseql` source (the `/tmp/fraiseql-v2.2` worktree manipulation reset cleanly after each sed; the upstream repo is untouched).
+- **Framework issues filed:** 0. Upstream migration guide is internally consistent against `CHANGELOG.md@d0a4ed4ec` and against the v2.2.0 source tree. The two scope-coverage gaps surfaced (upstream `POLICY_DECISIONS.md`, `FOLLOW_UPS.md`, `IMPROVEMENTS_R3.md`, `DEPRECATIONS.md` references) are upstream-internal artefacts intentionally not mirrored in docs-site prose; this is a presentation decision, not a framework defect.
+- **Branch hygiene:** branch `phase-02/migration-and-changelog` at `8fce0a5` (pre-Cycle-4 head). PR #13 draft, `MERGEABLE`, state OPEN. This Cycle-4 commit lands directly after `8fce0a5`.
+- **Commit SHA, push, CI URL:** captured in a follow-on entry post-commit (anti-amend rule from Cycles 1–3 precedent).
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.

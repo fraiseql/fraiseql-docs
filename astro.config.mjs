@@ -346,6 +346,14 @@ export default defineConfig({
                 { label: 'v2.0', slug: 'release-notes/v2-0' },
               ],
             },
+            {
+              label: 'Upgrading',
+              collapsed: true,
+              items: [
+                { label: 'Overview', slug: 'migrations/upgrading' },
+                { label: 'v2.2 → v2.3', slug: 'migrations/upgrading/v2-2-to-v2-3' },
+              ],
+            },
           ],
         },
         {
