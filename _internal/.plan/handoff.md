@@ -1126,8 +1126,8 @@ Please reply inline below this line with `> human:` your pick (A / B / C) and an
 - **Commits (three):**
   - `2edb72e` docs(ia): step 1 — sidebar redraw to Option A (10 groups). astro.config.mjs only; build clean with sidebar items still pointing at OLD slugs.
   - `01ed373` docs(ia): step 2 — 76 page moves; sidebar slugs repointed; 76 OLD→NEW redirects added.
-  - `<step-3-SHA>` docs(ia): step 3 CLEANUP — `_sidebar-decision.md` authored. (SHA appended after commit lands below this entry.)
-- **CI run URLs:** captured per commit below this entry once each push has triggered a run.
+  - `728beec` docs(ia): step 3 CLEANUP — `_sidebar-decision.md` authored; this handoff entry appended.
+- **CI run URL (against HEAD `728beec`):** https://github.com/fraiseql/fraiseql-docs/actions/runs/26624972782 — conclusion `success`. The step-1 and step-2 PR-pull-request runs were auto-cancelled by GitHub when the step-3 push superseded them (standard PR concurrency behaviour); the final HEAD-against-PR run is the gating check and it is green. Both jobs passed: `discover pages and frozen SHA` (4s), `page-test (_smoke)` (10m27s).
 - **Cycle 7 (sweep matrix) now unblocked** — depends on the new sidebar shape, which is now stable on `phase-01/triage-and-ia`.
 - **Anti-scope held:** no prose edits, no Phase-02 fixes, no Cycle 4 deferral fixes, no main pushes, no commit amendments.
 - **Open gates:** none new. G1 closed. G2 SHA freeze still at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
