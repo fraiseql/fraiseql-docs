@@ -1910,3 +1910,106 @@ All five are real CHANGELOG entries; none is fabricated; the adjacency selection
 - Commit SHA: see git log after this commit lands. Path-filtered to `_internal/` only — no CI trigger expected.
 - Handoff to Reviewer (Opus 4.7) next.
 - Open gates: none new.
+
+---
+
+### Phase 02 / Cycle 4 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.** Cycle 4 closes; Cycle 5 (v2.1 → v2.2 migration guide) opens.
+
+#### CI gate
+- Run `26639046777` on `2f693ab` (Writer content commit) — **success** (rerun after concurrency-cancellation).
+- Run `26639391399` on `0c2cd9c` (Verifier `_internal/`-only HEAD) — `cancelled` by concurrency.
+- `git diff 2f693ab..0c2cd9c -- 'src/'` is empty (0 lines). Rendered output at HEAD is byte-identical to the green-CI commit. **Methodology § 6.1 satisfied** — the docs-test workflow green-gate is on `2f693ab`; the `_internal/` follow-up at HEAD cannot break rendering.
+
+#### Sed-verification (independent reproduction)
+Ran each pattern against a fresh `cp -r /tmp/fraiseql-v2.2 → /tmp/sed-spot-check` copy of the v2.2.0 worktree at the Writer's authored commands:
+
+| Pattern | Writer claim | Reviewer reproduction |
+|---|---|---|
+| Sed 1 (RuntimeError → FraiseQLError) | 8 files, 78 ins / 78 del | **8 files, 78 ins / 78 del — exact** |
+| Sed 2 (ServerError::RuntimeError → Engine) | 0 files (variant `#[from]`-only at v2.2.0) | **0 files — exact (zero diff produced)** |
+| Sed 3 (CompiledSchema::from_json, false) | 29 files, 91 ins / 91 del | **29 files, 91 ins / 91 del — exact** |
+
+All three sed snippets ship with diffs exactly as claimed at v2.2.0.
+
+#### 16-section coverage
+- 16/16 top-level numbered H2 sections present in row order matching v2-3.mdx breaking-changes TL;DR table rows 1-16. Confirmed via `grep -nE '^## ' src/content/docs/migrations/upgrading/v2-2-to-v2-3.mdx`.
+- Upstream-21-section folding per the Writer's section map (`_internal/.plan/red-evidence/phase-02-cycle-04-section-map.md`): upstream § 3 → § 1 edge case; § 11 + § 13 → § 8 behaviour notes; § 16 → "Minor signature changes" coda; § 21 → "Minor signature changes" checklist. **Decisions are sensible and conservative** — each folded section is documented as "no migration needed" or "table-driven manual rewrite" upstream, and folding into the nearest topical section produces a more navigable adopter guide than five orphan H2s.
+
+#### Before-you-start preamble
+✅ MSRV 1.82+ note (L52-54). ✅ Backup branch advice with `git tag v2.2-baseline` snippet (L58-64). ✅ One-section-at-a-time philosophy with `cargo update` + `cargo check` loop (L74-85). Bonus: SDK out-of-scope note (L89-91) + workspace clippy heads-up (L95-98). Phase-doc REFACTOR requirements met in full.
+
+#### Forward-dep dead-link check
+`grep -E '\]\(/' v2-2-to-v2-3.mdx | grep -v 'release-notes/v2-3\|migrations/upgrading'` returns one hit only: `/release-notes/` (the hub created in Cycle 1, which is live). **0 dead MD links.** Cycle 2 BLOCK precedent honoured.
+
+#### v2-3.mdx upgrade-hint conversions (3 places)
+- L66: `[/migrations/upgrading/v2-2-to-v2-3/](/migrations/upgrading/v2-2-to-v2-3/)` ✅
+- L271: `[/migrations/upgrading/v2-2-to-v2-3/](/migrations/upgrading/v2-2-to-v2-3/);` ✅
+- L443: `[/migrations/upgrading/v2-2-to-v2-3/](/migrations/upgrading/v2-2-to-v2-3/).` ✅
+
+All three converted from code-span to proper MD link as the Writer claimed.
+
+#### Citation re-grep (independent sample)
+Independently re-fetched at frozen SHA `d0a4ed4ec`:
+
+| Citation (page:line | source:range) | Result |
+|---|---|
+| v2-2-to-v2-3.mdx:56 → upstream:L47-48 (MSRV note) | PASS — verbatim match |
+| v2-2-to-v2-3.mdx:72 → upstream:L53-56 (backup branch advice) | PASS — verbatim match |
+| v2-2-to-v2-3.mdx:128 → upstream:L70-94 (§ 1 what-changed) | PASS — matches |
+| v2-2-to-v2-3.mdx:185 → upstream:L126-141 (§ 1 migration steps + sed pattern) | PASS — matches verbatim |
+| v2-2-to-v2-3.mdx:415 → upstream:L394-407 (§ 3 sed-section: ServerError::Engine + word-boundary note) | PASS — matches |
+| v2-2-to-v2-3.mdx:1022 → upstream:L1001-1018 (§ 14 sed-section: CompiledSchema::from_json) | PASS — matches incl. nested-paren edge case |
+| v2-2-to-v2-3.mdx:127 → CHANGELOG.md:L253-267 (error taxonomy consolidation) | PASS — all enumerated variants + commit SHAs match |
+| v2-2-to-v2-3.mdx:436 → CHANGELOG.md:L317-326 (ViewName F028/F037) | PASS — six APIs + commit SHAs match |
+| v2-2-to-v2-3.mdx:1140 → upstream:L1102-1122 (§ 16 removed types) | PASS — matches; Writer correctly stripped upstream's "Phase 13" codename reference |
+
+8/8 independent samples pass. Verifier's 79/79 sustained.
+
+#### Code-block runnability spot-check
+- § 1 `match` block (L130-158) — Rust syntax valid; HTTP-shape variant pattern arms compile under the new `FraiseQLError` shape.
+- § 7 `extract_root_field_names` collect (L624-637) — Rust syntax valid; `collect::<Vec<_>>()` form correct.
+- § 11 deref + `Arc::clone` (L843-852) — Rust syntax valid; `&*parsed.source` deref pattern correct for `Arc<str>` → `&str`.
+- Bash `sed` snippets at L173, L404, L1014-1015 — all use proper `find … -exec sed -i 's/PATTERN/REPL/g' {} +` form; backslashes inside double-quoted MDX render as raw `\b` (verified by independent reproduction above).
+
+#### 15-point checklist
+1. **VERSION DRIFT** — ✅ All version refs (v2.2.x, v2.3.0, MSRV 1.82+) match CHANGELOG headers at frozen SHA.
+2. **SOURCE CITATIONS** — ✅ 79 JSX `{/* source: */}` blocks. Posture B: rendered HTML strips them; verified by Verifier (`dist/migrations/upgrading/`: 0 hits of `{/* source:`).
+3. **FROZEN SHA** — ✅ `d0a4ed4ec1770c70707f68fd9019f2b561d87461` cited consistently across all 79 citations; CHANGELOG + upstream guide line ranges resolve correctly.
+4. **PROSE-CLAIM SUPPORT** — ✅ 8/8 independent re-greps pass; Verifier 79/79; folding decisions documented in section map.
+5. **LINE-RANGE BOUNDS** — ✅ Upstream guide is 1176 lines; max cited range is L1141-L1154 (within bounds). CHANGELOG ranges all within file size.
+6. **DEAD LINKS** — ✅ 0 dead MD links. All forward-deps point at live targets (`/release-notes/`, `/release-notes/v2-3/`, intra-page `#` anchors).
+7. **UNDEFINED SYMBOLS** — ✅ 5 sampled: `FraiseQLError::{Auth, Webhook, Observer, File}` (lib.rs:rustdoc enumeration), `CompiledSchema::from_json` (schema_serde.rs:72), `ViewName` (cache/adapter/mod.rs:116), `ProjectionRequest` (db/traits/adapter_types.rs:193), `CompiledPattern` (validation/rules.rs:18) — all present in source tree at frozen SHA.
+8. **CODE BLOCKS RUNNABLE** — ✅ 3 Rust + 3 bash spot-checks pass syntax; sed snippets reproduce diffs exactly.
+9. **CROSS-LINK INTEGRITY** — ✅ Anchors in TL;DR table (`#1-runtimeerror-...` through `#16-removed-types-...`) match GitHub-Slugger output for the H2 headers. Spot-checked § 1, § 5, § 16.
+10. **TABLE-ROW ALIGNMENT** — ✅ TL;DR table rows 1-16 match v2-3.mdx breaking-changes table rows 1-16 in change description, effort, and mechanical? columns. "Commit(s)" column intentionally omitted here (lives in v2-3.mdx as canonical attribution) per Writer's design note in section map.
+11. **ERROR-PATH COVERAGE** — ✅ § 5 `ProjectionRequest` explicitly notes "not `#[non_exhaustive]`" with rationale (L485-487); § 15 `#[non_exhaustive]` rollout has explicit `_ =>` arm guidance (handoff/section-map cross-ref to upstream L1060-L1084). Failure-mode framing present where it matters most.
+12. **ARCHAEOLOGY-FREE** — ✅ `grep -E 'Phase [0-9]+|TODO|FIXME|coming-soon' v2-2-to-v2-3.mdx`: **0 hits**. Upstream § 20 carries a "Phase 13" codename at L1117; Writer correctly stripped it from the docs-site prose (replaced with "OIDC reference").
+13. **TONE / STYLE** — ✅ "Writes like an engineer who lived through the migration" maintained throughout. No marketing-ese, no claims of "powerful" or "robust", no exclamation points. `<Aside>` callouts (§ 6 test-only Clock seam) used for genuinely actionable warnings.
+14. **REDIRECTS / LINK SHAPE** — ✅ `/migrations/upgrading/v2-2-to-v2-3/` slug is unclaimed at v2.2 (verified by Writer's RED step 1); no redirect needed. Sidebar entry confirmed at `astro.config.mjs:354`.
+15. **ANTI-SCOPE** — see below; ✅ all pass.
+
+#### Anti-scope verification
+`git diff main..HEAD --name-only` adds only:
+- ✅ `src/content/docs/migrations/upgrading/v2-2-to-v2-3.mdx` (new)
+- ✅ `src/content/docs/migrations/upgrading/index.mdx` (new hub)
+- ✅ `astro.config.mjs` (sidebar entry: Upgrading group + 2 children)
+- ✅ `src/content/docs/release-notes/v2-3.mdx` (3 upgrade-hint conversions, no other prose change)
+- ✅ `src/content/docs/release-notes/index.mdx` + v2-0/v2-1/v2-2/v2-3 (Cycles 1-3 work; already in branch from earlier cycles)
+- ✅ `_internal/.plan/**` (planning artefacts)
+- ❌ No v2.1→v2.2 migration content (correctly deferred to Cycle 5).
+- ❌ No `index.mdx` card grid at root.
+- ❌ No SDK / quickstart / install-cli / changelog.mdx edits.
+
+#### Findings
+1. **(nit, non-blocking)** Page line count is 1205 vs. upstream 1176 — net +29 lines. Inspected: the difference is the TL;DR jump-anchor column (16 rows), the "Before you start" expansion (SDK + clippy heads-up bullets), and Cycle 4's TL;DR-table-mirror "Minor signature changes" coda. All additive and adopter-helpful. No prose padding.
+2. **(informational, follow-on for Cycle 5)** The Writer's section-map approach (`_internal/.plan/red-evidence/phase-02-cycle-04-section-map.md` — upstream-21 → docs-site-16 fold map with explicit per-section justification + CHANGELOG line ranges) is a strong precedent for Cycle 5. **Recommend** the v2.1 → v2.2 Writer produce the same artefact before authoring.
+3. **(informational, follow-on for Cycle 5/6)** The Writer scrubbed one upstream "Phase 13" codename hit at § 16. The v2.1 → v2.2 upstream guide may carry similar "(Phase N)" codenames that need stripping during CLEANUP. Add this to Cycle 5 Reviewer's archaeology check.
+4. **(informational)** Verifier's diffstat-log fallback (instead of fresh worktree reproduction) is acceptable in this Reviewer's pass because I independently reproduced all three patterns from a fresh `cp` of `/tmp/fraiseql-v2.2`. Recording this for Phase 02 precedent: if a future Reviewer cannot reproduce, escalate to BLOCK.
+
+#### Sign-off
+
+**APPROVE — Cycle 4 closes. Cycle 5 (v2.1 → v2.2 migration guide) opens.** Reviewer (Opus 4.7) hands off to Writer (Opus 4.7) for Cycle 5.
+
+Note for Cycle 5 Writer: (a) produce a section-map artefact mirroring Cycle 4's; (b) the v2.1→v2.2 migration is materially smaller in scope (no error-taxonomy rewrite) — confirm against the v2.2 release notes' breaking-changes table; (c) cross-link both new pages from `migrations/upgrading/index.mdx` (the hub already exists with a single v2.2→v2.3 entry — add the v2.1→v2.2 entry above it in chronological-back order); (d) the v2-2.mdx release notes page has its own upgrade-hint references — repeat the Cycle 4 code-span → MD-link conversion for the v2.1→v2.2 slug.
