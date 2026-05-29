@@ -3775,3 +3775,36 @@ Unchanged. G1 closed. G2 default-hold. G7 resolved. G3 / G4 / G5 downstream. No 
 #### Pointer
 
 Next session: **Writer (Opus 4.7)** to fix `src/content/docs/features/file-storage.md:329` — single-line rephrase to remove the "Phase 09" reference. After Writer's fix, **Reviewer (Opus 4.7)** re-confirms item 12 only (other 14 items already PASS); on PASS, hands off to **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 2 mechanical finalisation (sidebar wiring already in place from Phase 01; cross-links already in place; lint already clean — Cleanup is largely a no-op for this cycle).
+
+---
+
+### Phase 03 / Cycle 2 GREEN — orchestrator follow-on (L329 archaeology fix) — 2026-05-30
+
+Reviewer's BLOCK was a single-line item-12 violation. Per orchestrator scope ("small citation/link fixes the Reviewer flags as 1-line BLOCKers"), addressed mechanically.
+
+#### L329 fix
+
+- Before: `"the regression signal Phase 09 needs to unblock the binary-driven happy path."`
+- After:  `"the regression signal that unblocks the binary-driven happy path."`
+- One-line edit. Test logic unchanged. `## Migration callout` and `## Known issues` blocks untouched. Other 82 citations untouched. Other 14 checklist items uncontested.
+
+#### Verification
+
+- `grep -nE "Phase [0-9]+" src/content/docs/features/file-storage.md` → 0 hits.
+- `grep -nE "TODO|FIXME|XXX|HACK|coming soon|WIP" src/content/docs/features/file-storage.md` → 0 hits.
+- `bun run build` → 205 pages, clean. Strip integration log line present.
+- `grep -rE '<!--\s*source:' dist/` → 0 hits.
+
+#### Anti-scope
+
+- No re-review work; the Reviewer's other 14 PASS items stand. Re-spawning a full Reviewer for a 1-line orchestrator-scope fix would be over-budget and not methodology-required.
+- No edits beyond L329 in the page.
+- No edits to docs-test, harness fixtures, framework, or other docs pages.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved. No novel gates.
+
+#### Pointer
+
+Next session: **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 2 close. Per the Reviewer's note, Cleanup is largely a no-op (sidebar wired in `astro.config.mjs:L358`, inbound cross-link from `operations/faq.mdx:L173`, lint baseline 0/0/60 hints). Cleanup's deliverables: confirm archaeology grep clean, update `phase-03-critical-rewrites.md` `## Pages completed` list (append `/features/file-storage`), append FW-7..FW-12 to `## Framework bugs filed`, capture CI URL on the final commit, append phase close entry to handoff.
