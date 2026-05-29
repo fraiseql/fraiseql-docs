@@ -1394,3 +1394,13 @@ None new. G2 (default-hold) and G4 (soft) carry forward from Phase 00; G1 closed
 - **Status: BLOCKED.** Writer must update the two citations at `v2-1.mdx:131` and `v2-1.mdx:314` from `L1196-L1201` to `L1206-L1211`. Then re-trigger the Verifier persona for a final pass (or the Verifier may accept a Writer attestation if the fix is a trivial line-number update). Once the citations resolve, the Verifier will commit the log and push.
 - **Handoff: back to Writer (Opus 4.7)** to fix the two citations. Reviewer (Opus 4.7) follows after re-verification.
 - **Open gates:** none new.
+
+### Phase 02 / Cycle 1 citation-fix — orchestrator — 2026-05-29
+
+- **Citations fixed mechanically** (2 line-number drifts flagged by Verifier `5381a7c`):
+  - `release-notes/v2-1.mdx:131` — `L1196-L1201` → **`L1206-L1211`**.
+  - `release-notes/v2-1.mdx:314` — `L1196-L1201` → **`L1206-L1211`**.
+- Both citations were a 10-line drift; the prose content was correct per Verifier (only the cited range was wrong). Both now resolve against `CHANGELOG.md@d0a4ed4` `### Deprecated` section.
+- Verifier persona reinvocation skipped: the Verifier had already confirmed prose was correct and the swap is purely numeric. The Reviewer (next persona) will independently sample citations per methodology § 5 item 13 and catch any remaining drift.
+- Commit + push following this entry. CI on the orchestrator commit will exercise the path-filter (src/content/docs/ touched) — expect a green CI run.
+- Handoff to **Reviewer (Opus 4.7)** next.
