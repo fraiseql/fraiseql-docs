@@ -1368,5 +1368,8 @@ None new. G2 (default-hold) and G4 (soft) carry forward from Phase 00; G1 closed
   - No edits to existing `changelog.mdx` (Cycle 6 cross-link decision).
 - **RED evidence:** `_internal/.plan/red-evidence/phase-02-cycle-01-changelog-sourcing.txt` — captures the 404 verification, v2.1 line-range table, v2.0 tag-CHANGELOG sourcing investigation, hub forthcoming-row scope, and the sidebar placement decision.
 - **Framework issues filed:** 0. Sourcing was clean — no CHANGELOG entries contradicted source-of-truth grep.
-- **Commit SHA, push, PR:** captured in commit message; see PR URL + CI run URL below.
+- **Commit SHA:** `7406a10c005fc420714814873e9344ed9c014ebc` (`7406a10`).
+- **Branch push:** `origin/phase-02/migration-and-changelog` advanced from `84614de` → `7406a10`.
+- **PR opened (draft):** https://github.com/fraiseql/fraiseql-docs/pull/13 — `docs: Phase 02 — migration and changelog`, draft until phase close.
+- **CI run:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26631219557 — conclusion `success`. Both jobs passed: `discover pages and frozen SHA` and `page-test (_smoke)`.
 - **Open gates:** none new. G2 default-hold continues at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
