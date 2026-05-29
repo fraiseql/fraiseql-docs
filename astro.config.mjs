@@ -340,6 +340,7 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Overview', slug: 'release-notes' },
+                { label: 'v2.3', slug: 'release-notes/v2-3' },
                 { label: 'v2.2', slug: 'release-notes/v2-2' },
                 { label: 'v2.1', slug: 'release-notes/v2-1' },
                 { label: 'v2.0', slug: 'release-notes/v2-0' },

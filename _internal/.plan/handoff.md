@@ -1660,3 +1660,56 @@ All five are real CHANGELOG entries; none is fabricated; the adjacency selection
 - `bun run build`: clean. No new internal-link warnings.
 - Commit + push follow. CI gate-runs on `src/content/docs/` touch.
 - Handoff to **Reviewer (Opus 4.7)** re-pass (or accept this as the fix per orchestrator-fix precedent from Cycle 1).
+
+---
+
+### Phase 02 / Cycle 3 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Page created:** `src/content/docs/release-notes/v2-3.mdx` (445 lines, 57 source citations, JSX-comment form per methodology § 4 amendment).
+- **`index.mdx` updated:** v2.3 row promoted from `Forthcoming — lands in an upcoming docs cycle.` to `[v2.3 release notes](/release-notes/v2-3/)`. The forthcoming `<Aside>` block for v2.3 removed; unused `Aside` import dropped from the index header.
+- **Sidebar wired:** `astro.config.mjs:L343` adds explicit `{ label: 'v2.3', slug: 'release-notes/v2-3' }` entry between Overview and v2.2 (newest-first ordering preserved).
+- **8 headline subsystems authored** (one paragraph + forward-dep code-span slug each):
+  - Studio admin dashboard (`/features/studio/` — forthcoming) — CHANGELOG L103-L110.
+  - Functions (`/features/functions/` — forthcoming) — CHANGELOG L71-L77.
+  - Storage (`/features/storage/` — forthcoming) — CHANGELOG L66-L69.
+  - Realtime (`/features/realtime/` — forthcoming) — CHANGELOG L79-L84.
+  - Auth extensions (`/features/auth-extensions/` — forthcoming) — CHANGELOG L89-L92.
+  - Schema migrations CLI (`/reference/cli/migrations/` — forthcoming) — CHANGELOG L100-L101.
+  - Hierarchies (`/features/hierarchies/` — forthcoming) — CHANGELOG L46-L52, PostgreSQL only call-out.
+  - REST transport (`/features/rest-transport/` — forthcoming) — CHANGELOG L125-L129, `rest` feature flag named.
+- **Security hardening:** S33–S48 itemised in a 13-row table with per-finding commit SHAs (sourced at CHANGELOG L175-L192). Six additional hardenings authored: cache RLS isolation guard, subscription tenant isolation, HTTP allowlist default, RLS on aggregate/window paths, Vault hardening, token `Debug` redaction + `Secret` zeroize-on-drop. Each carries its own citation block.
+- **Performance:** 8 hot-path items (parsed-query AST reuse [F001], response cache hit `Arc::unwrap_or_clone` [F002], lock-free reads across 5 maps [F006/F007/F008/F013/F048/F056/F057], scratch buffer in `compute_response_cache_key` [F044/F004], `impl Iterator` on `extract_root_field_names` [F020], `LazyLock<Regex>` swap [F027], federation retry source-chain [F025], response-cache lookup tracing [F040]).
+- **Breaking changes:** 16-row TL;DR table covering the full enumeration from phase-doc § Cycle 4. Each row: change description + effort + mechanical? + commit SHAs. Aside callout explains the error-taxonomy consolidation rationale (5 deleted shadow enums had zero production call sites at removal).
+- **Bug fixes:** Top 10 by impact, severity-weighted to security / data-integrity / multi-tenant. axum 0.8 startup-panic (v2.3.1 #316/#317), response-cache key collision [F044], hot-reload cache rebind, federation retry source chain [F025], fraiseql-storage compile fix, observer panic propagation [F014], cron error chain [F047], OIDC enrichment without observers, IntoResponse catch-all [F055], cargo publish unblock (v2.3.2).
+- **Patches:** v2.3.1 (axum 0.7→0.8 router-panic fix + router-construction tests + axum-route-syntax-check CI gate + release-smoke workflow) and v2.3.2 (build.rs OUT_DIR Studio staging + fraiseql-functions / fraiseql-storage added to release automation + validate-release dry-run extended). Caution Aside on v2.3.1/v2.3.0 pin failures.
+- **Commit-SHA column** on the breaking-changes table per CLEANUP requirement. 11/16 rows name SHAs verbatim from CHANGELOG; 2 rows (#14 schema-integrity flag, #16 removed types) explicitly note the CHANGELOG lacked an inline SHA at those entries (`a27d8f1c5` referenced for #14 from the schema-integrity Added entry).
+- **Forward-dep slugs (Cycle 6 walks these):**
+  - `/features/studio/` — forthcoming (Phase 04+).
+  - `/features/functions/` — forthcoming (Phase 04+).
+  - `/features/storage/` — forthcoming (Phase 04+).
+  - `/features/realtime/` — forthcoming (Phase 04+).
+  - `/features/auth-extensions/` — forthcoming (Phase 04+).
+  - `/reference/cli/migrations/` — forthcoming (Phase 07).
+  - `/features/hierarchies/` — forthcoming (Phase 05).
+  - `/features/rest-transport/` — forthcoming (Phase 04+).
+  - `/migrations/upgrading/v2-2-to-v2-3/` — forthcoming (Cycle 4, this phase).
+- **Forthcoming-page references** all use the explicit code-span pattern (`` `/path/` ``) without markdown linkification, per the Cycle 2 BLOCK-fix precedent. Zero `[text](/path)` markdown links to internal paths in the page (`grep -nE '\]\(/' src/content/docs/release-notes/v2-3.mdx` returns nothing). Only external link is the framework CHANGELOG GitHub URL in the upgrade section.
+- **Build state:** clean. `bun run build` → exit 0, **202 pages built** (was 201 with Cycle 2 close), **278 HTML files** (was 277). Only the two pre-existing baseline warnings (`conf` language in `building/federation-nats-integration.mdx`; `/[...slug]` vs `/` route conflict). No new warnings. `dist/release-notes/v2-3/index.html` exists at 138,109 bytes.
+- **Citation leakage:** 1 `source:` hit in `dist/release-notes/v2-3/index.html` — `ParsedQuery.source: String` literal Rust field reference inside a `<code>` block in breaking-changes row 11. This is verbatim API surface from CHANGELOG L400; parallels v2-2.mdx's `tracing::info!` (Rust macro syntax in code span) precedent. No JSX-comment-form citation leakage; the JSX-comment form remains invisible in rendered output as designed.
+- **Style scan:** `grep -niE 'TODO|FIXME|XXX|easily|simply|^just |WIP|coming soon|Phase [0-9]'` against the new page returns 1 hit — row 13 of the breaking-changes table contains the verbatim clippy lint name `` `todo` `` in a code span (alongside `panic`, `unimplemented`, etc.); this is the workspace lint denial enumeration from CHANGELOG L440. Same code-span-as-API-name pattern as the `tracing::info!` precedent. Zero docs-overhaul "Phase N" archaeology references — the original draft mentioned framework-internal codenames ("Phase 13 Auth Extensions", "Phase 14 Schema Migrations", "Phase 18 Studio"); rewritten to drop the codename references during CLEANUP. No persona self-references (`grep -niE '\b(persona|opus|sonnet|haiku|orchestrator|as an AI)\b'` → 0 hits).
+- **Description length:** 154 chars (under the 155-char SEO target).
+- **RED evidence:** `_internal/.plan/red-evidence/phase-02-cycle-03-changelog-v2-3.txt` (269 lines) — captures the 404 verification (`ls src/content/docs/release-notes/v2-3.mdx` → No such file), v2.3.0 / v2.3.1 / v2.3.2 section line-range map (110+ sub-ranges mapped to CHANGELOG-absolute lines), 8-headline-subsystem checklist (8/8 confirmed), security inventory (S33–S48 + 7 additional hardenings), performance inventory (8 items), 16-row breaking-change inventory with commit-SHA attribution, top-10 bug-fix selection rationale, patch summaries, forward-dep slug plan, anti-scope confirmation, phase-doc-drift findings, and the raw CHANGELOG extract scope confirmation.
+- **Phase-doc drift findings:**
+  1. Phase doc § Cycle 3 names "TCP_NODELAY + gated compression default change" as a v2.3 performance bullet. CHANGELOG L8-L580 at frozen SHA has no such entry. **Decision:** omitted from the page; flagged in RED evidence.
+  2. Phase doc claims the v2.3 sections "together run ~700 lines." Actual at frozen SHA: ~573 lines (L8 to L580 inclusive). Page-scope adjusted to reality. Methodology § 4 amendment encourages adjusting scope to source-of-truth.
+  3. Phase doc § Cycle 4 enumeration of 16 breaking changes lines up exactly with Cycle 3's TL;DR table; row order preserved to make Cycle 4 cross-referencing trivial.
+- **Anti-scope held:**
+  - No v2.0 / v2.1 / v2.2 release-notes edits.
+  - No migration guides written (Cycles 4-5 own).
+  - No `index.mdx` Enterprise Features card-grid integration (Cycle 6 owns).
+  - No quickstart / install / CLI / SDK / changelog.mdx / framework code edits.
+  - No push to `main`; no commit amend.
+- **Framework issues filed:** 0. CHANGELOG v2.3.x sourcing was clean across all sections; every line citation resolves at the frozen SHA. The two NO-SHA noted-in-table cells (#14 / #16) are CHANGELOG omissions, not contradictions — the page is explicit about the missing SHA in those rows.
+- **Commit SHA, branch push, PR, CI:** captured in a follow-on entry post-commit (this entry pre-commit per anti-amend rule from Cycle 1 / Cycle 2 precedent).
+- **Open gates:** none new. G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d87461` continues.
+

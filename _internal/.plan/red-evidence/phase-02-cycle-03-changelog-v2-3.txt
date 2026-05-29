@@ -1,0 +1,269 @@
+Phase 02 / Cycle 3 — RED evidence for v2-3.mdx
+================================================================================
+Frozen FraiseQL SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+CHANGELOG path: ~/code/fraiseql/CHANGELOG.md @ frozen SHA
+Date captured: 2026-05-29
+
+404 verification
+----------------
+$ ls ~/code/fraiseql-docs/src/content/docs/release-notes/v2-3.mdx
+ls: cannot access ...v2-3.mdx: No such file or directory
+=> /release-notes/v2-3 has no page on the docs site. RED satisfied.
+
+Section line-range map (absolute, CHANGELOG.md at frozen SHA)
+-------------------------------------------------------------
+L8           ## [Unreleased]              (empty — no content between L8 and L10)
+L10          ## [2.3.2] - 2026-05-28
+  L12        ### Fixed
+    L14      cargo publish for fraiseql-server/cli/umbrella (build.rs npm-in-src fix)
+    L16      fraiseql-functions + fraiseql-storage missing from release automation
+  L18        ### Changed
+    L20      release.yml validate-release dry-run covers every publishable crate
+  L22        ### Migration
+    L24      v2.3.1 pins fail; upgrade to 2.3.2
+L26          ## [2.3.1] - 2026-05-27
+  L28        ### Fixed
+    L30      Server panic at startup on observer router mount (#316, #317; axum 0.7→0.8)
+  L32        ### Added
+    L34      Router-construction tests (#317)
+    L36      axum-route-syntax-check CI gate (#317)
+    L38      release-smoke workflow (#317)
+L40          ## [2.3.0] - 2026-05-25
+  L42        (header / supersession note + adopter migration pointer)
+  L44        ### Added
+    L46-L52    LTree ID-based operators (#250) — PG only; [hierarchies] config
+    L54-L58    JWT nested claims extraction (#246) — /auth/me top-level email/display_name
+    L60-L63    Partial-period aggregates (UNION ALL dispatch)
+    L65-L68    Storage API (fraiseql-storage crate; S3/local/Azure/GCS)
+    L70-L77    Functions trigger system (fraiseql-functions; WASM; AES-256-GCM secrets; cache)
+    L79-L84    Realtime subsystem (WebSocket; CronScheduler; presence; CDC ObserverRuntime)
+    L86-L88    Subsystems builder (ServerSubsystems + ExtendedCompiledSchema)
+    L90-L94    Auth extensions (Phase 13: social, magic link, OTP, TOTP MFA, anon, phone)
+    L96-L101   Tenancy hardening (Phase 15: row-isolation guard, schema-isolation DDL, suspend/resume, audit)
+    L103-L104  Schema migrations CLI (Phase 14: fraiseql-cli)
+    L106-L110  Studio admin dashboard (Phase 18: SPA at /studio + admin API endpoints)
+    L112-L113  Studio metrics endpoint — GET /admin/v1/metrics/summary
+    L115-L117  CLI setup command (mutation helpers)
+    L119-L120  Observer management (changelog handlers, DLQ, shared state)
+    L122-L123  DatabaseAdapter::on_schema_reload()
+    L125-L126  PostgreSQL usage persistence backend (fraiseql_usage_counters table)
+    L128       [usage] TOML configuration section
+    L130-L133  REST transport wiring ([rest] TOML + rest feature flag; PR #229)
+    L135-L141  Admin query-stats endpoints (#268; pg_stat_statements / performance_schema / sys.dm_exec_query_stats; PG/MySQL/MSSQL; SQLite no-op)
+    L143-L145  Native aggregation column support (native_measures + native_dimension_mapping)
+    L147-L149  Wire protocol network operators (isMulticast/isLinkLocal/isDocumentation/isCarrierGrade)
+    L151       camelCase operator normalization
+    L153-L156  Independent admin-route auth toggles
+    L158-L159  Federation mTLS
+    L161-L162  Schema integrity (SHA-256 content hash in schema.compiled.json)
+    L164       Cargo-fuzz target for wire JSON parse path [F030]
+    L166-L167  Property tests for runtime entry points [F031]
+    L169-L172  Crate-level READMEs (16 crates) [F032]
+  L174       ### Security
+    L175      S33 — auth input caps + reload_schema path-traversal guard
+    L176      S34 — resource bounds on auth flows
+    L177      S35 — quality & observability polish on auth path
+    L178      S36 — session security hardening
+    L179      S37 — PKCE hardening
+    L180      S38 — SCRAM / auth key-material zeroization
+    L181      S39 — redirect URI and auth-code input hardening
+    L182      S40 — JWT claims hardening
+    L183      S41 — JWT algorithm hardening
+    L184      S42 — JWT header injection defence
+    L185-L186 S43 — IPv6 literal parsing in wire connection strings
+    L187-L188 S44 — Federation saga table double-prefix fix + cleanup_all visibility restriction
+    L189-L192 S45–S48 — peer-IP via PeerIp extractor; AuthorizationDenied audit event; Vault rotation atomicity; admin bearer-token brute-force protection
+    L193-L194 Vault hardening — body-size guards + Debug redaction
+    L195-L196 Cache RLS isolation guard
+    L197-L198 Subscription tenant isolation (WebSocket)
+    L199-L200 HTTP allowlist defaults (fraiseql-functions outbound)
+    L201-L202 RLS enforcement on aggregate/window paths
+    L203-L204 Redact bearer token in AuthRequest Debug [F010]
+    L205-L206 Redact tokens in AuthCallbackResponse / AuthRefreshResponse Debug [F045]
+    L207-L209 Zeroize Secret buffer on drop [F012]
+  L211       ### Fixed
+    L213      Hot-reload cache rebind (query cache cleared on schema reload)
+    L214-L215 fraiseql-storage compile errors
+    L216-L217 platform_e2e_test repaired (9 tests; race condition)
+    L218      OIDC enrichment without observers feature
+    L219-L220 CLI SBOM metadata fallback to workspace Cargo.toml
+    L221      3 broken doctests in traits.rs and PostgresAdapter
+    L222-L224 Federation HTTP retry source chain [F025]
+    L225-L227 Observer job-worker panics propagated [F014]
+    L228-L229 Cron task error chain logged [F047]
+    L230-L233 Response-cache key serialization errors propagated [F044] (cf3a202cd)
+    L234      Per-query execution log demoted from info to debug [F041]
+    L235-L237 FraiseQLError doctest references rewritten [F016]
+    L238-L241 IntoResponse for FraiseQLError catch-all arm [F055]
+    L242-L244 Auth/Webhook/Observer source-chain preservation [F049]
+    L245-L246 FraiseQLError::Storage ownership rustdoc [F051]
+    L247-L248 OAuth/token race conditions in tests
+  L250       ### Changed (breaking)
+    L252-L266 Error taxonomy consolidation — RuntimeError removal + 5 shadow enums + FraiseQLError::{Auth,Webhook,Observer,File} (ffd3124e9, dd1c9b80f, 230d4d238)
+    L268-L272 ServerError::RuntimeError → ServerError::Engine (65491c2a9)
+    L274-L301 FraiseQLError::Storage → FraiseQLError::File(FileError::*) [F050] (4c86d2e0d et al.)
+    L303-L311 ViewName(Arc<str>) newtype propagated through cache invalidation APIs [F028, F037] (4bf9a58b1, e760033ce)
+    L313-L318 execute_with_projection_arc takes &ProjectionRequest<'_> [F043] (83725aed8)
+    L320-L325 KeyedRateLimiter<C: Clock = SystemClock> [F018] (3dca6bd67)
+    L327-L329 extract_root_field_names returns impl Iterator<Item = &str> [F020] (dffa25762)
+    L331-L350 Lock-free reads across InMemoryRateLimiter/TrustedDocumentStore/KeyedRateLimiter/ConnectionManager/entity_type_index [F006, F007, F008, F013, F048, F056, F057]
+    L352-L358 parking_lot::Mutex replaces tokio::sync::Mutex for sync critical sections [F019] (bb95ef8e9)
+    L360-L366 Lifecycle tokio::spawn tracked via JoinSet [F021] (19bfd826c)
+    L368-L373 MetricsCollector counters flattened to bare AtomicU64 [F009] (f5ddaa59e)
+    L375-L380 Arrow Flight multi-batch responses streamed via bounded mpsc::channel(4) [F011] (0077a3eb1)
+    L382-L386 ParsedQuery.source: String → Arc<str> [F042] (bab30d351)
+    L388-L393 QueryMatcher builds variables map once per request [F005, F024] (38c6e705b)
+    L395-L401 ValidationRule::Pattern { CompiledPattern } [F003] (dd4393d06)
+    L403-L408 QueryParam to_sql_param helper deleted; as_sql_param_refs centralises borrow pattern [F036] (c9b599e15)
+    L410-L417 Wire-crate clippy allows reorganised [F053] (897a2188a)
+    L419-L432 Workspace clippy strictly denies panic/unreachable/print_stdout/etc.; nursery+cargo to deny; 3 pilot crates deny indexing_slicing
+    L434-L439 CompiledSchema::from_json(json, strict_integrity)
+    L441-L447 Removed: fraiseql_cli::IntermediateSqlSourceDispatch + fraiseql_core::SqlSourceDispatch
+    L449-L454 Removed: fraiseql_core::security::oidc::providers::MeEnrichmentConfig
+    L456-L465 #[non_exhaustive] rollout to public DTOs (RelayPageResult, SqlProjectionHint, OrderByClause, ActionResult, CacheStatus, EventKind) (dbc9e0afc, e2b9944d2, 3d8c4bce6)
+  L467       ### Changed (non-breaking)
+    L469-L471 Lock-free read paths — summary of [F006, F007, F008, F013, F048]
+    L473-L476 GraphQL parsing on hot path — parse once, validate + match same AST [F001] (b94abc592)
+    L478-L479 Response cache hit returns Arc::unwrap_or_clone [F002] (15fd10a48)
+    L481-L484 compute_response_cache_key uses reused scratch Vec<u8> + serde_json::to_writer [F044, F004] (cf3a202cd)
+    L486-L487 extract_root_field_names returns impl Iterator (F020 dup ref)
+    L489-L490 Federation HTTP retry preserves source chain [F025] (500859a48)
+    L492-L493 Tracing on response-cache lookup path [F040] (ec9015e26)
+    L495-L496 OnceLock<Regex> → LazyLock<Regex> in cache/uuid_extractor.rs [F027] (ccd25ee97)
+    L498-L499 compute_response_cache_key + validate_query extracted helpers [F023] (cf3a24c2e)
+    L501-L508 Workspace dependency consolidation (redis/chrono/dashmap/uuid/url) [F015, F033, F034]
+    L510-L511 cargo ci alias + make ci target [F035] (d04068d34)
+    L513-L515 mold linker opt-in documented [F022] (598231ae4)
+    L517      Cargo production dependencies — non-breaking bumps
+    L518-L519 GitHub Actions — checkout v4→v6, etc. across 35 workflows
+    L520-L521 Pre-commit hooks — markdownlint-cli + actionlint + stages-pre-push
+    L522-L523 UsageAggregator.backend → RwLock<Arc<dyn UsageBackend>>
+    L524-L525 UNSUPPORTED_OPERATION error code → HTTP 501
+    L526-L528 CVE bumps — rmcp 0.16→1.4 (CVE-2026-42559); jsonwebtoken 9→10 (CVE-2026-25537); thrift feature-gated (CVE-2026-43868)
+    L529-L530 Newtype wrappers for domain identifiers
+    L531-L533 Construction patterns standardised — public DTOs gain new() + #[non_exhaustive]
+  L535       ### Known Limitations Update
+    L537-L539 Pool Pressure Monitor — no runtime resize in deadpool/bb8
+    L540-L543 Q4 workspace indexing_slicing rollout in progress
+  L545       ### Deferred to v2.4
+    L547-L549 F031 property tests cover no-DB only; full executor pipeline deferred
+
+L551 (the end-of-section marker; v2.2.0 header at L581 bounds the section)
+
+Headline-subsystem checklist (8 phase-doc-listed)
+-------------------------------------------------
+1. Studio admin dashboard       — L106-L113 — Phase 18 — features/studio/ slug
+2. Functions                    — L70-L77   — fraiseql-functions crate — features/functions/ slug
+3. Storage                      — L65-L68   — fraiseql-storage crate — features/storage/ slug
+4. Realtime                     — L79-L84   — features/realtime/ slug
+5. Auth extensions              — L90-L94   — Phase 13 — features/auth-extensions/ slug
+6. Schema migrations CLI        — L103-L104 — Phase 14 — reference/cli/migrations/ slug
+7. Hierarchies (LTree)          — L46-L52   — PG-only — features/hierarchies/ slug
+8. REST transport               — L130-L133 — `rest` feature flag — features/rest-transport/ slug
+
+All 8 confirmed present in CHANGELOG. No drift.
+
+Security hardening checklist
+----------------------------
+- S33-S48 individually itemised at L175-L192. 16 numbered findings.
+- Cache RLS isolation guard      — L195-L196 (226d0de36)
+- Subscription tenant isolation  — L197-L198 (9639fd894)
+- HTTP allowlist defaults        — L199-L200 (f49885cbf)
+- Vault hardening                — L193-L194 (17cf97a96)
+- Token Debug redaction          — L203-L206 [F010, F045]
+- Secret zeroize-on-drop         — L207-L209 [F012] (eda6db593)
+- RLS enforcement on aggregate/window paths — L201-L202 (f7d5e77a8)
+
+Performance checklist
+---------------------
+- Parsed-query AST cache (parse once, reuse across validation+matching)   — L473-L476 [F001]
+- Response cache hit Arc::unwrap_or_clone                                  — L478-L479 [F002]
+- Lock-free reads (5 maps)                                                 — L331-L350 [F006..F057]
+- compute_response_cache_key — scratch Vec + serde_json::to_writer         — L481-L484 [F044, F004]
+- extract_root_field_names impl Iterator                                   — L327-L329 + L486-L487 [F020]
+- OnceLock<Regex> → LazyLock<Regex>                                        — L495-L496 [F027]
+- Federation HTTP retry source-chain preserved                             — L489-L490 [F025]
+- TCP_NODELAY + gated compression default change is referenced in phase doc; CHANGELOG check
+  => no explicit CHANGELOG entry for "TCP_NODELAY + gated compression default change" in v2.3
+     section. Phase-doc-drift note: this item is in the phase-doc Cycle 3 bullet but
+     does not appear verbatim in CHANGELOG L8-L581. Will omit from the page.
+
+Breaking-change checklist (16 enumerated in phase doc Cycle 4)
+--------------------------------------------------------------
+1. RuntimeError removal (use FraiseQLError)             — L252-L266 (ffd3124e9, dd1c9b80f, 230d4d238)
+2. FraiseQLError::Storage → File(FileError::*)          — L274-L301 (4c86d2e0d, ed80df821, aa7d59712, 44432234f, acec7e435, 76288f3ab)
+3. ServerError::RuntimeError → Engine                   — L268-L272 (65491c2a9)
+4. ViewName newtype                                     — L303-L311 (4bf9a58b1, e760033ce)
+5. ProjectionRequest struct argument                    — L313-L318 (83725aed8)
+6. KeyedRateLimiter<C: Clock>                           — L320-L325 (3dca6bd67)
+7. extract_root_field_names → impl Iterator             — L327-L329 (dffa25762)
+8. Lock-free reads (no migration)                       — L331-L350 (c5c946fb3, 4b3e542b3, 6f79c711e, 3cda8124f, 1ebae1f61)
+9. parking_lot::Mutex (drop .await)                     — L352-L358 (bb95ef8e9)
+10. MetricsCollector flattened                          — L368-L373 (f5ddaa59e)
+11. ParsedQuery.source: Arc<str>                        — L382-L386 (bab30d351)
+12. ValidationRule::Pattern → CompiledPattern           — L395-L401 (dd4393d06)
+13. Workspace clippy denials                            — L419-L432 (bb5347e82, ace13741e, et al.)
+14. CompiledSchema::from_json(json, strict_integrity)   — L434-L439
+15. #[non_exhaustive] rollout to public DTOs            — L456-L465 (dbc9e0afc, e2b9944d2, 3d8c4bce6)
+16. Removed types (MeEnrichmentConfig + schema intermediate dispatch) — L441-L454
+
+All 16 confirmed at expected line ranges. Additional ad-hoc breaking changes
+present in CHANGELOG that the page surfaces in adjacent rows:
+- Arrow Flight bounded mpsc::channel(4) [F011] — L375-L380 (0077a3eb1) — behavioural note
+- QueryMatcher single-pass variables [F005, F024] — L388-L393 (38c6e705b) — internal
+- QueryParam::to_sql_param removed [F036] — L403-L408 (c9b599e15) — small adopter impact
+- Wire-crate clippy allows reorganised [F053] — L410-L417 (897a2188a) — internal
+- Lifecycle JoinSet [F021] — L360-L366 (19bfd826c) — internal; document as adopter-visible
+  shutdown improvement only
+
+Top 10 bug fixes by impact (severity-weighted)
+----------------------------------------------
+Selection priority: security / data-integrity / multi-tenant correctness > general fixes.
+
+ 1. axum 0.7→0.8 router-mount panic (v2.3.1 #316/#317)       — L30 — startup-blocker class
+ 2. Response-cache key collision via unwrap_or_default       — L230-L233 (cf3a202cd) — data-integrity (cache key collisions across distinct args)
+ 3. Hot-reload cache rebind                                  — L213 — stale-cache class
+ 4. Federation HTTP retry source-chain preservation          — L222-L224 (500859a48) — observability/triage
+ 5. fraiseql-storage compile errors                          — L214-L215 — release-quality
+ 6. Observer job-worker panic propagation                    — L225-L227 (d1c89be6e) — operational visibility
+ 7. Cron task error chain logged                             — L228-L229 (7f99fe498) — observability
+ 8. OIDC enrichment without observers feature                — L218 — feature-flag composition correctness
+ 9. IntoResponse for FraiseQLError catch-all arm             — L238-L241 (39078b202) — non-exhaustive forward-compat safety
+10. cargo publish blockage repair (v2.3.2)                   — L14 — release/distribution
+
+Patches summary
+---------------
+v2.3.1 (2026-05-27): axum 0.7→0.8 startup panic fix (#316, #317) + router-construction tests + axum-route-syntax-check CI gate + release-smoke workflow.
+v2.3.2 (2026-05-28): cargo publish unblock (build.rs npm-in-src fix) + fraiseql-functions + fraiseql-storage added to release automation + validate-release dry-run extended.
+
+Forward-dep slugs (Cycle 6 walks; use code-span pattern in prose, NO MD links)
+------------------------------------------------------------------------------
+- /features/studio/                          (Phase 04+)
+- /features/functions/                       (Phase 04+)
+- /features/storage/                         (Phase 04+)
+- /features/realtime/                        (Phase 04+)
+- /features/auth-extensions/                 (Phase 04+)
+- /reference/cli/migrations/                 (Phase 07)
+- /features/hierarchies/                     (Phase 05)
+- /features/rest-transport/                  (Phase 04+)
+- /migrations/upgrading/v2-2-to-v2-3/        (Cycle 4 — owns the breaking-changes migration)
+
+Phase-doc drift findings
+------------------------
+1. Phase doc § Cycle 3 names "TCP_NODELAY + gated compression default change" as a v2.3
+   performance bullet. The frozen CHANGELOG range L8-L580 has no such entry. Decision:
+   omit from page; record drift here.
+2. Phase doc says "the framework's CHANGELOG-Unreleased + 2.3.0 + 2.3.1 + 2.3.2 sections
+   together run ~700 lines." Actual at frozen SHA: ~570 lines (L8 to L580 inclusive,
+   where v2.2.0 starts at L581). Page-scope adjusted to reality.
+3. Phase doc § Cycle 4 enumerates 16 breaking changes for migration-guide coverage.
+   Cycle 3 surfaces the same 16 in a TL;DR table that the Cycle 4 page will deepen.
+
+Anti-scope confirmation
+-----------------------
+- Will NOT write migration guides (Cycles 4-5).
+- Will NOT do index.mdx Enterprise Features card-grid (Cycle 6).
+- Will NOT touch SDK, quickstart, install/cli, changelog.mdx, framework code.
+- Will NOT push to main; will NOT amend pushed commits.
+
+End of RED evidence.

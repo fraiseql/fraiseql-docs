@@ -1,0 +1,445 @@
+---
+title: v2.3
+description: FraiseQL v2.3 — Studio, Functions, Storage, Realtime, Auth Extensions, Schema Migrations CLI, Hierarchies, REST transport; ~16 breaking changes in the Rust core.
+slug: release-notes/v2-3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+FraiseQL v2.3.0 shipped on 2026-05-25. It is the largest release since the
+v2.0 line: eight new subsystems (Studio admin dashboard, WASM functions,
+file Storage, WebSocket Realtime, Auth Extensions, Schema migrations CLI,
+LTree Hierarchies, REST transport), sixteen Security findings (S33–S48)
+plus six additional security hardenings, broad performance work on the
+request hot path, and ~16 breaking changes in the Rust core driven by
+error-taxonomy consolidation and lock-free reads. Two patch releases
+followed: v2.3.1 (2026-05-27) fixed an axum 0.8 startup panic, and v2.3.2
+(2026-05-28) unblocked `cargo publish` for the workspace.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L40 — v2.3.0 release header */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L26 — v2.3.1 release header */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L10 — v2.3.2 release header */}
+
+## Summary
+
+v2.3.0 is the platform release. Studio brings an embedded admin dashboard
+served from `/studio`. Functions is a WASM trigger system covering
+`after:mutation`, `before:mutation`, `after:storage`, cron, and HTTP
+triggers, with WASI, AES-256-GCM secrets, and a cold-start module cache.
+Storage adds an S3 / local / Azure / GCS backend abstraction with
+RLS-enforced tenant isolation and file transforms (resize, watermark,
+format conversion). Realtime ships a WebSocket subscription server with
+RLS event delivery, a `CronScheduler`, presence rooms, and a CDC
+`ObserverRuntime` tied into `EventBridge`. Auth Extensions land:
+multi-provider social login, account linking by email, magic links, email
+OTP, TOTP MFA with recovery codes, anonymous session signup, and phone-auth
+SMS OTP. Schema migrations CLI exposes evolution support through
+`fraiseql-cli`. Hierarchies adds `descendantOfId` / `ancestorOfId` LTree
+operators (PostgreSQL only). REST transport gains `[rest]` TOML wiring
+behind the `rest` feature flag.
+
+The Security section consolidates the auth-path hardening sequence
+(S33–S48), reaching from path-traversal guards on `reload_schema` through
+PKCE, SCRAM key-material zeroization, JWT algorithm and header-injection
+defences, IPv6 literal parsing, Vault rotation atomicity, and admin
+bearer-token brute-force protection. Three additional hardenings tighten
+multi-tenant correctness: a cache RLS isolation guard, end-to-end
+WebSocket subscription tenant isolation, and RLS enforcement on the
+aggregate / window query paths. Outbound HTTP from `fraiseql-functions`
+now denies by default; hosts must be explicitly allowlisted.
+
+Performance work on the request hot path includes a parsed-query AST
+reused between validation and matching, an `Arc::unwrap_or_clone` response
+cache hit, lock-free reads across five rate-limiter / store / index maps,
+a reused scratch buffer in `compute_response_cache_key`, an
+`impl Iterator` return on `extract_root_field_names`, and a
+`LazyLock<Regex>` swap in the UUID extractor.
+
+The breaking-change surface is dominated by error-taxonomy consolidation:
+the parallel HTTP-shaped `RuntimeError` and five shadow domain enums are
+deleted; `FraiseQLError` is the single workspace root, with subsystem
+errors composing via owned `From<X>` impls. `FraiseQLError::Storage` is
+replaced by `FraiseQLError::File(FileError::*)`. Six public DTOs receive
+`#[non_exhaustive]` with `new(...)` constructors. The detailed
+sixteen-row breaking-change table is below, and the full migration
+walkthrough lives in the forthcoming guide at
+`/migrations/upgrading/v2-2-to-v2-3/`.
+
+## Headline subsystems
+
+### Studio admin dashboard
+
+A SPA shell with embedded assets at `/studio`, backed by admin API
+endpoints for schema, health, data browser, auth, storage, realtime,
+functions, and metrics. The metrics endpoint
+(`GET /admin/v1/metrics/summary`) is wired to the live `MetricsCollector`
+with real-time latency percentiles and cache hit rate. Documented in a
+forthcoming page at `/features/studio/`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L103-L108 — Studio admin dashboard added */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L109-L110 — Studio metrics endpoint added */}
+
+### Functions
+
+The `fraiseql-functions` crate adds a WASM trigger system covering
+`after:mutation`, `before:mutation`, `after:storage`, cron, and HTTP
+triggers, dispatched through a `TriggerRegistry`. WASM host bindings cover
+function execution with WASI support; host ops wire in `SqlExecutor`
+injection; a sandbox and concurrency limiter cap runaway functions; and
+function secrets are sealed with AES-256-GCM. A WASM module cache reduces
+cold-start latency. Documented in a forthcoming page at
+`/features/functions/`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L71-L77 — Functions trigger system */}
+
+### Storage
+
+The `fraiseql-storage` crate ships an S3 / local / Azure / GCS backend
+abstraction with RLS-enforced tenant isolation, file transforms (resize,
+watermark, format conversion), and access-control routes mounted on the
+server. Documented in a forthcoming page at `/features/storage/`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L66-L69 — Storage API */}
+
+### Realtime
+
+A WebSocket server with subscription protocol, RLS-aware event delivery,
+broadcast observer, `CronScheduler` for periodic tasks, presence manager
+with room tracking and heartbeat eviction, broadcast channels with a REST
+publish endpoint, and a CDC `ObserverRuntime` wired into `EventBridge`.
+CDC filtering is tenant-aware via `fk_customer_org`. Documented in a
+forthcoming page at `/features/realtime/`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L79-L84 — Realtime subsystem */}
+
+### Auth extensions
+
+Unified multi-provider social login (Google, GitHub, Apple, Microsoft),
+account linking by email (same email → same user), magic links / email
+OTP, TOTP MFA with recovery codes, anonymous session signup, and
+phone-auth SMS OTP. The OIDC `/auth/me` claim-enrichment path is now
+TOML-driven (programmatic configuration via `MeEnrichmentConfig` is
+removed — see breaking changes). Documented in a forthcoming page at
+`/features/auth-extensions/`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L89-L92 — Auth extensions added */}
+
+### Schema migrations CLI
+
+Schema migrations and evolution support land in `fraiseql-cli`,
+exposing the schema-evolution model through CLI subcommands. Documented
+in a forthcoming page at `/reference/cli/migrations/`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L100-L101 — Schema migrations CLI added */}
+
+### Hierarchies
+
+LTree ID-based operators `descendantOfId` and `ancestorOfId` resolve an
+entity's ltree path from its UUID before performing hierarchical
+comparisons. Self-referencing hierarchies (`path <@ (SELECT path FROM t
+WHERE id = $1)`) and cross-table hierarchies via FK semi-joins are
+supported. Configuration lives in `fraiseql.toml` under `[hierarchies]`
+with `table` and `path_column` settings; a field-level `hierarchy`
+annotation and compile-time validation drive the wiring. PostgreSQL only;
+MySQL, SQLite, and SQL Server return `Unsupported`. Documented in a
+forthcoming page at `/features/hierarchies/`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L46-L52 — LTree ID-based operators */}
+
+### REST transport
+
+The `[rest]` TOML section is now parsed and compiled through the full
+pipeline (merger → intermediate → compiled schema). The server mounts a
+read-only REST query router behind the `rest` Cargo feature flag. Based
+on PR #229 by @magick93. Documented in a forthcoming page at
+`/features/rest-transport/`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L125-L129 — REST transport wiring */}
+
+## Security hardening
+
+The S33–S48 sequence consolidates the auth-path hardening that ran
+through the v2.3.0 development window. Each finding is referenced by
+its number in the security log.
+
+| Finding   | Area                                                                                                  | Commit                       |
+|-----------|-------------------------------------------------------------------------------------------------------|------------------------------|
+| **S33**   | Auth input caps + `reload_schema` path-traversal guard                                                | `5f0e76806`                  |
+| **S34**   | Resource bounds on auth flows                                                                         | `2b11e0371`                  |
+| **S35**   | Quality and observability polish on the auth path                                                     | `ff09fd270`                  |
+| **S36**   | Session security hardening                                                                            | `694b74b56`                  |
+| **S37**   | PKCE hardening                                                                                        | `2aaf5cd89`                  |
+| **S38**   | SCRAM / auth key-material zeroization                                                                 | `6e476c46a`, `4f9fad1e1`     |
+| **S39**   | Redirect URI and auth-code input hardening                                                            | `1059d0368`                  |
+| **S40**   | JWT claims hardening                                                                                  | `9a8a31c15`                  |
+| **S41**   | JWT algorithm hardening                                                                               | `e123528b6`                  |
+| **S42**   | JWT header injection defence                                                                          | `b26bfd523`, `5f4265eae`     |
+| **S43**   | IPv6 literal parsing in wire connection strings (RFC 3986 bracket notation)                           | `39b625a89`                  |
+| **S44**   | Federation saga table double-prefix fix (`tb_tb_` → `tb_`) + `cleanup_all` visibility restriction     | `57c15b286`                  |
+| **S45–S48** | Real peer-IP via `PeerIp` extractor; `AuthorizationDenied` audit event; Vault rotation atomicity; admin bearer-token brute-force protection | `4e3b680c3`                  |
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L175-L192 — S33-S48 enumeration */}
+
+Six additional hardenings tighten multi-tenant correctness, secret
+handling, and outbound-HTTP defaults:
+
+- **Cache RLS isolation guard.** Prevents cache lookups from cross-leaking
+  between security contexts. (`226d0de36`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L195-L196 — cache RLS guard */}
+
+- **Subscription tenant isolation.** WebSocket subscriptions now enforce
+  tenant isolation end-to-end. (`9639fd894`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L197-L198 — subscription tenant isolation */}
+
+- **HTTP allowlist default.** `fraiseql-functions` outbound HTTP denies
+  by default; hosts must be explicitly allowlisted. (`f49885cbf`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L199-L200 — HTTP allowlist default */}
+
+- **RLS enforcement on aggregate / window paths.** Closes a gap where
+  aggregate and window queries could bypass row-level security.
+  (`f7d5e77a8`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L201-L202 — RLS on aggregate/window paths */}
+
+- **Vault hardening.** Body-size guards and `Debug` redaction on the
+  secrets backend. (`17cf97a96`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L193-L194 — Vault hardening */}
+
+- **Token `Debug` redaction + `Secret` zeroize-on-drop.**
+  `AuthRequest`, `AuthCallbackResponse`, and `AuthRefreshResponse` redact
+  bearer tokens in their `Debug` output. `Secret`'s `Drop` impl scrubs the
+  underlying heap allocation; previously `Debug` was redacted but the
+  plaintext lingered in freed pages. [F010 / F045 / F012] (`1dbf83119`,
+  `47c478768`, `eda6db593`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L203-L209 — token Debug redaction + Secret zeroize */}
+
+## Performance
+
+Hot-path work concentrates on parse-once-execute-many, lock-free reads,
+and removed per-request allocations.
+
+- **Parsed-query AST reuse.** The validator no longer re-parses the query
+  body; `parse_graphql_document(&str)` is exposed and
+  `RequestValidator::validate_query_doc` accepts a pre-parsed
+  `Document<'_, String>`. The HTTP handler parses once and feeds the same
+  AST into validation and matching. [F001] (`b94abc592`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L504-L507 — parse-once hot path */}
+
+- **Response cache hit `Arc::unwrap_or_clone`.** Cached JSON values
+  return via `Arc::unwrap_or_clone` instead of a deep clone. [F002]
+  (`15fd10a48`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L509-L510 — response cache hit Arc */}
+
+- **Lock-free reads across five maps.** `InMemoryRateLimiter`,
+  `TrustedDocumentStore`, `KeyedRateLimiter`, federation
+  `ConnectionManager`, and observer `entity_type_index` migrate to
+  `DashMap` (four) or `ArcSwap<HashMap>` (the observer index). Hot-path
+  reads no longer block on a central lock. [F006, F007, F008, F013,
+  F048, F056, F057] (`c5c946fb3`, `4b3e542b3`, `6f79c711e`, `3cda8124f`,
+  `1ebae1f61`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L347-L367 — lock-free reads */}
+
+- **`compute_response_cache_key` scratch buffer.** A reused
+  `Vec<u8>` plus `serde_json::to_writer` removes per-argument `String`
+  allocations on the cache-key path; serialization errors propagate as
+  `Validation` instead of silently colliding distinct argument trees onto
+  the empty-string key. [F044, F004] (`cf3a202cd`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L512-L515 — cache key scratch buffer */}
+
+- **`extract_root_field_names` returns `impl Iterator`.** One allocation
+  removed per call. [F020] (`dffa25762`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L343-L345 — impl Iterator return */}
+
+- **`LazyLock<Regex>` in the UUID extractor.** `OnceLock<Regex>` swapped
+  for `LazyLock<Regex>` in `cache/uuid_extractor.rs`. [F027] (`ccd25ee97`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L495-L496 — LazyLock swap */}
+
+- **Federation HTTP retry source-chain preservation.**
+  `execute_with_retry` threads the most recent `reqwest::Error` into
+  `FraiseQLError::Internal { source }` instead of stringifying it away.
+  [F025] (`500859a48`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L489-L490 — federation retry source chain */}
+
+- **Tracing on response-cache lookups.** Structured `event =
+  "hit"|"miss"|"disabled"` fields under target
+  `fraiseql::cache::response`. [F040] (`ec9015e26`)
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L492-L493 — response-cache tracing */}
+
+## Breaking changes
+
+Sixteen breaking changes land in the Rust core. The full per-change
+migration walkthrough lives in the forthcoming guide at
+`/migrations/upgrading/v2-2-to-v2-3/`; the table below is the TL;DR.
+
+| # | Change | Effort | Mechanical? | Commit(s) |
+|---|--------|--------|-------------|-----------|
+| 1 | **`RuntimeError` removed.** `FraiseQLError` is the single workspace root; five shadow domain enums (`fraiseql_error::{AuthError, WebhookError, NotificationError, IntegrationError, ObserverError}`) deleted. Subsystem error vocabularies (`fraiseql_auth::AuthError`, `fraiseql_webhooks::WebhookError`, `fraiseql_observers::ObserverError`) compose into `FraiseQLError::{Auth, Webhook, Observer, File}` via owned `From<X>` impls. | Replace `use fraiseql::RuntimeError` with `use fraiseql::FraiseQLError`; the umbrella crate no longer re-exports the deleted names. | Mostly — most call sites are import / match-arm renames. | `ffd3124e9`, `dd1c9b80f`, `230d4d238` |
+| 2 | **`FraiseQLError::Storage` removed; storage failures now use `FraiseQLError::File(FileError::*)`.** 118 call sites migrated to eight typed `FileError` variants (`PermissionDenied`, `IoError`, `InvalidKey`, `NotImplemented`, `Unsupported`, `SizeLimitExceeded`, `MimeTypeNotAllowed`, `Backend`). `NotFound` reused. Two HTTP-status refinements: `File(NotFound)` returns 404 globally (was 400); `File(InvalidKey)` returns 400 (was 500). | Migrate `match` arms on `Storage { code, .. }` to typed `FileError` variants; consult the code-string-to-variant table in the migration guide. | Mechanical via the table mapping. | `4c86d2e0d`, `ed80df821`, `aa7d59712`, `44432234f`, `acec7e435`, `76288f3ab` |
+| 3 | **`ServerError::RuntimeError` renamed to `ServerError::Engine`.** Wraps `fraiseql_core::error::FraiseQLError` (the engine error). `#[from]` semantics unchanged. | `sed -i 's/ServerError::RuntimeError/ServerError::Engine/g' **/*.rs`. | Fully mechanical. | `65491c2a9` |
+| 4 | **`ViewName(Arc<str>)` newtype propagated through cache invalidation APIs.** `DatabaseAdapter::invalidate_views`, `invalidate_list_queries`, `QueryResultCache::*`, `ResponseCache::invalidate_views`, and `CachedDatabaseAdapter::invalidate_views` now take `&[ViewName]` instead of `&[String]`. View names promoted to `Arc<str>` once at the `put` boundary. | Custom adapter impls update trait method signatures; `ViewName::from(&str)` is the one-line conversion at the call site. | Mechanical at adopter impls; no-op for plain callers. | `4bf9a58b1`, `e760033ce` |
+| 5 | **`execute_with_projection_arc` takes `&ProjectionRequest<'_>` instead of 6 positional arguments.** Field order mirrors `SELECT … FROM … WHERE … ORDER BY … LIMIT … OFFSET`. Struct intentionally NOT `#[non_exhaustive]` — a missing field is a hard compile error by design. | Override the trait method by constructing a struct literal. | Mechanical struct-literal rewrite. | `83725aed8` |
+| 6 | **`KeyedRateLimiter<C: Clock = SystemClock>`.** Boxed `Box<dyn Fn() -> u64>` clock replaced with `Clock` trait. `SystemClock` is a ZST so default-clock production limiters are now `Clone`. | Code naming the type explicitly (e.g. `KeyedRateLimiter` in a struct field) may need `KeyedRateLimiter<SystemClock>` to type-check. | Mostly — type-parameter spelling only. | `3dca6bd67` |
+| 7 | **`extract_root_field_names` returns `impl Iterator<Item = &str>` instead of `Vec<&str>`.** | Add `.collect::<Vec<_>>()` at the two call sites that need a `Vec`. | Fully mechanical. | `dffa25762` |
+| 8 | **Lock-free reads across five maps.** `InMemoryRateLimiter`, `TrustedDocumentStore`, `KeyedRateLimiter`, federation `ConnectionManager`, observer `entity_type_index` migrated to `DashMap` / `ArcSwap<HashMap>`. `TrustedDocumentStore::resolve` / `document_count` / `replace_documents` drop their `async` signature. | None for callers; behaviour change is internal. | No migration. | `c5c946fb3`, `4b3e542b3`, `6f79c711e`, `3cda8124f`, `1ebae1f61` |
+| 9 | **`parking_lot::Mutex` replaces `tokio::sync::Mutex` for synchronous critical sections.** `MemoryApqStorage::entries` and `ListenerHandle::last_heartbeat` switched. `ListenerHandle::update_heartbeat` is no longer `async`. | Drop the `.await` if calling `update_heartbeat` directly. | Fully mechanical (one-token delete). | `bb95ef8e9` |
+| 10 | **`MetricsCollector` counters flattened to bare `AtomicU64`.** 28 individual `Arc<AtomicU64>` fields replaced with plain `AtomicU64`. `MetricsCollector` no longer derives `Clone`; production wiring already wraps it in `Arc<MetricsCollector>`. | Any code holding `Arc::clone(&metrics.queries_total)` becomes a borrow of the parent `Arc<MetricsCollector>`. | Mostly — call-site syntax unchanged. | `f5ddaa59e` |
+| 11 | **`ParsedQuery.source: String` → `Arc<str>`.** `ParsedQuery::clone()` is now an atomic ref-count bump. The serde wire form is unchanged (custom `serialize_with` / `deserialize_with`). | Code requiring `&String` semantics may need `&*parsed.source` to get `&str`. | Mostly — single-token deref. | `bab30d351` |
+| 12 | **`ValidationRule::Pattern { pattern: CompiledPattern }`.** Regex compilation happens once at schema load instead of per validation call. Invalid patterns surface at load instead of degrading silently per request. | Downstream code constructing `ValidationRule::Pattern` directly must build a `CompiledPattern` from the source string; a `From<String>`-style helper is provided. | Mostly — `CompiledPattern::from(s)` at construction sites. | `dd4393d06` |
+| 13 | **Workspace clippy strictly denies `panic`, `unreachable`, `print_stdout`, `print_stderr`, `dbg_macro`, `todo`, `unimplemented`, `mem_forget`, `lossy_float_literal`, `semicolon_if_nothing_returned`, `undocumented_unsafe_blocks`, `missing_assert_message`.** `nursery` and `cargo` lint groups promoted from `warn` to `deny`. Three crates (`fraiseql-error`, `fraiseql-wire`, `fraiseql-storage`) additionally deny `clippy::indexing_slicing` at the crate root as the Q4 pilot. | Downstream crates that opt into the workspace lint table inherit these denials; if any external code triggers them, hoist the allow to the offending function or module with a `// Reason:` comment. | Mostly — per-violation `// Reason:` allows. | `bb5347e82`, `ace13741e`, `e6567fb98`, `4d2c5d17b`, `0a829c2ff`, `04154688d`, `f20fc7717`, `280ff100c`, `cfe739c71`, `e514bbf25`, `4a6c94664`, `3c3e16089` |
+| 14 | **`CompiledSchema::from_json` takes a `strict_integrity: bool` second argument.** Strict mode rejects schemas whose hash does not match the embedded integrity manifest. | Existing call sites pass `false` for backward-compatible behaviour (`CompiledSchema::from_json(json, false)`); set `true` to opt into the new integrity check. | Fully mechanical. | (no commit named in CHANGELOG — surfaces under schema integrity at `a27d8f1c5`) |
+| 15 | **`#[non_exhaustive]` rollout to public DTOs.** `RelayPageResult`, `SqlProjectionHint`, `OrderByClause`, `ActionResult`, `CacheStatus`, `EventKind`. Each gains a `new(...)` constructor. `RelayPageResult` and `ActionResult` are returned by public traits (`RelayDatabaseAdapter`, `ActionExecutor`); downstream impls must use the new constructors. | Replace struct-literal construction with `new(...)`; existing pattern matches gain a `_` arm. | Mostly — struct-literal-to-constructor rewrite. | `dbc9e0afc`, `e2b9944d2`, `3d8c4bce6` |
+| 16 | **Removed types.** `fraiseql_cli::schema::intermediate::operations::IntermediateSqlSourceDispatch` and `fraiseql_core::schema::SqlSourceDispatch` are gone (schema-intermediate dispatch was superseded by the v2.3 dispatch model). `fraiseql_core::security::oidc::providers::MeEnrichmentConfig` is gone — OIDC `/auth/me` enrichment is now TOML-driven under `[auth.oidc.providers.<name>.me_enrichment]`. | If you depended on the removed dispatch types, file an issue describing your use case. Move OIDC claim-enrichment configuration into `fraiseql.toml`. | Partial — TOML migration for OIDC enrichment; no equivalent for the removed dispatch types. | (no commit named in CHANGELOG for the removals) |
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L253-L267 — error taxonomy consolidation (row 1) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L277-L315 — FileError migration (row 2) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L270-L275 — ServerError::Engine rename (row 3) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L317-L326 — ViewName newtype (row 4) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L328-L333 — ProjectionRequest (row 5) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L335-L341 — KeyedRateLimiter Clock (row 6) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L343-L345 — extract_root_field_names (row 7) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L347-L367 — lock-free reads (row 8) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L369-L375 — parking_lot::Mutex (row 9) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L386-L391 — MetricsCollector flattened (row 10) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L400-L405 — ParsedQuery.source Arc<str> (row 11) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L414-L421 — ValidationRule::Pattern CompiledPattern (row 12) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L439-L455 — workspace clippy denials (row 13) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L457-L463 — CompiledSchema::from_json strict_integrity (row 14) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L483-L494 — non_exhaustive DTO rollout (row 15) */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L465-L481 — removed dispatch + MeEnrichmentConfig (row 16) */}
+
+<Aside type="note" title="Why error-taxonomy consolidation">
+The CHANGELOG records that the five deleted shadow domain enums
+(`fraiseql_error::{AuthError, WebhookError, NotificationError,
+IntegrationError, ObserverError}`) had **zero production call sites** at
+removal time. The surviving subsystem error vocabularies live in their
+owning crates (`fraiseql_auth`, `fraiseql_webhooks`, `fraiseql_observers`)
+and compose into `FraiseQLError::{Auth, Webhook, Observer, File}` via the
+sqlx-style owned `From<X>` impl pattern. `impl IntoResponse` in
+`fraiseql_error::http` now wraps `FraiseQLError` directly; the umbrella
+crate `fraiseql` no longer re-exports `RuntimeError`, `AuthError`, or
+`WebhookError` — use `FraiseQLError` via `fraiseql::FraiseQLError` or
+`fraiseql::prelude::*`.
+</Aside>
+
+## Bug fixes
+
+The top ten fixes by impact, severity-weighted toward security,
+data-integrity, and multi-tenant correctness.
+
+1. **Server panic at startup on observer router mount** (v2.3.1; #316,
+   #317). The axum 0.7 → 0.8 migration left one path-capture literal at
+   the old `:listener_id` syntax (`crates/fraiseql-server/src/observers/routes.rs:128`,
+   `/checkpoint/:listener_id`). axum 0.8 hard-panics at `Router::route`
+   build time, so any deployment that mounted the observer changelog
+   router crashed before binding the listener. The literal is now
+   `{listener_id}` and the panic site is gone.
+   {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L30 — axum 0.8 router panic fix */}
+
+2. **Response-cache key serialization errors propagated** [F044]. Errors
+   now bubble as `Validation` instead of `unwrap_or_default()` colliding
+   distinct argument trees onto the empty-string key — a multi-tenant
+   data-integrity class fix. (`cf3a202cd`)
+   {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L231-L234 — response-cache key error propagation */}
+
+3. **Hot-reload cache rebind.** Query cache cleared on schema reload,
+   resolving a stale-cache bug across hot-reload cycles.
+   {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L213-L214 — hot-reload cache rebind */}
+
+4. **Federation HTTP retry source-chain preservation** [F025].
+   `execute_with_retry` threads the most recent `reqwest::Error` into
+   `FraiseQLError::Internal { source }` instead of stringifying it away —
+   makes triage of federation retries possible. (`500859a48`)
+   {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L223-L225 — federation retry source chain */}
+
+5. **`fraiseql-storage` compile errors.** Compile-time failures from the
+   v2.2.0 federation work corrected.
+   {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L215-L216 — fraiseql-storage compile fix */}
+
+6. **Observer job-worker panics propagated** [F014]. `execute_batch` now
+   logs panics at `error!` with `worker` and `error` fields and
+   increments `fraiseql_observer_job_failed_total` (under the `metrics`
+   feature). (`d1c89be6e`)
+   {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L226-L228 — observer panic propagation */}
+
+7. **Cron task error chain logged** [F047]. Cron-task error log now
+   adds `error.debug` and `error.chain` fields walking
+   `std::error::Error::source()`. (`7f99fe498`)
+   {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L229-L230 — cron error chain logging */}
+
+8. **OIDC enrichment compatibility.** Works without the `observers`
+   feature enabled — fixes a feature-flag-composition bug.
+   {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L219 — OIDC enrichment without observers */}
+
+9. **`IntoResponse for FraiseQLError` catch-all arm** [F055].
+   `into_response`, `status_code`, and `error_code` matches now carry a
+   documented catch-all arm so a future `#[non_exhaustive]` variant
+   addition defaults to a safe generic 500 rather than failing to compile
+   silently. (`39078b202`)
+   {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L239-L242 — IntoResponse catch-all */}
+
+10. **`cargo publish` for the workspace** (v2.3.2). `build.rs` no longer
+    populates `studio/node_modules/` (~45 MB) during the verify step;
+    Studio assets are staged into `$OUT_DIR/studio/`. This is the first
+    v2.3.x release where `cargo install fraiseql-server` actually works.
+    {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L14 — cargo publish unblock */}
+
+## Patches
+
+### v2.3.1 — 2026-05-27
+
+- **Server panic at startup fix.** axum 0.7 → 0.8 path-capture syntax
+  rewrite at one observer-route literal (see Bug fix #1).
+- **Router-construction tests.** `observer_routes`,
+  `observer_runtime_routes`, `observer_dlq_routes`,
+  `observer_changelog_routes`, and `rbac_management_router` each gain a
+  `#[tokio::test]` so the bug class surfaces in `cargo test`.
+- **`axum-route-syntax-check` CI gate.** `tools/check-route-syntax.sh`
+  greps for `:param` literals inside `.route(...)` calls; wired into
+  `.github/workflows/ci.yml`. `make lint-routes` runs it locally.
+- **`release-smoke` workflow.** Boots `fraiseql-server` (release profile)
+  against the `docker/e2e/` fixtures on `release/*` branches and `v*`
+  tags, asserting `/health` responds within ~30s.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L26-L38 — v2.3.1 release */}
+
+### v2.3.2 — 2026-05-28
+
+- **`cargo publish` unblocked.** `build.rs` now stages the Studio package
+  into `$OUT_DIR/studio/` rather than touching the source tree. The
+  `[package].exclude` adds defensive insurance against stale on-disk
+  copies leaking into the `.crate` tarball.
+- **`fraiseql-functions` and `fraiseql-storage` added to release
+  automation.** Both crates are publishable and `fraiseql-functions` is a
+  mandatory dep of `fraiseql-server`. Both now publish alongside the
+  other 13 crates on tag push.
+- **`release.yml` validate-release dry-run** now covers every publishable
+  crate (15 total) instead of only `fraiseql-error`. Timeout bumped to 30
+  minutes.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L10-L24 — v2.3.2 release */}
+
+<Aside type="caution" title="Pinning to v2.3.1 or v2.3.0">
+Consumers currently pinned to `fraiseql-server = "2.3.1"`,
+`fraiseql-cli = "2.3.1"`, or `fraiseql = "2.3.1"` will get a
+`cargo install` failure — those versions are not on crates.io. Upgrade to
+`2.3.2`. Pins to `fraiseql-server = "2.3.0"` continue to resolve but are
+missing the #316 axum-0.8 startup-panic fix.
+</Aside>
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L24 — v2.3.2 Migration note */}
+
+## Upgrade
+
+The v2.2 → v2.3 upgrade is dominated by the error-taxonomy consolidation
+(table row 1) and the `FraiseQLError::Storage` → `File(FileError::*)`
+migration (table row 2). Adopters who depend only on the umbrella
+`fraiseql::FraiseQLError` re-export and never matched on
+`FraiseQLError::Storage { .. }` directly will see minimal disruption;
+adopters with custom adapter impls, custom rate limiters spelled with the
+type name in struct fields, or pattern matches on the six DTOs receiving
+`#[non_exhaustive]` will work through the table above row by row.
+
+The step-by-step guide lives at `/migrations/upgrading/v2-2-to-v2-3/`
+(forthcoming under this docs phase). Until it lands, the framework
+[CHANGELOG.md](https://github.com/fraiseql/fraiseql/blob/main/CHANGELOG.md)
+and the upstream `docs/migration/v2.2-to-v2.3.md` adopter guide are the
+authoritative migration records.
