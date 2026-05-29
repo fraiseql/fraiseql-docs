@@ -155,6 +155,14 @@ While drafting, every non-trivial factual claim is annotated:
 <!-- source: crates/fraiseql-tenancy/src/dispatch.rs:L142-L168 -->
 ```
 
+**MDX 3 / Astro 5 / Starlight 0.37 incompatibility (amended Phase 01 close, 2026-05-29):** in `.mdx` files, the HTML-comment form is rejected when it appears in expression position. Use the JSX-comment form instead, which is equivalently invisible in rendered HTML and equivalently greppable on the `source:` token:
+
+```
+{/* source: crates/fraiseql-tenancy/src/dispatch.rs:L142-L168 */}
+```
+
+The Source-Citation Verifier persona accepts either form — its scan keys on the literal `source:` token, not on the comment delimiters. Plain `.md` files keep the HTML form. The amendment was driven by the Phase 01 Cycle 1 Writer's MDX-3 finding (confirmed by `bun run build` failure on the HTML form inside `.mdx` and clean pass on the JSX form) and re-flagged by the Cycle 1, Cycle 5, and Cycle 6 Reviewers as a methodology gap to close at phase end.
+
 The Source-Citation Verifier persona runs before the page leaves CLEANUP. It:
 
 1. Greps the cited file:line range at the frozen FraiseQL SHA.

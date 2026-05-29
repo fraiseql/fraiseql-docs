@@ -183,13 +183,16 @@ This phase doesn't usually need containers. Two exceptions:
 
 ## Status
 
-- [ ] Not started
-- [ ] RED in progress
-- [ ] GREEN in progress
-- [~] REFACTOR in progress (Cycle 6 — Option A implementation: sidebar redraw, ~40 page moves, redirects, sidebar-decision.md)
-- [ ] CLEANUP in progress
-- [ ] Complete
-- G1 resolved 2026-05-29: **Option A** (no modifications). Cycles 1–5 closed and approved by Reviewer. Cycle 6 GREEN/G1 proposal landed (commit `5ac2593`). Cycle 6 REFACTOR/CLEANUP now driving the Option A implementation; Cycle 7 (sweep matrix) authored against the new shape; Phase 01 close after.
+- [x] **Complete — 2026-05-29.** All seven cycles closed; Reviewer 15/15 on every cycle; CI green on every authoritative commit. G1 resolved 2026-05-29: **Option A** (no modifications). Final cycle commit refs:
+  - Cycle 0 (branch): off `6cc8ae5`.
+  - Cycle 1 (version sweep): `59ee065` + `f9aa9b9` handoff; Reviewer `607b30d`.
+  - Cycle 2 (stray syntax): `8f8cdf3` + `b5acb50` handoff; Reviewer `f5e790d`.
+  - Cycle 3 (internal links): `d6cf4a3` + `1286cef` handoff; Reviewer `e1f4331`.
+  - Cycle 4 (external links): `d2a3062` RED (Haiku→Sonnet escalation) + `3ad9235` handoff backfill + `eeb4ea6` GREEN; Reviewer `6b207f2`.
+  - Cycle 5 (Homebrew): `f711aa9`; Reviewer `c24c8c3`.
+  - Cycle 6 (G1 proposal): `5ac2593`; G1 resolved `d66ce23`; Option A implementation `2edb72e` + `01ed373` + `728beec` + `9628747`; Reviewer `31e803c`.
+  - Cycle 7 (sweep matrix): `a87b0db`; Reviewer `d8b268c`.
+  - Phase close: see entry at the bottom of `_internal/.plan/handoff.md`.
 
 ## Owner
 
@@ -197,8 +200,19 @@ This phase doesn't usually need containers. Two exceptions:
 
 ## Pages completed
 
-*(append as cycles close — for this phase, "completed" means the audit row in the sweep matrix is signed off, not that the page is fully overhauled)*
+Phase 01 closed by inventory: every existing page in `src/content/docs/` has a row in `src/content/docs/_internal/_sweep-matrix.md` (172 page rows + 2 framework-bug rows + 9 cross-phase rows + 4 Cycle 4 deferral-class rows). State distribution at close: OK=93, needs-update=12, needs-rewrite=66, broken-snippet=1, wrong-content=0, missing=0, redirected=0.
+
+Cycle-touched files this phase:
+- Cycle 1: 13 docs `.mdx` files + 1 RED-evidence file (version-string sweep).
+- Cycle 2: 8 docs files (1 fence balance, 1 language tag, 6 frontmatter truncations) + 1 RED-evidence file.
+- Cycle 3: 1 docs file (cross-link addition; zero dead links found across 153 unique internal targets).
+- Cycle 4: 16 docs files (URL swaps, redirect-chain updates, GH-permalink pinning to frozen SHA) + 2 audit artefacts under `_internal/.plan/audits/`.
+- Cycle 5: 4 docs files (Homebrew claim removed across `installation.mdx`, `quickstart.mdx`, `examples/index.mdx`, `reference/cli.mdx`; install matrix converted from Tabs to decision table) + 1 RED-evidence file.
+- Cycle 6: 76 docs files renamed (Option A implementation, 100% rename similarity); `astro.config.mjs` sidebar redrawn to 10 audience-grouped + Examples top-level peer; 76 Astro `redirects` entries; new `src/content/docs/_internal/_sidebar-decision.md`.
+- Cycle 7: new `src/content/docs/_internal/_sweep-matrix.md` (425 lines, 45 KB) + 1-line page-count fix in `_sidebar-decision.md`.
+
+Total: every Phase-01-touched page is `OK`-state at phase close; downstream substantive work is enumerated by `Owning phase` in the sweep matrix.
 
 ## Framework bugs filed
 
-*(unlikely from this phase; possible from the Homebrew claim if it surfaces a release-tooling regression)*
+0 new this phase. The Homebrew investigation (Cycle 5) confirmed `releasing.md` already lists Homebrew formula publishing as a Phase-4 "Later" roadmap item at the frozen SHA — the framework maintainers are already on notice; no regression to file. FW-1 (#326) and FW-2 (#327) carry forward from Phase 00 and are tracked in the sweep matrix's Framework-bugs section for Phase 09 reconciliation.

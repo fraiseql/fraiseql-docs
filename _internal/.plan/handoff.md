@@ -1254,3 +1254,76 @@ Please reply inline below this line with `> human:` your pick (A / B / C) and an
 Phase 01 close cycle proceeds. PR #12 (draft) remains pending the Phase 01 close commit.
 
 ---
+
+### Phase 01 / close — orchestrator — 2026-05-29
+
+**Phase 01 complete.** Seven cycles + G1 resolution + REFACTOR/CLEANUP implementation + sweep matrix. All cycles Reviewer-approved (15/15 applicable); every authoritative commit landed CI-green. PR #12 (draft) ready for human ready-for-review decision.
+
+#### Cross-cycle summary (Cycles 0–7)
+
+| Cycle | Subject                                              | Persona(s) used                                                            | Commits                                                                                          | CI run(s)                                                                                  | Outcome      |
+|-------|------------------------------------------------------|----------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|--------------|
+| 0     | Branch off `6cc8ae5`                                  | orchestrator                                                               | n/a                                                                                              | n/a                                                                                        | GREEN        |
+| 1     | Version-string sweep (13 docs files; REFACTOR: no central anchor) | Writer Opus 4.7 → Reviewer Opus 4.7                              | `59ee065` + `f9aa9b9` handoff; Reviewer `607b30d`                                                | 26618582360 — success                                                                       | APPROVED     |
+| 2     | Stray-syntax sweep (8 files; pre-commit deferred to Phase 10)        | Cleanup Sonnet 4.6 → Reviewer Opus 4.7                            | `8f8cdf3` + `b5acb50` handoff; Reviewer `f5e790d`                                                | 26619729936 — success                                                                       | APPROVED     |
+| 3     | Internal link audit (0 dead links across 153 unique targets)         | Cleanup Sonnet 4.6 → Reviewer Opus 4.7                            | `d6cf4a3` + `1286cef` handoff; Reviewer `e1f4331`                                                | 26620521463 — success                                                                       | APPROVED     |
+| 4     | External link audit (217 URLs / 66 audited / 22 must-fix applied / 4 deferral groups) | **Link Auditor Haiku 4.5 → escalated to Sonnet 4.6** → Cleanup Sonnet 4.6 → Reviewer Opus 4.7 | `d2a3062` RED + `3ad9235` handoff + `eeb4ea6` GREEN; Reviewer `6b207f2`             | 26622253551 — success                                                                       | APPROVED (escalation noted) |
+| 5     | Homebrew claim (classification (c) — removed; install matrix → table) | Writer Opus 4.7 → Reviewer Opus 4.7                                | `f711aa9`; Reviewer `c24c8c3`                                                                     | 26623260030 — success                                                                       | APPROVED     |
+| 6     | Sidebar IA G1 (proposal → human picks A → implement Option A: 76 moves + 76 redirects + sidebar-decision.md) | Writer Opus 4.7 → **G1 STOP → human resolves A** → Writer Opus 4.7 (REFACTOR/CLEANUP) → Reviewer Opus 4.7 | `5ac2593` proposal + `d66ce23` G1 resolution + `2edb72e` + `01ed373` + `728beec` + `9628747`; Reviewer `31e803c` | 26624972782 + 26625511821 — both success                                            | APPROVED     |
+| 7     | Sweep matrix (425 lines / 172 page rows + 2 FW rows + 9 cross-phase rows + 4 deferral rows) | Writer Opus 4.7 → Reviewer Opus 4.7                                | `a87b0db`; Reviewer `d8b268c`                                                                     | 26626720175 — success                                                                       | APPROVED     |
+| close | Phase 01 close (methodology amendment + status flips + this entry)    | orchestrator                                                       | this commit                                                                                       | path-filtered (`_internal/` only) — no run triggered                                       | n/a          |
+
+#### Gate register at phase close
+
+- **G1 (sidebar IA)** — RESOLVED 2026-05-29 → **Option A**, no modifications. Closed.
+- **G2 (SHA bump)** — frozen at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. Default policy holds across Phase 02+; bump procedure documented in `scripts/docs-test/FRAISEQL_SHA.README.md`. Not exercised this phase.
+- **G3 (Phase 09 ship-readiness threshold)** — not yet reached.
+- **G4 (branch-protection / framework PR merges)** — soft gate; Phase 00's `page-test (_smoke)` check-name proposal still standing; awaiting human admin action. Not blocking Phase 02.
+- **G5 (Phase 10 final sign-off)** — not yet reached.
+- No novel gates surfaced during Phase 01.
+
+#### Methodology amendment landed this phase
+
+`_internal/.plan/methodology.md` § 4 — accepts the `{/* source: ... */}` JSX-comment form for `.mdx` files. Driven by the Cycle 1 Writer's MDX-3 incompatibility finding and re-flagged by the Cycle 1, 5, and 6 Reviewers. Plain `.md` files keep `<!-- source: ... -->`. Verifier persona accepts either form — it keys on the literal `source:` token.
+
+#### Framework issues filed across Phase 01
+
+**0.** FW-1 (#326) and FW-2 (#327) carry forward from Phase 00; both tracked in `_internal/.plan/framework-qa-triage.md` and in the sweep matrix's Framework-bugs section. Neither blocks any Phase 02 work.
+
+#### Phase 02 entry conditions (handoff to next phase)
+
+The sweep matrix is the authoritative phase-02 worklist. Phase 02's `Owning phase` slice (per the matrix's by-phase view) is **19 page rows + adjacencies**:
+- `/changelog` — full rewrite (`needs-rewrite`; v2.1 "Unreleased" framing).
+- `/getting-started/quickstart` — **3 SQL bugs** at L156 (SQLite `json()`), L184 (MSSQL `JSON_QUERY`), L167/L179 (MSSQL `WITH SCHEMABINDING` incompatible with view-on-view). `broken-snippet`.
+- `/getting-started/installation` + `/reference/cli` — cargo command-name alignment.
+- `/sdk` index + 11 SDK pages — release alignment (all pinned to v2.1).
+- Adjacencies in `getting-started/*` (5 pages).
+- Cycle 4 deferral-class C (`demo.fraiseql.dev`, 6 pages) — Phase 02/03 split: TLS infra fix or prose rewrite.
+- Cycle 1 Reviewer follow-on: `features/observability.mdx` /health block (now `operations/observability.mdx` per Option A) — `needs-update`.
+- Cycle 5 Writer follow-on: install-matrix decision table's `Cargo` row description vs `cli.mdx` cargo command — Phase 02 cross-check.
+
+Phase 03's slice is **46 rows + the 4 Cycle 4 deferral classes A (examples), B (velocitybench), partial C (demo.fraiseql.dev infra)**.
+
+Phases 04–08 slices documented in the matrix's by-phase view. Phase 09 reconciliation owns FW-1 + FW-2 + any new bugs filed during 02–08.
+
+#### Open carry-forwards into Phase 02+ (not blocking)
+
+1. **`_sidebar-decision.md` § 6 page-count** — corrected from 173 → 172 during Cycle 7 close.
+2. **Redirect-map regression test** — proposed in the sweep matrix; Phase 02 OR Phase 10 owns implementation (Writer judgement deferred).
+3. **`*-guide` suffix pages** (`/operations/deployment-guide` + `/operations/troubleshooting-guide`) — Phase 02/03 prose-consolidation candidates (Cycle 6 collision-avoidance renames).
+4. **Pre-existing `SiteTitle.astro` `virtual:starlight/user-images` ts(2307) baseline error** — blocks `bun run check` activation as a pre-commit hook; sweep matrix flags as cross-phase non-page cleanup, Phase 10 owns.
+5. **Phase 04–06 net-new pages** (Studio, Functions WASM, Realtime, Auth Extensions, LTree, MCP, Trusted Documents) — currently no source files; rows added to the matrix when the pages are created.
+6. **Pre-commit hook** — Cycle 2 deferred to Phase 10 (baseline `bun run check` failure + `end-of-file-fixer` would dirty 31 unrelated files).
+
+#### Phase 01 final state
+
+- **Branch:** `phase-01/triage-and-ia`.
+- **PR:** https://github.com/fraiseql/fraiseql-docs/pull/12 — **draft until the human marks it ready-for-review.** Per the methodology, Phase 01 close does not auto-promote the PR. The 15/15 Reviewer sign-offs across all 7 cycles plus the orchestrator's phase-close entry are the basis for the human's promote/merge decision.
+- **CI:** all authoritative commits green. Branch-protection `page-test (_smoke)` check satisfied on every authoritative push.
+- **Plan tree:** intact at `_internal/.plan/`. Will be deleted by Phase 10 finalisation.
+- **Phase 02 unblocked.** Next persona to act is the Phase 02 Writer once the human signals ready-for-review on PR #12 OR per the dependency graph if Phase 02 branches off `phase-01/triage-and-ia` pre-merge.
+
+#### Open gates at phase close
+
+None new. G2 (default-hold) and G4 (soft) carry forward from Phase 00; G1 closed this phase. G3 and G5 are downstream.
+
