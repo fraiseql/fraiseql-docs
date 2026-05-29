@@ -2069,3 +2069,24 @@ Handoff to **Source-Citation Verifier (Sonnet 4.6)** next.
 - Diff vs Cycle 4 close (`720eda2..f8c0ba8`): 7 files, +930 / -2 lines (3 new files: v2-1-to-v2-2.mdx, section-map.txt, v2-2-changelog.txt; 4 modifications: astro.config.mjs sidebar, hub index.mdx, v2-2.mdx code-span fix, handoff.md).
 - **CI run `26640744018` — `conclusion: success`** on `f8c0ba8`. URL: https://github.com/fraiseql/fraiseql-docs/actions/runs/26640744018. Workflow `docs-test`. Methodology § 6.1 satisfied — CI gate on Writer's commit is green.
 - Prior runs on the branch (for context): `26640265093` success (post-Cycle 4 close commit `720eda2`); `26639391399` cancelled by concurrency (Cycle 4 Verifier follow-up).
+
+---
+
+### Phase 02 / Cycle 5 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-29
+
+- **Total citations:** 36.
+- **Verified:** 36/36. Failures: 0.
+- **Non-blocking NOTEs (4, no action required):**
+  1. Citation 12 (L210, semantics table): cited as L95-L102; data rows 3-4 are at L103-L104 (2 lines beyond range). Prose is correct; range is 2 lines short of full table data. Non-blocking.
+  2. Citation 14 (L282, MutationErrorClass): cited range starts L21 (enum declaration); derive attributes shown in page code block are at L18-L20. Page code block is accurate; minor range discrepancy. Non-blocking.
+  3. Citation 22 (L347, Prometheus federation metrics): "no opt-in flag" is editorial (not verbatim in CHANGELOG) but consistent with the additive posture of the CHANGELOG entry. Non-blocking.
+  4. Citation 26 (L413, session vars): page uses `current_setting('fraiseql.user_id')` as illustration; CHANGELOG says bare `current_setting()`. Illustrative expansion, not a claim error. Non-blocking.
+- **Framework-source spot-check:** 3/3 CONFIRMED.
+  - `MutationOutcome::Error` at `mutation_result.rs:L41-L49` carries `{ error_class, message, metadata }` — no `status: String`. ✓
+  - `MutationErrorClass` at `cascade.rs:L21-L42` carries 10 variants, `#[non_exhaustive]`, `snake_case`. ✓
+  - `docs/architecture/mutation-response.md:L31-L48` DDL has no `schema_version` column. ✓
+- **Dist build-exclusion:** CONFIRMED — `bun run build` exit 0 (205 pages, 281 HTML files, 0 new warnings). `find dist/migrations/upgrading -name '*.html' -exec grep -lE '\{/\* source:'` → 0 hits.
+- **Posture:** Option B (JSX citations left in source).
+- **Artefact:** `_internal/.plan/red-evidence/phase-02-cycle-05-citation-verification.log` (36-entry log, PASS column per citation).
+- **Commit SHA:** see below (path-filtered commit, `_internal/` only).
+- **Handoff to Reviewer (Opus 4.7) next.**
