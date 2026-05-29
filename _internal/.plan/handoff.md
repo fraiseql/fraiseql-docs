@@ -2062,3 +2062,10 @@ Note for Cycle 5 Writer: (a) produce a section-map artefact mirroring Cycle 4's;
 - **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
 
 Handoff to **Source-Citation Verifier (Sonnet 4.6)** next.
+
+#### Post-commit follow-on (anti-amend rule)
+
+- Commit SHA: `f8c0ba8` on branch `phase-02/migration-and-changelog`. Remote HEAD `f8c0ba8fd35c5057bd85d10ecdbc3f1bade8dc07`.
+- Diff vs Cycle 4 close (`720eda2..f8c0ba8`): 7 files, +930 / -2 lines (3 new files: v2-1-to-v2-2.mdx, section-map.txt, v2-2-changelog.txt; 4 modifications: astro.config.mjs sidebar, hub index.mdx, v2-2.mdx code-span fix, handoff.md).
+- **CI run `26640744018` — `conclusion: success`** on `f8c0ba8`. URL: https://github.com/fraiseql/fraiseql-docs/actions/runs/26640744018. Workflow `docs-test`. Methodology § 6.1 satisfied — CI gate on Writer's commit is green.
+- Prior runs on the branch (for context): `26640265093` success (post-Cycle 4 close commit `720eda2`); `26639391399` cancelled by concurrency (Cycle 4 Verifier follow-up).
