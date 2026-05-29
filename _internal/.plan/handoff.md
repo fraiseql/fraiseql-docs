@@ -557,3 +557,41 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
 
 ---
+
+
+### Phase 01 / Cycle 2 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.**
+
+- **CI gate:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26619729936 — `conclusion: success`, `headSha: 8f8cdf3543d826cc5f9fb0329e99dbf302ae5e8c`. Green at the Cycle 2 syntax-fix commit (handoff append `b5acb50` is doc-only and does not affect CI surface).
+- **Diff reviewed:** `git show 8f8cdf3` — 9 line-level edits across 8 files (`reference/operators.mdx`, `getting-started/installation.mdx`, `databases/postgresql.mdx`, `databases/sqlserver-enterprise.mdx`, `use-cases/{dotnet,event-driven,python}-teams.mdx`, `vs/hasura-sqlserver.mdx`) + RED evidence file.
+- **15-point checklist (only items relevant to a syntax sweep):**
+  1. VERSION DRIFT — ✅ `installation.mdx:117` block contains `fraiseql 2.3.2`; matches `Cargo.toml@d0a4ed4:L343 workspace.package.version = "2.3.2"`. Source citation comment accurate.
+  6. DEAD LINKS — N/A (no link edits in this cycle).
+  7. UNDEFINED SYMBOLS — N/A (no new symbol references introduced; edits are subtractive or punctuation).
+  8. COPY-PASTE FROM PRIOR VERSION — N/A (no prose-block carryover; mechanical fixes only).
+  12. ARCHAEOLOGY-FREE — ✅ `grep -nE "Phase [0-9]|TODO|FIXME|XXX|coming soon|WIP"` against all 8 edited files returns zero hits.
+  13. SOURCE CITATIONS RESOLVE — N/A (no citations added; the one pre-existing citation at `installation.mdx:116` was re-verified — `Cargo.toml@d0a4ed4:L343` resolves to `version = "2.3.2"`).
+  14. NO PERSONA SELF-REFERENCE — ✅ no "as an AI" / "persona" / model-name leakage in the 8 files (only false positive: `db_datawriter` in `sqlserver-enterprise.mdx`).
+  Items 2–5, 9–11, 15 — N/A — out of cycle scope (purely mechanical syntax cleanup).
+- **Specific spot-checks:**
+  - **Fence-balance fix at `reference/operators.mdx:101`:** ✅ closing ` ``` ` lands at line 103, correctly terminating the single-line `SELECT data FROM v_user WHERE data->>'avatar_url' IS NOT NULL` SQL block before the `## String Operators` H2 heading at line 105. Repo total fence markers: 5156 (balanced). `operators.mdx` fence markers: 192 (matches Cleanup's claim, balanced).
+  - **Language-tag addition at `installation.mdx:117`:** ✅ `text` is correct — the block content is the literal stdout of `fraiseql --version`, not an executable shell command. Distinct from the `bash` fence at line 110 that contains the *command*.
+  - **Frontmatter description truncations:** 6 / 6 checked; 6 meaning-preserving; 0 lossy.
+    - `postgresql.mdx` 149 chars — dropped "Complete" adjective. Preserved.
+    - `sqlserver-enterprise.mdx` 142 chars — dropped "Azure-native deployments" (one of three audience phrases). Preserved.
+    - `dotnet-teams.mdx` 147 chars — dropped "and Dapper, and supports Windows Auth and Azure AD". Nit: drops two SEO-relevant keywords (Dapper, Windows Auth). Page body still covers both; not a meaning-distortion. Non-blocking.
+    - `event-driven-teams.mdx` 149 chars — dropped "configured in TOML" suffix. Preserved.
+    - `python-teams.mdx` 141 chars — dropped "high-performance" adjective. Preserved.
+    - `hasura-sqlserver.mdx` 151 chars — rephrased "Side-by-side comparison for teams running SQL Server" → "Feature comparison for SQL Server". Preserved.
+    - None truncated mid-sentence. All terminate at clause boundaries with a period.
+  - **`.md` rename collisions:** ✅ `grep -rn "^import " src/content/docs/ --include="*.md"` returns zero hits. No `.md` file contains an `import` statement.
+- **Findings:**
+  1. (nit, non-blocking) `dotnet-teams.mdx` description truncation drops "Dapper" and "Windows Auth/Azure AD" — two search-relevant keywords. The page body still covers both; future SEO sweep (Phase 08?) may want to re-balance.
+  2. (nit, non-blocking) Cleanup's char-count claims in the close note (153/149/147/152/153/151) differ slightly from re-measured (149/142/147/149/141/151) — likely a counting-method difference (trailing period, byte vs char). All values are well under the 155 ceiling either way; no functional concern.
+- **Follow-on items:**
+  - Pre-commit hook deferral to Phase 10 (per Cleanup's REFACTOR decision) is reasonable; the `bun run check` baseline error (`virtual:starlight/user-images ts(2307)`) genuinely blocks a useful hook today. Re-evaluate at finalisation.
+  - Methodology § 4 JSX-comment amendment (`{/* source: ... */}` as equivalent to `<!-- source: ... -->`) remains outstanding — flagged in the Cycle 1 review, deferred to Phase 01 close per Reviewer's own note. The `installation.mdx:116` citation in this cycle uses the JSX form, so the gap is now exercised. Phase 01 close should land the amendment.
+- **Sign-off:** 7/7 in-scope checklist items pass, CI green, all spot-checks pass, no blockers. Cycle 2 closed. Back to Phase 01 / Cycle 3 (internal link audit).
+
+---
