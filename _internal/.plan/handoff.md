@@ -609,8 +609,8 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
   - Approach 2 (targeted grep): 166 unique internal link targets extracted from `src/content/docs/**/*.{md,mdx}`. All 166 resolved against `dist/`. 1 HTML-style `href="/..."` link found — also resolves.
   - Evidence: `_internal/.plan/red-evidence/phase-01-cycle-03-{build-warnings,internal-link-hits,forward-deps}.txt`.
 - **CLEANUP gate:** `bun run build` clean (197 pages, exit 0). `bun run check` 1 pre-existing error (same `SiteTitle.astro virtual:starlight/user-images ts(2307)` baseline as Cycle 2 — no regressions).
-- **Commit SHA:** pending CI (see below).
-- **CI run URL:** pending (will be captured post-push).
+- **Commit SHA:** `d6cf4a3` on branch `phase-01/triage-and-ia`.
+- **CI run URL:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26620521463 — **PASSED** (conclusion: success, ~11 min wall-clock).
 - **Open gates:** none new. G2 SHA-bump policy continues to hold. G1 (sidebar IA) is Cycle 6.
 
 ---
