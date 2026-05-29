@@ -23,10 +23,14 @@ function stripSourceCitationsIntegration() {
   return {
     name: 'fraiseql-docs:strip-source-citations',
     hooks: {
+      /**
+       * @param {{ dir: URL, logger: { info: (msg: string) => void } }} ctx
+       */
       'astro:build:done': async ({ dir, logger }) => {
         let scanned = 0;
         let modified = 0;
         let stripped = 0;
+        /** @param {string} current */
         const walk = async (current) => {
           const entries = await readdir(current, { withFileTypes: true });
           for (const entry of entries) {
