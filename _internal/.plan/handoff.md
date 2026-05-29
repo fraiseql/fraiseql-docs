@@ -2935,3 +2935,181 @@ Same as the prior entry: **Reviewer (Opus 4.7)** once the CI on this commit is g
 - `page-test (_smoke)` SUCCESS (required check, was already green on `09eaf12`).
 - `page-test (multi-tenancy)` SUCCESS (this was FAILURE on `09eaf12`; the fix is the orchestrator follow-on commit).
 - Build log shows `[fraiseql-docs:strip-source-citations] strip-source-citations: scanned 281 HTML files, modified 1, stripped 56 source-citation comments` (G7 resolution).
+
+---
+
+### Phase 03 / Cycle 1 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Subject:** `src/content/docs/building/multi-tenancy.md` @ HEAD `8bf55c9` (PR #14 draft).
+**Frozen FraiseQL SHA:** `d0a4ed4ec1770c70707f68fd9019f2b561d87461` — re-verified `git -C ~/code/fraiseql cat-file -e` clean.
+
+#### CI re-confirmation (independent, not Writer's claim)
+
+- Run URL: https://github.com/fraiseql/fraiseql-docs/actions/runs/26659164155 — `docs-test` workflow, head SHA `8bf55c986b697c7caba896bb250ef45916111448`, conclusion **SUCCESS**.
+- `gh run view 26659164155 --json` jobs:
+  - `discover pages and frozen SHA` — SUCCESS.
+  - `page-test (_smoke)` — SUCCESS (the required branch-protection check).
+  - `page-test (multi-tenancy)` — SUCCESS.
+- CI log re-grep: job `78577034251` line `2026-05-29T20:08:04.9749198Z multi-tenancy.docs-test: PASS` — exit 0 in the runner. The Writer's claim that the docs-test passes in CI is verified end-to-end against the actual log, not the Writer's assertion.
+- `pre-commit.ci - pr` is ERROR. Per Phase-10-deferred carry across the entire docs overhaul; not a `docs-test` check; not blocking by Phase 01 Cycle 5 precedent.
+
+#### docs-test re-run (this Reviewer's clean Docker state, not the Writer's)
+
+- `cd scripts/docs-test && ./docs-test.sh down --volumes >/dev/null 2>&1` then `./pages/multi-tenancy.docs-test.sh`. Image `fraiseql-docs-test-fraiseql:latest` present from prior cycle.
+- Exit code: **0**.
+- Assertion 1 — library-API recipe is source-true — **PASS**: `AppState::{with_tenant_registry, with_tenant_executor_factory, with_domain_registry, with_tenant_audit_log}` all present at frozen SHA.
+- Assertion 2 — explicit-deny upstream test present — **PASS**: `test_explicit_unregistered_tenant_returns_error` present; `with_tenant_registry` exercised in the test.
+- Assertion 3 — FW-3 / #330 still reproduces — **PASS**: stack up clean, `/health == 200`, admin `PUT /tenants/acme` returns 404 (route-absent path, per orchestrator follow-on overlay change), unregistered `X-Tenant-ID: xyz` does NOT return 403 (got 200 for `{ __typename }`). Tear-down clean.
+- Assertion semantics confirmed against the page: the route-absent 404 choice (overlay without `admin_token`) is documented inline in `## Known issues` FW-3 sidenote row, and the overlay header explains the same trade-off. The reader-observable contract ("admin tenant API unreachable on the off-the-shelf binary") is preserved either way the route fails — Verifier's framing concern is honoured.
+
+#### Citation re-greps (6 independent, distinct from Verifier's prior set of 5)
+
+I picked indices spread across the page; explicitly excluded all 5 the Verifier already spot-checked.
+
+| # | Page line | Citation | Result | Evidence |
+|---|---|---|---|---|
+| 1 | L14 | `crates/fraiseql-server/src/tenancy/schema_isolation.rs:L1-L120` | **PASS** | `tenant_schema_name`, `[a-zA-Z0-9_]` alphabet, 63-char cap, `SET search_path` / `CREATE SCHEMA` helpers all present in this range. |
+| 2 | L24 | `crates/fraiseql-server/src/routes/graphql/app_state.rs:L226-L283` | **PASS** | All four builder methods (`with_tenant_registry`, `with_tenant_executor_factory`, `with_domain_registry`, `with_tenant_audit_log`) defined verbatim in this range. |
+| 3 | L45 | `crates/fraiseql-server/tests/multitenancy_test.rs:L107-L130` | **PASS** | `make_multitenant_state()` calls `state.with_tenant_registry(Arc::new(registry))` at L120; `make_executor` and stub adapter wiring at L107-L111. |
+| 4 | L127 | `crates/fraiseql-server/src/middleware/tenant.rs:L20-L43` | **PASS** | `pub async fn tenant_middleware` defined at L23 with `X-Org-ID` extraction. Independent dead-code check: `git grep tenant_middleware` returns only the definition, the `pub use` re-export, and two doc-comment references in `extractors.rs` — no router invokes it. Page claim "dead code in the fraiseql-server binary at v2.3.2 (no router invokes it)" verified. |
+| 5 | L154 | `crates/fraiseql-server/src/routes/api/tenant_admin.rs:L160-L212` | **PASS** | `upsert_tenant_handler` at L162; `ApiError::not_found("multi-tenant mode not enabled")` short-circuit at L169 (matches page's prose elsewhere); `TenantQuota` construction at L189-L193; `Created`/`ConfigChanged` audit branch at L201-L207. |
+| 6 | L230 | `crates/fraiseql-server/src/routes/api/tenant_admin.rs:L237-L242` | **PASS** | `audit_log.record(&key, TenantEventKind::Deleted, None, None)` at L237 inside `delete_tenant_handler`, matching the page's "Deleted ← DELETE /api/v1/admin/tenants/{key}" row. |
+
+6/6 PASS. Combined with the Verifier's prior 55/56 PASS + the orchestrator's L99 fix, **all 56 citations now verified at the frozen SHA**.
+
+#### Posture B uniformity verification
+
+- `bun run build` exit 0, 205 pages, 15.22 s.
+- Build log line: `22:14:13 [fraiseql-docs:strip-source-citations] strip-source-citations: scanned 281 HTML files, modified 1, stripped 56 source-citation comments.` — matches G7 resolution; `modified 1` corresponds to `dist/building/multi-tenancy/index.html`; `stripped 56` matches `grep -oE '<!-- source:' src/content/docs/building/multi-tenancy.md | wc -l` (the page has 53 lines containing citations with three lines carrying two each).
+- `grep -rE '<!--\s*source:' dist/` — **0 hits**. Posture B leak-free for the multi-tenancy page and the rest of the site.
+- Strip integration is build-tooling per `_internal/.plan/methodology.md § 4` "Posture B uniformity"; any non-zero count is a regression of the integration, not a content issue.
+
+#### 15-point adversarial checklist
+
+| # | Item | Verdict | One-line justification |
+|---|---|---|---|
+| 1 | VERSION DRIFT | **✅** | v2.3.2 cited in the frontmatter and lead; three claims cross-checked at frozen SHA (`AppState` builders, `validate_tenant_key` alphabet, `executor_for_tenant` error mapping). |
+| 2 | WRONG-DB PATHS | **✅** | `## Tenancy modes` calls out adapter support per mode: `row` is all four DBs (with a citation against `converter/tenancy.rs` confirming validator-only rewrite, adapter-portable), `schema` is PostgreSQL only (citation against `schema_isolation.rs` confirms PG-only `SET search_path` and 63-byte identifier cap). Stated twice (Quick reference + mode subsection). |
+| 3 | FEATURE-FLAG OMISSIONS | **✅** | Independent inspection: no `#[cfg(feature = ...)]` on the tenancy types or routes at the frozen SHA. Page makes no false flag claims. Rate-limit backend matrix is called out — Redis tenant-path is allow-all (matches `dispatch.rs:L128-L137`). |
+| 4 | SECURITY-DEFAULT REGRESSIONS | **✅** | The `:::caution[These are library-API guarantees]` block is placed inline at the end of `## Security defaults`, pointing the reader at the binary-wiring gap before any reader can mistake the contract for a binary default. No `require_auth = false` or `cors.origins = "*"` in any example. The overlay sets `cors_origins = ["http://localhost:8080"]` not `["*"]`. |
+| 5 | SDK DIVERGENCE | **✅** | No SDK code on the page. |
+| 6 | DEAD LINKS | **✅** | Four internal absolute-slug links: `/building/authentication` → `authentication.mdx` present; `/building/custom-resolvers` → present; `/building/schema-design` → present; `/reference/toml-config` → present. Plus five `https://github.com/fraiseql/fraiseql/issues/3xx` external links (Link Auditor's job at phase close; not blocking). `bun run build` clean. |
+| 7 | UNDEFINED SYMBOLS | **✅** | Spot-checked symbols: `TenantExecutorRegistry`, `TenantExecutorFactory`, `DomainRegistry`, `TenantAuditLog`, `InMemoryAuditLog`, `TenantQuota`, `TenantKeyResolver`, `MAX_TENANT_KEY_LEN`, `SUSPENDED_RETRY_AFTER_SECS`, `tenant_schema_name`, `search_path_sql`, `create_schema_ddl`, `drop_schema_ddl`, `provision_tenant_schema`, `drop_tenant_schema`, `with_tenant_registry`, `with_tenant_executor_factory`, `with_domain_registry`, `with_tenant_audit_log`, `executor_for_tenant`, `ErrorCode::Forbidden`, `FraiseQLError::{Authorization,ServiceUnavailable,Validation,RateLimited}`, `TenantEventKind::{Created,ConfigChanged,Suspended,Resumed,Deleted}`, `ArcSwap` — all present at frozen SHA (the citations themselves provide the file:line evidence). |
+| 8 | COPY-PASTE FROM PRIOR VERSION | **✅** | Python `TenantRouter`, `tenant_scoped=True`, `inject={"tenant_id": "jwt:tenant_id"}` are gone from the page body. They appear ONLY in the `:::caution[Previous version: TenantRouter is not a real API]` migration callout, framed as "did not exist". Verified: `git grep -n 'TenantRouter\|tenant_scoped=True' src/content/docs/building/multi-tenancy.md` only matches inside the migration callout. |
+| 9 | CONDITIONAL CAVEATS | **✅** | Subscription bypass (FW-4) called out with the exact `(None, &headers, None, false)` symptom; suspended-503-mapped-to-403 (FW-5) called out; tenant-key alphabet mismatch (FW-6); case-sensitive `DomainRegistry::lookup`; dangling-domain-delete ordering. Plus the `:::caution` library-API caveat that the binary doesn't wire the runtime. Cycle-specific adversarial test (cross-tenant query): the page makes the failure mode predictable — see § "Cycle-specific adversarial test" below. |
+| 10 | RLS / SECURITY INTERACTIONS | **✅** | RLS interaction with strict-mode resolver is documented (`strict_tenant_validation = executor.schema().has_rls_configured()`); RLS session-variable propagation gap (#329) is in `## Known issues`. The `set_config()` / JWT-claim → SQL pipeline is cross-linked to `/building/authentication` rather than re-described, which keeps scope tight without dropping the interaction. |
+| 11 | ERROR-PATH COVERAGE | **✅** | Three exact error messages quoted verbatim from source: `"Tenant '<key>' is not registered"`, `"X-Tenant-ID contains invalid characters (allowed: a-zA-Z0-9_-)"`, `"X-Tenant-ID exceeds maximum length of 128 characters"`. Plus the admin handler 404 message `"multi-tenant mode not enabled"`. The RBAC bootstrap failure `Failed to initialize RBAC schema: syntax error at or near "("` is also quoted in the FW-3 sidenote row. |
+| 12 | ARCHAEOLOGY-FREE | **✅** | `git grep -i "TODO\|FIXME\|XXX\|Phase [0-9]" src/content/docs/building/multi-tenancy.md` → no matches. No `(coming soon)` / `(WIP)`. The source citations are stripped by the build-time integration (verified above), so the rendered HTML is archaeology-free too. |
+| 13 | SOURCE CITATIONS RESOLVE | **✅** | 6 independent re-greps PASS (above); Verifier's prior 50 PASS; L99 mechanical fix re-verified during this review. 56/56 citations resolve at frozen SHA. |
+| 14 | NO PERSONA SELF-REFERENCE | **✅** | `grep -in "as an AI\|as the Writer\|as a documentation\|persona\|Claude"` → no matches in the page body. |
+| 15 | DARK MODE | **✅** | Same Starlight theme; no custom CSS introduced. `:::caution` / `:::note` directives use standard Starlight callout styling (already validated dark-mode in prior phases). Tables, code blocks, and inline links use Starlight defaults. |
+
+**15/15 PASS.**
+
+#### Cycle-specific adversarial test — cross-tenant query
+
+Per phase-03 Cycle 1 "Adversarial review protocol" §2, I attempted a cross-tenant query against the running stack.
+
+Three probes against the docs-test stack with the multi-tenancy overlay:
+
+| Probe | Header | HTTP | Body |
+|---|---|---|---|
+| 1 | `X-Tenant-ID: acme`, `{ projects { ... } }` | 500 | `{"errors":[{"message":"Database error: Query execution failed: db error","code":"DATABASE_ERROR"}]}` |
+| 2 | `X-Tenant-ID: nova`, `{ projects { ... } }` | 500 | same |
+| 3 | `X-Tenant-ID: xyz` (unregistered), `{ projects { ... } }` | 500 | same |
+
+All three collapse to identical generic `DATABASE_ERROR` 500s (the projects view doesn't exist in the docs-test PG; the binary is using the default executor for all three because the registry is unwired). This is exactly the FW-3 symptom — no tenant-aware routing on the off-the-shelf binary.
+
+**Can the page tell me how to make the cross-tenant query fail predictably?** **YES.**
+
+- `## Security defaults` and the `:::caution[These are library-API guarantees]` block explicitly tell the reader the binary doesn't enforce 403 for unregistered keys, then point them at `## Known issues` FW-3 for the workaround.
+- `## How tenancy is composed today` provides the host-binary recipe: build a binary that wraps `fraiseql-server` and calls `with_tenant_registry(...)` + `with_tenant_executor_factory(...)`, then register tenants via `PUT /api/v1/admin/tenants/{key}`. With the registry wired, unregistered `X-Tenant-ID: xyz` returns 403 — the upstream test `test_explicit_unregistered_tenant_returns_error` (locked by Assertion 3 of the docs-test) proves this is the wired-binary contract.
+- The page's `## Worked example` walks through this exact sequence (boot, create `acme`/`nova`, seed rows, query each, unregistered → 403).
+- The page does NOT lie about the off-the-shelf binary returning 403 — it consistently says the binary returns 200 from the default executor, and the docs-test asserts that symptom.
+
+Predictable failure path: documented twice (Security defaults block + Worked example). **Item 9 PASS confirmed.** The cross-tenant query failure mode is predictable both for the off-the-shelf binary (no isolation, default executor) and for the wired host binary (403 on unregistered, isolation per tenant).
+
+#### Framework-bug claim sanity-check
+
+I independently re-verified two of the four FW rows in the Known Issues block, plus the inline #329 cross-reference, against the frozen SHA — not trusting the Bug-Finder's reproductions verbatim.
+
+| Row | Claim | Re-grep | Verdict |
+|---|---|---|---|
+| FW-3 #330 (sidenote) | RBAC bootstrap fires for either `admin_api_enabled = true` OR non-empty `admin_token` | Local docs-test re-run with the no-`admin_token` overlay boots cleanly; orchestrator's prior repro with `admin_token` set produced `Failed to initialize RBAC schema: syntax error at or near "("`. The two-trigger claim is consistent with the local repro. | **PASS** |
+| FW-4 #331 | Subscription endpoint calls `TenantKeyResolver::resolve(None, &headers, None, false)` — JWT dropped, registry not consulted, strict off | `git show d0a4ed4:crates/fraiseql-server/src/routes/subscriptions.rs` L183 — verbatim `TenantKeyResolver::resolve(None, &headers, None, false)`. JWT-claim arg = None, registry/domain arg = None, strict = false. | **PASS** |
+| FW-5 #332 | Handler maps every `executor_for_tenant` error to `ErrorCode::Forbidden`, collapsing the `ServiceUnavailable { retry_after }` variant | `handler.rs:L577-L583` — `.map_err(|e| ErrorResponse::from_error(GraphQLError::new(e.to_string(), ErrorCode::Forbidden)))`. The error variant is discarded via `e.to_string()`; all errors collapse to 403. | **PASS** |
+| FW-6 #333 | `[a-zA-Z0-9_-]` admitted by X-Tenant-ID validator but `[a-zA-Z0-9_]` required by schema_isolation; `-` keys silently fail provisioning | `tenant_key.rs:L118` allows `b'-' \|\| b'_'`; `schema_isolation.rs:L33-L38` rejects anything outside ASCII alphanumeric + underscore with `"Tenant key '{key}' contains invalid characters"`. Alphabet drift verified directly. | **PASS** |
+| #329 inline | RLS session-variable propagation to mutation SQL functions tracked separately | Not re-verified in this review (page treats it as a cross-reference, not a Known Issues row; inline workaround `inject_params = { tenant_id: "jwt:tenant_id" }` is consistent with the row-mode pattern documented in `## row — shared tables with @tenant_id injection`). | NOT-BLOCKING; informational |
+
+All four FW rows accurate at frozen SHA. The Bug-Finder's symptom statements survive an independent re-grep.
+
+#### Findings
+
+**Blocking ❌ findings:** zero.
+
+**Non-blocking nits (NOT in PR review comments; recorded here for Cleanup or future cycles):**
+
+- NIT-1 (L67): "Use the multi-tenant runtime APIs at all when you have a single-tenant deployment if you want to keep the dispatch path uniform for future tenancy." — sentence is awkward; reads as if "at all" is misplaced. Suggested rewording: "Use the multi-tenant runtime APIs even in a single-tenant deployment if you want to keep the dispatch path uniform for future tenancy." Style-guide territory; defer to phase-close Style Auditor.
+- NIT-2 (L116): "see [Known issues](#known-issues) (FW-6, [#333](...))." — five cross-links to `#known-issues` appear in the body; if Cleanup wants to thin them down, the FW-6 anchor in the schema-isolation helpers section (L247) is the only one that strictly needs the explicit FW-6 reference. The others can stay generic. Optional; not a defect.
+- NIT-3 (L154-L162 table): the admin REST endpoint table places `<!-- source: ... -->` citations inside `<td>` cells. The strip integration covers them at build time (verified above), but if the methodology ever switches off the strip, those cells would render raw HTML comments. Forward-looking only; defended by the G7 resolution.
+- NIT-4 (L297): the FW-3 sidenote row's prose is dense ("Either ... or any non-empty `admin_token` ... triggers ..."). Phase 09 Framework Bug-Fixer will need to read this carefully; consider splitting into two bullets on the next pass.
+
+**Informational notes:**
+
+- The off-the-shelf binary's behaviour for cross-tenant queries against the docs-test stack is HTTP 500 `DATABASE_ERROR` (because the `projects` view doesn't exist in the test PG), not 200 as the page asserts for unregistered-key cases. This is consistent — the page describes the symptom as "silently routed to the default executor" and the default executor errors on missing tables. The docs-test correctly asserts "NOT 403" rather than "= 200" for the symptom, which is the right semantic. No page change needed.
+- The `:::note[Deprecated path — do not use]` callout for `X-Org-ID` middleware reads correctly. Independent dead-code check confirmed.
+- The page's `## Worked example` cleverly hand-waves over the host-binary build step ("The companion script ... exercises the intended host-binary scenario"). A reader without a Rust toolchain who tries to follow the steps verbatim won't get a binary. This is honest — the script's first assertion proves the recipe is source-true, and the next-steps cross-links point at `[Custom resolvers](/building/custom-resolvers)` for the `inject_params` plumbing. Not a defect; documented limitation of A2 framing.
+
+#### Anti-scope verification
+
+`git diff main..HEAD --name-only`:
+
+```
+_internal/.plan/.phases/README.md
+_internal/.plan/.phases/phase-03-critical-rewrites.md
+_internal/.plan/framework-qa-triage.md
+_internal/.plan/handoff.md
+_internal/.plan/methodology.md
+_internal/.plan/red-evidence/phase-03-cycle-01-citation-verification.log
+_internal/.plan/red-evidence/phase-03-cycle-01-two-tenant.transcript
+_internal/.plan/red-evidence/phase-03-cycle-01-unregistered-tenant.transcript
+astro.config.mjs
+scripts/docs-test/bugs/multi-tenancy.bug-1.sh
+scripts/docs-test/bugs/multi-tenancy.bug-2.sh
+scripts/docs-test/bugs/multi-tenancy.bug-3.sh
+scripts/docs-test/configs/overlays/multi-tenancy.toml
+scripts/docs-test/fixtures/postgres/multi-tenancy.compiled.json
+scripts/docs-test/pages/multi-tenancy.docs-test.sh
+src/content/docs/building/multi-tenancy.md
+src/content/docs/building/multi-tenancy.mdx
+```
+
+All paths fall under Phase 03 Cycle 1 scope: the multi-tenancy page (.md added, .mdx removed), its companion docs-test artifacts (overlay, fixture, script, bug repros), the G7 build-tooling change (`astro.config.mjs`), and `_internal/.plan/` planning files. No SDK, no quickstart, no `/reference/*`, no framework code, no `_internal/` outside `.plan/`. **Anti-scope HELD.**
+
+#### Verdict
+
+**APPROVE.** 15/15 checklist PASS. CI green on the required `page-test (_smoke)` and `page-test (multi-tenancy)` checks. docs-test re-runs PASS from this Reviewer's clean Docker state. 6/6 independent citation re-greps PASS (combined with Verifier's prior 50/50, all 56 citations resolve at frozen SHA). Posture B leak scan returns 0 hits at `dist/`. Anti-scope held. Cross-tenant adversarial test confirms the page documents a predictable failure path. All four FW-row claims independently re-verified at the frozen SHA. No blocking findings.
+
+`pre-commit.ci` ERROR is the Phase-10-deferred carry across the entire overhaul; non-blocking by precedent.
+
+#### Open gates
+
+Unchanged. G1 closed. G2 default-hold. G7 resolved (build-time strip). G3/G4/G5 downstream. No novel gates surfaced during this review.
+
+#### Pointer
+
+Next persona: **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 1 mechanical finalisation, then **Writer (Opus 4.7)** for Phase 03 / Cycle 2 (`file-storage.md`).
+
+Cleanup tasks queued (non-blocking nits to weigh against the cycle-level style audit at phase close):
+
+- NIT-1 — L67 awkward "at all" phrasing. Defer to phase-close Style Auditor.
+- NIT-2 — five `#known-issues` cross-links in the body; consider thinning.
+- NIT-3 — in-table HTML-comment citations; forward-looking only.
+- NIT-4 — FW-3 sidenote row prose density.
+
+The Writer for Cycle 2 (`file-storage.md`) should treat the Cycle 1 framing playbook as the template:
+
+- Library-API framing where the off-the-shelf binary doesn't wire a runtime component.
+- Explicit `## Known issues` block per framework drift.
+- docs-test option A2 (script asserts library-API surface + binary symptom) is acceptable when A1 (a wired host binary in the harness) is uneconomical.
+- Posture B is now uniformly safe — citations can be placed in tables / directives without leak risk; the strip integration handles them at build time.
