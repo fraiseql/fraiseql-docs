@@ -614,3 +614,36 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - **Open gates:** none new. G2 SHA-bump policy continues to hold. G1 (sidebar IA) is Cycle 6.
 
 ---
+
+### Phase 01 / Cycle 3 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.**
+
+- **CI gate:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26620521463 — `conclusion: success`, `headSha: d6cf4a3eedb123108df7805c8854f72908c53f85`, `displayTitle: docs: Phase 01 — triage and IA`. Green at the Cycle 3 link-audit commit; subsequent `1286cef` is handoff-URL backfill only and does not change CI surface.
+- **Diff reviewed:** `git show d6cf4a3` — 1 line-level edit to `src/content/docs/concepts/how-it-works.mdx:452` (cross-link addition in the `## Next Steps` block) + 3 RED-evidence files + handoff append. `1286cef` updates 2 lines of the handoff entry (commit SHA + CI URL backfill).
+- **Independent re-extract:**
+  - Regex set: `\]\((/[^)#?]+)` for markdown, `href="(/[^"#?]+)"` for HTML, `<LinkCard … href="…">` and `<Card … href="…">` (multiline-tolerant) for Starlight components. Run via Python over all `src/content/docs/**/*.{md,mdx}`.
+  - **Raw unique absolute targets: 166** — matches the Cleanup evidence file (`phase-01-cycle-03-internal-link-hits.txt`) exactly. The task brief's "167" is a transcription artefact; the evidence file consistently says 166 markdown + 1 HTML (`/ai/generating-views`) and the HTML target is already in the markdown set, so the union is 166.
+  - **Normalised targets (trailing slash stripped): 153.** Discrepancy between 166 and 153 is purely trailing-slash variants (e.g. `/concepts/foo` vs `/concepts/foo/`); both shapes route to the same Starlight page.
+  - **Resolved against `dist/`: 153 / 153.** Each target probed at `dist/<slug>/index.html`, `dist/<slug>.html`, and `dist/<slug>`. All matched.
+  - **Dead: 0.** Independent confirmation of the Cleanup's "zero dead links" claim.
+  - **LinkCard sweep:** 2 LinkCard `href` values found across the tree — `/ai/generating-views` (already in main set) and `https://github.com/fraiseql/fraiseql/releases` (external, out of scope). No new internal targets surfaced.
+- **Independent build:** `bun run build` exit 0, 197 pages. Warnings on this run: 2 — (1) `astro-expressive-code` "language `conf` could not be found" in `guides/federation-nats-integration.mdx` — pre-existing Cycle-2 anti-scope item, **not** an internal-link warning; (2) Starlight `/[...slug]` vs `/` route conflict — pre-existing Starlight quirk, **not** an internal-link warning. **Internal-link router warnings: 0.**
+- **Cross-link addition spot-check:** ✅
+  - `concepts/how-it-works.mdx:452` (verified by `sed -n '452p'`): `- [Why FraiseQL](/concepts/why-fraiseql) — The architectural principles behind the design`.
+  - Block context: lies inside the `## Next Steps` heading at line 450 (style-guide-mandated cross-link block per methodology § 4).
+  - Target page exists at `src/content/docs/concepts/why-fraiseql.mdx` and routes to `/concepts/why-fraiseql/index.html` in `dist/`.
+  - Sensible "next step" — the linked page expounds *why* the architecture exists, which logically follows *how it works*. Reading order is coherent.
+- **15-point checklist (applicable items only):**
+  - **6. DEAD LINKS — ✅** 0 / 153 normalised targets dead in independent re-extract.
+  - **7. UNDEFINED SYMBOLS — N/A** the added prose references only the page title "Why FraiseQL" and the noun "architectural principles" — no type names, function names, config keys, env vars, or directives.
+  - **12. ARCHAEOLOGY-FREE — ✅** grep on `how-it-works.mdx` returns hits on "Phase 1/2/3" at lines 321/331/342 — these describe FraiseQL's compilation pipeline phases (pre-existing content from commit `fac6b87`), NOT docs-overhaul phase markers. The single added line (452) is clean.
+  - **14. NO PERSONA SELF-REFERENCE — ✅** added line contains no "as an AI", "persona", model-name, or prompt-leakage artefact.
+  - Items 1–5, 8–11, 13, 15 — N/A — out of cycle scope (link topology only).
+- **Findings:**
+  1. (nit, non-blocking) The task brief's "167 unique targets" line is a copy-paste artefact at the orchestrator level; the Cleanup's RED evidence file is internally consistent at 166. No reviewer action — flagged for the orchestrator only.
+  2. (nit, non-blocking) The Cleanup's regex deliberately strips fragment anchors (`#section`). This is correct for "does the page exist" but does not validate that fragment targets exist within the destination page. Out of scope for "dead-link" semantics; logging for awareness — if Phase 02+ wants stricter fragment validation, a separate sweep is warranted.
+- **Follow-on items:** none. The methodology § 4 JSX-comment amendment carried over from Cycle 1/2 reviews remains a Phase 01 close concern, not a Cycle 3 concern.
+- **Sign-off:** 4/4 in-scope checklist items pass, CI green, dead-link count independently confirmed at 0, cross-link addition lands correctly in a `## Next Steps` block, no blockers. Cycle 3 closed. Next: Cycle 4 (external link audit).
+
+---
