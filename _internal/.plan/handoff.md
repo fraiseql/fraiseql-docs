@@ -2382,3 +2382,122 @@ User authorised orchestrator to flip PR #13 ready-for-review and squash-merge.
 - **Open gates at Cycle-0 close:** G1 closed (Option A, Phase 01). G2 default-hold. G3/G5 downstream. G4 soft (Phase 00). No novel gates yet — Cycle 6 (Cycle-4 deferral Class A) is the first candidate for a novel G6.
 
 Handoff to **Writer (Opus 4.7)** for Cycle 1 RED next.
+
+---
+
+### Phase 03 / Cycle 1 RED — Writer (Opus 4.7) — 2026-05-29
+
+**Target page:** `/building/multi-tenancy` (existing `src/content/docs/building/multi-tenancy.mdx` is the stale Python `TenantRouter`/RLS-only framing the phase-doc replaces).
+
+**Frozen SHA verified:** `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. `scripts/docs-test/FRAISEQL_SHA` byte-identical.
+
+#### 1. Framework-surface inventory (Cycle-1 "New" list, item-by-item against frozen SHA)
+
+| Cycle-1 "New" bullet | Verdict at frozen SHA | Primary citation(s) |
+|---|---|---|
+| Per-tenant executor isolation (v2.2.0) | CONFIRMED (library API) | `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L100-L235` (`TenantExecutorRegistry`, `ArcSwap<Executor<A>>` per entry) |
+| Dispatch source: `X-Tenant-ID` header | CONFIRMED | `crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L40-L102` (`TenantKeyResolver::resolve`); validator at `L108-L122`; max length 128 at `L21` |
+| Dispatch source: JWT `tenant_id` claim | CONFIRMED | `crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L48-L56` |
+| Dispatch source: Host-domain registry | CONFIRMED | `crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L70-L84` + `L132-L165` (`DomainRegistry`) |
+| Admin REST `PUT/DELETE /api/v1/admin/tenants/{key}` | CONFIRMED **at library/handler level**; unreachable through binary (see §3) | `crates/fraiseql-server/src/routes/api/tenant_admin.rs:L160-L255` (handlers), `src/server/routing/admin.rs:L389-L489` (mount) |
+| Admin REST `GET /api/v1/admin/tenants` | CONFIRMED at handler level | `crates/fraiseql-server/src/routes/api/tenant_admin.rs:L352-L370` |
+| Admin REST `GET /api/v1/admin/tenants/{key}/health` | CONFIRMED at handler level | `crates/fraiseql-server/src/routes/api/tenant_admin.rs:L376-L398` |
+| Admin REST `PUT/DELETE /api/v1/admin/domains/{domain}` | CONFIRMED at handler level | `crates/fraiseql-server/src/routes/api/tenant_admin.rs:L450-L515` |
+| Admin REST `GET /api/v1/admin/domains` | CONFIRMED at handler level | `crates/fraiseql-server/src/routes/api/tenant_admin.rs:L517-L525` (within file; mounted at `admin.rs:L468-L470`) |
+| ArcSwap hot-reload semantics | CONFIRMED | `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L67-L92` (`TenantEntry::executor: Arc<ArcSwap<Executor<A>>>`), `L199-L212` (`upsert` atomically swaps via `ArcSwap::store`) |
+| Single-tenant zero-overhead | CONFIRMED (registry is `Option<Arc<...>>`, defaults `None`; `executor_for(None)` short-circuits to the default `ArcSwap`) | `crates/fraiseql-server/src/routes/graphql/app_state.rs:L101`, `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L140-L150` |
+| Explicit-but-unregistered → 403 | CONFIRMED (library); **NOT reachable through binary** (see §3) | `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L140-L165` (returns `FraiseQLError::Authorization`) |
+| `TenancyConfig` / `TenancyMode` settings | CONFIRMED (on compiled schema, not server TOML) | `crates/fraiseql-core/src/schema/security_config.rs:L113-L186`; CLI side at `crates/fraiseql-cli/src/config/security.rs:L340-L420` |
+| Compile-time `@tenant_id` row-isolation guard | CONFIRMED | `crates/fraiseql-cli/src/schema/converter/tenancy.rs:L1-L135` (`AnnotatedTypeIndex`, `validate_tenant_annotations`); invoked at `crates/fraiseql-cli/src/commands/compile.rs:L211-L235` |
+| Schema-isolation DDL + `search_path` management | CONFIRMED | `crates/fraiseql-server/src/tenancy/schema_isolation.rs:L1-L120` (`tenant_schema_name`, `search_path_sql`, `create_schema_ddl`, `drop_schema_ddl`, `provision_tenant_schema`, `drop_tenant_schema`) |
+| Suspend/resume lifecycle with admin scope guard | CONFIRMED | `crates/fraiseql-server/src/routes/api/tenant_admin.rs:L257-L317` (suspend/resume handlers, write-token guarded at `src/server/routing/admin.rs:L411-L420`) |
+| Tenant-aware rate limiting and quotas | CONFIRMED | `crates/fraiseql-server/src/middleware/rate_limit/dispatch.rs:L122-L138` (`check_tenant_limit`); per-tenant token bucket at `src/middleware/rate_limit/in_memory.rs:L31-L300`; `TenantQuota` at `tenant_registry.rs:L50-L62`; concurrency semaphore at `L242-L271` |
+| Tenant audit trail | CONFIRMED | `crates/fraiseql-server/src/tenancy/audit.rs:L1-L120` (`TenantEventKind`, `TenantEvent`, `TenantAuditLog` trait, `InMemoryAuditLog` default); events recorded by handlers at `tenant_admin.rs:L195-L212` |
+| Tenant cross-source consistency validation | CONFIRMED (cross-source = X-Tenant-ID vs JWT vs Host header; "consistency validation" = `strict` mode rejecting conflicts) | `crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L83-L102`; strict-mode toggle by RLS detection at `crates/fraiseql-server/src/routes/graphql/handler.rs:L506-L515` |
+
+Note on label drift the phase-doc Writer should be aware of: the older `crates/fraiseql-server/src/middleware/tenant.rs:L20-L43` reads `X-Org-ID` (not `X-Tenant-ID`) and stores a `TenantContext` with field `org_id`. The new tenant-registry path uses `X-Tenant-ID` via `TenantKeyResolver`. Both coexist at the frozen SHA; the page should document the new (`X-Tenant-ID`) path and either silently exclude or briefly note the legacy `X-Org-ID` middleware as a deprecated alternative (Writer's call in GREEN).
+
+#### 2. Source-citation candidates for the GREEN Writer
+
+Tag-and-line ranges the GREEN draft should cite (re-grep before pasting; SHA is `d0a4ed4ec1770c70707f68fd9019f2b561d87461`):
+
+- Dispatch precedence (JWT > X-Tenant-ID > Host): `crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L36-L102`
+- X-Tenant-ID validator (alphanumeric + `_-`, ≤128 chars): `crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L108-L122`
+- Explicit-deny on unregistered key: `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L140-L165`
+- Suspended → 503 with `Retry-After: 60`: `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L99` (`SUSPENDED_RETRY_AFTER_SECS`), `L167-L182` (`require_active`)
+- ArcSwap atomic swap on update: `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L199-L212`
+- `TenancyMode::None | Row | Schema` enum: `crates/fraiseql-core/src/schema/security_config.rs:L113-L142`
+- `TenancyConfig` (with `tenant_claim` default `"tenant_id"`): `crates/fraiseql-core/src/schema/security_config.rs:L144-L186`
+- Compile-time `@tenant_id` auto-injection + error on missing inject: `crates/fraiseql-cli/src/schema/converter/tenancy.rs:L73-L135`
+- Schema isolation helpers (CREATE/DROP/`SET search_path`): `crates/fraiseql-server/src/tenancy/schema_isolation.rs:L21-L120`
+- Audit event types + handler-side recording: `crates/fraiseql-server/src/tenancy/audit.rs:L15-L60`, `crates/fraiseql-server/src/routes/api/tenant_admin.rs:L195-L212`
+- Per-tenant rate limiting backend matrix (in-memory only at backend level): `crates/fraiseql-server/src/middleware/rate_limit/dispatch.rs:L122-L138`
+- Concurrency semaphore (`max_concurrent`): `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L242-L271`
+- Storage soft quota (`max_storage_bytes`): `crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L273-L290`
+- Strict cross-source consistency: `crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L83-L102` + `crates/fraiseql-server/src/routes/graphql/handler.rs:L506-L515` (`strict` set when RLS is configured)
+- AppState defaults (registry/factory/domain/audit are all `None`): `crates/fraiseql-server/src/routes/graphql/app_state.rs:L95-L106`, `L171-L182`
+- Library API host-binary recipe (the integration test): `crates/fraiseql-server/tests/multitenancy_test.rs:L107-L130`
+- CHANGELOG anchor for v2.2.0 multi-tenancy + v2.3 hardening: `CHANGELOG.md:L92-L99`, `CHANGELOG.md:L609-L617`
+
+#### 3. Framework drift from the phase-doc
+
+**Material drift to surface in GREEN:**
+
+The Cycle-1 "New" list (especially the admin REST API and the explicit-deny-403 security bullet) reads as if the off-the-shelf `fraiseql-server` binary exposes the multi-tenant runtime out of the box. It does not. `crates/fraiseql-server/src/server/routing/state.rs:L10-L181` (`build_app_state()`, the binary's only `AppState` constructor) never installs a `TenantExecutorRegistry`, `TenantExecutorFactory`, `DomainRegistry`, or `TenantAuditLog`. Consequently:
+
+- `X-Tenant-ID: foo` for an unregistered key is silently served by the default executor (200 + default-schema validation error), not the documented 403.
+- `PUT /api/v1/admin/tenants/{key}` always returns 404 (`"multi-tenant mode not enabled"`) regardless of `admin_api_enabled` / `admin_token`.
+- The full multi-tenant runtime is reached only by composing `AppState` programmatically in a host binary that wraps `fraiseql-server` (the shape used by `crates/fraiseql-server/tests/multitenancy_test.rs`).
+
+**What the GREEN Writer must do** — pick one (with a `## Known issues` block linking #330 in either case):
+
+- **(A) library-API framing:** document the multi-tenant runtime as a library API, show a 20-line host-binary recipe that calls `AppState::with_tenant_registry(...)` / `with_tenant_executor_factory(...)` / `with_domain_registry(...)` / `with_tenant_audit_log(...)`, then show curl against that host binary. This is what ships truthfully today.
+- **(B) feature-request framing:** document the surface as the phase-doc describes it, but lead with a `## Known issues` block noting the binary does not auto-wire the registry and pointing at #330. The runnable example is delayed until #330 lands; the docs ship with a stub demoing the planned shape.
+
+Writer's call in GREEN; (A) is more honest, (B) is more future-proof. The Bug-Finder (next session) will likely push toward (A) once they reproduce the same gap.
+
+**Other minor drift:**
+
+- `TenancyConfig` / `TenancyMode` live on the compiled-schema `security.tenancy` block, not the runtime server TOML. The CLI block is `[fraiseql.tenancy]` in `fraiseql.toml`. The docs-test image bundles `fraiseql-server` only (no `fraiseql` CLI), so the GREEN Writer cannot exercise compile-time tenancy from inside the harness without harness changes — see §5.
+- The pre-v2.2 `X-Org-ID` middleware (`crates/fraiseql-server/src/middleware/tenant.rs`) coexists with the new `X-Tenant-ID` dispatch path. The page should pick the new path; if it mentions the legacy one at all, mark it deprecated and cross-link to the migration callout.
+
+#### 4. RED-evidence transcripts
+
+- `_internal/.plan/red-evidence/phase-03-cycle-01-unregistered-tenant.transcript` — Cycle-1 RED bullet 1. Documents the silent-pass-through (200, no 403, no tenant log entries) on baseline binary; admin tenant API returns 404 because `admin_api_enabled = false`; embeds source citations explaining the binary-vs-library gap.
+- `_internal/.plan/red-evidence/phase-03-cycle-01-two-tenant.transcript` — Cycle-1 RED bullet 2 (BLOCKED). Documents:
+  - Two blockers: `admin_api_enabled = false` ⇒ 404; toggling `admin_api_enabled = true` ⇒ server refuses to start (`Failed to initialize RBAC schema: syntax error at or near "("`).
+  - Citations for `mount_admin_api` mount conditions and the `tenant_registry()` None-check inside every tenant admin handler.
+  - The library-API recipe from `crates/fraiseql-server/tests/multitenancy_test.rs`.
+
+Both transcripts include `<!-- source: ... -->` and explanatory prose; the GREEN Writer can copy the citation blocks verbatim.
+
+#### 5. Harness gaps the GREEN Writer or Cleanup must close
+
+- The docs-test image does NOT bundle the `fraiseql` CLI (per `Dockerfile.fraiseql`'s `CARGO_FEATURES` block — server only). The compile-time `@tenant_id` guard cannot be exercised from inside the harness without either (a) a sidecar CLI container, (b) a hand-rolled `schema.compiled.json` with `security.tenancy` populated, or (c) `cargo run -p fraiseql-cli compile` on the host. The Cycle-1 CLEANUP `multi-tenancy.docs-test.sh` may need either (b) or (c) — non-blocking for the GREEN draft, but the Cycle-1 CLEANUP entry should flag this.
+- The harness's bundled `schema.compiled.json` declares no security config and no tenancy. Tenant-mode reproductions need a richer fixture. Suggest adding `scripts/docs-test/fixtures/postgres/multi-tenancy.compiled.json` + `scripts/docs-test/configs/overlays/multi-tenancy.toml` during CLEANUP.
+- `admin_api_enabled = true` fails startup on the harness Postgres database; whether this is a docs-harness fixture gap or a framework bug is for the Bug-Finder to triage. Side-noted in issue #330 with the explicit caveat that it can be split into a separate issue.
+
+#### 6. Framework bugs filed during this RED pass
+
+- **FW-3** — #330 https://github.com/fraiseql/fraiseql/issues/330 — `[docs-overhaul] server: multi-tenant runtime not wired into fraiseql-server binary (admin tenant API unreachable via TOML alone)`. Severity: regression vs. documented v2.2.0 behaviour. Phase-09 candidate (fix would be to add a `[tenancy.runtime]` TOML block read by `ServerConfig` and have `build_app_state()` install the registry/factory/domain/audit when enabled). Page must either ship `## Known issues` linking #330 or pivot to library-API framing.
+
+The RBAC-schema startup error observed under `admin_api_enabled = true` is mentioned inline in #330 with permission to split into its own issue if triaged that way; the Bug-Finder may choose to extract.
+
+#### 7. Pointer to next persona
+
+Next session: **Bug-Finder (Opus 4.7)** for Phase 03 / Cycle 1. Read this entry + the two transcripts in `_internal/.plan/red-evidence/`. Adversarial classes per `personas.md § Bug-Finder` to focus on for the multi-tenancy page:
+
+- Wrong-database: row-mode on MySQL/SQLite/MSSQL with `@tenant_id` annotations — does the compiler reject, accept silently, or emit a `WHERE tenant_id = ?` against a missing column? Schema-mode on MySQL — does `search_path` even exist? (Spoiler: no — must be PG-only.)
+- Missing feature flag: registry/factory paths under `arrow` / `observers-*` / `redis-rate-limiting` toggles.
+- Insecure default exploitation: registry not wired (just reproduced) — but the *real* attack is whether the legacy `X-Org-ID` middleware leaks tenant context to default-executor queries.
+- Conditional-caveat violation: hot-reload race (insert tenant `foo` while a query holds the previous `executor`'s `ArcSwap` guard); cross-source conflict in non-strict mode.
+- Concurrency: race PUT/DELETE on the same tenant key; race suspend + in-flight query; race domain register + DELETE tenant the domain points at.
+- RLS / tenant boundary: send `X-Tenant-ID: foo` with a JWT `tenant_id: bar` claim in non-strict mode (the resolver picks JWT — but does the registry actually scope the query? does the RLS `set_config('app.tenant_id', 'bar')` reach mutations? cross-link to #329 if relevant).
+
+Every Bug-Finder finding becomes a `scripts/docs-test/bugs/multi-tenancy.bug-N.sh` + framework issue per methodology § 7. The GREEN Writer (subsequent session) consumes both this entry and the Bug-Finder's handoff entry.
+
+**Anti-scope held this RED pass:** no edits to `src/content/docs/`; no edits to `~/code/fraiseql`; no page draft; no GREEN declaration; no `Phase 03` row flips beyond what Cycle 0 already did. Only the two transcripts under `_internal/.plan/red-evidence/` and this handoff entry are touched.
+
+**Open gates at this RED close:** unchanged from Cycle 0. G1 closed. G2 default-hold. G3/G4/G5 downstream. No novel gates surfaced this pass — the binary-vs-library gap (#330) is a framework bug, not a human gate.
+
+Handoff to **Bug-Finder (Opus 4.7)** for Phase 03 / Cycle 1 next.
