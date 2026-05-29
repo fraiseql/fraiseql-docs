@@ -1105,6 +1105,6 @@ These are decisions the Writer cannot make alone:
 
 Please reply inline below this line with `> human:` your pick (A / B / C) and any modifications (e.g., "A but keep AI-Assisted as a top-level", "A but staged across phases", etc.). Cycle 7 (sweep matrix) and Phases 02-08 depend on this decision.
 
-> human:
+> human: **A.** No modifications. Default proposal accepted as-written. G1 closed 2026-05-29 (recorded by orchestrator on user's behalf — original chat-channel response was "ok, I agree with the option A from the writer"). Open questions 1–7 in the Writer's proposal remain Writer judgement during Cycle 6 REFACTOR/CLEANUP unless they require another gate — surface novel gates rather than guess.
 
 ---

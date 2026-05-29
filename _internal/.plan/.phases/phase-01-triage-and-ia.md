@@ -186,10 +186,10 @@ This phase doesn't usually need containers. Two exceptions:
 - [ ] Not started
 - [ ] RED in progress
 - [ ] GREEN in progress
-- [ ] REFACTOR in progress
+- [~] REFACTOR in progress (Cycle 6 — Option A implementation: sidebar redraw, ~40 page moves, redirects, sidebar-decision.md)
 - [ ] CLEANUP in progress
 - [ ] Complete
-- [?] Awaiting human gate G1 (Cycle 6 — sidebar IA proposal). Cycles 1–5 closed and approved by Reviewer. Cycle 6 G1 proposal (Options A / B / C, default A) appended to `_internal/.plan/handoff.md`. Cycle 7 (sweep matrix) blocked until human picks A / B / C inline in the handoff.
+- G1 resolved 2026-05-29: **Option A** (no modifications). Cycles 1–5 closed and approved by Reviewer. Cycle 6 GREEN/G1 proposal landed (commit `5ac2593`). Cycle 6 REFACTOR/CLEANUP now driving the Option A implementation; Cycle 7 (sweep matrix) authored against the new shape; Phase 01 close after.
 
 ## Owner
 
