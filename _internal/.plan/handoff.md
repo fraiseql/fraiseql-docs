@@ -2232,3 +2232,15 @@ Note for Cycle 6 Writer: the cross-link integration cycle should (a) audit inbou
 
 **APPROVE — Cycle 6 closes. Cycle 7 (style audit + phase close) opens.** Reviewer (Opus 4.7) hands off to Writer/Cleanup (Opus 4.7) for Cycle 7.
 
+---
+
+### Phase 02 / Cycle 7 audit — Style Auditor (Sonnet 4.6) — 2026-05-29
+
+- **Pages audited:** 10 — `release-notes/index.mdx`, `release-notes/v2-0.mdx`, `release-notes/v2-1.mdx`, `release-notes/v2-2.mdx`, `release-notes/v2-3.mdx`, `migrations/upgrading/index.mdx`, `migrations/upgrading/v2-2-to-v2-3.mdx`, `migrations/upgrading/v2-1-to-v2-2.mdx`, `index.mdx` (Cycle 6 touch), `building/migrations/index.mdx` (Cycle 6 touch).
+- **Edits flagged:** 17 total.
+- **Severity distribution:** low=9 (4× description >155 chars, 2× forbidden word `just`, 2× forbidden word `actually`, 1× `breaking-change surface` phrasing), medium=8 (5× missing `## Next steps` block on release-notes pages + building/migrations, 1× rogue body H1 on building/migrations/index.mdx, 1× prompt prefix `$ ` in bash block on index.mdx, 1× description >155 chars on v2-3), high=0.
+- **Terminology drift findings:** 5 cross-page inconsistencies — (1) `## See also` vs `## Next steps` on migration guides (canonical: `## Next steps`); (2) "migration guide for" vs "upgrade guide for" in intro paragraphs; (3) `breaking-change surface` vs `breaking changes`; (4) `## Upgrade from v1.x` (v2-0) vs `## Upgrade` (v2-1/v2-2/v2-3); (5) missing terminal cross-link block on all four release-notes pages.
+- **Pages clean (zero edits):** `migrations/upgrading/index.mdx` only.
+- **Audit file:** `_internal/.plan/style-audits/phase-02.md`.
+- **Handoff to Cleanup (Sonnet 4.6) next** — applies the 17-item edit list. No new human gates.
+
