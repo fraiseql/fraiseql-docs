@@ -3298,3 +3298,107 @@ Unchanged. G1 closed. G2 default-hold. G7 resolved (build-time strip integration
 #### Pointer
 
 Next session: **Bug-Finder (Opus 4.7)** for Phase 03 / Cycle 2. Read this entry + the two transcripts in `_internal/.plan/red-evidence/`. Adversarial classes per § 8 above. After Bug-Finder, a fresh Writer session does GREEN.
+
+---
+
+### Phase 03 / Cycle 2 RED — Bug-Finder (Opus 4.7) — 2026-05-29
+
+Cycle 2 of Phase 03 — `/features/file-storage` adversarial testing. RED phase, Bug-Finder persona. Read Writer-RED entry above + the two transcripts in `_internal/.plan/red-evidence/`. Adversarial-class focus per the Cycle-2 Writer-RED handoff § 8.
+
+#### 1. Adversarial-class coverage matrix
+
+| Class | Outcome | Detail |
+|------|---------|--------|
+| **Cross-tenant blob access (path traversal)** | NEGATIVE | `validate_key` (`crates/fraiseql-storage/src/backend/mod.rs:L361-L373`) rejects `..` substring, `/`-prefix, `\\`-prefix. Each backend (`local`, `s3`, `gcs`, `azure`) re-validates internally. Modern route handlers themselves never call `validate_key` — defence is backend-only, but every backend enforces it. Bare `..`, URL-encoded `..%2F` (decoded to `../` by axum's Path extractor before reaching `validate_key`), and double-encoded `..%252F` (decoded to literal `..%2F` which contains `..`) are all blocked. Bytes-level path traversal NOT exploitable. |
+| **Cross-bucket isolation (canonical attack — bucket-name dropped)** | POSITIVE — **FW-9 #336** | Every `state.backend.{upload,download,delete,presign_put,presign_get}` call in `routes/mod.rs` forwards only `&key` — `bucket_name` is discarded. Metadata layer enforces `UNIQUE(bucket, key)` but backend treats `(A,x)` and `(B,x)` as same object. Cross-bucket key collisions silently overwrite content. Repro: `scripts/docs-test/bugs/file-storage.bug-2.sh`. |
+| **Signed-URL replay / no-auth presign** | POSITIVE — **FW-8 #335** | `presign_handler` (`routes/mod.rs:L373-L434`) has no `Option<Extension<StorageUser>>` parameter, no `state.rls.can_*` call, no `state.metadata.get` call. Anonymous client gets 24h-valid presigned GET URL for any bucket+key, including objects in `BucketAccess::Private` buckets. Compounds with FW-9 (bucket-name dropped). Critical-severity security finding. Repro: `scripts/docs-test/bugs/file-storage.bug-1.sh`. |
+| **Oversized upload (memory exhaustion)** | POSITIVE — **FW-11 #338** | `default_max_request_body_bytes = 1_048_576` (1 MiB) applied globally via `DefaultBodyLimit::max` at the app layer. Legacy `DEFAULT_MAX_UPLOAD_BYTES = 100 MiB` and modern `bucket.max_object_bytes` (unlimited default) both unreachable. Operator who raises the global cap exposes every other route to elevated body cap (broad DoS amplifier). Body extracted as `Bytes` — full buffering before per-route size check. Repro: `scripts/docs-test/bugs/file-storage.bug-4.sh`. |
+| **MIME confusion / stored XSS** | POSITIVE — **FW-10 #337** | `get_handler` sets response `Content-Type` verbatim from stored value (attacker-controlled at upload). No `X-Content-Type-Options: nosniff`. No `Content-Disposition: attachment`. No magic-byte validation. `BucketConfig::allowed_mime_types` defaults to `None` (no allowlist). `Cache-Control: public, max-age=3600` makes XSS payloads CDN-cacheable. Any PublicRead bucket without explicit MIME allowlist is a stored-XSS surface. Repro: `scripts/docs-test/bugs/file-storage.bug-3.sh`. |
+| **HTTP allowlist bypass / SSRF (storage-adjacent)** | NEGATIVE | `HttpClientConfig::default()` is `allowed_domains: ["*"]` (allow-all) with private-IP block in `validate_outbound_url` (`crates/fraiseql-functions/src/host/live/http_validator/mod.rs:L62-L90`). There is NO code path from `fraiseql-storage` that triggers `validate_outbound_url` — storage transforms run in-process via the `image` crate; there is no `on_upload` webhook. The `["*"]` default is a `fraiseql-functions` concern, not a storage concern. Writer-RED already noted this drift; confirmed no storage-side exploitation path. |
+| **Transform DoS (decode amplification)** | DEFERRED — no repro filed | `ImageTransformer::transform` (`crates/fraiseql-storage/src/transforms/transformer.rs`) calls the `image` crate which decodes the input into memory before resizing. No CPU semaphore, no memory cap, no decoded-size limit observable in the source. A malicious 10MB PNG that decodes to a 4-billion-pixel canvas would OOM the server. This IS a real bug — but: (a) the transforms feature requires the `transforms` Cargo feature, which the docs-test image is not built with at frozen SHA; (b) the wider DoS class is already documented by FW-11 (the global body cap is the practical bound); (c) the Writer-GREEN page can document this as a known limit of the `transforms` feature without filing a separate framework issue, OR can defer to a future cycle when transforms are documented. Recommended action: GREEN Writer notes "transform requests do not bound decoded-image memory; deploy behind a body-cap proxy" and links to FW-11 #338. |
+| **RLS bypass via raw SQL / direct table read** | NEGATIVE (but quality-of-life concern) | Auto-generated GraphQL `list{Bucket}Objects` query references `sql_source: "t_storage_<bucket>"` per `crates/fraiseql-storage/src/graphql/mod.rs:L99,L175`. No such table is created by `storage_migration_sql()` — the actual table is `_fraiseql_storage_objects`. So the auto-generated GraphQL query path is currently broken (refers to a non-existent table), which means RLS bypass via GraphQL is unreachable for the wrong reason. The bigger concern: when the operator wires the storage subsystem via the modern subsystems builder + compiled schema, the per-bucket GraphQL surface points at a missing table. This is a Writer-GREEN documentation problem more than a Bug-Finder bug. NOT FILED as a framework issue. |
+| **Concurrency (race two writes to same key)** | NEGATIVE — last-write-wins is documented behaviour | `upsert` (`crates/fraiseql-storage/src/metadata/mod.rs:L216-L244`) uses `INSERT ... ON CONFLICT (bucket, key) DO UPDATE` — last-write-wins is by design. Backend writes (S3, local) are also last-write-wins by their respective semantics. No anomaly. Combined with FW-9 (bucket-name dropped), this becomes a vulnerability — but the vulnerability is FW-9, not the concurrency model. |
+| **Backend asymmetry (Azure/GCS endpoint override)** | DEFERRED to FW-1 #326 | Already filed by Writer-RED predecessor. Not refiled. Confirmed Azure/GCS sidecars remain unreachable through the binary. |
+| **LIKE-pattern injection in list query** | POSITIVE — **FW-12 #339** (new class found during source review) | Not in the original adversarial-class list but surfaced during source review. `metadata::list` interpolates client `prefix` into a LIKE pattern via `format!("{pfx}%")` with no ESCAPE clause. Client passes `prefix=%` or `prefix=%admin%` to enumerate the bucket. Repro: `scripts/docs-test/bugs/file-storage.bug-5.sh`. |
+
+#### 2. Bugs filed (5 net new)
+
+| ID | GitHub | Severity | Repro script | One-line summary |
+|----|--------|----------|--------------|-----------------|
+| FW-8 | https://github.com/fraiseql/fraiseql/issues/335 | **security (critical)** | `scripts/docs-test/bugs/file-storage.bug-1.sh` | `presign_handler` skips RLS — any anonymous client can presign GET/PUT for any bucket+key |
+| FW-9 | https://github.com/fraiseql/fraiseql/issues/336 | regression (data integrity) | `scripts/docs-test/bugs/file-storage.bug-2.sh` | Bucket name dropped before backend calls — cross-bucket key collisions corrupt content |
+| FW-10 | https://github.com/fraiseql/fraiseql/issues/337 | regression (security) | `scripts/docs-test/bugs/file-storage.bug-3.sh` | Stored XSS — uploaded files served with attacker-controlled Content-Type and no nosniff |
+| FW-11 | https://github.com/fraiseql/fraiseql/issues/338 | regression (qol + DoS amplifier) | `scripts/docs-test/bugs/file-storage.bug-4.sh` | Global 1 MiB DefaultBodyLimit silently caps every storage upload; per-route limit absent |
+| FW-12 | https://github.com/fraiseql/fraiseql/issues/339 | regression (information disclosure) | `scripts/docs-test/bugs/file-storage.bug-5.sh` | LIKE-pattern injection in metadata list query — bucket-wide enumeration via `prefix=%` |
+
+All 5 scripts are `set -euo pipefail`, do static-source verification against `~/code/fraiseql@d0a4ed4ec1770c70707f68fd9019f2b561d87461`, print expected-vs-actual at the top, and exit 1 on reproduction. Same shape as `multi-tenancy.bug-{1,2,3}.sh` from Cycle 1.
+
+#### 3. Negative findings (no bugs filed; evidence for GREEN Writer's limit-statements)
+
+- **Path traversal via key**: `validate_key` blocks `..`, `/`-prefix, `\\`-prefix. Backend-level enforcement is consistent across `local`, `s3`, `gcs`, `azure`. URL-encoded forms decode to literal `..` before reaching `validate_key` (axum's Path extractor decodes once); double-encoded forms still contain literal `..` after one decode. GREEN Writer can confidently state "storage keys are bytes-level path-traversal safe".
+- **SSRF from storage subsystem**: no code path. The `allowed_domains: ["*"]` allow-all default is a `fraiseql-functions` concern; storage transforms are in-process and storage has no outbound HTTP. GREEN Writer should NOT cross-link the HTTP allowlist on the storage page (avoid the trap of framing a non-storage default as a storage default — that was the phase-doc's original error).
+- **Concurrency on same key**: last-write-wins is by design (`ON CONFLICT (bucket, key) DO UPDATE` in metadata; backend-native overwrite). Document the semantics; no bug.
+
+#### 4. Bug-script + issue inventory
+
+- Repro scripts (chmod +x; all exit 1 BUG REPRODUCED at frozen SHA):
+  - `scripts/docs-test/bugs/file-storage.bug-1.sh` → FW-8 #335
+  - `scripts/docs-test/bugs/file-storage.bug-2.sh` → FW-9 #336
+  - `scripts/docs-test/bugs/file-storage.bug-3.sh` → FW-10 #337
+  - `scripts/docs-test/bugs/file-storage.bug-4.sh` → FW-11 #338
+  - `scripts/docs-test/bugs/file-storage.bug-5.sh` → FW-12 #339
+- GH issues filed: #335, #336, #337, #338, #339 (`gh issue list --repo fraiseql/fraiseql --search "docs-overhaul storage"` confirms).
+- `_internal/.plan/framework-qa-triage.md` updated — 5 rows added (FW-8..FW-12).
+
+#### 5. (A) library-API vs (B) feature-request framing recommendation — Bug-Finder POV
+
+**Recommendation: pivot to (A) library-API framing PLUS a prominent `## Security caveats` section.** Pushing back ON Writer-RED's "(A) clean library-API page" only in one respect: the page CANNOT be just a "here's how to wire library-API and run uploads" walkthrough. The five new bugs make the storage subsystem at this SHA **dangerous by default** along multiple axes — presign is anonymous, buckets don't isolate, downloads are XSS-vectorable, body limits are mis-defaulted, and list-prefix is enumerable.
+
+A pure (B) "document the binary TOML intent + cross-link FW-7 #334" framing is worse, not better — that path would describe a config shape that doesn't exist in the binary, while also implicitly promising RLS-enforced bucket isolation that the modern routes don't deliver in practice. Readers would believe themselves protected and not be.
+
+So: (A) library-API + library-author warnings is the right answer. Concretely, the GREEN Writer should:
+
+1. Lead with the library-API wiring example (host binary calling `Server::with_storage` + the modern `StorageState` subsystem path) — same shape as Cycle 1's multi-tenancy pivot.
+2. Lift the `## Known issues` block to a **`## Security caveats`** section, prominently placed. Cross-link FW-7 #334, FW-8 #335, FW-9 #336, FW-10 #337, FW-11 #338, FW-12 #339 with one-line summaries and the recommended host-binary mitigations.
+3. Walk the reader through the mitigations:
+   - Wrap `storage_router` with auth middleware that REJECTS unauthenticated requests to `/storage/v1/presign/*` (mitigates FW-8 until #335 ships).
+   - Configure one logical bucket per backend bucket (mitigates FW-9 until #336 ships).
+   - Set `bucket.allowed_mime_types` to a conservative allowlist on every PublicRead bucket; deploy storage behind a reverse proxy that injects `X-Content-Type-Options: nosniff` and `Content-Disposition: attachment` (mitigates FW-10 until #337 ships).
+   - Set `max_request_body_bytes` thoughtfully; consider per-route limits or a separate server instance for storage (mitigates FW-11 until #338 ships).
+   - Treat `prefix` as a LIKE pattern; document the enumerability of PublicRead buckets (mitigates FW-12 until #339 ships).
+4. Use the existing two-step (multipart POST → record-via-mutation) pattern from the stale page as a recipe, but reframed against the library-mounted `/storage/v1/object/{bucket}/{*key}` routes (modern crate) and the host binary's auth gate.
+5. Do NOT use the hallucinated `[files.<name>]` / `[storage.<name>]` TOML — the binary doesn't consume them.
+6. Do NOT use the hallucinated `validate_magic_bytes` / `allowed_types` / `public` / `cache` / `url_expiry` / `scan_malware` / `processing` / `on_upload` fields — none exist at frozen SHA.
+
+Drop the marketing-flavoured framing entirely.
+
+#### 6. Harness gaps surfaced during this Bug-Finder session
+
+- No new harness gaps beyond what Writer-RED noted. All 5 repro scripts are pure static-source greps against `~/code/fraiseql@d0a4ed4ec1770c70707f68fd9019f2b561d87461` — no compose stack invocation required. This is the same model as the Cycle 1 `multi-tenancy.bug-{1,2,3}.sh` scripts and the same reasoning: with FW-7 #334 blocking binary-level storage wiring, dynamic HTTP repro is impossible without a host-binary patch which is out of Bug-Finder scope. The static repros are reliable signals — they flip exit code as soon as the bug-shape changes upstream.
+- `_smoke.sql` still lacks the `_fraiseql_storage_objects` table; not a blocker since the static repros don't touch the database. Writer-GREEN may need it if the page's docs-test exercises a metadata path through the library API.
+
+#### 7. Files added / modified this Bug-Finder session
+
+- `scripts/docs-test/bugs/file-storage.bug-1.sh` — added (chmod +x).
+- `scripts/docs-test/bugs/file-storage.bug-2.sh` — added (chmod +x).
+- `scripts/docs-test/bugs/file-storage.bug-3.sh` — added (chmod +x).
+- `scripts/docs-test/bugs/file-storage.bug-4.sh` — added (chmod +x).
+- `scripts/docs-test/bugs/file-storage.bug-5.sh` — added (chmod +x).
+- `_internal/.plan/framework-qa-triage.md` — added FW-8..FW-12 rows.
+- `_internal/.plan/handoff.md` — this entry (append-only).
+- **No** edits to `src/content/docs/` (anti-scope held).
+- **No** edits to `~/code/fraiseql` (anti-scope held).
+- **No** refiling of FW-7 #334 or FW-1 #326.
+- **No** harness/compose edits.
+
+#### 8. Commit / push
+
+Commit `[Phase 03, Cycle 2: RED, Persona: Bug-Finder]` per methodology § 8. Push to `origin/phase-03/critical-rewrites`.
+
+#### 9. Open gates
+
+Unchanged. G1 closed. G2 default-hold. G7 resolved. G3 / G4 / G5 downstream. No novel gates surfaced during this Bug-Finder session, BUT the 5 newly-filed framework issues (especially FW-8 #335, security/critical) may sharpen the G3 ship-readiness threshold debate at phase 09 open. Surface that question to the human at G3 time rather than now.
+
+#### Pointer
+
+Next session: **Writer (Opus 4.7) — GREEN** for Phase 03 / Cycle 2. Read this entry + the Writer-RED entry above + the 5 repro scripts + the updated `framework-qa-triage.md`. Draft `src/content/docs/features/file-storage.md` per the (A)+`## Security caveats` framing recommended above. Source citations against every claim. Page must call out FW-7 #334 (binary wiring), FW-8 #335 (presign-no-RLS), FW-9 #336 (bucket-name-dropped), FW-10 #337 (XSS surface), FW-11 #338 (body-limit), FW-12 #339 (LIKE injection) in a `## Security caveats` section with the host-binary mitigations from § 5.4 above.
