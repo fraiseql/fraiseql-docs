@@ -1729,3 +1729,12 @@ All five are real CHANGELOG entries; none is fabricated; the adjacency selection
 - **Handoff to Reviewer (Opus 4.7) next.**
 - **Open gates:** none new.
 
+
+### Phase 02 / Cycle 3 citation-fix — orchestrator — 2026-05-29
+
+- Two line-range drifts flagged by Verifier (non-blocking but fixed proactively):
+  - `v2-3.mdx:254` LazyLock swap — `L495-L496` → **`L526-L527`** (CHANGELOG content confirmed: "OnceLock<Regex> replaced with LazyLock<Regex>").
+  - `v2-3.mdx:260` federation retry — `L489-L490` → **`L520-L521`** (CHANGELOG content confirmed: "Federation HTTP retry preserves the source chain").
+- Commit SHAs in prose (`ccd25ee97`, `500859a48`) were already correct per Verifier; only the CHANGELOG line ranges drifted.
+- `bun run build`: clean (202 pages).
+- Handoff to **Reviewer (Opus 4.7)** next.
