@@ -1547,3 +1547,108 @@ End-to-end reading of all three pages against `~/code/fraiseql@d0a4ed4` (and `@v
 - Commit SHA: see next entry (path-filtered commit to `_internal/` only — no CI trigger expected).
 - Handoff to Reviewer (Opus 4.7) next.
 - Open gates: none new.
+
+---
+
+### Phase 02 / Cycle 2 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: BLOCK.** One dead internal markdown link at `src/content/docs/release-notes/v2-2.mdx:247` violates checklist item 6 (DEAD LINKS) and the Phase 02 adversarial-review protocol's explicit "NO dead markdown links" rule for forthcoming pages. All other 14 applicable checklist items pass, CHANGELOG cross-check is clean, all 3 random citation re-greps PASS, CI is green, anti-scope clean. Single mechanical fix returns this to GREEN.
+
+#### CI
+- ✅ Run `26635055248` on HEAD `10ecb98` — `conclusion: success`, workflow `docs-test`, event `pull_request`. `gh run view 26635055248 --json conclusion,headSha --jq` confirms.
+
+#### CHANGELOG cross-check (v2.2.0 section at `d0a4ed4ec1770c70707f68fd9019f2b561d87461:CHANGELOG.md` L581-L713)
+End-to-end reading. Section boundary verified: `## [2.2.0] - 2026-05-02` at L581, next `## [2.1.6]` at L714.
+
+**7 phase-doc-listed headlines — 7/7 present in CHANGELOG L581-L713:**
+- Multi-tenancy → L609-L618. ✅
+- Three-state CRUD updates → L620-L624. ✅
+- Full Apollo Federation 2 directive set → L643-L648 (+ L650-L661, L663-L665 constraint validation / subscription passthrough / plan viz / Prometheus). ✅
+- Schema metadata endpoint → L676-L683. ✅
+- Mutation audit tracing → L667-L670. ✅
+- Usage aggregation → L672-L674. ✅
+- Native column support in aggregations → L585-L590 (folded with L691-L696 `inject_params` read-path fix). ✅
+
+**5 adjacencies in "Additional surfaces" subsection — each present in CHANGELOG and proportional:**
+- `computed=True` field marker (L626-L630) — multi-SDK rollout, warrants mention. ✅
+- `not_found` mutation status (L632-L634) — typed mutation error, low-noise. ✅
+- Session vars on read queries (L636-L638) — RLS-correctness fix, cross-cuts auth. ✅
+- Cross-SDK parity CI (L640-L641) — operational; reasonable to surface. ✅
+- Structured CLI error output (L685-L687) — CI-integration surface. ✅
+All five are real CHANGELOG entries; none is fabricated; the adjacency selection is defensible. (Writer's own handoff said "11 adjacencies" but the page renders 5 — the discrepancy is benign self-overcounting in the handoff, not on the page.)
+
+**Breaking change — 1 row:**
+- Mutation response format consolidation (L594-L605). Matches verbatim including the `Why` aside (L602-L604). ✅
+
+**Security fixes / deprecations:** page correctly characterises both as "none new" — CHANGELOG places `.trivyignore` cleanup under `### Changed` (not `### Security`), and v2.2.0 has no `### Deprecated` section. The page's reference to v2.1.0's `observers-full` deprecation (with v2.2 removal target) is sourced at L1206-L1211 and provides correct forward-continuity context. ✅
+
+#### Forward-dep links
+**Live slugs — all resolve in `dist/`:**
+- `/building/multi-tenancy/` → `dist/building/multi-tenancy/index.html` ✅
+- `/features/federation/` → `dist/features/federation/index.html` ✅
+- `/features/audit-logging/` → `dist/features/audit-logging/index.html` ✅
+- `/reference/admin-api/` → `dist/reference/admin-api/index.html` ✅
+
+**Forthcoming-page references — pattern mostly clean, ONE FAILURE:**
+- L57 `/building/multi-tenancy/ (rewrite forthcoming)` — link is live; "rewrite forthcoming" is a content-quality hedge, not a dead-link claim. ✅
+- L68 `/features/mutations/three-state-update/` — rendered as code-span in prose (`\`/features/...\``), not as MD link. ✅
+- L95-L96 `/features/federation/mtls/` — rendered as code-span. ✅
+- L157-L158 `/features/aggregates/native-columns/` — rendered as code-span. ✅
+- **L247 `[Upgrading: v2.1 → v2.2](/migrations/upgrading/v2-1-to-v2-2/)` — DEAD MARKDOWN LINK.** ❌
+  - The slug `/migrations/upgrading/v2-1-to-v2-2/` does NOT exist in `dist/` (`ls dist/migrations/upgrading/` → No such file or directory) and is NOT a redirected legacy path (the Phase 01 Option A redirect map maps `/migrations` → `/building/migrations` for "from-other-tools" content, NOT for "/migrations/upgrading/" which is reserved for Phase 02 Cycles 4-5).
+  - Cycle 5 owns this page; it lands later in Phase 02.
+  - Cycle 1's index.mdx + v2-0.mdx + v2-1.mdx established the pattern: forthcoming pages get **plain text** ("Forthcoming — lands in an upcoming docs cycle.") or **prose-only references**, never markdown links. v2-1.mdx renders zero `[...](/...)` markdown links to forthcoming targets (confirmed: `grep '(/' src/content/docs/release-notes/v2-0.mdx src/content/docs/release-notes/v2-1.mdx` returns nothing).
+  - Cycle 2 broke that pattern at L247. The "(forthcoming under this docs phase)" parenthetical hedges in prose but the markdown link itself resolves to 404 in the current build. The task brief is explicit: "For each forthcoming, confirm the prose says 'forthcoming' or equivalent — NO dead markdown links."
+
+#### Citation re-grep (3 random independent samples — methodology § 5 item 13)
+- ✅ **Sample 1 — v2-2.mdx:59 → `CHANGELOG.md@d0a4ed4:L609-L618`.** `git -C ~/code/fraiseql show d0a4ed4...:CHANGELOG.md | sed -n '609,618p'` returns the Multi-tenancy bullet exactly: per-tenant executor isolation, `X-Tenant-ID`/JWT/Host dispatch, all 6 admin API endpoints, ArcSwap hot-reload, zero-overhead single-tenant, 403 unregistered-key behaviour. Prose at L42-L55 of v2-2.mdx matches verbatim.
+- ✅ **Sample 2 — v2-2.mdx:102 → `CHANGELOG.md@d0a4ed4:L663-L665`.** Returns Prometheus metrics bullet with `fraiseql_federation_subgraph_latency_seconds` (histogram) and `fraiseql_federation_entity_resolution_total` (counter) verbatim. Prose at L90-L92 matches.
+- ✅ **Sample 3 — v2-2.mdx:198 → `CHANGELOG.md@d0a4ed4:L594-L605`.** Returns the breaking-change bullet with all five removed surfaces (`schema_version` dispatch, v1 string-status parser, v2 version-dispatch shim, `MutationOutcome::Error.status`, cascade field) plus the `Why` rationale. Table-row prose at L196 and Aside at L200-L205 match.
+
+#### 15-point checklist
+1. **VERSION DRIFT** — ✅ v2.2.0 = 2026-05-02 matches CHANGELOG header L581. `X-Tenant-ID` header, `tracing::info!` macro target, `fraiseql federation check` CLI subcommand, `fraiseql schema metadata` CLI subcommand, `GET /api/v1/admin/usage`, `GET /api/v1/schema/metadata` — all verbatim from L609-L687.
+2. **WRONG-DB PATHS** — ✅ Native column support explicitly enumerates "All four database dialects (PostgreSQL, MySQL, SQLite, SQL Server)" sourced at L585-L590.
+3. **FEATURE-FLAG OMISSIONS** — ✅ Multi-tenancy is unconditional in v2.2.0 (no feature flag per CHANGELOG L609-L618). Federation is gated by the `fraiseql-federation` crate, named in prose. No omissions.
+4. **SECURITY-DEFAULT REGRESSIONS** — ✅ Multi-tenancy 403-on-unregistered-key is surfaced as a security positive ("the default tenant's data is never returned for an unregistered key"). No defaults softened.
+5. **SDK DIVERGENCE** — N/A — page references SDK language counts (Python through Ruby for `computed=True`; Java through Elixir for parity CI) but shows no SDK code.
+6. **DEAD LINKS** — ❌ **One dead internal MD link at L247** (`/migrations/upgrading/v2-1-to-v2-2/`). All 4 other internal links resolve. No external links.
+7. **UNDEFINED SYMBOLS** — ✅ Spot-checked 3 named symbols against `~/code/fraiseql@d0a4ed4` source: `X-Tenant-ID` (hits in `crates/fraiseql-server/src/routes/graphql/tenant_key.rs`, `extractors.rs`, `handler.rs`), `MutationAuditLayer` (hits in observers), `ArcSwap` (multi-tenancy runtime). All grep clean.
+8. **COPY-PASTE FROM PRIOR VERSION** — ✅ Net-new page; no carryover possible.
+9. **CONDITIONAL CAVEATS** — ✅ Aside on the breaking change correctly carries the "no external consumers used v1 / cascade" caveat sourced at L602-L604.
+10. **RLS / SECURITY INTERACTIONS** — ✅ Session-variables-on-read-queries adjacency explicitly mentions RLS on SELECT and `current_setting('fraiseql.user_id')`.
+11. **ERROR-PATH COVERAGE** — ✅ Native-columns headline cites the exact PostgreSQL error message (`column "v_foo.data" must appear in the GROUP BY clause`) verbatim from CHANGELOG L588.
+12. **ARCHAEOLOGY-FREE** — ✅ `grep -niE 'TODO|FIXME|XXX|easily|simply|^just |WIP|coming soon|^!|Phase [0-9]'` → 0 hits. The `!` token in `tracing::info!` is Rust macro syntax inside a code span, not body-text punctuation.
+13. **SOURCE CITATIONS RESOLVE** — ✅ 3 / 3 re-grepped (above). Verifier's 24/24 at `3556dd0` confirmed. No drift.
+14. **NO PERSONA SELF-REFERENCE** — ✅ `grep -niE '\b(persona|opus|sonnet|haiku|orchestrator|as an AI)\b'` → 0 hits.
+15. **DARK MODE** — N/A this cycle (visual review deferred per Phase 01 precedent).
+
+**Score: 14/15 applicable pass. Item 6 fails.**
+
+#### Anti-scope
+- ✅ `git diff main..HEAD --name-only` returns 12 files: 4 release-notes pages (index + v2-0 + v2-1 + v2-2) + `astro.config.mjs` sidebar + 6 plan-tree artefacts (handoff + phase doc + README + 4 RED-evidence / verification logs). Tightly scoped to Cycle 2 deliverables. No feature-page edits, no migration-guide content, no quickstart SQL bug fixes, no SDK edits, no install / CLI alignment edits, no `~/code/fraiseql` framework changes, no push to `main`, no commit amend.
+
+#### Findings
+1. **(BLOCK)** `src/content/docs/release-notes/v2-2.mdx:247` — markdown link `[Upgrading: v2.1 → v2.2](/migrations/upgrading/v2-1-to-v2-2/)` resolves to a non-existent dist path. Cycle 5 owns the target page; rendering this as a live MD link now creates a 404 for any reader who clicks it before Cycle 5 lands. **Fix:** drop the markdown link, keep the prose. Match the v2-1.mdx pattern at v2-1.mdx:319 / v2-1.mdx:330 ("A dedicated v2.0-to-v2.1 upgrading guide is not currently published. If you …"). Equivalent rewrite for L246-L248:
+
+   ```
+   The step-by-step v2.1 → v2.2 upgrading guide is forthcoming under this
+   docs phase (slug: `/migrations/upgrading/v2-1-to-v2-2/`). Until then,
+   the framework CHANGELOG.md is the authoritative migration record.
+   ```
+
+   (Or another rewrite of the Writer's choice — what matters is that no MD link points at a non-existent slug.)
+2. **(nit, non-blocking)** Writer's handoff entry claims "11 adjacencies in 'Additional surfaces'" but the page renders 5 bullets. The page is correct; the handoff is over-counting. Non-blocking for ship; flag for next cycle's hand-off hygiene.
+3. **(follow-on, informational)** Cycle 1's established pattern of using **plain text** for forthcoming-page references (and **code-span slugs** for slug-disclosure without linkification) is the right one. Suggest the Writer of Cycle 3 (v2-3.mdx) and Cycles 4-5 (migration guides) re-read v2-1.mdx for the precedent before drafting. The four other forthcoming-slug references on this page already use the right pattern (lines 68, 95-96, 157-158); only line 247 deviates.
+4. **(informational)** Verifier's 24/24 PASS at posture B is correctly reasoned and Reviewer's 3 random re-greps converge. No drift surfaced. Posture B (JSX comments left in source; rendered output clean by construction) is the operative Phase 02+ posture; confirmed by `grep 'source:' dist/release-notes/v2-2/index.html` → 0 hits.
+
+#### Framework issues filed
+**0.** CHANGELOG v2.2.0 sourcing is clean; no source-of-truth contradictions surfaced.
+
+#### Branch hygiene
+- Branch `phase-02/migration-and-changelog` at `3556dd0`. Cycle 2 chain: `4280c3c` (Cycle 1 close) → `10ecb98` (Writer Cycle 2 page + sidebar) → `3556dd0` (Verifier log). Clean. PR #13 draft, `MERGEABLE`, state OPEN.
+
+#### Open gates
+- No new gates surfaced.
+- G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+**Sign-off: BLOCK — back to Writer (Opus 4.7).** Single mechanical fix: rewrite L246-L248 of `src/content/docs/release-notes/v2-2.mdx` to drop the markdown link to `/migrations/upgrading/v2-1-to-v2-2/`, replacing it with prose-only reference matching the v2-1.mdx precedent. No other changes required; Verifier re-run can be skipped if the Writer attestation is "L246-L248 prose change only, no citations touched". Reviewer (Opus 4.7) re-runs after the fix.
