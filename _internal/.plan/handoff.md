@@ -1210,3 +1210,47 @@ Please reply inline below this line with `> human:` your pick (A / B / C) and an
 - **Open gates:** none new. G1 closed (Cycle 6). G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G4 (branch protection) remains soft per Phase 00 / Cycle 9 close. Phase 01 close cycle next.
 
 ---
+
+### Phase 01 / Cycle 7 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.** 15/15 applicable checklist items pass, CI green, every concrete row obligation satisfied.
+
+- **CI:** `gh run view 26626720175 --json conclusion --jq '.conclusion'` → `success` ✅
+- **Page coverage:** `find src/content/docs -name '*.md' -o -name '*.mdx' | grep -v '/_internal/' | wc -l` → 172. Random 10 sampled (`shuf | head -10`: `operations/deployment/aws`, `operations/faq`, `reference/admin-api`, `community/blog/rest-annotation-driven`, `sdk/rust`, `operations/troubleshooting/by-database/sqlserver`, `community/vs/apollo`, `community/ai/generating-views`, `reference/rest-api`, `community/ai/langchain`) — **10/10 found** as exact-slug rows in the matrix. ✅
+- **State distribution (re-counted from the main matrix):** OK=93, needs-update=12, needs-rewrite=66, broken-snippet=1, wrong-content=0, missing=0, redirected=0. 93+12+66+1 = 172 ✅. `broken-snippet=1` is `/getting-started/quickstart` ✅. `wrong-content=0` and `redirected=0` defensible per the Writer's stated interpretation (matrix tracks source files; redirected OLD slugs no longer have a source file). Non-blocking nit: `/operations/performance-benchmarks` (VelocityBench data claim) and `/examples` `/health` shape stale could plausibly be `wrong-content` instead of `needs-update` / `needs-rewrite` — both are caught by the existing rows, so the classification is a label question, not a coverage gap.
+- **By-phase view alignment (main-matrix `Owning phase` re-count):** Phase 02=16, Phase 02/03=3, Phase 03=43, Phase 04=3, Phase 05=1, Phase 06=10, Phase 07=13, Phase 08=83 → **sum 172** ✅. The Writer's commit-message counts (`02=19, 03=46, ...`) are derived from the by-phase view's condensed bullets (which group multi-slug bullets like "9 examples" or "11 SDK pages" implicitly), not from row-level grep. Non-blocking nit — the matrix's own §"Owning-phase counts" footer is explicitly hedged ("~22, ~48, ~80, do not sum to 172"), so the commit-message numbers are inconsistent with the footer but neither is wrong — both are honest approximations of a one-page-can-touch-multiple-phases reality. Phase 07 (13 rows) is the only exact agreement.
+- **Concrete row obligations (12/12):**
+  - `getting-started/quickstart` broken-snippet row with L156/L167/L179/L184 — ✅ (row at L140)
+  - Cycle 4 deferral A (`fraiseql/examples`, 11 URLs / 4 pages) — ✅ (row at L399)
+  - Cycle 4 deferral B (`velocitybench`, 2 pages) — ✅ (row at L400)
+  - Cycle 4 deferral C (`demo.fraiseql.dev`, 6 pages) — ✅ (row at L401)
+  - Cycle 4 deferral D (`charts.fraiseql.io`, 0 hits) — ✅ (row at L402, explicitly "no row needed")
+  - `features/observability` `/health` blob refresh (Cycle 1 follow-on) — ✅ (row at L225)
+  - `examples/index` `/health` shape (Cycle 1 follow-on) — ✅ (row at L317)
+  - Methodology JSX-comment amendment — ✅ (cross-phase row at L382, by-phase Phase 10 bullet at L126)
+  - Cycle 5 cargo command name mismatch — ✅ (rows at L139 and L233)
+  - Redirect-map regression test — ✅ (cross-phase row at L384, by-phase Phase 10 bullet at L125)
+  - `-guide` suffix pages flagged (Cycle 6 Reviewer) — ✅ (rows at L258, L271)
+  - `_sidebar-decision.md` page-count fix — ✅ (diff confirms `173 → 172`, see Build-exclusion below)
+  - `SiteTitle.astro` baseline — ✅ (cross-phase row at L386, by-phase Phase 10 bullet at L124)
+  - FW-1 + FW-2 in dedicated Framework-bugs section — ✅ (rows at L373-L374)
+- **Build-exclusion:** `find dist -name '*sweep-matrix*'` → 0 hits; `find dist -name '*sidebar-decision*'` → 0 hits; `grep -r sweep-matrix dist/` → 0 hits. ✅ The `_`-prefix and `_internal/` parent both gate the file out of the Astro build and the Pagefind index.
+- **Sidebar-decision off-by-1 fix:** confirmed via `git diff 31e803c..a87b0db -- src/content/docs/_internal/_sidebar-decision.md` — single line at L169 changes `173 → 172` with parenthetical explanation. ✅
+- **Anti-scope:** `git diff --stat 31e803c..a87b0db -- 'src/content/docs/' ':!src/content/docs/_internal/'` returns empty (no rendered docs-page edits outside `_internal/`); `git diff --stat 31e803c..a87b0db -- astro.config.mjs` returns empty. ✅
+- **15-point (applicable):**
+  - 12. **ARCHAEOLOGY-FREE** — 117 `Phase N` mentions in the matrix; all intentional (phase-ownership tracking) per the file's purpose. The two `coming soon` hits at L59 + L334 refer to the existing `/community/support` page's prose ("status page coming soon") which the matrix row queues for replacement — descriptive, not archaeology. File is unrendered. ✅
+  - 13. **SOURCE CITATIONS RESOLVE** — re-grepped three: `astro.config.mjs:L1-L6` matches the `_internal/` exclusion comment block verbatim; `_internal/.plan/.phases/README.md:L7-L26` matches the frozen-SHA + G2 procedure block verbatim; `_sidebar-decision.md:L1-L107` covers the Option A move map. All three resolve. ✅ Citations use the MDX-compatible `{/* source: ... */}` form, which the matrix is itself proposing as a methodology amendment — internally consistent and not a finding.
+  - 14. **NO PERSONA SELF-REFERENCE** — no "as an AI", no leaked persona-prompt artefacts. The matrix references personas as actors ("Phase 02 Writer", "Cycle 6 Reviewer") which is required for a planning artefact. ✅
+  - Items 1–11, 15 — N/A — planning artefact only; not rendered; no DB matrix / version drift / dark-mode surface of its own.
+
+**Findings (none blocking):**
+1. **(nit)** Commit-message owning-phase counts (`02=19, 03=46, 08=83`) don't match a strict-row grep of the main matrix (`02=16, 03=43, 08=83`). Reconciles if the Writer is counting the by-phase view's condensed bullets ("`/sdk` index + 11 SDK pages" = 12 slugs from one bullet) plus a few Cycle-1-Reviewer follow-on entries that overlap. Footer at L411-L425 hedges to `~22 / ~48 / ~80` and explicitly notes "do not sum to 172", so no internal inconsistency — just a commit-message-vs-matrix labelling drift the Phase 01 close cycle may want to harmonise.
+2. **(nit)** `wrong-content=0`: defensible — `/operations/performance-benchmarks` (VelocityBench claim) is `needs-rewrite` not `wrong-content`, but the row's notes flag the load-bearing prose claim. Same for `/examples` `/health` stale shape (`needs-rewrite`). Phase 02/03 Writers will see the issue either way.
+3. **(follow-on for Phase 01 close)** The matrix is internally self-consistent but the Writer's commit-message summary numbers should be regenerated from a row-grep at Phase 01 close to keep the historical record clean. Suggested fix: edit Phase 01 close commit's body to either cite `02=16, 03=43` (row-grep) or footnote that the commit-message counts come from the by-phase condensed-bullet view.
+4. **(follow-on for Phase 02 owner)** Three pages that bullet-appear in the by-phase Phase 04-06 view (Studio, Functions WASM, Realtime, Auth Extensions, LTree, partial-period, native aggregations, MCP, Trusted Documents) have no matrix row because no source file exists. The Writer's Cycle 7 close note already flagged this; restating here so it survives the Phase 01 close handoff: the Phase 04-06 Writer creates the row when they create the page.
+
+**Source-Citation Verifier note:** the three matrix citations use `{/* source: ... */}` form. Methodology §4 still specifies `<!-- source: ... -->` literally; the JSX-comment equivalence is queued for amendment via the cross-phase row at L382. The Verifier persona for this cycle can accept the JSX form on the strength of multi-cycle precedent (Cycle 1, 2, 5 Reviewers all confirmed acceptance) and the matrix itself documenting the policy.
+
+Phase 01 close cycle proceeds. PR #12 (draft) remains pending the Phase 01 close commit.
+
+---
