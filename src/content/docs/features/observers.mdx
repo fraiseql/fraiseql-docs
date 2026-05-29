@@ -357,7 +357,7 @@ The companion script `scripts/docs-test/pages/observers.docs-test.sh` documents 
 5. Verify the webhook payload reaches the sink.
 6. Kill the sink; verify retries; verify DLQ accumulates the failed event.
 
-At v2.3.2 the script does **not** drive the documented end-to-end happy path because FW-23 silently keeps the Postgres listener and FW-15 splits the TOML between CLI validation and runtime knobs. The script asserts the documented FW symptoms (FW-13, FW-14, FW-15, FW-16, FW-17, FW-18, FW-19, FW-22, FW-23) still reproduce against the frozen SHA, plus re-greps the library-API recipe at the cited line ranges so the page's claims stay locked. When the framework fixes ship and the binary wires the dispatch flow, the script's "still broken" assertions flip and the test fails loudly — the regression signal Phase 09 needs.
+At v2.3.2 the script does **not** drive the documented end-to-end happy path because FW-23 silently keeps the Postgres listener and FW-15 splits the TOML between CLI validation and runtime knobs. The script asserts the documented FW symptoms (FW-13, FW-14, FW-15, FW-16, FW-17, FW-18, FW-19, FW-22, FW-23) still reproduce against the frozen SHA, plus re-greps the library-API recipe at the cited line ranges so the page's claims stay locked. When the framework fixes ship and the binary wires the dispatch flow, the script's "still broken" assertions flip and the test fails loudly — the regression signal that unblocks the binary-driven happy path.
 
 ```bash title="Expected — admin API accepts anonymous request (FW-21)"
 curl -sS -o /dev/null -w '%{http_code}\n' \

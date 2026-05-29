@@ -4678,3 +4678,44 @@ Next session: **Writer (Opus 4.7) — kick-back** for the Item-12 mechanical fix
 
 Cycle 3 close (Cleanup + Style Auditor) blocked on the L360 fix landing. Cycle 5 (Style Audit) at phase close per the phase-03 plan.
 
+
+---
+
+### Phase 03 / Cycle 3 GREEN — orchestrator follow-on (L360 archaeology fix) — 2026-05-30
+
+Reviewer's BLOCK was a single-line item-12 violation, same shape as Cycle 2 / file-storage L329. Per orchestrator scope, addressed mechanically.
+
+#### L360 fix
+
+- Before: `"the regression signal Phase 09 needs."`
+- After:  `"the regression signal that unblocks the binary-driven happy path."`
+- Reuses the Cycle 2 fix phrasing for consistency. One-line edit; test logic, citations, security caveats, and known-issues table all untouched.
+
+#### Verification
+
+- `grep -nE "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP" src/content/docs/features/observers.mdx` → 0 hits.
+- `bun run build` → exit 0, 205 pages, strip integration log present.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → 0 hits.
+
+#### Phase 03 recurring pattern noted for Cycle 5 Style Auditor
+
+The "regression signal Phase N needs" phrasing instinct has now bitten Cycle 2 (file-storage L329) AND Cycle 3 (observers L360). Cycle 4 Writer-GREEN should be briefed to use the standard "regression signal that unblocks the binary-driven happy path" framing for the FW-deferral closing paragraph. Style Auditor at Cycle 5 to scan for any other lingering archaeology markers across all four critical-rewrite pages.
+
+#### L177 nit (Reviewer optional, not applied)
+
+Reviewer flagged an optional L177 off-by-one tidy as non-blocking. Deferred to Cycle 5 Style Auditor.
+
+#### Anti-scope
+
+- No re-spawn of Writer-Opus for a 1-line citation correction (over-budget; orchestrator scope per CLAUDE.md).
+- No edits beyond L360 in the page.
+- No edits to siblings, docs-test, harness, framework.
+- No amend; new commit only.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved.
+
+#### Pointer
+
+Next session: **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 3 close. Same low-touch profile as Cycles 1 & 2: confirm archaeology clean, update `phase-03-critical-rewrites.md` Pages completed (`/features/observers`) + Framework bugs filed (FW-13..FW-23, 11 entries), capture CI URL, append phase close entry.
