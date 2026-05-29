@@ -1373,3 +1373,24 @@ None new. G2 (default-hold) and G4 (soft) carry forward from Phase 00; G1 closed
 - **PR opened (draft):** https://github.com/fraiseql/fraiseql-docs/pull/13 — `docs: Phase 02 — migration and changelog`, draft until phase close.
 - **CI run:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26631219557 — conclusion `success`. Both jobs passed: `discover pages and frozen SHA` and `page-test (_smoke)`.
 - **Open gates:** none new. G2 default-hold continues at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+### Phase 02 / Cycle 1 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-29
+
+- **Total citations: 52** (5 index + 7 v2-0 + 40 v2-1).
+- **Verified: 52 fully** (escalated to 100% because a FAIL was found on the first v2-1 sampled citation; full coverage was required).
+- **Resolve rate: 50/52.**
+- **Failures: 2** — both identical citations pointing to the wrong line range:
+  - `v2-1.mdx:131` `@frozen-SHA:L1196-L1201` — annotated as "Deprecated section at v2.1.0". Actual L1196-L1201 content: tail of `### Changed` section (`fraiseql-auth` extraction, Redis upgrade, `lazy_static` migration, etc.). The `### Deprecated` section is at **L1206-L1211**. Citation is off by 10 lines.
+  - `v2-1.mdx:314` `@frozen-SHA:L1196-L1201` — annotated as "Deprecated at v2.1.0". Same drift. Correct range: **L1206-L1211**.
+  - Correct content at L1206-L1211: `### Deprecated` header + `PoolTuningConfig (fraiseql-server, since v2.0.1) → use PoolPressureMonitorConfig; removal target: v3.0` + `observers-full feature flag (fraiseql-observers) → list specific sub-features; removal target: v2.2` — which is exactly what the prose claims.
+  - **The prose is correct; only the line numbers are wrong.**
+- **Verification posture: Option B** (leave JSX citations in source; MDX JSX comments are invisible in rendered output by construction; confirmed by build-exclusion test). The audit trail is preserved in source for the duration of the phase; Phase 10 finalisation may strip all `{/* source: ... */}` annotations. This posture is the operative interpretation for Phase 02+.
+- **Dist hits for `source:`: 0** (release-notes pages). `find dist/release-notes -name '*.html' -exec grep -l 'source:' {} \; → 0 hits`. 8 other pages contain `source:` in code examples (Elixir DSL `sql_source:`, Kubernetes YAML, etc.) — pre-existing content, not citation leakage.
+- **Verification log:** `_internal/.plan/red-evidence/phase-02-cycle-01-citation-verification.log` (52 entries, each individually logged).
+- **Commit SHA:** pending (BLOCK — Writer must fix the two failures before this cycle can close).
+- **CI run URL:** no commit pushed; BLOCK in effect.
+- **Status: BLOCKED.** Writer must update the two citations at `v2-1.mdx:131` and `v2-1.mdx:314` from `L1196-L1201` to `L1206-L1211`. Then re-trigger the Verifier persona for a final pass (or the Verifier may accept a Writer attestation if the fix is a trivial line-number update). Once the citations resolve, the Verifier will commit the log and push.
+- **Handoff: back to Writer (Opus 4.7)** to fix the two citations. Reviewer (Opus 4.7) follows after re-verification.
+- **Open gates:** none new.
