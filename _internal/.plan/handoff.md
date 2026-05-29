@@ -2183,8 +2183,8 @@ Note for Cycle 6 Writer: the cross-link integration cycle should (a) audit inbou
   1. `/release-notes/` → `src/content/docs/release-notes/index.mdx` ✅
   2. `/migrations/upgrading/v2-1-to-v2-2/` → `src/content/docs/migrations/upgrading/v2-1-to-v2-2.mdx` ✅
   3. `/migrations/upgrading/v2-2-to-v2-3/` → `src/content/docs/migrations/upgrading/v2-2-to-v2-3.mdx` ✅
-- **Commit SHA**: (see below — appended after push)
-- **CI URL**: (see below — appended after push)
+- **Commit SHA**: `5cc0706` on branch `phase-02/migration-and-changelog`
+- **CI URL**: https://github.com/fraiseql/fraiseql-docs/actions/runs/26642788205
 - **Items escalated to Writer**: None. All changes were mechanical.
 - **Anti-scope held**:
   - No prose rewrites on existing pages beyond mechanical link/label changes.
