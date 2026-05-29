@@ -3808,3 +3808,54 @@ Unchanged. G1 closed, G2 default-hold, G7 resolved. No novel gates.
 #### Pointer
 
 Next session: **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 2 close. Per the Reviewer's note, Cleanup is largely a no-op (sidebar wired in `astro.config.mjs:L358`, inbound cross-link from `operations/faq.mdx:L173`, lint baseline 0/0/60 hints). Cleanup's deliverables: confirm archaeology grep clean, update `phase-03-critical-rewrites.md` `## Pages completed` list (append `/features/file-storage`), append FW-7..FW-12 to `## Framework bugs filed`, capture CI URL on the final commit, append phase close entry to handoff.
+
+---
+
+### Phase 03 / Cycle 2 close — Cleanup (Sonnet 4.6) — 2026-05-30
+
+Mechanical close of Cycle 2 (`/features/file-storage`). Per Reviewer's note, Cleanup is largely a no-op for this cycle.
+
+#### 1. Build state
+
+- `bun run check`: 0 errors, 0 warnings, 60 hints (pre-existing baseline — unchanged).
+- `bun run build`: **205 pages built in 14.61s**. Clean.
+- Strip integration log: `strip-source-citations: scanned 281 HTML files, modified 2, stripped 149 source-citation comments.`
+- Posture B leak scan: `grep -rE '<!--\s*source:' dist/` → **0 matches**. CLEAN.
+
+#### 2. Archaeology grep
+
+```
+git grep -nE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" src/content/docs/features/file-storage.md
+```
+→ **0 hits**. CLEAN. (L329 fix confirmed by orchestrator follow-on; Cleanup re-verified.)
+
+#### 3. Sidebar confirmation
+
+`astro.config.mjs:L358`:
+```
+{ label: 'File Storage', slug: 'features/file-storage' },
+```
+Present. No edit needed.
+
+#### 4. Cross-link inventory
+
+- **Inbound** — `src/content/docs/operations/faq.mdx:L173`: "See [file storage guide](/features/file-storage)." — confirmed ≥1 inbound from clearly-related page.
+- Additional cross-link check: `/features/multi-database` and `/databases/postgresql` do not yet have "see also" blocks for file storage. Per invocation instructions, no changes added since the inbound-link inventory is sufficient (≥1 from a clearly-related page). Style Auditor (Cycle 5) may surface additional cross-links if warranted.
+
+#### 5. Phase 03 doc updates
+
+`_internal/.plan/.phases/phase-03-critical-rewrites.md`:
+- `## Pages completed`: appended `/features/file-storage` (Cycle 2 — closed 2026-05-30). ✅
+- `## Framework bugs filed`: appended FW-7 #334 through FW-12 #339 (6 entries). ✅
+
+#### 6. Open gates
+
+Unchanged. G1 closed. G2 default-hold. G7 resolved. G3/G4/G5 downstream. No novel gates.
+
+#### 7. Commit SHA + CI
+
+See commit below. Push to `origin/phase-03/critical-rewrites`. CI URL captured after push if visible.
+
+#### 8. Next persona
+
+**Writer (Opus 4.7)** for Phase 03 / Cycle 3 — `/features/observers` rewrite + observers triple consolidation. Pages in scope per sweep matrix: `/features/observers` + `/building/observers` + `/building/observer-webhook-patterns` + `/operations/observer-runbook`. Bug-Finder candidate attacks: kill webhook destination mid-flight, race DLQ handlers, observer-changelog atomicity (v2.3 F056).

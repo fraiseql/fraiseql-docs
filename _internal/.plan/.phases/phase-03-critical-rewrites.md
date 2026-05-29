@@ -279,6 +279,7 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 ## Pages completed
 
 - `/building/multi-tenancy` (Cycle 1 — closed 2026-05-29)
+- `/features/file-storage` (Cycle 2 — closed 2026-05-30)
 
 ## Framework bugs filed
 
@@ -286,3 +287,9 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - FW-4 [#331](https://github.com/fraiseql/fraiseql/issues/331) — WebSocket subscription endpoint drops JWT `tenant_id` claim and disables strict cross-source validation
 - FW-5 [#332](https://github.com/fraiseql/fraiseql/issues/332) — GraphQL handler collapses `ServiceUnavailable { retry_after }` into `ErrorCode::Forbidden` (HTTP 403), losing `Retry-After` header for suspended tenants
 - FW-6 [#333](https://github.com/fraiseql/fraiseql/issues/333) — `X-Tenant-ID` validator allows `-` (hyphen) but schema-isolation validator rejects it; keys with `-` silently fail schema provisioning in `schema` mode
+- FW-7 [#334](https://github.com/fraiseql/fraiseql/issues/334) — binary doesn't auto-wire `[storage.<name>]` TOML; every `/storage/v1/*` request returns 404 regardless of config
+- FW-8 [#335](https://github.com/fraiseql/fraiseql/issues/335) — (CRITICAL) signed-URL replay / no-auth presign: `presign_handler` performs no RLS/metadata check — anonymous 24h presigned URLs
+- FW-9 [#336](https://github.com/fraiseql/fraiseql/issues/336) — cross-bucket isolation: modern routes don't forward `bucket_name` to backend — key collisions across buckets
+- FW-10 [#337](https://github.com/fraiseql/fraiseql/issues/337) — MIME confusion / stored XSS: `get_handler` serves verbatim `Content-Type`, no `nosniff`, no `Content-Disposition`, no magic-byte check
+- FW-11 [#338](https://github.com/fraiseql/fraiseql/issues/338) — unbounded upload body: `default_max_request_body_bytes = 1_048_576` applied globally; full buffering before rejection
+- FW-12 [#339](https://github.com/fraiseql/fraiseql/issues/339) — LIKE injection in list: `metadata::list` interpolates `prefix` into `LIKE` with no ESCAPE clause
