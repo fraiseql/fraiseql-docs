@@ -2194,3 +2194,41 @@ Note for Cycle 6 Writer: the cross-link integration cycle should (a) audit inbou
   - Did not push to `main`. Did not amend pushed commits.
 - **Open gates**: None new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
 
+---
+
+### Phase 02 / Cycle 6 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.**
+
+**CI**: run `26642818413` on `55cbe38` — `success` (workflow `docs-test`). Prior `5cc0706` run cancelled by concurrency, as expected.
+
+**Sub-checks**:
+- ✅ index.mdx callout — placed at line 270, immediately under `## Enterprise Features` and above the existing "production-ready" prose (matches Cleanup's "above the Enterprise Features prose" claim). Slug `/release-notes/` resolves. No marketing words, no exclamation marks, no superlatives.
+- ✅ "What's new" scan — independent `grep -rn -i "what's new\|whats new" src/content/docs/` returned 1 hit in `_internal/_sidebar-decision.md` (planning), matching Cleanup's report.
+- ✅ Sweep matrix annotations — `grep` returned 7 lines containing the exact "Links from /release-notes/v2-3." string (Studio, functions-wasm, realtime, hierarchies, schema-migrations-cli, auth-extensions, rest-transport). Cleanup's commit-message count of "8" includes the release-notes/index.mdx live-MD-link fix as the 8th forthcoming-page-row update — accepted. Spot-checked rows 64 (`/features/studio`) and 67 (`/features/hierarchies`): correct rows under Phase 04 by-phase bullets.
+- ✅ Migrations hub two-path distinction — `building/migrations/index.mdx` now leads with intro sentence "There are two distinct migration shapes", then `## Upgrading FraiseQL` section (links to `/migrations/upgrading/`, `v2-1-to-v2-2/`, `v2-2-to-v2-3/`), then `## Switching from Another Tool` section (the existing CardGrid). Prose reads coherently as a clear two-path decision.
+- ✅ Sidebar `Switching tools` rename — `astro.config.mjs:229` shows `label: 'Switching tools'`; `Upgrading` group still present at `:350` under Reference (unchanged from Cycle 4). The remaining `Migrations` hit at `:448` is the leaf `label: 'Incremental Migrations'` inside the Confiture group — unrelated to the migration cluster. No orphan `Migrations` group label remains.
+
+**Build**:
+- ✅ Local `bun run build` exit 0, 205 pages built in 16.95s. The two warnings emitted (lang `conf` in `building/federation-nats-integration.mdx`; route `/` priority conflict) are both pre-existing and unrelated to Cycle 6 changes.
+- ✅ All 3 cross-link spot-checks resolve to built HTML: `dist/release-notes/index.html`, `dist/migrations/upgrading/v2-1-to-v2-2/index.html`, `dist/migrations/upgrading/v2-2-to-v2-3/index.html` all exist. Also confirmed `dist/building/migrations/index.html`.
+
+**15-point (applicable scope)**:
+- 6. DEAD LINKS — ✅ All 4 destination slugs resolve as built HTML.
+- 8. COPY-PASTE FROM PRIOR VERSION — N/A (no prose duplication; one new callout sentence is original).
+- 12. ARCHAEOLOGY-FREE — ✅ no TODO/FIXME/HACK/Phase/Cycle markers in user-facing changed files.
+- 14. NO PERSONA SELF-REFERENCE — ✅ no Reviewer/Writer/Cleanup mentions in user-facing changed files.
+- Items 1-5, 7, 9-11, 13, 15 — N/A (mechanical cross-link cycle).
+
+**Anti-scope**: ✅ `git diff dcf0be8..55cbe38 --name-only` touches exactly the 6 expected files: `src/content/docs/index.mdx`, `src/content/docs/_internal/_sweep-matrix.md`, `src/content/docs/building/migrations/index.mdx`, `src/content/docs/release-notes/index.mdx`, `astro.config.mjs`, `_internal/.plan/handoff.md`. Zero SDK / quickstart / install-cli / changelog.mdx edits.
+
+**Findings**: None blocking.
+
+**Follow-ons for Cycle 7 (style audit + phase close)**:
+1. Item 11 carry-over from Cycle 5 Reviewer: the exact `rustc` error quote sourcing in `v2-2-to-v2-3.mdx` is still a candidate for prose polish.
+2. The two pre-existing build warnings (lang `conf` + route `/` priority) are out of Phase 02 scope but worth logging for whoever owns federation page authoring next.
+3. The 7-vs-8 annotation count discrepancy in Cleanup's commit message vs. grep is harmless (8 = 7 page rows + 1 release-notes link fix) but Cycle 7 may want to harmonize the language.
+4. Phase 02 close should formally retire the G2 SHA-bump gate against `d0a4ed4ec1770c70707f68fd9019f2b561d87461` and confirm the frozen-SHA contract for the next phase.
+
+**APPROVE — Cycle 6 closes. Cycle 7 (style audit + phase close) opens.** Reviewer (Opus 4.7) hands off to Writer/Cleanup (Opus 4.7) for Cycle 7.
+
