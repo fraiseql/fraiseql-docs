@@ -2746,3 +2746,77 @@ This GREEN draft hands off to two personas in sequence:
 The two personas run sequentially in fresh contexts. The Verifier's strip pass should land BEFORE the Reviewer's checklist so the Reviewer reads the same rendered surface the public will see. If the Reviewer surfaces drift after the strip, they push a new entry; the Writer re-opens the cycle.
 
 Handoff to **Source-Citation Verifier (Sonnet 4.6)** for Phase 03 / Cycle 1 next, with **Reviewer (Opus 4.7)** queued behind it.
+
+---
+
+### Phase 03 / Cycle 1 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-29
+
+**Frozen SHA verified:** `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. All `git show` calls resolved cleanly.
+
+#### Citation count
+
+- Lines containing `<!-- source:` (grep -c): **53** — matches Writer-GREEN claim.
+- Individual citation tokens (grep -o): **56** — three lines carry two citations each (page lines 16, 17, 207).
+
+#### Verification results
+
+55 PASS / 1 FAIL / 2 non-blocking NOTEs.
+
+**FAILURE — Citation #28 (page line 138):**
+
+```
+<!-- source: crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L99 -->
+```
+
+Prose: *"Suspended tenants return `FraiseQLError::ServiceUnavailable` with `retry_after = Some(60)`. Read by the registry's `require_active` check on every request."*
+
+At `L99`: `self.status.store(status as u8, Ordering::Relaxed);` — this is inside `TenantEntry::set_status`, entirely unrelated to the claim. The cited symbol `SUSPENDED_RETRY_AFTER_SECS = 60` is at **L104**; `require_active` with `FraiseQLError::ServiceUnavailable { retry_after: Some(...) }` is at **L163–L177**. The companion citation on the same block (`L167-L182`) correctly covers the claim.
+
+**Writer must fix:** change `L99` to `L103-L104` (for the constant) or to `L163-L177` (for the function). Or split into both.
+
+**Non-blocking NOTEs:**
+
+- NOTE-A: `app_state.rs:L95-L106` (#12, page line 49) — slightly narrow (three-field None claim; tenant_audit_log is at L110, just outside). Covered by companion citation at L171-L182. No action needed.
+- NOTE-B: `in_memory.rs:L31-L80` (#46, page line 207) — cites the struct-field definition of `tenant_buckets`. The `check_tenant_limit` enforcement is at L258-L302 (outside range). Companion `dispatch.rs:L122-L138` covers the dispatch logic. No action needed.
+
+#### Framework-source independent spot-checks
+
+Five citations independently verified by grepping the symbol name at the frozen SHA, not just range-checking:
+
+1. **`MAX_TENANT_KEY_LEN`** — `grep -n MAX_TENANT_KEY_LEN` in `tenant_key.rs` → L20-L21 at exactly the cited range. CONFIRMED.
+2. **`TenantQuota` struct** — `grep -n TenantQuota` in `tenant_registry.rs` → struct definition at L52-L63, within cited `L50-L62`. CONFIRMED (struct opens at L52 and the range captures the field declarations through L63 — off by one on the upper bound but all three fields are visible).
+3. **`check_tenant_limit` Redis allow-all** — grepped `CheckResult::allow` in `dispatch.rs` → L135 `Self::Redis(_) => CheckResult::allow(f64::from(burst))`, within cited `L128-L137`. CONFIRMED.
+4. **`upsert` ArcSwap store** — grepped `ArcSwap::store` / `executor.store` in `tenant_registry.rs` → L206 `existing.value().executor.store(executor)` inside `upsert`, within cited `L199-L212`. CONFIRMED.
+5. **`TenantKeyResolver::resolve(None, &headers, None, false)`** — grep in `subscriptions.rs` → L183 exact call with `(None, &headers, None, false)`, within cited `L182-L184`. CONFIRMED.
+
+#### Posture B leak scan
+
+Command: `find dist/building/multi-tenancy -name '*.html' -exec grep -l 'source:' {} ;`
+
+Result: **`dist/building/multi-tenancy/index.html` — 35 occurrences**.
+
+**Posture B assumption is violated for this page.** HTML comments appearing in:
+- **Table cell content** (Markdown table rows with inline `<!-- source: -->`) — Astro/remark passes them through into `<td>` content in the HTML.
+- **`:::note`/`:::caution` directive block paragraph content** — same pass-through.
+- **Standalone between-paragraph comments** — preserved as HTML comments (`<!-- -->`) in the document, invisible in browsers but present in source/Pagefind.
+
+This is a systemic issue: `find dist -name '*.html' -exec grep -l 'source:' {} ;` returns 10+ pages across the site, indicating the Phase 02 "248/248 clean" Posture B result was incorrect (likely tested a different page subset or the check passed before tables/directives were populated with inline citations).
+
+**Human/orchestrator gate (novel — G7):** Does the methodology accept HTML-comment-form `<!-- source: -->` annotations in rendered HTML output, given they are non-rendering (invisible to end users, but present in HTML source and Pagefind index)? If YES (acceptable) → only the L99 citation failure blocks the Writer. If NO (not acceptable) → the Writer must move all in-table and in-directive citations to standalone between-paragraph positions in the `.md` source.
+
+Regardless of G7 resolution, the page is **KICKED BACK** to the Writer for the L99 citation fix.
+
+#### Artefact
+
+`_internal/.plan/red-evidence/phase-03-cycle-01-citation-verification.log` — per-citation PASS/FAIL/NOTE log with all 56 entries.
+
+#### Posture B — DO NOT STRIP
+
+Per Posture B instructions, no citations were stripped. The page source is unchanged. Stripping is deferred until the Writer fixes the L99 citation and the orchestrator resolves G7.
+
+#### Open gates
+
+- **G7 (novel)** — Posture B leak scope clarification: are HTML-comment citations in rendered HTML acceptable? Proposal: YES for standalone between-paragraph comments (invisible in browsers); NO for in-table-cell and in-directive-block positions (these appear as literal `<!-- source: ... -->` text nodes inside rendered HTML elements, with uncertain Pagefind indexing behaviour). Awaiting human response. `[?]`
+- G1 closed. G2 default-hold. G3/G4/G5 downstream.
+
+**Verdict: KICK-BACK.** One citation failure (L99) and one methodology question (G7) must be resolved before the Reviewer is invoked. The Reviewer does not run until the Writer delivers a fixed GREEN draft.
