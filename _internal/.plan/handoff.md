@@ -3153,7 +3153,7 @@ Unchanged. G1 closed. G2 default-hold. G7 resolved (build-time strip). G3/G4/G5 
 
 ### Commit SHA + push status
 
-*(filled after commit)*
+`f9a15ef` pushed to `origin/phase-03/critical-rewrites`. PR #14 updated.
 
 ### Pointer
 
