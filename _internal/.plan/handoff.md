@@ -1404,3 +1404,85 @@ None new. G2 (default-hold) and G4 (soft) carry forward from Phase 00; G1 closed
 - Verifier persona reinvocation skipped: the Verifier had already confirmed prose was correct and the swap is purely numeric. The Reviewer (next persona) will independently sample citations per methodology § 5 item 13 and catch any remaining drift.
 - Commit + push following this entry. CI on the orchestrator commit will exercise the path-filter (src/content/docs/ touched) — expect a green CI run.
 - Handoff to **Reviewer (Opus 4.7)** next.
+
+---
+
+### Phase 02 / Cycle 1 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.** 15/15 applicable items pass on a content-page cycle. All citations re-grep clean (3 random + 2 fixes). Anti-scope clean. CI green on `4280c3c` and prior `7406a10`. PR #13 draft, mergeable.
+
+#### CI
+- ✅ Run 26632494203 on HEAD `4280c3c` — `conclusion: success` (`discover pages and frozen SHA` + `page-test (_smoke)`).
+- ✅ Run 26631219557 on Writer commit `7406a10` — `conclusion: success`.
+- ✅ Run 26631687182 on handoff-URL backfill `45f0e6d` — `conclusion: success`.
+- The `pre-commit.ci - pr` external check is the pre-existing repo-state issue documented since Phase 00 (no `.pre-commit-config.yaml`); does not gate docs-test workflow. PR `mergeable: MERGEABLE`.
+
+#### CHANGELOG cross-check (per phase doc § Adversarial review protocol)
+End-to-end reading of all three pages against `~/code/fraiseql@d0a4ed4` (and `@v2.0.0` tag for v2.0 page):
+
+- **index.mdx** — 4 version-table claims checked (v2.3 / v2.2 / v2.1 / v2.0 release dates + headlines). All four release dates match the CHANGELOG headers (`L40`, `L581`, `L999` at frozen SHA; `L10` at `v2.0.0` tag). 0 issues.
+- **v2-0.mdx** — Tag-sourcing methodology re-verified: `git show v2.0.0:CHANGELOG.md` exists (601 lines), `[2.0.0] - 2026-03-02` section at `L10-L68` (4 Added + 10 Fixed bullets dominated by auth/cookie/rate-limit hardening). Tag-citation methodology is sound and the page's `Aside` correctly discloses it. Spot-checked 5 claims (release date, cross-SDK 5100+/six SDKs, per-user rate limiting, proxy-aware IP, `__Host-` cookie rename). All match. The 8 security-fix table rows correspond row-for-row with `L40-L68`. 0 issues.
+- **v2-1.mdx** — 7 headline-subsystem bullets (Core / Server / DB Adapters / Federation / Arrow Flight / Observers / CLI / SDKs) + 14-row security hardening table + 6 patch-release sections (v2.1.6 / .5 / .4 / .3, with the documented `No v2.1.1 / v2.1.2` Aside accurate at frozen SHA) + 4 breaking-change rows + 3 deprecation rows. Spot-checked version attribution: `compression_enabled` at v2.1.6 (L807 in `[2.1.6]` block) ✅; `CachedResult` struct at v2.1.4 (L911 in `[2.1.4]`) ✅; `CacheStatus::RlsGuardOnly` at v2.1.3 (L945 in `[2.1.3]`) ✅; `ComplexityAnalyzer`→`RequestValidator` at v2.1.0 (L1188 in `[2.1.0]`) ✅. SDK count: 11 languages enumerated in CHANGELOG `L1125-L1146`, matches page. Cross-SDK parity: page says "1 595 tests across nine SDKs", CHANGELOG `L1149` says "1,595 tests across 9 SDKs" ✅. 0 material issues.
+
+#### Citation re-grep (5 total: 3 random + 2 fixes)
+- ✅ **Citation 1 (index.mdx:30)** — `CHANGELOG.md@v2.0.0:L10` → `## [2.0.0] - 2026-03-02`. Matches table-row date.
+- ✅ **Citation 2 (v2-0.mdx:56)** — `CHANGELOG.md@v2.0.0:L28-L33` → "Per-user rate limiting now operative" bullet (sub-claim extraction, per-user token bucket, rps_per_user 10× rps_per_ip). Prose matches verbatim.
+- ✅ **Citation 3 (v2-1.mdx:121)** — `CHANGELOG.md@d0a4ed4:L1245-L1262` → 17-line `### Security` block (header on L1244 + 17 bullets). 13 of the 14 table rows on the page correspond row-for-row. The 14th row is the "27 auth bypass + JWT tampering tests" claim which is at L1261. Resolves.
+- ✅ **Fix v2-1.mdx:131** — corrected to `CHANGELOG.md@d0a4ed4:L1206-L1211`. `git show d0a4ed4...:CHANGELOG.md | sed -n '1206,1211p'` returns `### Deprecated` + `PoolTuningConfig (fraiseql-server, since v2.0.1) → use PoolPressureMonitorConfig; removal target: v3.0` + `observers-full feature flag (fraiseql-observers) → list specific sub-features (nats, tracing, in-memory, etc.); removal target: v2.2`. Matches the prose at v2-1.mdx:125-129 exactly. Drift resolved.
+- ✅ **Fix v2-1.mdx:314** — same `L1206-L1211`. Same content as above. Resolves.
+
+#### 15-point checklist
+1. **VERSION DRIFT** — ✅ All version numbers (v2.0.0 `2026-03-02`, v2.1.0 `2026-03-30`, v2.1.3 `2026-04-08`, v2.1.4 `2026-04-11`, v2.1.5 `2026-04-12`, v2.1.6 `2026-04-14`) match CHANGELOG headers at frozen SHA / v2.0.0 tag.
+2. **WRONG-DB PATHS** — N/A — release notes do not embed runnable DB-specific snippets; only descriptive prose ("PostgreSQL primary; MySQL/SQLite/SQL Server secondary").
+3. **FEATURE-FLAG OMISSIONS** — ✅ Page-as-summary acceptable: each headline lists the **crate** (`fraiseql-arrow`, `fraiseql-observers`, `fraiseql-federation`) which is the cargo-feature gating layer. Specific feature-flag enumeration is the per-feature page's job (cycles 04-06). No headline mis-promises an always-enabled behaviour.
+4. **SECURITY-DEFAULT REGRESSIONS** — ✅ The page surfaces hardening (e.g., `compression_enabled = false` default flip, `MAX_VARIABLES_COUNT`, SSRF guards, `__Host-` cookie) without softening any default. The v2.0 page explicitly calls `trust_proxy_headers default false` and `Max-Age 300s` as conservative defaults.
+5. **SDK DIVERGENCE** — N/A — pages reference SDK language counts but do not show SDK code.
+6. **DEAD LINKS** — ✅ 3 internal links (`/release-notes/v2-0/`, `/release-notes/v2-1/`, `/building/migrations/`) all resolve in `dist/`. 4 external URLs (`semver.org/spec/v2.0.0.html`, `github.com/fraiseql/fraiseql/releases`, `…/blob/main/CHANGELOG.md`, `…/releases?q=v2.0`) all return HTTP 200.
+7. **UNDEFINED SYMBOLS** — ✅ Spot-checked symbol names against framework source: `RequestValidator`, `QueryMetrics`, `CachedResult`, `CacheStatus::RlsGuardOnly`, `PoolTuningConfig`, `PoolPressureMonitorConfig`, `ProjectionField::composite_with_sub_fields`, `compression_enabled`, `Server<DatabaseAdapter>`, `ArcSwap`, `MAX_ENTITIES_BATCH_SIZE`, `__Host-access_token`. All grep clean against CHANGELOG@frozen-SHA.
+8. **COPY-PASTE FROM PRIOR VERSION** — ✅ Pages are net-new (release-notes directory did not exist pre-cycle, per RED evidence § 1). No stale carryover possible.
+9. **CONDITIONAL CAVEATS** — ✅ Asides used appropriately: `caution` on v2-0 about tag-sourcing; `note` on v2-1 about missing v2.1.1/v2.1.2 patches; `note` on index.mdx about forthcoming v2.2/v2.3 pages. Compression breaking change has explicit "opt back in if you serve responses directly (no reverse proxy)" caveat.
+10. **RLS / SECURITY INTERACTIONS** — ✅ Session-variable propagation via `set_config()` (v2.1.6) is mentioned with RLS context (`current_setting('fraiseql.user_id')`). The wider RLS implementation detail is properly deferred to the feature page; release-notes summary is correctly scoped.
+11. **ERROR-PATH COVERAGE** — N/A — summary release notes don't carry container reproductions.
+12. **ARCHAEOLOGY-FREE** — ✅ `grep -nE 'TODO|FIXME|XXX|coming soon|\(WIP\)|Phase [0-9]'` against the three pages: 0 hits. (JSX-comment citations on lines like `:131` use `source:` token, not archaeology markers.)
+13. **SOURCE CITATIONS RESOLVE** — ✅ 5 / 5 re-grepped (3 random + 2 fixes). The Verifier's 100% coverage (52/52) at `5381a7c` plus the 2 fixes at `4280c3c` plus this reviewer's independent re-sample all converge.
+14. **NO PERSONA SELF-REFERENCE** — ✅ `grep -niE '\b(persona|opus|sonnet|haiku|writer-claude|reviewer-claude|orchestrator|as an AI)\b'` against the three pages: 0 hits.
+15. **DARK MODE** — N/A (per task brief) — not exercised this cycle; visual review deferred.
+
+**Score: 15/15 applicable pass (items 2, 5, 11, 15 marked N/A with justification).**
+
+#### Sidebar placement
+- ✅ `Release Notes` lands under `Reference` per Writer's choice (`astro.config.mjs:L338-L346`). The Reference group already houses CLI / Admin API / TOML / GraphQL API / REST API / Decorators / Scalars / Operators / Validation Rules / Naming Conventions / SQL Patterns / AuthoringIR — fits naturally as a historical reference artefact. The pre-existing `Community → Changelog` entry (`astro.config.mjs:L464`) still wired; Writer's explicit deferral to Cycle 6 (decide demote/replace/cross-link) is acceptable.
+
+#### Anti-scope
+- ✅ No v2.2 / v2.3 content (Cycles 2-3).
+- ✅ No migration guide content (Cycles 4-5).
+- ✅ No `index.mdx` Enterprise Features card grid edits (Cycle 6).
+- ✅ No quickstart SQL bug fixes.
+- ✅ No SDK page edits.
+- ✅ No install / CLI alignment edits.
+- ✅ No `changelog.mdx` edits.
+- `git diff main..HEAD --name-only` returns exactly 9 files: 3 release-notes pages + `astro.config.mjs` sidebar + 5 plan-tree artefacts (handoff + phase doc + RED evidence + Verifier log + README). Clean.
+
+#### Independent re-grep details
+- `git -C ~/code/fraiseql show d0a4ed4...:CHANGELOG.md | sed -n '1206,1211p'` returns the `### Deprecated` header + the two bullet entries the prose at v2-1.mdx:125-129 and v2-1.mdx:307-310 claims. Both citations now point at the exact lines.
+- `git -C ~/code/fraiseql show v2.0.0:CHANGELOG.md` resolves at the tagged commit (`97e845ac`), 601 lines, with `[2.0.0]` section at `L10-L68`. v2-0.mdx's tag-citation methodology validates.
+- `git -C ~/code/fraiseql show d0a4ed4...:CHANGELOG.md | sed -n '1125,1146p'` returns 11 distinct SDK language bullets (Python through Rust); matches v2-1.mdx's "11 authoring SDKs" claim.
+
+#### Findings (non-blocking)
+1. **(nit)** v2-1.mdx:308 lists `PoolTuningConfig (since v2.0.1)` — the CHANGELOG also says "since v2.0.1" at `L1208`. Since the v2.0 page sources from the `v2.0.0` tag (which predates v2.0.1), there is no orphan reference — the `since v2.0.1` is a parenthetical reminder, not a forward dep. Acceptable.
+2. **(nit)** The forthcoming `release-notes/v2-2/` and `release-notes/v2-3/` slugs in `index.mdx:22-23` are intentionally non-linked (rendered as plain text "Forthcoming") rather than as dead links — that's the right call. The `index.mdx:35` framework CHANGELOG link covers the gap for readers. No forward-link rot.
+3. **(informational)** The Verifier's escalation to 100% coverage (52/52) on hitting the first FAIL was the right call per methodology § 4. Independent re-sample by this Reviewer (5 citations including the 2 fixes) converges with the Verifier log. No additional drift found.
+4. **(informational, follow-on)** Cycle 6 owns the `Community → Changelog` reconciliation decision. The current draft leaves both wired, which is the right shape for an open-PR draft branch.
+
+#### Framework issues filed
+**0.** No CHANGELOG inconsistencies surfaced; all version attributions accurate at frozen SHA / v2.0.0 tag.
+
+#### Branch hygiene
+- Branch `phase-02/migration-and-changelog` cut from `main@f6d9e1c` (Phase 01 squash). 4 commits ahead (`84614de` Cycle 0 → `7406a10` Writer pages + sidebar → `45f0e6d` URL backfill → `5381a7c` Verifier log + BLOCK → `4280c3c` orchestrator citation-fix). No push to `main`; no commit amend; chain clean.
+
+#### Open gates
+- No new gates surfaced.
+- G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+- G1 closed at Phase 01. No G1-equivalent surfaced this cycle (Writer's sidebar placement is incremental, not a top-level IA reshape).
+
+**Sign-off: APPROVE for the Cycle 1 close.** Cleanup persona may proceed when convened. Next: Cycle 2 (v2.2 release notes).
