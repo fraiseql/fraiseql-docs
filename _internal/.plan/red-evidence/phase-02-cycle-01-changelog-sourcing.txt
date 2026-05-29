@@ -1,0 +1,115 @@
+# Phase 02 / Cycle 1 — RED evidence: release-notes sourcing
+
+Persona: Writer (Opus 4.7)
+Date: 2026-05-29
+Working dir: ~/code/fraiseql-docs
+Frozen SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+
+## 1. /release-notes 404 verification
+
+Pre-cycle the `/release-notes/` slug returns 404:
+
+    $ find src/content/docs/release-notes 2>&1
+    bfs: error: src/content/docs/release-notes: No such file or directory.
+
+`src/content/docs/release-notes/` does not exist; no Astro route is mounted for
+that prefix; the only adjacent release-history artefact at HEAD is the legacy
+`src/content/docs/changelog.mdx` (98 lines), wired into the sidebar under
+Community → Changelog at `astro.config.mjs:L455`.
+
+## 2. v2.1 sourcing investigation — CHANGELOG at frozen SHA
+
+`git -C ~/code/fraiseql show d0a4ed4ec1770c70707f68fd9019f2b561d87461:CHANGELOG.md`
+returns 1262 lines. Section headers via `grep -n '^## \[' /tmp/changelog-frozen.md`:
+
+      8: ## [Unreleased]
+     10: ## [2.3.2] - 2026-05-28
+     26: ## [2.3.1] - 2026-05-27
+     40: ## [2.3.0] - 2026-05-25
+    581: ## [2.2.0] - 2026-05-02
+    714: ## [2.1.6] - 2026-04-14
+    819: ## [2.1.5] - 2026-04-12
+    873: ## [2.1.4] - 2026-04-11
+    918: ## [2.1.3] - 2026-04-08
+    999: ## [2.1.0] - 2026-03-30
+
+v2.1.0 (line 999–1261), v2.1.3 (819–917), v2.1.4 (873–917), v2.1.5 (819–871),
+v2.1.6 (714–817). Note: the CHANGELOG at frozen SHA has no [2.1.1] or [2.1.2]
+sections — patches 1 and 2 either never shipped publicly or were folded into
+the unbroken patch chain (Cycle 0 orchestrator entry also notes this gap).
+
+For the v2.1 release-notes page, sourcing is:
+- v2.1.0 headline features — CHANGELOG.md@frozen-SHA L999–L1261 (262 lines).
+- v2.1.3 perf + observer pool — L819–L917.
+- v2.1.4 recursive JSONB projection + APQ tests — L873–L917.
+- v2.1.5 /auth/me endpoint — L819–L871.
+- v2.1.6 session vars + naming convention + nested filters + HS256 — L714–L817.
+
+## 3. v2.0 sourcing investigation
+
+`git -C ~/code/fraiseql show d0a4ed4ec1770c70707f68fd9019f2b561d87461:CHANGELOG.md`
+contains NO `## [2.0.x]` section. The frozen-SHA file's earliest version is
+v2.1.0 (line 999). The v2.0.0 stable release predates the present CHANGELOG.
+
+### Tag check
+
+    $ git -C ~/code/fraiseql tag -l 'v2.0*'
+    v2.0.0
+    v2.0.0-alpha.1 through v2.0.0-alpha.6
+    v2.0.0-beta.1 through v2.0.0-beta.4
+    v2.0.0-rc.1 through v2.0.0-rc.14
+
+v2.0.0 tag exists, dated 2026-03-02 per its CHANGELOG entry.
+
+### CHANGELOG at v2.0.0 tag
+
+    $ git -C ~/code/fraiseql show v2.0.0:CHANGELOG.md | wc -l
+    601
+
+The v2.0.0-tag CHANGELOG contains the [2.0.0] - 2026-03-02 section at L10–L68:
+- L12–L25: Added (cross-SDK parity test suite, golden fixtures, integration
+  test infrastructure, testcontainers watchdog).
+- L26–L68: Fixed (per-user rate limiting, proxy-aware IP extraction,
+  Retry-After accuracy, cookie charset safety, __Host- prefix, conservative
+  Max-Age, redirect_uri length cap, OIDC error sanitisation, rustdoc).
+
+The v2.0.0 section is dominated by security-hardening Fixed entries; only
+four genuine Added bullets. There is no separate Changed / Deprecated /
+Security category — the security work landed under Fixed.
+
+### Sourcing decision
+
+v2.0.0 IS sourcable, but only from the tag itself, not from the frozen-SHA
+CHANGELOG. The v2.0 release-notes page sources from
+`CHANGELOG.md@v2.0.0:L10-L68`.
+
+Caveat: the v2.0.0-tag CHANGELOG covers only the v2.0.0 stable; the
+release-notes page does NOT cover the alpha / beta / rc trail (those have
+their own sections L69–L601 in the tagged file). The page positions itself
+as a v2.0 "stable release" record, not an exhaustive v2.0.x history.
+
+## 4. Hub / cross-cycle scope
+
+The release-notes hub (index.mdx) covers v2.0, v2.1, v2.2, v2.3. v2.2 and
+v2.3 are Cycle 2 / Cycle 3 work; this cycle places them in the hub table
+as `forthcoming` rows that point at /release-notes/v2-2 and
+/release-notes/v2-3 slugs (which 404 until the next cycles land) — flagged
+as the future-cycle drops so a reader who clicks gets a clear page-missing
+signal, not a dead link. The hub explicitly says "v2.2 and v2.3 land in
+upcoming docs cycles".
+
+## 5. Sidebar placement decision
+
+Decision: (a) Under Reference.
+
+Rationale: Release Notes is a reference artefact — a historical record of
+what shipped per version. It belongs adjacent to CLI / Admin API / TOML
+Configuration / Decorators, all of which are "look up the fact about the
+system" pages. Promoting it to a new top-level group would over-weight it
+relative to scan-frequency: release notes are read on upgrade, not
+routinely. The existing Community → Changelog entry (astro.config.mjs:L455)
+stays this cycle for backwards compatibility; Cycle 6 (cross-link
+integration) handles whether to demote, replace, or cross-link it once the
+full release-notes set exists.
+
+No novel sidebar shape change; no G1-equivalent gate.

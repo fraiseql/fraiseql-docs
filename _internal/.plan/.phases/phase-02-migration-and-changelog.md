@@ -121,7 +121,7 @@ Without this phase, every other phase ships content that assumes a hypothetical 
   - The `app.mutation_response` canonical format.
   - Typed `MutationErrorClass` replacing the v1 string-status parser.
 - **REFACTOR:** include a "no migration needed if you never used v1" callout up top; most adopters didn't.
-- **CLEANUP:** verify the mutation-response shape claim against the actual `crates/fraiseql-core/src/runtime/mutation/...` source.
+- **CLEANUP:** verify the mutation-response shape claim against the actual source. **At frozen SHA `d0a4ed4ec`, the canonical paths are `crates/fraiseql-core/src/runtime/mutation_result.rs` (for `MutationOutcome`) and `crates/fraiseql-core/src/runtime/cascade.rs` (for `MutationErrorClass`). The `runtime/mutation/...` subdirectory referenced earlier was consolidated in commit `082cd3e37`.**
 
 ### Cycle 6: Cross-link integration
 
@@ -171,12 +171,23 @@ Persona: Style Auditor (Sonnet 4.6) → Cleanup (Sonnet 4.6).
 
 ## Status
 
-- [ ] Not started
-- [ ] RED in progress
-- [ ] GREEN in progress
-- [ ] REFACTOR in progress
-- [ ] CLEANUP in progress
-- [ ] Complete
+- [x] Complete — 2026-05-29
+
+Opened 2026-05-29 against `main@f6d9e1c` (Phase 01 squash). Phase 02 worklist is the sweep matrix's `Owning phase = 02` slice (`src/content/docs/_internal/_sweep-matrix.md`).
+
+### Cycle commit references
+
+| Cycle | Subject | Commit(s) |
+|-------|---------|-----------|
+| 0 | Branch creation + status flip | (branch init off Phase 01 squash) |
+| 1 | Release-notes index + v2.0 + v2.1 | `7406a10`, `5381a7c`, `4280c3c`, `45f0e6d` (Reviewer APPROVE: `ab8420e`) |
+| 2 | v2.2 release notes | `10ecb98`, `3556dd0`, `0954b86` (Reviewer APPROVE after BLOCK/fix) |
+| 3 | v2.3 release notes | `dd67bcb`, `9873ebb`, `c787fca` (Reviewer APPROVE: `8fce0a5`) |
+| 4 | v2.2 → v2.3 migration guide | `2f693ab`, `0c2cd9c` (Reviewer APPROVE: `720eda2`) |
+| 5 | v2.1 → v2.2 migration guide | `f8c0ba8`, `333314f`, `41bcdd5` (Reviewer APPROVE: `dcf0be8`) |
+| 6 | Cross-link integration | `5cc0706`, `55cbe38` (Reviewer APPROVE: `8d86aa3`) |
+| 7 | Style audit (Auditor) | `3ce5b65` |
+| 7 | Style audit edits (Cleanup) | `10d7d2e` |
 
 ## Owner
 
@@ -184,7 +195,13 @@ Persona: Style Auditor (Sonnet 4.6) → Cleanup (Sonnet 4.6).
 
 ## Pages completed
 
-*(append as cycles close)*
+- Cycle 1 (2026-05-29): `release-notes/index.mdx`, `release-notes/v2-0.mdx`, `release-notes/v2-1.mdx`. Reviewer-approved at commit `4280c3c`.
+- Cycle 2 (2026-05-29): `release-notes/v2-2.mdx` (new); `release-notes/index.mdx` v2.2 row promoted from forthcoming to released; `astro.config.mjs` v2.2 sidebar entry added.
+- Cycle 3 (2026-05-29): `release-notes/v2-3.mdx` (new, 445 lines, 57 citations); `release-notes/index.mdx` v2.3 row promoted from forthcoming to released and the v2.3 forthcoming-Aside removed; `astro.config.mjs` v2.3 sidebar entry added.
+- Cycle 4 (2026-05-29): `migrations/upgrading/v2-2-to-v2-3.mdx` (new).
+- Cycle 5 (2026-05-29): `migrations/upgrading/v2-1-to-v2-2.mdx` (new).
+- Cycle 6 (2026-05-29): `index.mdx` (cross-links added), `building/migrations/index.mdx` (two-path structure), `astro.config.mjs` (sidebar `Switching tools` rename). Sweep matrix annotated with 7 forward-dep rows.
+- Cycle 7 (2026-05-29): Style audit edits applied to all 10 phase-02 pages: 5 `## Next steps` blocks added, 4 descriptions truncated, 4 forbidden words removed, 1 rogue H1 removed, 1 prompt prefix removed, 5 terminology canonicalisations.
 
 ## Framework bugs filed
 

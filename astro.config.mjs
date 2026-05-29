@@ -226,7 +226,7 @@ export default defineConfig({
               ],
             },
             {
-              label: 'Migrations',
+              label: 'Switching tools',
               collapsed: true,
               items: [
                 { label: 'Migration Overview', slug: 'building/migrations' },
@@ -335,6 +335,26 @@ export default defineConfig({
             { label: 'Naming Conventions', slug: 'reference/naming-conventions' },
             { label: 'SQL Patterns', slug: 'reference/sql-patterns' },
             { label: 'AuthoringIR Format', slug: 'reference/authoring-ir' },
+            {
+              label: 'Release Notes',
+              collapsed: true,
+              items: [
+                { label: 'Overview', slug: 'release-notes' },
+                { label: 'v2.3', slug: 'release-notes/v2-3' },
+                { label: 'v2.2', slug: 'release-notes/v2-2' },
+                { label: 'v2.1', slug: 'release-notes/v2-1' },
+                { label: 'v2.0', slug: 'release-notes/v2-0' },
+              ],
+            },
+            {
+              label: 'Upgrading',
+              collapsed: true,
+              items: [
+                { label: 'Overview', slug: 'migrations/upgrading' },
+                { label: 'v2.1 → v2.2', slug: 'migrations/upgrading/v2-1-to-v2-2' },
+                { label: 'v2.2 → v2.3', slug: 'migrations/upgrading/v2-2-to-v2-3' },
+              ],
+            },
           ],
         },
         {

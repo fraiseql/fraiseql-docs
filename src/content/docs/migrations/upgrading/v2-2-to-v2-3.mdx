@@ -1,0 +1,1206 @@
+---
+title: v2.2 → v2.3
+description: Step-by-step upgrade from FraiseQL v2.2.x to v2.3.0 — error taxonomy, Storage→File migration, ViewName newtype, and 13 other breaking changes.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+This is the per-section upgrade guide for v2.2.x → v2.3.0. The
+sixteen breaking changes are numbered to match the
+[v2.3 release notes](/release-notes/v2-3/) breaking-changes table row
+ordering — row N in the release notes is § N here.
+
+The bulk of the upgrade work lives in sections 1 and 2 (error taxonomy
+consolidation and `FraiseQLError::Storage` → `File(FileError::*)`
+migration). The remaining fourteen sections are usually under ten
+minutes each.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1-L43 — upstream guide framing + TL;DR */}
+
+## TL;DR
+
+Sixteen breaking changes, row-ordered to match the
+[v2.3 breaking-changes table](/release-notes/v2-3/#breaking-changes).
+
+| # | Change | Effort | Mechanical? |
+|---|--------|--------|-------------|
+| [1](#1-runtimeerror-removed-fraiseqlerror-is-the-single-root) | `RuntimeError` removed; `FraiseQLError` is the single workspace root | 30 min – 2 hr | Mostly (sed + a few hand-edits) |
+| [2](#2-fraiseqlerrorstorage-fileerror) | `FraiseQLError::Storage` → `FraiseQLError::File(FileError::*)` | 1 – 4 hr | Partially (table-driven; pattern-match rewrites by hand) |
+| [3](#3-servererrorruntimeerror-servererrorengine) | `ServerError::RuntimeError` → `ServerError::Engine` | 5 min | Yes (one sed) |
+| [4](#4-viewname-newtype-on-cache-invalidation-apis) | `ViewName` newtype on cache-invalidation APIs | 15 min | Yes (`ViewName::from(&str)` at call sites) |
+| [5](#5-projectionrequest-struct-argument) | `execute_with_projection_arc` takes `&ProjectionRequest<'_>` | 30 min | No (custom adapter impls only) |
+| [6](#6-keyedratelimiterc-clock) | `KeyedRateLimiter<C: Clock = SystemClock>` | 5 – 15 min | Sometimes (only if you name the type explicitly) |
+| [7](#7-extract_root_field_names-returns-impl-iterator) | `extract_root_field_names` returns `impl Iterator` | 5 min | Yes (`.collect::<Vec<_>>()`) |
+| [8](#8-lock-free-reads-on-five-concurrent-maps) | Lock-free reads on five maps (no migration; behaviour note) | Read-only | No code change |
+| [9](#9-parking_lotmutex-swap-update_heartbeat-no-longer-async) | `parking_lot::Mutex` swap (drop `.await` on `update_heartbeat`) | 5 min | Yes |
+| [10](#10-metricscollector-flattened-no-longer-clone) | `MetricsCollector` flattened to bare `AtomicU64`; no longer `Clone` | 15 min | Sometimes |
+| [11](#11-parsedquerysource-arcstr) | `ParsedQuery.source: String` → `Arc<str>` | 5 min | Sometimes (`&*parsed.source`) |
+| [12](#12-validationrulepattern-takes-compiledpattern) | `ValidationRule::Pattern` takes `CompiledPattern` | 10 min | Sometimes (downstream rule constructors only) |
+| [13](#13-workspace-clippy-denials-promoted-indexing_slicing-pilot) | Workspace clippy denials + Q4 `indexing_slicing` pilot | Variable | No (only if you inherit `[workspace.lints]`) |
+| [14](#14-compiledschemafrom_json-takes-strict_integrity) | `CompiledSchema::from_json` adds `strict_integrity: bool` | 5 – 15 min | Yes (sed) |
+| [15](#15-non_exhaustive-rollout-to-public-dtos) | Public DTOs marked `#[non_exhaustive]` — use `new()` constructors | 15 – 30 min | Mostly (struct-literal → `new(...)`) |
+| [16](#16-removed-types-meenrichmentconfig-schema-intermediate-dispatch) | Schema-intermediate and `MeEnrichmentConfig` types removed | 5 min – 1 hr | No (TOML config or open issue) |
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L22-L39 — TL;DR table mirror */}
+
+If you don't have a custom storage backend or a custom `DatabaseAdapter`,
+the realistic upgrade is closer to one to two hours of sed + recompile +
+a few hand edits.
+
+## Before you start
+
+- **Rust toolchain.** The workspace MSRV is the latest stable
+  (currently 1.82+). v2.3.0 has not been tested on any earlier
+  toolchain.
+
+  {/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L47-L48 — MSRV note */}
+
+- **Backup branch.** Before you start, tag a `v2.2-baseline` in your
+  service repo:
+
+  ```bash
+  git checkout -b before-v2-3
+  git tag v2.2-baseline
+  git push origin v2.2-baseline
+  ```
+
+  Several v2.3 changes are silent: code compiles but behaves slightly
+  differently (the `DashMap` reads in § 8, the `MetricsCollector` `Clone`
+  removal in § 10). A comparison branch is the cheapest way to catch
+  surprises.
+
+  {/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L53-L56 — backup branch advice */}
+
+- **One section at a time.** Bump the dependency, then fix one section
+  at a time:
+
+  ```bash
+  cargo update -p fraiseql --precise 2.3.0
+  cargo check
+  ```
+
+  Read the first `cargo check` error, find its section below, apply the
+  fix, run `cargo check` again. Don't fan-out the rewrites across the
+  whole codebase before the first section compiles cleanly — the error
+  messages get harder to read when half the code is in mid-migration.
+
+  {/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L49-L52 — one-section-at-a-time philosophy */}
+
+- **SDKs are out of scope.** v2.3.0 ships with no required SDK changes.
+  The language SDKs (Python, TypeScript, Go, Java, Ruby, Dart, Elixir,
+  F#, PHP, C#) version independently; consult each SDK's CHANGELOG.
+
+  {/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L57-L61 — SDK out-of-scope note */}
+
+- **Workspace clippy.** If your CI runs `cargo clippy --workspace
+  --all-targets`, expect new warnings from the v2.3.0 workspace lint
+  promotions (§ 13). Either roll the fixes into the same upgrade PR or
+  land a permissive `[lints.clippy]` override first.
+
+  {/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L62-L66 — CI clippy heads-up */}
+
+---
+
+## 1. `RuntimeError` removed; `FraiseQLError` is the single root
+
+**What changed.** `fraiseql_error::RuntimeError` is gone, along with
+five shadow domain enums that lived alongside it
+(`fraiseql_error::{AuthError, WebhookError, NotificationError,
+IntegrationError, ObserverError}`). All five had zero production call
+sites; only their own test files imported them. `FileError` survives
+because it has nine real call sites (covered in § 2).
+
+The four HTTP-shape variants that used to live on `RuntimeError`
+(`Internal`, `NotFound`, `RateLimited`, `ServiceUnavailable`) are now on
+`FraiseQLError` directly. Subsystem error vocabularies
+(`fraiseql_auth::AuthError`, `fraiseql_webhooks::WebhookError`,
+`fraiseql_observers::ObserverError`) still live in their own crates and
+now compose into `FraiseQLError` via owned `From<X> for FraiseQLError`
+impls (the sqlx pattern: each subsystem owns its `From` impl, keeping
+`fraiseql-error` a leaf crate). The new variants are
+`FraiseQLError::{Auth, Webhook, Observer, File}`.
+
+The umbrella `fraiseql` crate no longer re-exports `RuntimeError`,
+`AuthError`, or `WebhookError`. Use `FraiseQLError` via
+`fraiseql::FraiseQLError` or `fraiseql::prelude::*`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L253-L267 — error taxonomy consolidation */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L70-L94 — § 1 what-changed and why */}
+
+**Before:**
+
+```rust
+use fraiseql::RuntimeError;
+
+fn handle(err: RuntimeError) -> http::StatusCode {
+    match err {
+        RuntimeError::RateLimited { .. }        => http::StatusCode::TOO_MANY_REQUESTS,
+        RuntimeError::NotFound { .. }           => http::StatusCode::NOT_FOUND,
+        RuntimeError::ServiceUnavailable { .. } => http::StatusCode::SERVICE_UNAVAILABLE,
+        _                                       => http::StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+```
+
+**After:**
+
+```rust
+use fraiseql::FraiseQLError;
+
+fn handle(err: FraiseQLError) -> http::StatusCode {
+    match err {
+        FraiseQLError::RateLimited { .. }        => http::StatusCode::TOO_MANY_REQUESTS,
+        FraiseQLError::NotFound { .. }           => http::StatusCode::NOT_FOUND,
+        FraiseQLError::ServiceUnavailable { .. } => http::StatusCode::SERVICE_UNAVAILABLE,
+        _                                        => http::StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L96-L124 — before / after blocks */}
+
+**Migration.**
+
+1. Build to enumerate the breaks:
+
+   ```bash
+   cargo build 2>&1 | rg "RuntimeError"
+   ```
+
+2. Rename the type across your service:
+
+   ```bash
+   find . -name '*.rs' -not -path './target/*' -exec sed -i 's/\bRuntimeError\b/FraiseQLError/g' {} +
+   ```
+
+3. Drop any `use fraiseql::RuntimeError;` lines (step 2 left them as
+   `use fraiseql::FraiseQLError;`, which is the right import).
+
+4. Recompile. Any remaining mismatches will be variants that don't exist
+   on `FraiseQLError` — e.g., if you constructed an `AuthError` or
+   `WebhookError` variant directly through the deleted shadow enums.
+   For the subsystem-error composition pattern, see the "edge cases"
+   below.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L126-L141 — § 1 migration steps + sed pattern */}
+
+**When the sed fails.** The pattern in step 2 also rewrites the literal
+string `"RuntimeError"` inside doc comments, error messages, and
+serialised JSON keys. Spot-check with `git diff` before committing;
+revert any string-literal hits you want to preserve. Any
+`impl From<RuntimeError> for SomeOtherError` declarations should be
+deleted — the new pattern is `impl From<FraiseQLError> for
+SomeOtherError`.
+
+**Subsystem errors via downcast.** If you used to pattern-match on a
+subsystem-specific variant (`RuntimeError::Auth(...)` or similar) and
+your code reconstructed a wrapper around it: the new shape is
+`FraiseQLError::Auth(Box<dyn Error + Send + Sync>)`. Recover the typed
+subsystem error with `downcast_ref::<fraiseql_auth::AuthError>()` and
+fall back to a generic 500 with `boxed.to_string()` when the downcast
+returns `None`. The source chain works without intervention:
+`err.source()` walks the boxed subsystem error automatically.
+
+```rust
+match err {
+    FraiseQLError::Auth(boxed) => {
+        if let Some(auth_err) = boxed.downcast_ref::<fraiseql_auth::AuthError>() {
+            handle_auth_typed(auth_err)
+        } else {
+            generic_500_with_message(boxed.to_string())
+        }
+    }
+    _ => generic_500(),
+}
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L289-L361 — § 3 (subsystem composition) rolled into this section's edge cases */}
+
+**Wire format.** If you serialised errors to JSON, the wire format is
+identical — the internal HTTP-shape variants moved between enums but
+kept the same serde-tagged shape. No client-side change.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L150-L153 — wire-format preservation */}
+
+---
+
+## 2. `FraiseQLError::Storage` → `FraiseQLError::File(FileError::*)`
+
+**What changed.** The catch-all
+`FraiseQLError::Storage { message, code: Option<String> }` variant is
+gone. The 118 production call sites in `fraiseql-storage` and
+`fraiseql-functions` that used to construct it have been migrated to
+typed `FileError` variants under `FraiseQLError::File(FileError::*)`.
+Eight new `FileError` variants cover the backend-classification space,
+plus the pre-existing `NotFound` is reused.
+
+This is the largest mechanical-but-not-quite-sed change in v2.3.0,
+because the `Storage { code: Some("…") }` string discriminator becomes a
+typed variant per code.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L277-L315 — FileError migration entry */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L156-L174 — § 2 what-changed + why */}
+
+**Code-string-to-variant table.** Use this when migrating any code that
+constructed `Storage { code: Some("…") }`:
+
+| Old `code:` value                  | New variant                                                |
+|------------------------------------|------------------------------------------------------------|
+| `"permission_denied"`              | `FileError::PermissionDenied { message, source }`          |
+| `"io_error"`                       | `FileError::IoError { message, source }`                   |
+| `"invalid_key"`                    | `FileError::InvalidKey { message }`                        |
+| `"not_implemented"`                | `FileError::NotImplemented { message }`                    |
+| `"not_supported"` / `"unsupported"`| `FileError::Unsupported { message }`                       |
+| `"size_limit_exceeded"`            | `FileError::SizeLimitExceeded { message, limit, actual }`  |
+| `"mime_type_not_allowed"`          | `FileError::MimeTypeNotAllowed { message, mime }`          |
+| `"not_found"`                      | `FileError::NotFound { id }` (pre-existing variant reused) |
+| `None` (catch-all)                 | `FileError::Backend { message, source }`                   |
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L176-L189 — code-to-variant table verbatim */}
+
+**Two observable HTTP-status changes.**
+
+1. **`FileError::NotFound` returns 404 globally** (was 400 from the
+   generic `FraiseQLError::Storage` handler). The previous 400 disagreed
+   with the typed handlers in `fraiseql-storage` and `fraiseql-server`,
+   which already returned 404 for backend not-found cases. If you had a
+   custom error handler that special-cased
+   `FraiseQLError::Storage { code: Some("not_found") }` to 404, you can
+   delete it.
+2. **`FileError::InvalidKey` returns 400** (was 500 under
+   `Storage { code: Some("invalid_key") }`). The previous 500 was a
+   bug — a caller-supplied bad key is user-fixable and 400 is the
+   correct status. If you have monitoring on storage-500s, expect a
+   drop; on storage-400s, expect an increase.
+
+Every other status is preserved: `NotFound → 404`, `PermissionDenied →
+403`, everything else → 500.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L190-L210 — HTTP-status refinements */}
+
+**Before:**
+
+```rust
+use fraiseql::FraiseQLError;
+
+fn convert(err: BackendError) -> FraiseQLError {
+    match err.kind() {
+        BackendErrorKind::PermissionDenied => FraiseQLError::Storage {
+            message: format!("permission denied: {err}"),
+            code:    Some("permission_denied".to_string()),
+        },
+        BackendErrorKind::NotFound => FraiseQLError::Storage {
+            message: format!("not found: {err}"),
+            code:    Some("not_found".to_string()),
+        },
+        _ => FraiseQLError::Storage {
+            message: format!("backend error: {err}"),
+            code:    None,
+        },
+    }
+}
+```
+
+**After:**
+
+```rust
+use fraiseql::FraiseQLError;
+use fraiseql::FileError;
+
+fn convert(err: BackendError) -> FraiseQLError {
+    let id = err.key().to_owned();
+    match err.kind() {
+        BackendErrorKind::PermissionDenied => FraiseQLError::File(FileError::PermissionDenied {
+            message: err.to_string(),
+            source:  Some(Box::new(err)),
+        }),
+        BackendErrorKind::NotFound => FraiseQLError::File(FileError::NotFound { id }),
+        _ => FraiseQLError::File(FileError::Backend {
+            message: err.to_string(),
+            source:  Some(Box::new(err)),
+        }),
+    }
+}
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L212-L255 — before / after blocks verbatim */}
+
+**Migration.**
+
+1. Compile and collect mismatches:
+
+   ```bash
+   cargo build 2>&1 | rg "FraiseQLError::Storage"
+   ```
+
+2. For each call site, look up the old `code` string in the table above
+   and pick the new typed variant. The new `source` field on
+   `PermissionDenied`, `IoError`, and `Backend` lets you preserve the
+   underlying error type — pass `Some(Box::new(original))` rather than
+   stringifying.
+
+3. Update pattern-matching code:
+
+   ```rust
+   // Before
+   FraiseQLError::Storage { code: Some(c), .. } if c == "permission_denied" => { ... }
+   // After
+   FraiseQLError::File(FileError::PermissionDenied { .. })                  => { ... }
+   ```
+
+4. Any place that read `code` for monitoring or metrics: switch to
+   `FileError::error_code()` which returns a stable `&'static str` like
+   `"file_permission_denied"`. Note the prefix — the new codes are
+   `file_*`, the old ones were bare.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L257-L275 — § 2 migration steps + monitoring switch */}
+
+**`#[non_exhaustive]` on `FileError`.** The new variants are
+`#[non_exhaustive]`. Construct them by field name, never positionally.
+Patch releases in the 2.4.x series may add variants without further
+breakage. The catch-all `FileError::Backend` covers the ~67 call sites
+that previously used `Storage { code: None }`; if you can classify any
+of those more specifically (a known `reqwest` error, an `sqlx` error),
+prefer a typed variant + `source: Some(Box::new(e))`.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L277-L287 — edge cases */}
+
+---
+
+## 3. `ServerError::RuntimeError` → `ServerError::Engine`
+
+**What changed.** The `ServerError::RuntimeError` variant in
+`fraiseql-server` wraps `fraiseql_core::error::FraiseQLError` (the
+engine error), not `fraiseql_error::RuntimeError` (which is now deleted
+per § 1). The old name was a misnomer that confused two distinct types.
+It's been renamed to `ServerError::Engine` with no semantic change.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L270-L275 — ServerError::Engine rename */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L365-L374 — § 4 what-changed */}
+
+**Before:**
+
+```rust
+match server_err {
+    ServerError::RuntimeError(e) => /* it's actually a FraiseQLError */ ...,
+    _ => ...,
+}
+```
+
+**After:**
+
+```rust
+match server_err {
+    ServerError::Engine(e) => /* same FraiseQLError, correctly named */ ...,
+    _ => ...,
+}
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L376-L392 — before / after */}
+
+**Migration.**
+
+```bash
+find . -name '*.rs' -not -path './target/*' -exec sed -i 's/\bServerError::RuntimeError\b/ServerError::Engine/g' {} +
+```
+
+Recompile. The `#[from]` impl on the variant is unchanged, so
+`?`-propagation from `FraiseQLError` to `ServerError` still works.
+
+**When the sed fails.** The word-boundary anchor `\b` keeps the pattern
+from matching the deleted bare `fraiseql_error::RuntimeError` from § 1
+(which has no `ServerError::` prefix), so the two renames don't
+collide. Spot-check `git diff` to confirm.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L394-L407 — § 4 migration + edge case */}
+
+---
+
+## 4. `ViewName` newtype on cache-invalidation APIs
+
+**What changed.** Six cache-invalidation entry points now take
+`&[ViewName]` instead of `&[String]`:
+
+- `DatabaseAdapter::invalidate_views`
+- `DatabaseAdapter::invalidate_list_queries`
+- `QueryResultCache::invalidate_views`
+- `QueryResultCache::invalidate_list_queries`
+- `ResponseCache::invalidate_views`
+- `CachedDatabaseAdapter::invalidate_views`
+
+Internal cache storage (`accessed_views`, `view_index`, `list_index`)
+migrated accordingly. View names are now `Arc<str>` under the hood, so
+the per-name allocation is shared across all cache references rather
+than re-cloned on every cache write.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L317-L326 — ViewName newtype */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L412-L423 — § 5 what-changed */}
+
+**Before:**
+
+```rust
+impl DatabaseAdapter for MyAdapter {
+    fn invalidate_views(&self, names: &[String]) -> Result<(), FraiseQLError> { ... }
+}
+
+// Call site
+adapter.invalidate_views(&["v_user".to_string(), "v_org".to_string()])?;
+```
+
+**After:**
+
+```rust
+use fraiseql::ViewName;
+
+impl DatabaseAdapter for MyAdapter {
+    fn invalidate_views(&self, names: &[ViewName]) -> Result<(), FraiseQLError> { ... }
+}
+
+// Call site
+adapter.invalidate_views(&[ViewName::from("v_user"), ViewName::from("v_org")])?;
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L425-L447 — before / after */}
+
+**Migration.**
+
+1. If you have a custom `DatabaseAdapter` impl, update the four
+   `invalidate_*` method signatures from `&[String]` to `&[ViewName]`.
+2. At call sites, wrap each bare `&str` or `String` in `ViewName::from(...)`.
+   Both `From<&str>` and `From<String>` impls are provided.
+3. `ViewName` clones cheaply (`Arc::clone` under the hood); pass it by
+   value when convenient.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L449-L461 — § 5 migration */}
+
+---
+
+## 5. `ProjectionRequest` struct argument
+
+**What changed.** The `DatabaseAdapter::execute_with_projection_arc`
+trait method used to take six positional arguments. They are bundled
+into a borrowed struct, `&ProjectionRequest<'_>`, with fields in SQL
+generation order (`SELECT … FROM … WHERE … ORDER BY … LIMIT … OFFSET`).
+
+`ProjectionRequest` is intentionally **not** `#[non_exhaustive]`. A
+missing field is a hard compile error — this is the deliberate design,
+so that future field additions force every impl to acknowledge them.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L328-L333 — ProjectionRequest struct */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L465-L479 — § 6 what-changed + why */}
+
+**Before:**
+
+```rust
+impl DatabaseAdapter for MyAdapter {
+    async fn execute_with_projection_arc(
+        &self,
+        select_clause: &str,
+        from_clause:   &str,
+        where_clause:  Option<&str>,
+        order_by:      Option<&str>,
+        limit:         Option<i64>,
+        offset:        Option<i64>,
+    ) -> Result<...> { ... }
+}
+```
+
+**After:**
+
+```rust
+use fraiseql::ProjectionRequest;
+
+impl DatabaseAdapter for MyAdapter {
+    async fn execute_with_projection_arc(
+        &self,
+        req: &ProjectionRequest<'_>,
+    ) -> Result<...> {
+        // Access via req.select_clause, req.from_clause, req.where_clause,
+        // req.order_by, req.limit, req.offset
+    }
+}
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L481-L510 — before / after */}
+
+**Migration.**
+
+1. Update your adapter's method signature.
+2. Replace argument-name reads with `req.field_name`.
+3. If you construct `ProjectionRequest` yourself (rare; the engine
+   usually does it), use the struct literal — no
+   `..Default::default()` allowed.
+
+Most adopters don't have a custom `DatabaseAdapter` and won't hit this
+section. The built-in PostgreSQL, MySQL, SQLite, and SQL Server
+adapters all migrated in the same commit.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L512-L525 — § 6 migration + edge case */}
+
+---
+
+## 6. `KeyedRateLimiter<C: Clock>`
+
+**What changed.** `KeyedRateLimiter` now takes a type parameter:
+`KeyedRateLimiter<C: Clock = SystemClock>`. The previous
+`Box<dyn Fn() -> u64 + Send + Sync>` clock has been replaced with a
+zero-sized `SystemClock` type. A blanket impl on
+`F: Fn() -> u64 + Send + Sync` keeps closures working for tests.
+
+The default type parameter means most callers
+(`KeyedRateLimiter::new(...)` without an explicit type) compile
+unchanged. The boxed-`Fn` removal wins a per-call allocation on the
+rate-limiter hot path and lets production limiters be `Clone`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L335-L341 — KeyedRateLimiter Clock generic */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L529-L542 — § 7 what-changed + why */}
+
+**Before:**
+
+```rust
+struct MyState {
+    limiter: KeyedRateLimiter,
+}
+```
+
+**After:**
+
+```rust
+struct MyState {
+    limiter: KeyedRateLimiter,                // same — uses default <SystemClock>
+    // OR, if you need to name a custom clock:
+    test_limiter: KeyedRateLimiter<MockClock>,
+}
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L544-L559 — before / after */}
+
+**Migration.**
+
+1. Struct fields typed `KeyedRateLimiter` (no params): no change. The
+   default `SystemClock` kicks in.
+2. Struct fields typed `KeyedRateLimiter<...>` with a custom clock:
+   keep the parameter; if your custom clock was a closure, the blanket
+   impl on `Fn() -> u64` covers it.
+3. In tests, prefer `KeyedRateLimiter::with_clock(MockClock::new(...))`
+   for readability — closures still work, but the trait form documents
+   intent.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L561-L570 — § 7 migration */}
+
+<Aside type="caution" title="Closure clocks are a test-only seam">
+The blanket `impl<F: Fn() -> u64 + Send + Sync> Clock for F` is
+documented as test-only. `SystemClock` is the only acceptable
+production implementation. Closures carry none of `SystemClock`'s
+monotonicity guarantees, and silently substituting one in production
+code (`KeyedRateLimiter::with_clock(|| 0)`) freezes the sliding window
+with no compile-time signal. When advancing time in tests, prefer the
+`Arc<AtomicU64>`-backed monotonic pattern used throughout
+`crates/fraiseql-auth/src/tests.rs`:
+
+```rust
+let now = Arc::new(AtomicU64::new(0));
+let clock = { let now = now.clone(); move || now.load(Ordering::Relaxed) };
+let limiter = KeyedRateLimiter::with_clock(clock);
+// ... in the test, bump `now` to advance virtual time ...
+```
+
+Code review should reject `with_clock(|| ...)` outside `#[cfg(test)]`
+modules.
+</Aside>
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L572-L585 — § 7 edge case (closure policy, F059) */}
+
+---
+
+## 7. `extract_root_field_names` returns `impl Iterator`
+
+**What changed.** The helper used to return `Vec<&str>`; it now returns
+`impl Iterator<Item = &str> + '_`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L343-L345 — extract_root_field_names iterator */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L589-L591 — § 8 what-changed */}
+
+**Before:**
+
+```rust
+let names: Vec<&str> = extract_root_field_names(&doc);
+for n in &names { ... }
+```
+
+**After:**
+
+```rust
+let names = extract_root_field_names(&doc);          // impl Iterator
+for n in names { ... }
+// OR, if you need a Vec
+let names: Vec<&str> = extract_root_field_names(&doc).collect();
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L593-L606 — before / after */}
+
+**Migration.**
+
+1. Drop the `Vec<&str>` annotation if you have one.
+2. If you need a `Vec` (storage, indexing, `.len()`), append
+   `.collect::<Vec<_>>()`.
+3. If you need owned strings,
+   `.map(|s| s.to_owned()).collect::<Vec<_>>()`. The iterator borrows
+   from `doc`.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L608-L618 — § 8 migration + edge case */}
+
+---
+
+## 8. Lock-free reads on five concurrent maps
+
+**What changed.** Five `Arc<Mutex<HashMap>>` or `Arc<RwLock<HashMap>>`
+maps on the request hot path moved to lock-free structures:
+
+- `InMemoryRateLimiter` (auth crate) — `DashMap`
+- `TrustedDocumentStore` — `DashMap`
+- `KeyedRateLimiter` (auth crate) — `DashMap` with a strict-cap insert
+  guard (below)
+- federation `ConnectionManager` — `DashMap`
+- observer `entity_type_index` — `ArcSwap<HashMap>` for atomic reload
+
+Two atomicity contracts that originally weakened during the DashMap
+migration have been **restored** in v2.3.0:
+
+1. `KeyedRateLimiter` capacity cap is strict. New-key inserts run under
+   a `parking_lot::Mutex<()>` insert guard so the cap-check → evict →
+   insert sequence is atomic. `len() <= max_entries` holds at every
+   observable instant, not after the burst settles. Updates to
+   keys already present take the lock-free fast path. (F057)
+2. Observer `entity_type_index` reload is snapshot-atomic. The reload
+   path rebuilds the new `HashMap` off-line and atomically swaps via
+   `ArcSwap::store(Arc::new(new_map))`. Concurrent CDC-event lookups
+   always observe either the fully populated pre-reload generation or
+   the fully populated post-reload generation — never an empty or
+   partially rebuilt index. (F056)
+
+`TrustedDocumentStore::resolve`, `document_count`, and
+`replace_documents` dropped their `async` signature: no remaining
+`.await` suspension after the `DashMap` migration.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L347-L367 — lock-free reads + F056/F057 */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L620-L663 — § 9 what-changed */}
+
+**Migration.**
+
+For the four other maps (`InMemoryRateLimiter`, `TrustedDocumentStore`
+besides `resolve`, federation `ConnectionManager`, observer
+`entity_type_index` besides the snapshot swap): **none**. No public-API
+change.
+
+For `TrustedDocumentStore::resolve`: drop the `.await`.
+
+**Before:**
+
+```rust
+let doc = store.resolve(&hash).await?;
+```
+
+**After:**
+
+```rust
+let doc = store.resolve(&hash)?;
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L665-L676 — § 9 migration */}
+
+**Two additional behaviour notes (no migration).** Two unrelated changes
+are observably more graceful but require no adopter action:
+
+- **Lifecycle `tokio::spawn` collected into `JoinSet`** (F021,
+  `19bfd826c`). The five lifecycle spawns (SIGUSR1 handler,
+  usage-persistence flush, Arrow Flight gRPC server, trusted-docs
+  reloader, PKCE cleanup) are drained under the configured shutdown
+  timeout instead of detaching. If you measured shutdown latency in
+  v2.2.x by sleeping a tail of ~500ms, you can tighten that test.
+- **Arrow Flight multi-batch responses use `mpsc::channel(4)`
+  backpressure** (F011, `0077a3eb1`). A slow client receiving a
+  multi-batch Arrow Flight response no longer lets the server hold the
+  full result set in memory; the producer suspends after queueing four
+  batches if the consumer hasn't drained them.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L728-L817 — § 11 JoinSet + § 13 Arrow Flight (none-required migrations) */}
+
+---
+
+## 9. `parking_lot::Mutex` swap (`update_heartbeat` no longer `async`)
+
+**What changed.** Two sync-only critical sections moved from
+`tokio::sync::Mutex` to `parking_lot::Mutex`:
+`MemoryApqStorage::entries` and `ListenerHandle::last_heartbeat`. As a
+knock-on, `ListenerHandle::update_heartbeat` is no longer `async`.
+
+Three sites that hold their lock across `.await` were intentionally
+left on `tokio::sync::Mutex` and are unchanged.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L369-L375 — parking_lot::Mutex swap (F019) */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L692-L702 — § 10 what-changed */}
+
+**Before:**
+
+```rust
+listener.update_heartbeat().await;
+```
+
+**After:**
+
+```rust
+listener.update_heartbeat();
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L704-L714 — before / after */}
+
+**Migration.**
+
+1. Find call sites:
+
+   ```bash
+   grep -rn "update_heartbeat()" src/
+   ```
+
+2. Drop the `.await`. If you propagated `?` through the result type:
+   the function now returns `()` rather than a future-of-result. The
+   the previous result was already infallible; this removes the
+   wrapper.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L716-L723 — § 10 migration */}
+
+---
+
+## 10. `MetricsCollector` flattened; no longer `Clone`
+
+**What changed.** Twenty-eight individual `Arc<AtomicU64>` fields on
+`MetricsCollector` were replaced with plain `AtomicU64`. The per-counter
+`Arc` was redundant: every reader has already cloned the parent
+`Arc<MetricsCollector>`. The change drops twenty-eight allocations on
+collector construction and twenty-eight atomic refcount operations per
+collector clone.
+
+As a result, `MetricsCollector` no longer derives `Clone`. Production
+wiring already wraps it in `Arc<MetricsCollector>` and clones the `Arc`,
+so call-site syntax (`metrics.queries_total.fetch_add(…)`) is
+unchanged.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L386-L391 — MetricsCollector flattened (F009) */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L756-L765 — § 12 what-changed + why */}
+
+**Before:**
+
+```rust
+// Holding a per-counter Arc handle
+let counter_handle: Arc<AtomicU64> = Arc::clone(&metrics.queries_total);
+counter_handle.fetch_add(1, Ordering::Relaxed);
+```
+
+**After:**
+
+```rust
+// Hold the parent Arc and borrow the counter field
+let metrics: Arc<MetricsCollector> = state.metrics.clone();
+metrics.queries_total.fetch_add(1, Ordering::Relaxed);
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L767-L781 — before / after */}
+
+**Migration.**
+
+1. Find call sites:
+
+   ```bash
+   grep -rn "Arc::clone(&metrics\." src/
+   ```
+
+2. Replace each with a clone of the parent `Arc<MetricsCollector>`
+   (which you almost certainly already hold), and read the counter
+   field through it.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L783-L789 — § 12 migration */}
+
+---
+
+## 11. `ParsedQuery.source: Arc<str>`
+
+**What changed.** `ParsedQuery.source: String` is now `Arc<str>`.
+`ParsedQuery::clone()` drops its deep string copy in favour of an
+atomic refcount bump. The serde wire form is unchanged — custom
+`serialize_with` and `deserialize_with` preserve backward-compatible
+JSON.
+
+`ParsedQuery` is cloned across the cache write path on every
+cache-warming insert; with hundreds of queries per second, the `String`
+clones added up.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L400-L405 — ParsedQuery.source Arc<str> (F042) */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L821-L830 — § 14 what-changed + why */}
+
+**Before:**
+
+```rust
+let s: &String = &parsed.source;
+let owned: String = parsed.source.clone();   // deep copy
+```
+
+**After:**
+
+```rust
+let s: &str = &*parsed.source;               // deref to &str
+let owned: Arc<str> = Arc::clone(&parsed.source);   // refcount bump
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L832-L843 — before / after */}
+
+**Migration.**
+
+1. If you needed `&String` (e.g., to pass to a function taking
+   `&String`): change the function to take `&str` (almost always the
+   right move), or coerce with `&*parsed.source`.
+2. If you `.clone()`d the source: keep doing it; the `Clone` impl is
+   now cheap.
+
+The serde wire format is preserved, so cached `ParsedQuery` JSON from
+v2.2.x deserialises correctly on v2.3.0.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L845-L856 — § 14 migration + edge case */}
+
+---
+
+## 12. `ValidationRule::Pattern` takes `CompiledPattern`
+
+**What changed.** `ValidationRule::Pattern { pattern: String }` became
+`ValidationRule::Pattern { pattern: CompiledPattern }`. Regex
+compilation now happens once at construction (or at
+`schema.compiled.json` deserialisation) rather than on every validation
+call. Invalid patterns surface at schema load instead of degrading
+silently per request.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L414-L421 — ValidationRule::Pattern CompiledPattern (F003) */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L861-L868 — § 15 what-changed + why */}
+
+**Before:**
+
+```rust
+ValidationRule::Pattern { pattern: r"^[a-z]+$".to_string() }
+```
+
+**After:**
+
+```rust
+use fraiseql::CompiledPattern;
+
+ValidationRule::Pattern { pattern: CompiledPattern::try_from(r"^[a-z]+$")? }
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L870-L881 — before / after */}
+
+**Migration.**
+
+1. If you construct `ValidationRule::Pattern` directly: wrap the source
+   string in `CompiledPattern::try_from(...)`. The `?` is mandatory —
+   compilation may fail at the regex-parser level.
+2. If you deserialise from JSON or TOML: no change. Serde compiles the
+   regex on load and surfaces invalid patterns as a deserialise error.
+
+A `From<String>`-style helper exists, but it `panic!`s on invalid
+regex. Prefer `try_from` in adopter code.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L883-L896 — § 15 migration + edge case */}
+
+---
+
+## 13. Workspace clippy denials promoted; `indexing_slicing` pilot
+
+**What changed.** The workspace-level `[lints.clippy]` table promotes
+twelve lints from `warn` to `deny`:
+
+- `panic`
+- `unreachable`
+- `print_stdout`
+- `print_stderr`
+- `dbg_macro`
+- `todo`
+- `unimplemented`
+- `mem_forget`
+- `lossy_float_literal`
+- `semicolon_if_nothing_returned`
+- `undocumented_unsafe_blocks`
+- `missing_assert_message`
+
+The `nursery` and `cargo` lint groups are also promoted from `warn` to
+`deny`. Three crates (`fraiseql-error`, `fraiseql-wire`,
+`fraiseql-storage`) additionally deny `clippy::indexing_slicing` at the
+crate root as the Q4 pilot for a workspace-wide indexing rollout
+planned across v2.3.x patch releases.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L439-L455 — workspace clippy denials + Q4 pilot */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L935-L948 — § 17 what-changed + why */}
+
+**Migration.**
+
+1. If your service inherits the FraiseQL workspace `[lints]` table:
+   new denials surface in your code. Either fix them per-file with a
+   `// Reason: ...` comment plus `#[allow]`, or hoist the allow to the
+   function or module scope.
+2. If your service has its own `[lints.clippy]` table that overrides
+   the workspace: no change.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L950-L958 — § 17 migration */}
+
+The `clippy::indexing_slicing` denial only applies inside the three
+pilot crates. The rest of the workspace is unchanged. Downstream code
+that uses any of those crates' types sees no impact — the lint is about
+how the crate's code is written, not its public API.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L959-L968 — § 17 edge case */}
+
+---
+
+## 14. `CompiledSchema::from_json` takes `strict_integrity`
+
+**What changed.** The canonical schema-load entry point gained a second
+parameter: `strict_integrity: bool`. When `true`, the loader rejects
+schemas whose embedded integrity-manifest hash doesn't match the
+schema body. When `false`, the loader behaves like v2.2.x (ignores
+integrity drift, logs a warning).
+
+Schema integrity hardening landed in v2.3 as a defense-in-depth measure
+against tampered or stale `schema.compiled.json` files (e.g., an old
+artifact baked into a container image). The strict mode is opt-in so
+existing services don't break on rollout.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L455-L463 — CompiledSchema strict_integrity (a27d8f1c5) */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L972-L982 — § 18 what-changed + why */}
+
+**Before:**
+
+```rust
+use fraiseql::CompiledSchema;
+
+let schema = CompiledSchema::from_json(json_bytes)?;
+```
+
+**After:**
+
+```rust
+use fraiseql::CompiledSchema;
+
+let schema = CompiledSchema::from_json(json_bytes, false)?;   // v2.2.x-compatible
+// OR
+let schema = CompiledSchema::from_json(json_bytes, true)?;    // opt into strict integrity
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L984-L999 — before / after */}
+
+**Migration.**
+
+1. Find call sites:
+
+   ```bash
+   grep -rn "CompiledSchema::from_json" src/
+   ```
+
+2. Pass `false` as the second argument to preserve v2.2.x behaviour:
+
+   ```bash
+   find . -name '*.rs' -not -path './target/*' -exec sed -i \
+     's/CompiledSchema::from_json(\([^)]*\))/CompiledSchema::from_json(\1, false)/g' {} +
+   ```
+
+3. Plan a follow-up to flip the flag to `true` once your
+   schema-artifact pipeline (CI, container image build) reliably
+   produces integrity-manifest-consistent files.
+
+**When the sed fails.** The pattern in step 2 doesn't handle nested
+parentheses. If your call sites pass a complex expression like
+`CompiledSchema::from_json(read_file(&path)?)`, do the rewrite
+manually.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1001-L1018 — § 18 migration + edge case */}
+
+---
+
+## 15. `#[non_exhaustive]` rollout to public DTOs
+
+**What changed.** Six public DTOs received `#[non_exhaustive]` so future
+field additions don't break adopters:
+
+| Type | Crate | Constructor |
+|---|---|---|
+| `RelayPageResult` | `fraiseql-db` | `RelayPageResult::new(rows, total_count)` |
+| `SqlProjectionHint` | `fraiseql-db` | `SqlProjectionHint::new(database, projection_template, estimated_reduction_percent)` |
+| `OrderByClause` | `fraiseql-db` | `OrderByClause::new(field, direction)` |
+| `ActionResult` | `fraiseql-observers` | `ActionResult::new(...)` |
+| `CacheStatus` | `fraiseql-core` | (existing `new()`) |
+| `EventKind` | `fraiseql-core` | (existing `new()`) |
+
+Two of these (`RelayPageResult`, `ActionResult`) are returned by public
+traits (`RelayDatabaseAdapter` and `ActionExecutor`) that downstream
+implementations satisfy — those impls **must** construct via `new()`,
+not by struct literal.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L483-L494 — non_exhaustive DTO rollout */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1022-L1044 — § 19 what-changed + why */}
+
+**Before:**
+
+```rust
+let result = RelayPageResult {
+    rows,
+    total_count: Some(42),
+};
+```
+
+**After:**
+
+```rust
+let result = RelayPageResult::new(rows, Some(42));
+```
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1046-L1058 — before / after */}
+
+**Migration.**
+
+1. Find struct-literal construction sites:
+
+   ```bash
+   for t in RelayPageResult SqlProjectionHint OrderByClause ActionResult; do
+     rg -F "${t} {" src/
+   done
+   ```
+
+2. Replace each with the typed `new()` constructor. The `new()`
+   arguments are in field-declaration order; consult rustdoc if
+   uncertain.
+
+3. Pattern-match sites need a `_` arm:
+
+   ```rust
+   match cache_status {
+       CacheStatus::Hit  => ...,
+       CacheStatus::Miss => ...,
+       _                 => ...,   // required for #[non_exhaustive]
+   }
+   ```
+
+If you implement a custom `RelayDatabaseAdapter` or `ActionExecutor`,
+the constructor change is mandatory: impls that produce these types via
+struct literal won't compile.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1060-L1084 — § 19 migration + edge case */}
+
+---
+
+## 16. Removed types (`MeEnrichmentConfig`, schema-intermediate dispatch)
+
+**What changed.** Three `pub` types from v2.2.x are gone in v2.3:
+
+- `fraiseql_cli::schema::intermediate::operations::IntermediateSqlSourceDispatch`
+- `fraiseql_core::schema::SqlSourceDispatch`
+- `fraiseql_core::security::oidc::providers::MeEnrichmentConfig`
+
+The first two belonged to a schema-compilation intermediate model that
+v2.3 replaced. The third was a programmatic OIDC `/auth/me` enrichment
+config that v2.3 moved to a TOML-driven path.
+
+Each represented a Rust-API extension point that almost no adopter used
+directly, and the v2.3 rework couldn't preserve the type shape.
+Removing them was cheaper than carrying the dead surface.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@d0a4ed4ec:L465-L481 — removed dispatch + MeEnrichmentConfig */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1088-L1100 — § 20 what-changed + why */}
+
+**Migration.**
+
+- **`IntermediateSqlSourceDispatch` / `SqlSourceDispatch`.** If you
+  consumed the CLI as a library to introspect schema intermediates, or
+  pattern-matched on `QueryDefinition.sql_source_dispatch`, the v2.3
+  dispatch model has different types. If your use case isn't covered by
+  the new model, open an issue at
+  [github.com/fraiseql/fraiseql/issues](https://github.com/fraiseql/fraiseql/issues)
+  describing what you built — the equivalent entry point may exist but
+  be undocumented.
+- **`MeEnrichmentConfig`.** Move OIDC claim-enrichment configuration
+  from Rust code into `fraiseql.toml`:
+
+  ```toml
+  [auth.oidc.providers.<name>.me_enrichment]
+  # ... fields per the OIDC reference ...
+  ```
+
+  The programmatic Rust API is no longer supported.
+
+If you have a fork that exported additional schema-intermediate types,
+the v2.3 dispatch refactor likely changed those too. Diff against
+`crates/fraiseql-core/src/schema/compiled/` for the new shape.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1102-L1122 — § 20 migration + edge case */}
+
+---
+
+## Minor signature changes
+
+The following are mechanical and don't warrant their own section; treat
+them as a checklist after working through § 1 – § 16:
+
+- **`compute_response_cache_key`** uses a reused scratch `Vec<u8>` and
+  `serde_json::to_writer`. Errors propagate as `Validation` instead of
+  silently colliding. No public-API change unless you implemented a
+  custom cache-key strategy. (F004, F044)
+- **Response cache hits** return `Arc::unwrap_or_clone` of the cached
+  JSON value rather than a deep clone. No call-site change. (F002)
+- **`UNSUPPORTED_OPERATION`** maps to HTTP 501 (Not Implemented)
+  instead of 500. Adjust monitoring that thresholded on 500s for this
+  code.
+- **`QueryParam::to_sql_param`** removed (the boxing was redundant —
+  `QueryParam` already implemented `ToSql`). Replace with
+  `as_sql_param_refs(&[QueryParam])`:
+
+  ```rust
+  // Before
+  let params: Vec<Box<dyn ToSql + Sync>> =
+      inputs.iter().map(|p| QueryParam::to_sql_param(p)).collect();
+  // After
+  let params = fraiseql::as_sql_param_refs(&inputs);
+  ```
+
+  (F036, `c9b599e15`)
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L898-L931 — § 16 to_sql_param removal */}
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1124-L1138 — § 21 minor signature checklist */}
+
+---
+
+## Estimated upgrade effort
+
+Realistic ranges, not optimistic. Multiply by 1.5x for the first
+attempt; ranges tighten the second time someone in your team upgrades.
+
+| Adopter shape | Effort |
+|---|---|
+| Small — ≤ 50 FraiseQL call sites, no custom backends, no custom `DatabaseAdapter` | 1 – 2 hours |
+| Medium — a few hundred sites, custom auth handlers, monitoring on error codes | 4 – 8 hours |
+| Large — thousands of sites, custom storage backend, custom federation `ConnectionManager`, custom `DatabaseAdapter` | 1 – 2 days |
+| Enterprise — all of the above plus custom metrics integrations, SDK extensions, CI clippy enforcement | 2 – 5 days (including CI updates) |
+
+The bulk of the time in every tier is § 1 and § 2 (error taxonomy +
+Storage→File migration). The remaining fourteen sections are usually
+under ten minutes each.
+
+{/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1141-L1154 — estimated effort table */}
+
+## Next steps
+
+- [v2.3 release notes](/release-notes/v2-3/) — what shipped, plus the
+  full security-hardening, performance, and bug-fix inventory.
+- [Release notes overview](/release-notes/) — every shipped release.
+- [Upgrading FraiseQL](/migrations/upgrading/) — index of upgrade guides.
+- Framework
+  [CHANGELOG.md](https://github.com/fraiseql/fraiseql/blob/main/CHANGELOG.md)
+  — the authoritative per-release change log.
+- Upstream
+  [`docs/migration/v2.2-to-v2.3.md`](https://github.com/fraiseql/fraiseql/blob/main/docs/migration/v2.2-to-v2.3.md)
+  — the adopter-facing source guide this page mirrors.

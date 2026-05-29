@@ -59,17 +59,19 @@ The main matrix below is sorted by sidebar order. Each phase reads the slice tha
 - `/community/support` — replace "status page coming soon" with a definite Issues pointer (Cycle 4 Reviewer follow-on)
 - 5 `/community/vs/*` pages — comparison-prose rewrite
 
-### Phase 04 — New features part 1 (Studio, Functions WASM, Realtime). All `missing` — new pages.
+### Phase 04 — New features part 1 (Studio, Functions WASM, Realtime, Hierarchies, Schema Migrations CLI). All `missing` — new pages.
 
-- `/features/studio` — `missing` (lands under Features → Integration per `_sidebar-decision.md` §5)
-- `/features/functions-wasm` — `missing` (Features → Integration)
-- `/features/realtime` — `missing` (Features → Integration)
+- `/features/studio` — `missing` (lands under Features → Integration per `_sidebar-decision.md` §5). Links from /release-notes/v2-3.
+- `/features/functions-wasm` — `missing` (Features → Integration). Links from /release-notes/v2-3.
+- `/features/realtime` — `missing` (Features → Integration). Links from /release-notes/v2-3.
+- `/features/hierarchies` — `missing` (Features → Query & Data; v2.3 LTree-based hierarchy support). Links from /release-notes/v2-3.
+- `/features/schema-migrations-cli` — `missing` (Features → Integration or Building; v2.3 Schema Migrations CLI subsystem). Links from /release-notes/v2-3.
 - `/features/subscriptions` — likely needs-rewrite as Realtime / Subscriptions are reconciled
 - `/features/webhooks`, `/features/nats` — touch as adjacent to Realtime/Studio
 
 ### Phase 05 — New features part 2 (Auth extensions, LTree, partial-period, native aggregations).
 
-- `/features/auth-extensions` — `missing` (Features → Security)
+- `/features/auth-extensions` — `missing` (Features → Security). Links from /release-notes/v2-3.
 - `/features/ltree` — `missing` (Features → Query & Data; cross-link from `/databases/postgresql`)
 - `/features/partial-period` — `missing` (Features → Query & Data)
 - `/features/native-aggregations` — `missing` (Features → Performance)
@@ -121,11 +123,11 @@ The main matrix below is sorted by sidebar order. Each phase reads the slice tha
 
 - `/_internal/_sidebar-decision.md` page-count nit fix (172/172 not 173/173 — see also Cycle 7 commit 2 below)
 - `/_internal/_sweep-matrix.md` (this file) — delete with the rest of `_internal/.plan/`
-- `src/components/SiteTitle.astro` — fix pre-existing `virtual:starlight/user-images ts(2307)` baseline (currently blocks a pre-commit hook per Cycle 2 Cleanup deferral)
+- ~~`src/components/SiteTitle.astro` — fix pre-existing `virtual:starlight/user-images ts(2307)` baseline~~ — **resolved Phase 02 close** via `src/env.d.ts` referencing `@astrojs/starlight/virtual-internal.d.ts`. `bun run check` now reports `0 errors, 0 warnings`.
 - Redirect-map regression test — `scripts/docs-test/redirects.docs-test.sh` (per Cycle 6 Reviewer follow-on + Cycle 6 Writer §4-Q7)
-- Methodology §4 JSX-comment amendment (Cycle 1 / Cycle 2 Reviewer follow-on) — `{/* source: ... */}` accepted as equivalent to `<!-- source: ... -->`
+- ~~Methodology §4 JSX-comment amendment~~ — landed Phase 01 close.
 - Compose-file SHA-literal duplication (Phase 00 / Cycle 9 deferral) — switch `args:` literal to read from `FRAISEQL_SHA` file
-- Pre-commit hook activation (Cycle 2 Cleanup REFACTOR deferral)
+- ~~Pre-commit hook activation (Cycle 2 Cleanup REFACTOR deferral)~~ — **unblocked Phase 02 close** by the `SiteTitle.astro` fix above; hook activation itself remains Phase 10 work but the blocking baseline is gone.
 - Delete `_internal/.plan/`, all `_internal/` red-evidence, audits
 
 ## Matrix (sorted by sidebar order, post-Option A)
@@ -213,7 +215,7 @@ The main matrix below is sorted by sidebar order. Each phase reads the slice tha
 | /features/audit-logging | needs-rewrite | 03 | n/a | n/a | — | Cycle 1 verified HISTORICAL version anchor. Cycle 4 pinned GH link to frozen SHA (`d0a4ed4.../docs/guides/production-security-checklist.md`). Phase 03 security cluster. |
 | /features/rate-limiting | needs-rewrite | 03 | n/a | n/a | — | Phase 03 security cluster. |
 | /features/transports | OK | 06 | n/a | n/a | redirected from `/transports` | Last surviving page of single-page top-level `transports/`; absorbed into Features → Transports. Phase 06 transport deepening. |
-| /features/rest-transport | needs-rewrite | **06** | n/a | n/a | — | Phase 06 REST deepening. |
+| /features/rest-transport | needs-rewrite | **06** | n/a | n/a | — | Phase 06 REST deepening. Links from /release-notes/v2-3. |
 | /features/grpc-transport | OK | 06 | n/a | n/a | — | Phase 06 transport polish. |
 | /features/observers | needs-rewrite | 03 | n/a | n/a | redirected from `/concepts/observers`; observers triple-overlap | Was `concepts/observers` — moved to Features. Phase 03 consolidates the observers triple (concept → here, guide → `/building/observers`, runbook → `/operations/observer-runbook`). |
 | /features/subscriptions | needs-rewrite | 04 | n/a | n/a | overlaps with future `/features/realtime` | Phase 04 (Realtime) consolidation. |
@@ -379,11 +381,12 @@ These are meta-items the matrix tracks so they do not slip past Phase 10 finalis
 
 | Item | Owning phase | Description |
 |------|--------------|-------------|
-| Methodology §4 JSX-comment amendment | Phase 01 close OR 10 | Cycle 1 + Cycle 2 + Cycle 5 Reviewers all flagged: `{/* source: ... */}` is the MDX-3-compatible equivalent of `<!-- source: ... -->`. Land amendment in `_internal/.plan/methodology.md`. |
-| `_sidebar-decision.md` §6 page-count nit (172 not 173) | Cycle 7 (this cycle, commit 2) OR 10 | Cycle 6 Reviewer flagged off-by-1; corrected at Cycle 7 close per the commit log. |
-| Redirect-map regression test | Phase 02 OR 10 | Cycle 6 Writer §4-Q7 deferred + Cycle 6 Reviewer follow-on: `scripts/docs-test/redirects.docs-test.sh` (per-redirect probe) OR an Astro build-time check. Phase 02 if a Writer wants to fold it into the changelog-rewrite cycle; otherwise Phase 10. |
-| Pre-commit hook activation | Phase 10 | Cycle 2 Cleanup deferred. Pre-requisite: fix the `SiteTitle.astro` baseline first (see next row). |
-| `src/components/SiteTitle.astro` `virtual:starlight/user-images ts(2307)` baseline | Phase 10 | Pre-existing 1-error `bun run check` baseline. Cycle 1, 2, 3, 4 each confirmed it is unchanged by their work. Phase 10 cleanup. Not a docs-page row. |
+| Methodology §4 JSX-comment amendment | **DONE — Phase 01 close** | Landed in `_internal/.plan/methodology.md` § 4 at Phase 01 close commit `989c23c`. |
+| `_sidebar-decision.md` §6 page-count nit (172 not 173) | **DONE — Phase 01 / Cycle 7** | Corrected at commit `a87b0db`. |
+| Redirect-map regression test | Phase 10 (deferred from Phase 02) | Cycle 6 Writer §4-Q7 deferred + Cycle 6 Reviewer follow-on: `scripts/docs-test/redirects.docs-test.sh` (per-redirect probe) OR an Astro build-time check. Not addressed in Phase 02; carries to Phase 10. |
+| Pre-commit hook activation | Phase 10 (unblocked) | Cycle 2 Cleanup deferred on the original blocker. Blocker resolved Phase 02 close (see next row); hook activation itself awaits Phase 10 finalisation. |
+| ~~`src/components/SiteTitle.astro` `virtual:starlight/user-images ts(2307)` baseline~~ | **DONE — Phase 02 close** | Added `src/env.d.ts` with reference to `@astrojs/starlight/virtual-internal.d.ts`. `bun run check` now reports 0 errors / 0 warnings. Pre-commit hook activation in Phase 10 is now unblocked. |
+| ~~`building/federation-nats-integration.mdx:372` `conf` language warning~~ | **DONE — Phase 02 close** | `conf` → `ini`; `astro-expressive-code` warning gone. |
 | Compose-file SHA-literal duplication | Phase 09 OR 10 | Phase 00 / Cycle 9 deferred: `docker-compose.docs-test.yml` `args:` value is a literal SHA, not a read from `FRAISEQL_SHA`. Byte-identical today; G2-bump procedure documents the dual-flip requirement. |
 | G4 branch-protection flip to require `page-test (_smoke)` | Phase 10 (human admin) | Phase 00 / Cycle 9 left as soft gate. |
 | PR #11 (Phase 00 close) ready-for-review flip | human | Outside Writer scope. |

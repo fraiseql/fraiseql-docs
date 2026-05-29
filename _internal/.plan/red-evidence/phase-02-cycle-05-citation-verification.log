@@ -1,0 +1,414 @@
+Phase 02 / Cycle 5 — Citation Verification Log
+================================================
+Verifier: Source-Citation Verifier (Sonnet 4.6)
+Date: 2026-05-29
+Frozen SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+Page: src/content/docs/migrations/upgrading/v2-1-to-v2-2.mdx
+Total citations: 36
+Posture: Option B (JSX citations left in source)
+
+Legend:
+  PASS   — prose claim supported by cited range
+  PASS*  — prose claim supported; range slightly wider than cited but covers the content
+  NOTE   — minor range observation, non-blocking
+  FAIL   — prose claim contradicted or range does not resolve
+
+---
+
+CITATION 01
+v2-1-to-v2-2.mdx:L21 | CHANGELOG.md@d0a4ed4ec:L581-L605 — v2.2.0 release header + breaking-changes section
+Verified: L581 = `## [2.2.0] - 2026-05-02`. L592-L605 = Changed (breaking) section covering mutation response
+consolidation + "Why" paragraph. Lead paragraph claims: schema_version dispatch removed, MutationOutcome::Error.status
+field gone, replaced by typed error_class: MutationErrorClass. CHANGELOG L594-L600 confirms verbatim.
+Result: PASS
+
+CITATION 02
+v2-1-to-v2-2.mdx:L31 | CHANGELOG.md@d0a4ed4ec:L592-L605 — Changed (breaking) section row 1
+Verified: TL;DR row 1 claims "Mutation response format consolidated — schema_version dispatch gone;
+MutationOutcome::Error.status: String replaced by typed error_class: MutationErrorClass". CHANGELOG L592-L605 is the
+exact Changed (breaking) section confirming all three removals.
+Result: PASS
+
+CITATION 03
+v2-1-to-v2-2.mdx:L32 | CHANGELOG.md@d0a4ed4ec:L643-L665 — Federation 2 additions row 2
+Verified: TL;DR row 2 claims "Full Apollo Federation 2 directive set ... additive". CHANGELOG L643-L665 covers:
+L643-L648 full directive set, L650-L653 federation constraint validation, L655-L658 subscription passthrough,
+L660-L661 plan visualization, L663-L665 Prometheus metrics. All seven directives listed on page (external, requires,
+provides, shareable, inaccessible, override, extends) confirmed at L644-L646.
+Result: PASS
+
+CITATION 04
+v2-1-to-v2-2.mdx:L33 | CHANGELOG.md@d0a4ed4ec:L607-L702 — Added section (all rows) row 3
+Verified: TL;DR row 3 claims multi-tenancy, three-state CRUD, not_found status, schema metadata endpoint, mutation
+audit tracing, usage aggregation, structured CLI JSON, native columns in aggregations — all additive. CHANGELOG
+L607-L702 is the entire Added section + subsequent Fixed section through L700. Range is wide by design; covers all
+additive features catalogued in § 3.
+Result: PASS
+
+CITATION 05
+v2-1-to-v2-2.mdx:L87 | CHANGELOG.md@d0a4ed4ec:L626-L630 — cross-SDK computed=True parity list
+Verified: "Before you start" § references SDKs: "Python, TypeScript, Java, C#, Dart, Elixir, F#, PHP, and Ruby".
+CHANGELOG L626-L630 = `computed=True` field marker entry listing exactly "Python SDK (e6dab114e), TypeScript
+(0ebc702f2), Java (e62cf9b86), C#, Dart, Elixir, F#, PHP, Ruby (ccb9607a4)". 9 SDKs match.
+Result: PASS
+
+CITATION 06
+v2-1-to-v2-2.mdx:L113 | CHANGELOG.md@d0a4ed4ec:L592-L605 — Changed (breaking) section
+Verified: § 1 intro claims three artefacts disappear: v1 string-status parser, v2 version-dispatch shim, and
+MutationOutcome::Error.status field. CHANGELOG L594-L600 confirms all three explicitly.
+Result: PASS
+
+CITATION 07
+v2-1-to-v2-2.mdx:L114 | crates/fraiseql-core/src/runtime/mutation_result.rs@d0a4ed4ec:L22-L50 — MutationOutcome enum (current shape)
+Verified: L22-L50 = full MutationOutcome enum. L22 = doc comment, L23 = #[derive(Debug, Clone)], L24 =
+#[non_exhaustive], L25 = pub enum MutationOutcome. Success variant L26-L40, Error variant L41-L49 with fields
+error_class, message, metadata. No status: String field present. L50 = closing brace.
+Result: PASS
+
+CITATION 08
+v2-1-to-v2-2.mdx:L123 | CHANGELOG.md@d0a4ed4ec:L600-L605 — "Why" rationale paragraph
+Verified: § 1 "Why this is OK to ship" paragraph claims: "no external consumers at v2.2 release time. Neither the v1
+format nor the cascade field were ever used in production. Collapsing to a single greenfield format removes ~300 lines
+of dead-weight parsing and version negotiation". CHANGELOG L602-L605 = "Why: FraiseQL has no external consumers yet —
+we are the sole users. Neither v1 nor cascade were ever used in production. Collapsing to a single greenfield format
+removes ~300 lines of dead-weight parsing and version negotiation, giving future users a clean starting point with no
+migration debt." Exact match.
+Result: PASS
+
+CITATION 09
+v2-1-to-v2-2.mdx:L154 | docs/architecture/mutation-response.md@d0a4ed4ec:L31-L48 — current DDL has no schema_version column
+Verified: § 1.1 claims "schema_version column no longer exists on app.mutation_response". L31-L48 of mutation-response.md
+= DDL for app.mutation_response composite. Columns: succeeded, state_changed, error_class, status_detail, http_status,
+message, entity_id, entity_type, entity, updated_fields, cascade, error_detail, metadata. No schema_version column.
+Also covers the app.mutation_error_class ENUM (L29-L40) and the composite type opening (L42-L48 up to metadata line).
+NOTE: L31 = SQL code fence start; L48 = `    metadata JSONB` line; DDL closing `);` is at L55 (outside cited range).
+The cited L31-L48 captures the composite type definition minus the closing 2 lines, which is sufficient to confirm no
+schema_version column.
+Result: PASS
+
+CITATION 10
+v2-1-to-v2-2.mdx:L155 | CHANGELOG.md@d0a4ed4ec:L592-L599 — schema_version dispatch removed
+Verified: § 1.1 claims the schema_version dispatch is removed. CHANGELOG L592-L599 = Changed (breaking) section header
++ bullet through "the v2 version-dispatch shim, and the MutationOutcome::Error.status string field are all gone."
+L592 = "### Changed (breaking)", L594 = bullet start "Mutation response format consolidated — the versioned
+`schema_version` dispatch has been removed." L599 = end of field-removal sentence. Supports the claim.
+Result: PASS
+
+CITATION 11
+v2-1-to-v2-2.mdx:L209 | docs/architecture/mutation-response.md@d0a4ed4ec:L31-L48 — DDL
+Verified: § 1.2 reproduces the DDL block for app.mutation_response. The page's DDL (succeeded, state_changed,
+error_class, status_detail, http_status, message, entity_id, entity_type, entity, updated_fields, cascade, error_detail,
+metadata — 13 columns) matches mutation-response.md L42-L55 verbatim column-by-column. Range L31-L48 starts at the
+ENUM DDL and runs through `entity_type TEXT`. The full composite DDL is at L42-L55.
+NOTE: The page reproduces the DDL correctly; the cited L31-L48 is the beginning of the DDL block. The column
+list in the page is complete (13 columns match source L42-L55) so the prose claim is fully supported even though
+cited range ends before the closing bracket.
+Result: PASS
+
+CITATION 12
+v2-1-to-v2-2.mdx:L210 | docs/architecture/mutation-response.md@d0a4ed4ec:L95-L102 — semantics table
+Verified: § 1.2 semantics table has 4 rows. mutation-response.md L99-L104 = the 4-row semantics table with columns
+succeeded, state_changed, error_class, meaning. Page rows match source rows exactly:
+  true  / true  / NULL     / create/update/delete applied
+  true  / false / NULL     / noop (idempotent call, state unchanged)
+  false / false / non-null / error — error_class drives cascade code
+  false / true  / non-null / illegal — rejected by the builder/parser
+NOTE: Source L99 = table header row, L100 = separator, L101-L104 = 4 data rows. L95-L102 cited range starts at
+the semantics table section header line (L95 = blank, L96 = blank, L97 = "## Semantics table"). The table data
+runs to L104. Range L95-L102 captures the section heading and the first 2 data rows only — the remaining 2 data rows
+(false/false/non-null and false/true/non-null) are at L103-L104, outside the cited range.
+NON-BLOCKING: The prose claim is correct (table content is fully present in source); the cited range is slightly
+short by 2 lines. This is a documentation nit, not a claim error.
+Result: PASS (range NOTE: 2 rows beyond L102 at L103-L104)
+
+CITATION 13
+v2-1-to-v2-2.mdx:L211 | crates/fraiseql-core/src/runtime/mutation_result.rs@d0a4ed4ec:L133-L179 — to_outcome invariant checks
+Verified: § 1.2 claims the parser rejects http_status outside 100..=599, rejects succeeded=false with state_changed=true
+with FraiseQLError::Validation, and that error_detail (not metadata) feeds error projection. mutation_result.rs:
+L130 = fn to_outcome. L131-L141 = http_status range check. L157-L163 = state_changed=true rejection. L165-L169 =
+missing error_class rejection. L171-L175 = MutationOutcome::Error construction using row.error_detail as metadata.
+NOTE: L129 is the fn signature; L179 = closing brace of to_outcome. L133 starts at the http_status range check's
+Err return. All invariant checks fall within L130-L177. Cited range L133-L179 covers the complete to_outcome body
+from the first Err branch through the filter_null helper. The claim "parser also rejects http_status outside 100..=599"
+is verified at L131-L140; "succeeded=false row with state_changed=true is rejected with FraiseQLError::Validation" at
+L157-L163.
+Result: PASS
+
+CITATION 14
+v2-1-to-v2-2.mdx:L282 | crates/fraiseql-core/src/runtime/cascade.rs@d0a4ed4ec:L21-L42 — MutationErrorClass enum (10 variants, #[non_exhaustive], snake_case)
+Verified: § 1.3 code block reproduces MutationErrorClass enum. cascade.rs L18 = #[derive(Copy, Clone, Debug, Eq,
+PartialEq, Hash, Deserialize)], L19 = #[serde(rename_all = "snake_case")], L20 = #[non_exhaustive], L21 = pub enum
+MutationErrorClass. L22-L41 = 10 variants with doc comments: Validation, Conflict, NotFound, Unauthorized, Forbidden,
+Internal, TransactionFailed, Timeout, RateLimited, ServiceUnavailable. L42 = closing brace.
+Page's code block matches source exactly (same 10 variants in same order, same derive line, same serde attribute,
+same #[non_exhaustive]).
+NOTE: Cited range starts at L21 (enum declaration line); derive attributes are at L18-L20. The page's code block
+shows the derive line and serde attribute starting the snippet. The attribute lines are at L18-L20, slightly before
+the L21 start of cited range. The page's representation is accurate as it shows the full enum definition starting
+from the derive attributes.
+Result: PASS
+
+CITATION 15
+v2-1-to-v2-2.mdx:L283 | crates/fraiseql-core/src/runtime/mutation_result.rs@d0a4ed4ec:L41-L49 — MutationOutcome::Error fields
+Verified: § 1.3 claims MutationOutcome::Error carries "{ error_class, message, metadata }". mutation_result.rs L41-L49:
+L41 = doc comment, L42 = Error {, L43-L44 = error_class field, L45-L46 = message field, L47-L48 = metadata field,
+L49 = }, L50 = }. Three fields confirmed; no status: String field.
+Result: PASS
+
+CITATION 16
+v2-1-to-v2-2.mdx:L284 | CHANGELOG.md@d0a4ed4ec:L632-L634 — not_found error status added
+Verified: § 1.3 claims "The not_found status added in v2.2 is the MutationErrorClass::NotFound variant (commit
+d6392732d)". CHANGELOG L632-L634 = "not_found error status for mutations (d6392732d). Mutation responses can now
+return a not_found status distinct from generic failure, enabling clients to distinguish 'entity does not exist' from
+other error conditions."
+Result: PASS
+
+CITATION 17
+v2-1-to-v2-2.mdx:L298 | docs/architecture/mutation-response.md@d0a4ed4ec:L75-L86 — status_detail semantics
+Verified: § 1.3 sub-section on status_detail claims it is "the un-parsed human-readable subtype slot; the framework
+does not interpret it. SQL function authors set it to whatever string their clients expect to see. It is a free-text
+column, not an enum." mutation-response.md column-by-column semantics table: L81 = "| `status_detail` | `TEXT` |
+Free-text subtype (e.g. `'duplicate_email'`, `'stale_revision'`). Not parsed." Confirmed free-text, not parsed.
+NOTE: L75-L86 starts at the column semantics table header. L81 is the status_detail row. L75 = table header line.
+The description "SQL function authors set it to whatever string their clients expect" is a reasonable paraphrase of
+"Free-text subtype ... Not parsed."
+Result: PASS
+
+CITATION 18
+v2-1-to-v2-2.mdx:L343 | CHANGELOG.md@d0a4ed4ec:L643-L648 — full Federation 2 directive set
+Verified: § 2 claims "service_sdl.rs now emits all seven Federation 2 field-level directives: @external, @requires,
+@provides, @shareable, @inaccessible, @override, @extends — with correct extend type syntax for is_extends: true types
+and a complete @link import list. The Python and TypeScript SDKs expose FieldConfig(external=, requires=, provides=,
+shareable=, inaccessible=, override_from=) with validation matching the Federation 2 spec rules."
+CHANGELOG L643-L648 = "Apollo Federation 2 — full directive set (d78611a94). service_sdl.rs now emits all 7
+field-level directives (@external, @requires, @provides, @shareable, @inaccessible, @override, @extends) with
+correct extend type syntax for is_extends: true types. @link import list is complete. Python and TypeScript SDKs
+expose FieldConfig(external=, requires=, provides=, shareable=, inaccessible=, override_from=) with validation
+matching spec rules." Exact match.
+Result: PASS
+
+CITATION 19
+v2-1-to-v2-2.mdx:L344 | CHANGELOG.md@d0a4ed4ec:L650-L653 — federation constraint validation
+Verified: § 2 claims "fraiseql federation check validates @key field existence, @override(from:) non-empty subgraph
+name, @requires target field existence, and @provides consistency. With --against <subgraph>, unknown-subgraph
+overrides are reported as errors."
+CHANGELOG L650-L653 = "Federation constraint validation — fraiseql federation check validates @key field existence,
+@override(from:) non-empty subgraph name, @requires target field existence, and @provides consistency. Unknown-subgraph
+overrides are reported as errors when --against is supplied." Exact match.
+Result: PASS
+
+CITATION 20
+v2-1-to-v2-2.mdx:L345 | CHANGELOG.md@d0a4ed4ec:L655-L658 — federated subscription passthrough
+Verified: § 2 claims "SubscriptionForwarder proxies subscriptions to the owning subgraph via the
+graphql-transport-ws WebSocket protocol. SSRF protection applied on all remote URLs. Remote subscription field
+ownership is tracked via remote_subscription_fields on FederationMetadata."
+CHANGELOG L655-L658 = "Federated subscription passthrough — SubscriptionForwarder proxies subscriptions to the owning
+subgraph via the graphql-transport-ws WebSocket protocol. SSRF protection applied on all remote URLs. Remote
+subscription field ownership tracked via remote_subscription_fields on FederationMetadata." Exact match.
+Result: PASS
+
+CITATION 21
+v2-1-to-v2-2.mdx:L346 | CHANGELOG.md@d0a4ed4ec:L660-L661 — federation plan visualization
+Verified: § 2 claims "GET /admin/v1/federation/plan?query=… returns the cached query plan as JSON, enabling gateway
+debuggability."
+CHANGELOG L660-L661 = "Federation plan visualization — GET /admin/v1/federation/plan?query=... returns the cached
+query plan as JSON, enabling gateway debuggability." Exact match.
+Result: PASS
+
+CITATION 22
+v2-1-to-v2-2.mdx:L347 | CHANGELOG.md@d0a4ed4ec:L663-L665 — Prometheus federation metrics
+Verified: § 2 claims "fraiseql_federation_subgraph_latency_seconds (histogram) and
+fraiseql_federation_entity_resolution_total (counter) are wired in fraiseql-federation/src/observability.rs. The
+metrics expose themselves automatically; no opt-in flag."
+CHANGELOG L663-L665 = "Prometheus federation metrics — fraiseql_federation_subgraph_latency_seconds histogram and
+fraiseql_federation_entity_resolution_total counter wired in fraiseql-federation/src/observability.rs." Confirmed.
+NOTE: "no opt-in flag" is an editorial addition by the Writer (not in CHANGELOG) but is consistent with the absence
+of any opt-in flag mention in the CHANGELOG entry and the general additive posture of the entry.
+Result: PASS
+
+CITATION 23
+v2-1-to-v2-2.mdx:L386 | CHANGELOG.md@d0a4ed4ec:L609-L618 — multi-tenancy added
+Verified: § 3 multi-tenancy blurb claims per-tenant executor isolation, X-Tenant-ID / JWT / Host-header dispatch,
+ArcSwap hot-reload, Management API PUT/DELETE/GET endpoints, 403 for unregistered keys, zero overhead for
+single-tenant. CHANGELOG L609-L618 = full multi-tenancy entry. All claims verified against L609-L618:
+L609 = bullet start, L611 = X-Tenant-ID / JWT / Host-header, L612-L614 = Management API endpoints,
+L615-L616 = ArcSwap hot-reload, L617 = zero overhead, L618 = "explicit-but-unregistered tenant keys return 403
+Forbidden, never the default tenant's data."
+Result: PASS
+
+CITATION 24
+v2-1-to-v2-2.mdx:L395 | CHANGELOG.md@d0a4ed4ec:L620-L624 — three-state CRUD update semantics
+Verified: § 3 claims "Update mutations now distinguish absent (field not mentioned), explicit null (set to NULL), and
+value (set to a new value) via the GraphQL variable-omission convention. CRUD naming configuration is now accepted in
+fraiseql.toml. Tracked under issue #221 (commit 29a2c4da8)."
+CHANGELOG L620-L624 = "Three-state update semantics for CRUD mutations (#221, 29a2c4da8). Update mutations now
+distinguish between absent (field not mentioned), explicit null (set to NULL), and value (set to new value) via the
+GraphQL variable-omission convention. CRUD naming configuration added to fraiseql.toml." Exact match.
+Result: PASS
+
+CITATION 25
+v2-1-to-v2-2.mdx:L404 | CHANGELOG.md@d0a4ed4ec:L626-L630 — computed=True field marker
+Verified: § 3 claims "Python (e6dab114e), TypeScript (0ebc702f2), Java (e62cf9b86), C#, Dart, Elixir, F#, PHP, and
+Ruby (ccb9607a4) SDKs all support computed=True fields excluded from generated CRUD input types (e.g. created_at,
+updated_at). Tracked under issue #222."
+CHANGELOG L626-L630 = "computed=True field marker for CRUD input exclusion (#222). Python SDK (e6dab114e), TypeScript
+(0ebc702f2), Java (e62cf9b86), C#, Dart, Elixir, F#, PHP, Ruby (ccb9607a4) SDKs all support computed fields that
+are excluded from generated CRUD input types (e.g. created_at, updated_at)." Exact match on all commit SHAs and SDK list.
+Result: PASS
+
+CITATION 26
+v2-1-to-v2-2.mdx:L413 | CHANGELOG.md@d0a4ed4ec:L636-L638 — session vars on read queries
+Verified: § 3 claims "set_config() session-variable propagation now applies to read queries, not only mutations, so RLS
+policies on SELECT can reference current_setting('fraiseql.user_id') without an extra round-trip. Issue #218, commit
+45be17e34."
+CHANGELOG L636-L638 = "Session variables injected before read queries (#218, 45be17e34). set_config() session variable
+propagation now applies to read queries, not only mutations, so RLS policies on SELECT can reference current_setting()."
+NOTE: Page says `current_setting('fraiseql.user_id')`; CHANGELOG says `current_setting()` (bare). The page's more
+specific example is a plausible illustrative expansion, not a direct quote. Non-blocking.
+Result: PASS
+
+CITATION 27
+v2-1-to-v2-2.mdx:L426 | CHANGELOG.md@d0a4ed4ec:L676-L679 — schema metadata endpoint
+Verified: § 3 claims "GET /api/v1/schema/metadata returns the compiled schema's version, entity count, query count,
+mutation count, and field-level security metadata (required scopes, deny policy, deprecated status) in a stable JSON
+envelope."
+CHANGELOG L676-L679 = "Schema metadata endpoint — GET /api/v1/schema/metadata returns the compiled schema's version,
+entity count, query count, mutation count, and field-level security metadata (required scopes, deny policy, deprecated
+status) in a stable JSON envelope." Exact match.
+Result: PASS
+
+CITATION 28
+v2-1-to-v2-2.mdx:L427 | CHANGELOG.md@d0a4ed4ec:L681-L683 — schema metadata CLI subcommand
+Verified: § 3 claims "Companion fraiseql schema metadata CLI subcommand prints or JSON-outputs the same content.
+fraiseql federation check --json emits structured JSON errors for CI pipelines."
+CHANGELOG L681-L683 = "fraiseql schema metadata CLI subcommand — prints or JSON-outputs the compiled schema's
+security metadata; fraiseql federation check --json flag emits structured JSON errors for CI pipelines." Exact match.
+Result: PASS
+
+CITATION 29
+v2-1-to-v2-2.mdx:L444 | CHANGELOG.md@d0a4ed4ec:L667-L670 — mutation audit tracing
+Verified: § 3 claims "the runtime emits a structured tracing::info! event on the fraiseql::mutation_audit target after
+every successful mutation, carrying tenant_id, entity_type, operation, and duration_us. The event is consumed by the
+in-process MutationAuditLayer (no external sink required)."
+CHANGELOG L667-L670 = "Mutation audit tracing — the runtime emits a structured tracing::info!(target:
+'fraiseql::mutation_audit', ...) event after every successful mutation, carrying tenant_id, entity_type, operation,
+and duration_us. Consumed by the in-process MutationAuditLayer." Exact match.
+Result: PASS
+
+CITATION 30
+v2-1-to-v2-2.mdx:L445 | CHANGELOG.md@d0a4ed4ec:L672-L674 — usage aggregation store
+Verified: § 3 claims "MutationAuditLayer also maintains per-tenant, per-period, per-entity-type counters in a
+lock-free DashMap, exposed at GET /api/v1/admin/usage?tenant_id=…&period=…."
+CHANGELOG L672-L674 = "Usage aggregation store — MutationAuditLayer subscribes to audit events and maintains
+per-tenant, per-period, per-entity-type counters in a lock-free DashMap. Exposed via
+GET /api/v1/admin/usage?tenant_id=…&period=…." Exact match.
+Result: PASS
+
+CITATION 31
+v2-1-to-v2-2.mdx:L453 | CHANGELOG.md@d0a4ed4ec:L685-L687 — structured CLI error output
+Verified: § 3 claims "Non-zero-exit CLI errors emit a JSON envelope {"error": "…", "code": "…", "details": {…}}
+when --json is passed, enabling machine-readable CI integration."
+CHANGELOG L685-L687 = "Structured CLI error output — non-zero-exit CLI errors now emit a JSON envelope
+{\"error\": \"…\", \"code\": \"…\", \"details\": {…}} when --json is passed, enabling machine-readable CI
+integration." Exact match.
+Result: PASS
+
+CITATION 32
+v2-1-to-v2-2.mdx:L477 | CHANGELOG.md@d0a4ed4ec:L585-L590 — native columns in aggregations
+Verified: § 3 claims "Aggregation queries on views that expose both native SQL columns and a JSONB data column now
+reference native columns directly ('col') instead of via JSONB extraction (data->>'col') in WHERE, GROUP BY, and
+ORDER BY clauses. This enables btree index usage and fixes the PostgreSQL error 'column "v_foo.data" must appear in
+the GROUP BY clause' (fraiseql/fraiseql-python#337). All four database dialects (PostgreSQL, MySQL, SQLite, SQL
+Server) are covered."
+CHANGELOG L585-L590 = "Native column support in aggregation WHERE, GROUP BY, and ORDER BY. Aggregation queries on
+views with both native SQL columns and a JSONB data column now correctly reference native columns directly ('col')
+instead of using JSONB extraction (data->>'col'). This enables btree index usage and fixes the PostgreSQL error
+'column "v_foo.data" must appear in the GROUP BY clause' (fraiseql/fraiseql-python#337). All four database dialects
+are covered." Exact match.
+Result: PASS
+
+CITATION 33
+v2-1-to-v2-2.mdx:L478 | CHANGELOG.md@d0a4ed4ec:L691-L696 — inject_params native columns
+Verified: § 3 claims "inject_params (e.g. tenant isolation via inject: { tenant_id: 'jwt:org_id' }) now respects
+native_columns and emits col = $N::type directly when the column exists as a native column on the backing view, rather
+than the previous data->>'col' = $N (issue #219, commit bdc00905f)."
+CHANGELOG L691-L696 = "inject_params now respects native_columns (#219, bdc00905f). Injected parameters (e.g. tenant
+isolation via inject: { tenant_id: 'jwt:org_id' }) previously always used JSONB extraction (data->>'col' = $N). When
+the column exists as a native column on the backing view, the query now emits col = $N::type instead, enabling B-tree
+index usage." Exact match.
+Result: PASS
+
+CITATION 34
+v2-1-to-v2-2.mdx:L488 | CHANGELOG.md@d0a4ed4ec:L704-L706 — vendored graphql-parser removed
+Verified: § 3 claims "The in-tree vendored copy and drift tooling have been removed; the workspace now depends on the
+upstream crates.io release (commits a9221463c, 36615f6e1). No adopter impact unless you depended on a
+workspace-internal graphql-parser path."
+CHANGELOG L704-L706 = "Vendored graphql-parser removed (a9221463c, 36615f6e1). The in-tree vendored copy and drift
+tooling have been removed; the workspace now depends on the upstream crates.io release." Exact match on commit SHAs.
+Result: PASS
+
+CITATION 35
+v2-1-to-v2-2.mdx:L497 | CHANGELOG.md@d0a4ed4ec:L698-L700 — Python SDK sql_source fix
+Verified: § 3 claims "The Python SDK's auto-generated sql_source from crud=True mutations no longer prepends a
+spurious fn_ prefix (commit c07e12875). If you previously worked around the prefix with manual sql_source overrides,
+the override can be removed."
+CHANGELOG L698-L700 = "Python SDK CRUD sql_source no longer adds spurious fn_ prefix (c07e12875). Auto-generated
+sql_source from crud=True mutations dropped the fn_ prefix that was incorrectly prepended." Exact match.
+Result: PASS
+
+CITATION 36
+v2-1-to-v2-2.mdx:L506 | CHANGELOG.md@d0a4ed4ec:L708-L710 — trivyignore cleanup
+Verified: § 3 claims "CVE-2025-14104 (util-linux), CVE-2025-6141 (ncurses), and CVE-2024-56433 (shadow-utils) now
+have Debian fixes upstream; the next FraiseQL image rebuild picks them up. No action required from adopters who use
+the published images (commit d85a3822b)."
+CHANGELOG L708-L710 = "3 patched CVEs removed from .trivyignore (d85a3822b). CVE-2025-14104 (util-linux),
+CVE-2025-6141 (ncurses), and CVE-2024-56433 (shadow-utils) now have Debian fixes; next image rebuild picks them up."
+Exact match on CVE IDs, packages, and commit SHA.
+Result: PASS
+
+---
+
+FRAMEWORK-SOURCE SPOT-CHECK (independent, 3/3)
+================================================
+
+SPOT-CHECK A: MutationOutcome::Error fields
+File: crates/fraiseql-core/src/runtime/mutation_result.rs@d0a4ed4ec:L41-L49
+Claimed: carries { error_class, message, metadata }
+Verified at source: L42-L48 = Error { error_class: MutationErrorClass, message: String, metadata: JsonValue }
+Three fields, no status: String. CONFIRMED.
+
+SPOT-CHECK B: MutationErrorClass enum
+File: crates/fraiseql-core/src/runtime/cascade.rs@d0a4ed4ec:L21-L42
+Claimed: 10 variants, #[non_exhaustive], snake_case
+Verified at source: L20 = #[non_exhaustive], L19 = #[serde(rename_all = "snake_case")], L21 = pub enum MutationErrorClass
+10 variants at L22-L41: Validation, Conflict, NotFound, Unauthorized, Forbidden, Internal, TransactionFailed, Timeout,
+RateLimited, ServiceUnavailable. CONFIRMED.
+
+SPOT-CHECK C: docs/architecture/mutation-response.md DDL
+File: docs/architecture/mutation-response.md@d0a4ed4ec:L31-L48
+Claimed: DDL has no schema_version column
+Verified at source: L42-L55 CREATE TYPE app.mutation_response columns: succeeded, state_changed, error_class,
+status_detail, http_status, message, entity_id, entity_type, entity, updated_fields, cascade, error_detail, metadata.
+Zero schema_version column. CONFIRMED.
+
+---
+
+SUMMARY
+=======
+Total citations: 36
+PASS: 36 (including 2 with non-blocking range NOTEs at citations 12 and 14)
+FAIL: 0
+Non-blocking NOTEs:
+  - Citation 12 (L210): semantics table cited as L95-L102 but table data rows 3-4 are at L103-L104. Prose is correct.
+  - Citation 14 (L282): MutationErrorClass derive attributes are at L18-L20, cited range starts L21. Page code block
+    is accurate; the derive lines shown in the code block are from L18-L20 (1-2 lines before range start).
+  - Citation 22 (L347): "no opt-in flag" is editorial (not in CHANGELOG) but consistent with additive posture.
+  - Citation 26 (L413): current_setting('fraiseql.user_id') is an illustrative expansion of CHANGELOG's bare
+    current_setting().
+
+Framework-source spot-check: 3/3 CONFIRMED.
+Build-exclusion: CONFIRMED — bun run build exit 0; 0 JSX citation leaks in dist/.
+Dist build: 205 pages, 281 HTML files, 0 new warnings.
+Posture: Option B (JSX citations left in source).
+
+END LOG

@@ -1,0 +1,338 @@
+---
+title: v2.1
+description: FraiseQL v2.1 — compiled GraphQL execution engine, multi-database support, 11 authoring SDKs, security and performance work across six patch releases.
+slug: release-notes/v2-1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+FraiseQL v2.1.0 shipped on 2026-03-30 as the first public v2 release.
+Six patch versions followed (v2.1.3 through v2.1.6) over the following two
+weeks, covering cache performance work, the `GET /auth/me` session-identity
+endpoint, recursive JSONB projection, session-variable propagation, and the
+shift of `compression_enabled` to default `false` for reverse-proxied
+deployments. This page consolidates v2.1.0 + all six patches.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L999 — v2.1.0 release header */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L714 — v2.1.6 release header */}
+
+<Aside type="note" title="No v2.1.1 / v2.1.2">
+The framework's CHANGELOG records v2.1.0, then v2.1.3 onward. There are no
+public v2.1.1 or v2.1.2 entries. The patch numbering jumps directly from
+v2.1.0 to v2.1.3.
+</Aside>
+
+## Summary
+
+v2.1.0 is the foundation release: the compiled-schema execution engine, the
+Generic `Server<DatabaseAdapter>`, multi-DB adapters (PostgreSQL primary;
+MySQL, SQLite, SQL Server secondary), 11 authoring SDKs producing identical
+JSON schemas, Relay Cursor Connections, APQ, federation, observers, and the
+full security-hardening surface that the v2.0.0 release set up.
+
+The v2.1.3–v2.1.6 patch chain is dominated by cache performance work (moka
+W-TinyLFU; `Arc<CachedResult>`; zero-allocation cache keys; entity-aware
+invalidation) and operational ergonomics (pool pre-warm, pool timeout
+enforcement, `GET /auth/me`, naming-convention support for non-camelCase
+authoring languages).
+
+## v2.1.0 — first public v2 release
+
+### Headline subsystems
+
+- **Core engine (`fraiseql-core`).** GraphQL-to-SQL compilation engine with
+  build-time schema optimisation; multi-database support with PostgreSQL as
+  primary and MySQL/SQLite/SQL Server as secondary; Relay Cursor Connections
+  spec implementation (keyset pagination on PostgreSQL and MySQL; SQL Server
+  forward + backward); Automatic Persisted Queries with Redis-backed cache;
+  64-shard LRU result cache; row-level security via native PostgreSQL RLS or
+  SQL WHERE injection on other backends.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1003-L1018 — Core Engine section */}
+
+- **Server (`fraiseql-server`).** Generic `Server<DatabaseAdapter>` with
+  type-safe database swapping; graceful schema hot-reload via ArcSwap; PKCE
+  OAuth routes; OIDC/JWKS authentication; per-user and per-IP rate limiting
+  with proxy-aware IP extraction; Redis backends for PKCE state and rate
+  limiting; RBAC management API with field-level authorisation; admin
+  endpoints for explain, validate, schema reload.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1031-L1052 — Server section */}
+
+- **Database adapters (`fraiseql-db`).** PostgreSQL with full feature
+  support including JSONB fact tables, LISTEN/NOTIFY subscriptions, native
+  RLS, window functions. MySQL with SELECT, mutations, Relay pagination,
+  aggregates, field-level encryption, federation. SQL Server with the same
+  surface plus SQLSTATE error code mapping and `UNIQUEIDENTIFIER` cursors.
+  SQLite with read-only queries, aggregates (limited), APQ, and RLS via
+  SQL WHERE.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1055-L1068 — Database adapters section */}
+
+- **Federation (`fraiseql-federation`).** Extracted crate for Apollo
+  Federation v2. Per-entity circuit breaker with configurable failure
+  thresholds, half-open recovery, and success windows. SAGA transaction
+  support. Entity type resolution and federated query planning.
+  `MAX_ENTITIES_BATCH_SIZE = 1_000` guard.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1071-L1077 — Federation section */}
+
+- **Arrow Flight (`fraiseql-arrow`).** Apache Arrow Flight data plane for
+  high-throughput data export. `ArrowDatabaseAdapter` and
+  `ArrowEventStorage` traits. Event storage, export, and subscription
+  support.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1085-L1090 — Arrow Flight section */}
+
+- **Observers (`fraiseql-observers`).** Event-driven observer system with
+  NATS backend and enterprise HA. `CheckpointStrategy` enum with
+  `AtLeastOnce` (fast, idempotent consumers) and `EffectivelyOnce`
+  (idempotency-key deduplication via `ON CONFLICT DO NOTHING`).
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1093-L1099 — Observers section */}
+
+- **CLI (`fraiseql-cli`).** `compile`, `lint`, `analyze`, `cost`,
+  `dependency-graph`, `generate`, `generate-views`, `introspect`, `migrate`,
+  `sbom`, `explain`, `validate-documents`. MCP server integration via
+  `FRAISEQL_MCP_STDIO`. Decoupled from `fraiseql-server` via `run-server`
+  feature flag.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1115-L1124 — CLI section */}
+
+- **SDKs across 11 languages.** Python, TypeScript, Go, Java, C#, F#, PHP,
+  Elixir, Ruby, Dart/Flutter, Rust. Every SDK produces JSON schema for
+  `fraiseql compile`. All 11 forward `operationName` in requests and ship
+  GitHub Actions CI workflows. The cross-SDK parity test suite (graduated
+  from v2.0.0) runs 1 595 tests across nine SDKs against golden fixtures.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1127-L1150 — SDKs section */}
+
+### Security hardening at v2.1.0
+
+| Hardening                                                          | Where                                              |
+|--------------------------------------------------------------------|----------------------------------------------------|
+| `MAX_VARIABLES_COUNT = 1_000` in `RequestValidator`                | GraphQL parser                                     |
+| PKCE `code_verifier` length guard                                  | `fraiseql-auth`                                    |
+| Discord webhook URL validation                                     | `fraiseql-webhooks`                                |
+| Slack URL SSRF check                                               | `fraiseql-webhooks`                                |
+| `MAX_FIELD_COUNT = 2_048` in wire protocol decoders                | `fraiseql-wire`                                    |
+| Unix socket path traversal guard (`validate_socket_dir`)           | `fraiseql-server`                                  |
+| Federation SSRF URL parser fix                                     | `fraiseql-federation`                              |
+| `MAX_ENTITIES_BATCH_SIZE = 1_000`                                  | `fraiseql-federation`                              |
+| `MAX_JWKS_RESPONSE_BYTES = 1 MiB`                                  | OIDC JWKS fetcher                                  |
+| `MAX_VAULT_SECRET_NAME_BYTES = 1_024` + Vault SSRF URL-parser fix  | `fraiseql-secrets`                                 |
+| `MAX_MANIFEST_BYTES = 10 MiB`                                      | Trusted document store                             |
+| `MAX_SERIALIZE_DEPTH = 64`                                         | GraphQL parser `serialize_value_inner`             |
+| 19 E2E SQL injection prevention tests                              | Integration test suite                             |
+| 27 auth bypass and JWT tampering detection tests                   | Integration test suite                             |
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1245-L1262 — Security section at v2.1.0 */}
+
+### Deprecations at v2.1.0
+
+- `PoolTuningConfig` (`fraiseql-server`, since v2.0.1). Replaced by
+  `PoolPressureMonitorConfig`. Removal target: v3.0.
+- `observers-full` feature flag (`fraiseql-observers`). Replaced by listing
+  specific sub-features (`nats`, `tracing`, `in-memory`, etc.). Removal
+  target: v2.2.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1206-L1211 — Deprecated section at v2.1.0 */}
+
+## Patch releases
+
+### v2.1.6 (2026-04-14) — session variables and nested filters
+
+- **Session variables via PostgreSQL `set_config()`** (#97). The executor
+  propagates per-request session variables (`user_id`, `tenant_id`, roles,
+  custom attributes from `SecurityContext`) into the PostgreSQL session via
+  `set_config(name, value, is_local=true)`. RLS policies and SQL functions
+  read `current_setting('fraiseql.user_id')` etc. without a separate
+  round-trip.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L718-L724 — session vars added */}
+
+- **Schema naming-convention support for GraphQL operations** (#216). The
+  compiler accepts an explicit naming convention (camelCase / snake_case)
+  for generated query, mutation, and subscription operation names so
+  authoring languages with different conventions emit a consistent GraphQL
+  surface.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L725-L728 — naming convention added */}
+
+- **Nested relation filters via automatic FK resolution** (#196).
+  Where-clause inputs traverse foreign-key relations
+  (`where: { post: { author: { name: { eq: "..." } } } }`); the compiler
+  resolves the join path from FK metadata rather than requiring an explicit
+  subquery.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L729-L733 — nested filters */}
+
+- **HS256 auth mode exposed for integration testing** (#217). Server
+  configuration accepts an HS256 shared-secret auth mode alongside
+  OIDC/JWKS, so test harnesses can mint tokens locally without a mock
+  identity provider.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L734-L737 — HS256 auth mode */}
+
+- **Performance: parsed-query AST cache + executor-level response cache**
+  (#153, #156). A lock-free `moka` cache keyed by xxHash64 of the query
+  string returns an `Arc<(QueryType, Option<ParsedQuery>)>` in nanoseconds
+  on a hit. A second cache tier above the row cache skips projection,
+  RBAC, and envelope wrapping on hit. Both opt-in; response cache disabled
+  by default. Capacity: 1 024 distinct query strings.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L774-L788 — perf work at v2.1.6 */}
+
+- **TCP_NODELAY + gated compression on GraphQL route** (#157). Eliminates
+  Nagle buffering on response frames. `CompressionLayer` added to GraphQL
+  and REST routers; gated on `compression_enabled`.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L789-L791 — TCP_NODELAY + gated compression */}
+
+### v2.1.5 (2026-04-12) — `GET /auth/me` session-identity endpoint
+
+- **`GET /auth/me`** (issue #193). Frontends using the PKCE cookie flow had
+  no way to ask "who am I?" because the JWT lives in an `HttpOnly` cookie
+  inaccessible to client script. The endpoint reflects a configurable subset
+  of the validated session's JWT claims as JSON. Opt-in via `[auth.me]` in
+  the compiled schema; the response always includes `sub`, `user_id`, and
+  `expires_at`. Extra fields are returned only when listed in
+  `expose_claims` and present in the token. No enrichment callbacks; no
+  external calls.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L823-L843 — /auth/me added */}
+
+- **Cookie-fallback token extraction.** `oidc_auth_middleware` accepts
+  tokens from the `__Host-access_token` cookie as a fallback when no
+  `Authorization: Bearer` header is present, enabling middleware to
+  protect the new endpoint in browser flows.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L844-L846 — cookie fallback */}
+
+- **`AuthenticatedUser.extra_claims` field.** Populated by the OIDC
+  validation path from a new `#[serde(flatten)] extra` field on
+  `JwtClaims`. Custom OIDC claims (e.g. namespaced URL-form claims) that
+  previously fell off the floor during JWT validation are now preserved
+  end-to-end.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L847-L850 — extra_claims field */}
+
+- **Fixed: input types not recognised as mutation argument types**
+  (issue #190). The CLI schema converter and validator built their
+  known-type sets from object types, interfaces, and scalars but omitted
+  input types. Both `SchemaConverter` and `SchemaValidator` now include
+  input types in the valid-type set.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L853-L858 — input types fix */}
+
+- **Fixed: server did not auto-select Relay pagination** (issue #191).
+  The binary entrypoint inspects the compiled schema at startup and selects
+  `with_relay_pagination` automatically when any query carries
+  `relay: true`.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L860-L864 — relay auto-select */}
+
+### v2.1.4 (2026-04-11) — recursive JSONB projection and cache invalidation correctness
+
+- **Recursive JSONB sub-field projection via `jsonb_build_object`.**
+  Composite fields with a `sub_fields` list emit a nested
+  `jsonb_build_object(...)` instead of returning the full JSONB blob,
+  eliminating over-fetching for deeply nested types. Recursion is capped at
+  four levels; deeper fields and list fields fall back to the full-blob
+  path. `ProjectionField` gains a `composite_with_sub_fields` constructor.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L877-L882 — recursive JSONB projection */}
+
+- **APQ mutation end-to-end test.** Covers the full store-on-miss →
+  retrieve-on-hit cycle for mutations, guarding the APQ cache path that was
+  previously untested in integration. Adds ADR-0010 documenting the async
+  mutation handler design decision.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L884-L887 — APQ mutation test */}
+
+- **JWT replay counters exposed on `/metrics`.**
+  `fraiseql_jwt_replay_rejected_total` and
+  `fraiseql_jwt_replay_cache_errors_total` are now registered as Prometheus
+  counters.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L889-L893 — JWT replay counters */}
+
+- **Correctness fix: stale list queries after UPDATE/DELETE on a non-first
+  row.** `QueryResultCache::put_arc` previously indexed only `result[0]` in
+  `entity_index`. For a list query returning N rows, entities at positions
+  1…N-1 were invisible to `invalidate_by_entity`, leaving the stale list
+  result in cache after a mutation. All rows are now indexed.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L896-L900 — list-query cache correctness */}
+
+- **Performance fix: unnecessary point-lookup eviction on CREATE.** CREATE
+  mutations now call `invalidate_list_queries()` (evicts only multi-row
+  list entries via `list_index`) instead of `invalidate_views()` (evicted
+  every entry including single-entity point lookups). Expected cache hit
+  rate under mixed read+write workloads: ~60–70% → ~85–95%.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L902-L907 — CREATE cache eviction */}
+
+### v2.1.3 (2026-04-08) — moka cache and pool pre-warm
+
+- **`QueryResultCache` replaced with `moka` W-TinyLFU** (issue #185). Cache
+  reads are now lock-free, eliminating hot-key serialisation under high
+  concurrency. View-based and entity-based invalidation use O(k) reverse
+  `DashMap` indexes instead of an O(n) full-cache scan.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L922-L928 — moka cache replacement */}
+
+- **`Arc<CachedResult>` in cache store.** The moka store type changed from
+  `Cache<u64, CachedResult>` to `Cache<u64, Arc<CachedResult>>`. On a cache
+  hit, only one atomic reference-count increment occurs; previously
+  `moka::Cache::get` deep-cloned the full `CachedResult` value on every
+  read.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L929-L933 — Arc<CachedResult> */}
+
+- **Zero-allocation cache key generation.** `generate_view_query_key` and
+  `generate_projection_query_key` hash parameters directly via ahash with
+  no intermediate `String` or `serde_json::Value` allocations.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L934-L939 — zero-alloc cache keys */}
+
+- **Fixed: `pool_min_size` now pre-warms the connection pool at startup**
+  (issue #183). Previously the parameter was silently dropped (`_min_size`);
+  deadpool would lazily open connections on the first request, causing high
+  mutation latency under concurrent cold-start load. This was the root
+  cause of the 5.5× mutation throughput gap observed in benchmarks.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L951-L957 — pool pre-warm */}
+
+- **Fixed: `pool_timeout_secs` now forwarded to the pool** (issue #183).
+  Previously stored in `ServerConfig` but never applied; connection
+  acquisition could block indefinitely on pool exhaustion. Pool exhaustion
+  now returns an actionable error within `pool_timeout_secs` seconds.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L959-L962 — pool timeout */}
+
+- **Observer pool no longer inherits application pool size** (issue #183).
+  `build_observer_pool` previously used `pool_min_size` / `pool_max_size`
+  from the top-level config. New defaults: `min=2, max=5,
+  acquire_timeout=10s`. Configure independently via `[observers.pool]`.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L976-L982 — observer pool */}
+
+## Breaking changes
+
+| Change                                                                                                            | Effort                                  | Mechanical?                          |
+|-------------------------------------------------------------------------------------------------------------------|-----------------------------------------|--------------------------------------|
+| `compression_enabled` now defaults to `false` (v2.1.6).                                                           | Add `compression_enabled = true` to `fraiseql.toml` only if you serve responses directly (no reverse proxy). | Yes — one-line config change.        |
+| `CachedResult` struct: `entity_ref: Option<(String, String)>` replaced by `entity_refs: Box<[(String, String)]>` and `is_list_query: bool` (v2.1.4). | Update any code that constructs `CachedResult` directly; consumers using cache via the public Adapter API are unaffected. | Mostly — pattern-match changes only. |
+| `CacheStatus::RlsGuardOnly` deprecated (v2.1.3).                                                                  | Stop matching on the variant; admin config endpoint returns `active` when `cache_enabled = true`. | Yes — pattern-match removal.         |
+| `ComplexityAnalyzer` replaced by AST-based `RequestValidator` (v2.1.0). `QueryMetrics` fields changed: `depth`, `complexity`, `alias_count` replace `depth`, `field_count`, `score`. | Update any code that reads `QueryMetrics` fields by name; the AST analyser produces correct counts. | Mostly — field renames.              |
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L807-L813 — compression_enabled default flip */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L911-L915 — CachedResult struct change */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L945-L948 — CacheStatus::RlsGuardOnly deprecation */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1188-L1192 — ComplexityAnalyzer replaced */}
+
+## Deprecations
+
+- `PoolTuningConfig` (since v2.0.1). Use `PoolPressureMonitorConfig`.
+  Removal target: v3.0.
+- `observers-full` feature flag. List specific sub-features instead.
+  Removal target: v2.2.
+- `CacheStatus::RlsGuardOnly` (v2.1.3). Admin config endpoint returns
+  `active` when `cache_enabled = true`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1206-L1211 — Deprecated at v2.1.0 */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L945-L948 — CacheStatus deprecation at v2.1.3 */}
+
+## Upgrade
+
+From v2.0.x to v2.1.0 is a straight upgrade — no breaking changes were
+introduced between the v2.0.0 stable surface and v2.1.0 beyond the
+`ComplexityAnalyzer` → `RequestValidator` migration noted above, which
+affects only code that read `QueryMetrics` fields by name.
+
+For migrating within the v2.1 patch chain, the `compression_enabled`
+default flip at v2.1.6 is the only adopter-visible change. Most deployments
+sit behind a reverse proxy and want the new default; add
+`compression_enabled = true` to `fraiseql.toml` only if you serve responses
+directly.
+
+A dedicated v2.0-to-v2.1 upgrading guide is not currently published. If you
+need one, file an issue against the docs repository.
+
+## Next steps
+
+- [v2.2 release notes](/release-notes/v2-2/) — the next minor release.
+- [v2.1 → v2.2 upgrade guide](/migrations/upgrading/v2-1-to-v2-2/) — mutation response format consolidation.
+- [Release notes overview](/release-notes/) — every shipped release.
+- [Upgrading FraiseQL](/migrations/upgrading/) — index of upgrade guides.

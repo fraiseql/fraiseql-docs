@@ -1,0 +1,107 @@
+---
+title: v2.0
+description: FraiseQL v2.0 — security hardening of the v2.0.0-rc.14 surface and cross-SDK parity test infrastructure.
+slug: release-notes/v2-0
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+FraiseQL v2.0.0 stable shipped on 2026-03-02. It is dominated by security
+hardening of the surface introduced across the v2.0.0-rc trail and by the
+cross-SDK parity test infrastructure that underpins the multi-language
+authoring story.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@v2.0.0:L10 — release date and version header */}
+
+<Aside type="caution" title="Sourcing">
+This page sources from the v2.0.0 tag's `CHANGELOG.md` rather than the
+present `CHANGELOG.md` at the framework's main branch — the v2.0.x sections
+were rotated out of the file as part of subsequent CHANGELOG curation. For
+the full v2.0.x history including the alpha / beta / rc trail, see the
+framework [GitHub Releases](https://github.com/fraiseql/fraiseql/releases?q=v2.0)
+page.
+</Aside>
+
+## Summary
+
+v2.0.0 closes the v2.0.0-rc.14 cycle as the first stable v2 release. The
+release is small in surface terms — four genuine additions, ten substantive
+fixes — but those fixes harden the authentication, rate-limiting, and
+cookie-handling code paths the v2 server depends on. The cross-SDK parity
+test suite (5 100+ tests across six SDKs) graduates from beta to stable.
+
+## Headline changes
+
+- **Cross-SDK parity test suite.** Five thousand-plus tests across Rust,
+  Python, TypeScript, Go, Java, and PHP validate that every SDK's
+  `exportSchema()` produces the same compiled output for types, queries,
+  mutations, and decorators. Golden-fixture regression guards catch any SDK
+  divergence before merge.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@v2.0.0:L13-L21 — cross-SDK parity + golden fixtures */}
+
+- **Full integration test infrastructure.** Dedicated CI jobs and local
+  Docker Compose services for Redis, NATS, PostgreSQL with TLS, Vault, and
+  federation enable all 177 previously-ignored integration tests to run in
+  CI. `testcontainers` watchdog (`features = ["watchdog"]`) cleans
+  containers on SIGTERM/SIGINT.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@v2.0.0:L20-L25 — integration tests + watchdog */}
+
+- **Per-user rate limiting now operative.** `check_user_limit` was never
+  called from `rate_limit_middleware`; authenticated requests were limited
+  by the shared IP bucket instead. The middleware now extracts the `sub`
+  claim from the `Authorization: Bearer` header (base64 decode, no signature
+  check — sufficient for rate limiting) and routes authenticated requests
+  through the per-user token bucket. Default `rps_per_user` is 10× the
+  configured `rps_per_ip`.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@v2.0.0:L28-L33 — per-user rate limiting */}
+
+- **Proxy-aware IP extraction.** A new `trust_proxy_headers` boolean in
+  `[security.rate_limiting]` (default `false`) reads `X-Real-IP` then the
+  first address from `X-Forwarded-For` when enabled. Set this to `true`
+  only when FraiseQL is deployed behind a trusted proxy.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@v2.0.0:L34-L39 — proxy-aware IP extraction */}
+
+## Security fixes
+
+The v2.0.0 release lists ten Fixed items; nine of them are authentication
+or cookie-handling hardening.
+
+| Fix                                       | What it does                                                                                                                                       | Source citation                                                       |
+|-------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
+| `Retry-After` accuracy for path limits    | Path limit rejections (e.g. `/auth/start`) now emit `Retry-After: ceil(window_secs / max_requests)` instead of the IP token-bucket rate.            | `CHANGELOG.md@v2.0.0:L40-L45`                                         |
+| Cookie charset safety                     | `Set-Cookie` access-token values are double-quoted per RFC 6265, with `"` and `\` escaped. Previously, tokens containing those characters produced a header the browser silently dropped. | `CHANGELOG.md@v2.0.0:L46-L49`                                         |
+| Silent `Set-Cookie` omission              | `cookie.parse()` failure in `auth_callback` returns HTTP 500 instead of silently dropping the header.                                              | `CHANGELOG.md@v2.0.0:L50-L52`                                         |
+| `__Host-` cookie prefix                   | Access-token cookie renamed from `access_token` to `__Host-access_token`, blocking subdomain override attacks. Mandates `Secure`, `Path=/`, no `Domain`. | `CHANGELOG.md@v2.0.0:L53-L55`                                         |
+| Conservative cookie `Max-Age` default     | When the OIDC provider omits `expires_in`, the cookie lifetime defaults to 300s instead of 3600s.                                                  | `CHANGELOG.md@v2.0.0:L56-L58`                                         |
+| `redirect_uri` length cap                 | `auth_start` rejects `redirect_uri` values longer than 2048 bytes with HTTP 400.                                                                    | `CHANGELOG.md@v2.0.0:L59-L62`                                         |
+| OIDC error string sanitisation            | `auth_callback` no longer forwards raw provider `error_description`. Provider codes map to a fixed allowlist; the full provider response is still logged at `warn`. | `CHANGELOG.md@v2.0.0:L63-L67`                                         |
+| Rustdoc link warnings                     | All six intra-doc links to feature-gated or private items replaced with plain text. `cargo doc --no-deps` is now warning-clean.                     | `CHANGELOG.md@v2.0.0:L68`                                             |
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@v2.0.0:L26-L68 — Fixed section (entire) */}
+
+## Breaking changes
+
+None on the public Rust API. The `__Host-access_token` cookie rename is
+breaking for frontends that read the cookie name directly — most do not, the
+PKCE flow stores the token server-side and the cookie is `HttpOnly`. If your
+frontend reads the cookie name, update from `access_token` to
+`__Host-access_token`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@v2.0.0:L53-L55 — __Host-access_token cookie rename */}
+
+## Deprecations
+
+None recorded in the v2.0.0 entry.
+
+## Upgrade
+
+Upgrading from v1.x is not covered by these release notes — the v0.x and v1.x
+series is recorded only in [GitHub Releases](https://github.com/fraiseql/fraiseql/releases).
+v2.0.0 is the first v2 stable; subsequent minors (v2.1, v2.2, v2.3) each have
+their own release-notes page and, where applicable, an upgrading guide.
+
+## Next steps
+
+- [v2.1 release notes](/release-notes/v2-1/) — the next minor release.
+- [Release notes overview](/release-notes/) — every shipped release.
+- [Upgrading FraiseQL](/migrations/upgrading/) — index of upgrade guides.
