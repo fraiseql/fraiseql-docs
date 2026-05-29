@@ -1,0 +1,175 @@
+==================================================================
+Cycle 3 GREEN evidence — storage sidecars: boot + smoke.
+Captured: 2026-05-28T10:39:54Z
+Docker:       Docker version 29.5.1, build 2518b52d94
+Compose:      Docker Compose version 5.1.4
+Frozen SHA:   d0a4ed4ec1770c70707f68fd9019f2b561d87461
+==================================================================
+
+######################################################################
+# Section 1 — Cold-boot --profile storage only (success criterion #6)
+######################################################################
+
+
+--- up --profile storage --wait --wait-timeout 180 ---
+ Container fraiseql-docs-test-minio-1 Started 
+ Container fraiseql-docs-test-minio-1 Waiting 
+ Container fraiseql-docs-test-azurite-1 Started 
+ Container fraiseql-docs-test-azurite-1 Waiting 
+ Container fraiseql-docs-test-minio-1 Healthy 
+ Container fraiseql-docs-test-minio-init-1 Starting 
+ Container fraiseql-docs-test-azurite-1 Healthy 
+ Container fraiseql-docs-test-azurite-init-1 Starting 
+ Container fraiseql-docs-test-azurite-init-1 Started 
+ Container fraiseql-docs-test-minio-init-1 Started 
+ Container fraiseql-docs-test-fake-gcs-1 Waiting 
+ Container fraiseql-docs-test-minio-1 Waiting 
+ Container fraiseql-docs-test-azurite-1 Waiting 
+ Container fraiseql-docs-test-azurite-init-1 Waiting 
+ Container fraiseql-docs-test-minio-init-1 Waiting 
+ Container fraiseql-docs-test-azurite-init-1 Healthy 
+ Container fraiseql-docs-test-minio-1 Healthy 
+ Container fraiseql-docs-test-azurite-1 Healthy 
+ Container fraiseql-docs-test-fake-gcs-1 Healthy 
+container fraiseql-docs-test-minio-init-1 exited (0)
+[exit=0, elapsed=6s]
+
+--- ps ---
+NAME                                IMAGE                                                                                                                    COMMAND                  SERVICE        CREATED         STATUS                   PORTS
+fraiseql-docs-test-azurite-1        mcr.microsoft.com/azure-storage/azurite:3.34.0@sha256:0a47e12e3693483cef5c71f35468b91d751611f172d2f97414e9c69113b106d9   "docker-entrypoint.s…"   azurite        6 seconds ago   Up 6 seconds (healthy)   10001-10002/tcp, 0.0.0.0:10100->10000/tcp, [::]:10100->10000/tcp
+fraiseql-docs-test-azurite-init-1   mcr.microsoft.com/azure-cli:2.66.0@sha256:2efc666f2f3cac0b9f39c17a2be95f17ebd319ce226d5fb93ecf88d11b5bc86e               "/bin/sh -eu -c '# `…"   azurite-init   6 seconds ago   Up Less than a second    
+fraiseql-docs-test-fake-gcs-1       fsouza/fake-gcs-server:1.52.2@sha256:d47b4cf8b87006cab8fbbecfa5f06a2a3c5722e464abddc0d107729663d40ec4                    "/bin/sh -eu -c 'mkd…"   fake-gcs       6 seconds ago   Up 6 seconds (healthy)   0.0.0.0:4443->4443/tcp, [::]:4443->4443/tcp
+fraiseql-docs-test-minio-1          minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e         "/usr/bin/docker-ent…"   minio          6 seconds ago   Up 6 seconds (healthy)   0.0.0.0:9100->9000/tcp, [::]:9100->9000/tcp, 0.0.0.0:9101->9001/tcp, [::]:9101->9001/tcp
+
+--- minio-init logs (idempotent bucket create) ---
+Added `local` successfully.
+Bucket created successfully `local/fraiseql-docs-test`.
+[2026-05-28 10:40:00 UTC]     0B fraiseql-docs-test/
+minio-init: bucket fraiseql-docs-test ready
+--- azurite-init logs (idempotent container create) ---
+
+######################################################################
+# Section 2 — lib/storage-smoke.sh: 1 KB write+read via mc / az / curl
+######################################################################
+
+[10:40:00Z] workdir=/tmp/fraiseql-docs-storage-smoke.qRoEq8 payload=1024 bytes
+[10:40:00Z] === MinIO smoke ===
+ Container fraiseql-docs-test-minio-1 Running 
+ Container fraiseql-docs-test-minio-1 Waiting 
+ Container fraiseql-docs-test-minio-1 Healthy 
+ Container fraiseql-docs-test-minio-init-run-c4b6639acabb Creating 
+ Container fraiseql-docs-test-minio-init-run-c4b6639acabb Created 
+Added `local` successfully.
+`/work/payload.bin` -> `local/fraiseql-docs-test/cycle-03-smoke.bin`
+┌──────────┬─────────────┬──────────┬──────────────┐
+│ Total    │ Transferred │ Duration │ Speed        │
+│ 1.00 KiB │ 1.00 KiB    │ 00m00s   │ 121.95 KiB/s │
+└──────────┴─────────────┴──────────┴──────────────┘
+[2026-05-28 10:40:01 UTC] 1.0KiB STANDARD cycle-03-smoke.bin
+`local/fraiseql-docs-test/cycle-03-smoke.bin` -> `/work/downloaded.bin`
+┌──────────┬─────────────┬──────────┬──────────────┐
+│ Total    │ Transferred │ Duration │ Speed        │
+│ 1.00 KiB │ 1.00 KiB    │ 00m00s   │ 312.71 KiB/s │
+└──────────┴─────────────┴──────────┴──────────────┘
+[10:40:08Z] MinIO: payload roundtrip OK (1024 bytes match)
+[10:40:08Z] === Azurite smoke ===
+ Container fraiseql-docs-test-azurite-1 Running 
+ Container fraiseql-docs-test-azurite-1 Waiting 
+ Container fraiseql-docs-test-azurite-1 Healthy 
+ Container fraiseql-docs-test-azurite-init-run-98c32ba7122e Creating 
+ Container fraiseql-docs-test-azurite-init-run-98c32ba7122e Created 
+Alive[################################################################]  100.0000%Finished[#############################################################]  100.0000%
+{
+  "client_request_id": "9acdcc42-5a81-11f1-b3c2-7a896d868ea6",
+  "content_md5": "dsU9N6holdCPUNSc1BBPGA==",
+  "date": "2026-05-28T10:40:11+00:00",
+  "encryption_key_sha256": null,
+  "encryption_scope": null,
+  "etag": "\"0x26498A79264EDA0\"",
+  "lastModified": "2026-05-28T10:40:11+00:00",
+  "request_id": "18bc99cc-2120-456c-a3dd-400940375583",
+  "request_server_encrypted": true,
+  "version": "2025-05-05",
+  "version_id": null
+}
+[
+  "cycle-03-smoke.bin"
+]
+Alive[################################################################]  100.0000%Finished[#############################################################]  100.0000%
+[10:40:16Z] Azurite: payload roundtrip OK (1024 bytes match)
+[10:40:16Z] === fake-gcs-server smoke ===
+ Container fraiseql-docs-test-azurite-1 Running 
+ Container fraiseql-docs-test-azurite-1 Waiting 
+ Container fraiseql-docs-test-azurite-1 Healthy 
+ Container fraiseql-docs-test-azurite-init-run-206e5adb8074 Creating 
+ Container fraiseql-docs-test-azurite-init-run-206e5adb8074 Created 
+{"kind":"storage#object","name":"cycle-03-smoke.bin","id":"fraiseql-docs-test/cycle-03-smoke.bin","bucket":"fraiseql-docs-test","size":"1024","contentType":"application/octet-stream","crc32c":"ZgSaAQ==","acl":[{"bucket":"fraiseql-docs-test","entity":"projectOwner-test-project","etag":"RVRhZw==","kind":"storage#objectAccessControl","object":"cycle-03-smoke.bin","projectTeam":{},"role":"OWNER"}],"md5Hash":"dsU9N6holdCPUNSc1BBPGA==","etag":"dsU9N6holdCPUNSc1BBPGA==","storageClass":"STANDARD","timeCreated":"2026-05-28T10:40:18.161967Z","timeStorageClassUpdated":"2026-05-28T10:40:18.161971Z","updated":"2026-05-28T10:40:18.161971Z","generation":"1779964818162102","selfLink":"http://0.0.0.0:4443/storage/v1/b/fraiseql-docs-test/o/cycle-03-smoke.bin","mediaLink":"http://0.0.0.0:4443/download/storage/v1/b/fraiseql-docs-test/o/cycle-03-smoke.bin?alt=media","metageneration":"1"}
+
+{"kind":"storage#objects","items":[{"kind":"storage#object","name":"cycle-03-smoke.bin","id":"fraiseql-docs-test/cycle-03-smoke.bin","bucket":"fraiseql-docs-test","size":"1024","contentType":"application/octet-stream","crc32c":"ZgSaAQ==","acl":[{"bucket":"fraiseql-docs-test","entity":"projectOwner-test-project","etag":"RVRhZw==","kind":"storage#objectAccessControl","object":"cycle-03-smoke.bin","p
+[10:40:22Z] fake-gcs: payload roundtrip OK (1024 bytes match)
+[10:40:22Z] ALL OK — 3 backend(s) passed
+[smoke exit=0]
+
+######################################################################
+# Section 3 — Combined --profile all --profile storage --profile fraiseql
+#             (success criterion #7)
+######################################################################
+
+ Volume fraiseql-docs-test_minio-data Removing 
+ Volume fraiseql-docs-test_azurite-data Removed 
+ Volume fraiseql-docs-test_minio-data Removed 
+ Volume fraiseql-docs-test_fake-gcs-data Removed 
+ Network fraiseql-docs-test_default Removed 
+
+--- up --profile all --profile storage --profile fraiseql --wait --wait-timeout 240 ---
+ Container fraiseql-docs-test-postgres-1 Healthy 
+ Container fraiseql-docs-test-fraiseql-1 Starting 
+ Container fraiseql-docs-test-minio-init-1 Started 
+ Container fraiseql-docs-test-azurite-init-1 Started 
+ Container fraiseql-docs-test-fraiseql-1 Started 
+ Container fraiseql-docs-test-redis-1 Waiting 
+ Container fraiseql-docs-test-fraiseql-1 Waiting 
+ Container fraiseql-docs-test-nats-1 Waiting 
+ Container fraiseql-docs-test-postgres-1 Waiting 
+ Container fraiseql-docs-test-fake-gcs-1 Waiting 
+ Container fraiseql-docs-test-azurite-1 Waiting 
+ Container fraiseql-docs-test-minio-init-1 Waiting 
+ Container fraiseql-docs-test-minio-1 Waiting 
+ Container fraiseql-docs-test-mysql-1 Waiting 
+ Container fraiseql-docs-test-mssql-1 Waiting 
+ Container fraiseql-docs-test-azurite-init-1 Waiting 
+ Container fraiseql-docs-test-fake-gcs-1 Healthy 
+ Container fraiseql-docs-test-mssql-1 Healthy 
+ Container fraiseql-docs-test-nats-1 Healthy 
+ Container fraiseql-docs-test-azurite-init-1 Healthy 
+ Container fraiseql-docs-test-azurite-1 Healthy 
+ Container fraiseql-docs-test-postgres-1 Healthy 
+ Container fraiseql-docs-test-minio-1 Healthy 
+ Container fraiseql-docs-test-redis-1 Healthy 
+container fraiseql-docs-test-minio-init-1 exited (0)
+[exit=0, elapsed=7s]
+
+--- ps ---
+NAME                                IMAGE                                                                                                                           COMMAND                  SERVICE        CREATED         STATUS                                     PORTS
+fraiseql-docs-test-azurite-1        mcr.microsoft.com/azure-storage/azurite:3.34.0@sha256:0a47e12e3693483cef5c71f35468b91d751611f172d2f97414e9c69113b106d9          "docker-entrypoint.s…"   azurite        7 seconds ago   Up 6 seconds (healthy)                     10001-10002/tcp, 0.0.0.0:10100->10000/tcp, [::]:10100->10000/tcp
+fraiseql-docs-test-azurite-init-1   mcr.microsoft.com/azure-cli:2.66.0@sha256:2efc666f2f3cac0b9f39c17a2be95f17ebd319ce226d5fb93ecf88d11b5bc86e                      "/bin/sh -eu -c '# `…"   azurite-init   7 seconds ago   Up Less than a second                      
+fraiseql-docs-test-fake-gcs-1       fsouza/fake-gcs-server:1.52.2@sha256:d47b4cf8b87006cab8fbbecfa5f06a2a3c5722e464abddc0d107729663d40ec4                           "/bin/sh -eu -c 'mkd…"   fake-gcs       7 seconds ago   Up 6 seconds (healthy)                     0.0.0.0:4443->4443/tcp, [::]:4443->4443/tcp
+fraiseql-docs-test-fraiseql-1       fraiseql-docs-test-fraiseql:latest                                                                                              "/app/fraiseql-server"   fraiseql       7 seconds ago   Up Less than a second (health: starting)   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+fraiseql-docs-test-minio-1          minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e                "/usr/bin/docker-ent…"   minio          7 seconds ago   Up 6 seconds (healthy)                     0.0.0.0:9100->9000/tcp, [::]:9100->9000/tcp, 0.0.0.0:9101->9001/tcp, [::]:9101->9001/tcp
+fraiseql-docs-test-mssql-1          mcr.microsoft.com/mssql/server:2022-CU13-ubuntu-22.04@sha256:c4369c38385eba011c10906dc8892425831275bb035d5ce69656da8e29de50d8   "/opt/mssql/bin/perm…"   mssql          7 seconds ago   Up 6 seconds (healthy)                     0.0.0.0:14330->1433/tcp, [::]:14330->1433/tcp
+fraiseql-docs-test-mysql-1          mysql:8.4@sha256:c36050afdca850f23cef85703f84c7531a5ae155a11b5ee1c60acb09937c4084                                               "docker-entrypoint.s…"   mysql          7 seconds ago   Up 6 seconds (health: starting)            33060/tcp, 0.0.0.0:13306->3306/tcp, [::]:13306->3306/tcp
+fraiseql-docs-test-nats-1           nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927                                        "docker-entrypoint.s…"   nats           7 seconds ago   Up 6 seconds (healthy)                     6222/tcp, 8222/tcp, 0.0.0.0:42220->4222/tcp, [::]:42220->4222/tcp
+fraiseql-docs-test-postgres-1       postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229                                      "docker-entrypoint.s…"   postgres       7 seconds ago   Up 6 seconds (healthy)                     0.0.0.0:54320->5432/tcp, [::]:54320->5432/tcp
+fraiseql-docs-test-redis-1          redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99                                          "docker-entrypoint.s…"   redis          7 seconds ago   Up 6 seconds (healthy)                     0.0.0.0:63790->6379/tcp, [::]:63790->6379/tcp
+
+--- /health on fraiseql ---
+{"status":"healthy","database":{"connected":true,"database_type":"PostgreSQL","active_connections":0,"idle_connections":4},"version":"2.3.2","schema_hash":"316c9100f7a872c8c411033ac2a00066"}
+
+--- final teardown ---
+ Volume fraiseql-docs-test_postgres-data Removed 
+ Volume fraiseql-docs-test_mssql-data Removed 
+ Volume fraiseql-docs-test_redis-data Removed 
+ Volume fraiseql-docs-test_mysql-data Removed 
+ Network fraiseql-docs-test_default Removed 
+
+=== END OF GREEN CAPTURE ===

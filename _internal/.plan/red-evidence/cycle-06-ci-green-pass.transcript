@@ -1,0 +1,66 @@
+# Phase 00 / Cycle 6 — CLEANUP-pass CI transcript
+#
+# Run URL:    https://github.com/fraiseql/fraiseql-docs/actions/runs/26573246640
+# Commit:     c8b9e62 (CLEANUP — revert of RED commit 379f657)
+# Branch:     phase-00/foundation
+# Job:        page-test (_smoke)
+# Conclusion: SUCCESS
+# Reason:     all eleven PG end-to-end assertions PASS; MySQL/SQLite/MSSQL
+#             page-side SQL assertions PASS.
+# Duration:   616 s total wall-clock (page-test job 607 s).
+#             Brief-budget for CI cold first build: 600 s; subsequent
+#             warm runs target <240 s.
+#
+# Captured via: gh run view 26573246640 --log
+
+=== Run page docs-test (_smoke) — final assertion sequence ===
+
+2026-05-28T12:07:18.5789613Z === smoke: postgres ===
+2026-05-28T12:07:18.7459413Z  postgres Pulling 
+2026-05-28T12:07:22.9511234Z  postgres Pulled 
+2026-05-28T12:07:22.9838557Z  Volume "fraiseql-docs-test_postgres-data"  Creating
+2026-05-28T12:07:22.9849011Z  Volume "fraiseql-docs-test_postgres-data"  Created
+2026-05-28T12:07:22.9862968Z  Container fraiseql-docs-test-postgres-1  Creating
+2026-05-28T12:07:23.0011984Z  Container fraiseql-docs-test-postgres-1  Created
+2026-05-28T12:07:23.0098410Z  Container fraiseql-docs-test-postgres-1  Starting
+2026-05-28T12:07:23.1647676Z  Container fraiseql-docs-test-postgres-1  Started
+2026-05-28T12:07:23.1648694Z  Container fraiseql-docs-test-postgres-1  Waiting
+2026-05-28T12:07:28.6667211Z  Container fraiseql-docs-test-postgres-1  Healthy
+2026-05-28T12:07:28.7748157Z  Container fraiseql-docs-test-postgres-1  Waiting
+2026-05-28T12:07:29.2768753Z  Container fraiseql-docs-test-postgres-1  Healthy
+2026-05-28T12:07:34.2783432Z   ✓ stack up exit code (= 0)
+2026-05-28T12:07:34.4301327Z   ✓ schema installed (postgres) (= 0)
+2026-05-28T12:07:35.7270485Z   ✓ /health (HTTP 200)
+2026-05-28T12:07:35.7297081Z   ✓ health.status == healthy
+2026-05-28T12:07:35.7324236Z   ✓ health.database.connected
+2026-05-28T12:07:35.7350677Z   ✓ health.database.database_type
+2026-05-28T12:07:35.7443028Z   ✓ graphql query exit code (= 0)
+2026-05-28T12:07:35.7470364Z   ✓ no graphql errors
+2026-05-28T12:07:35.7497593Z   ✓ data.posts is array
+2026-05-28T12:07:35.7524108Z   ✓ data.posts has 1 element
+2026-05-28T12:07:35.7550825Z   ✓ post[0].title
+2026-05-28T12:07:35.7578727Z   ✓ post[0].author.name
+2026-05-28T12:07:35.7605914Z   ✓ post[0].author.email
+2026-05-28T12:07:36.1520814Z === smoke: mysql ===
+2026-05-28T12:07:57.2732324Z   ✓ schema installed (mysql) (= 0)
+2026-05-28T12:07:57.3959506Z   ✓ data.posts is array
+2026-05-28T12:07:57.3988573Z   ✓ data.posts has 1 element
+2026-05-28T12:07:57.4016047Z   ✓ post[0].title
+2026-05-28T12:07:57.4044168Z   ✓ post[0].author.name
+2026-05-28T12:07:58.8177850Z === smoke: sqlite ===
+2026-05-28T12:08:02.4788909Z   ✓ schema installed (sqlite) (= 0)
+2026-05-28T12:08:03.1178877Z   ✓ data.posts is array
+2026-05-28T12:08:03.1206436Z   ✓ data.posts has 1 element
+2026-05-28T12:08:03.1233664Z   ✓ post[0].title
+2026-05-28T12:08:03.1260874Z   ✓ post[0].author.name
+2026-05-28T12:08:03.2813509Z === smoke: mssql ===
+2026-05-28T12:08:21.2101863Z   ✓ schema installed (mssql) (= 0)
+2026-05-28T12:08:21.3508881Z   ✓ data.posts is array
+2026-05-28T12:08:21.3536600Z   ✓ data.posts has 1 element
+2026-05-28T12:08:21.3563107Z   ✓ post[0].title
+2026-05-28T12:08:21.3590684Z   ✓ post[0].author.name
+2026-05-28T12:08:21.7130238Z === summary ===
+2026-05-28T12:08:21.7130759Z   ✓ postgres  17.572s
+2026-05-28T12:08:21.7131158Z   ✓ mysql     22.665s
+2026-05-28T12:08:21.7131551Z   ✓ sqlite    4.462s
+2026-05-28T12:08:21.7131939Z   ✓ mssql     18.429s

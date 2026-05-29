@@ -1,0 +1,88 @@
+# Baseline configuration overlay for the FraiseQL docs-test harness.
+#
+# This is the *starting* overlay: enough to boot `fraiseql-server` cleanly
+# against the Compose-stack PostgreSQL service so `/health` returns 200.
+# Per-feature overlays (storage in Cycle 3, smoke fixtures in Cycle 5, etc.)
+# layer on top via `configs/overlays/*.toml`.
+#
+# The file is mounted read-only at `/etc/fraiseql/fraiseql.toml` inside the
+# `fraiseql` Compose service (see `docker-compose.docs-test.yml`); the runtime
+# image does NOT bake this file in. That separation keeps the image content-
+# addressable while letting individual page reproductions swap config without
+# rebuilding.
+#
+# All keys derived from `~/code/fraiseql@d0a4ed4ec` (the frozen SHA captured
+# in `_internal/.plan/handoff.md`). The `<!-- source: ... -->` HTML-comment
+# citations point at the schema and default-value functions the Verifier will
+# re-grep at phase close. They are intentionally placed inside `#` shell-style
+# TOML comments so `toml::from_str` ignores them entirely.
+
+# ── Server bind ──────────────────────────────────────────────────────────────
+# Default is `127.0.0.1:8000`; bind to all interfaces so the Compose host port
+# mapping reaches the server, and to 8080 to match the cycle-spec health URL.
+#
+# <!-- source: crates/fraiseql-server/src/server_config/defaults.rs:L21-L23 -->
+# <!-- source: crates/fraiseql-server/src/server_config/mod.rs:L50-L52 -->
+bind_addr = "0.0.0.0:8080"
+
+# ── Database ─────────────────────────────────────────────────────────────────
+# `postgres` is the Compose service name. Credentials come from the Compose
+# stack's `.env` (DB_USER / DB_PASSWORD / DB_NAME). The DB name `fraiseql`
+# matches the framework's `default_database_url`.
+#
+# <!-- source: crates/fraiseql-server/src/server_config/defaults.rs:L9-L11 -->
+# <!-- source: crates/fraiseql-server/src/server_config/mod.rs:L46-L48 -->
+database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"
+
+# ── Schema path ──────────────────────────────────────────────────────────────
+# The runtime image bundles a minimal compiled schema at this path. Cycle 5
+# will overlay a richer schema per smoke page. The server REFUSES to start
+# without a valid file here (`validate_schema_path` in `main.rs`).
+#
+# <!-- source: crates/fraiseql-server/src/server_config/defaults.rs:L5-L7 -->
+# <!-- source: crates/fraiseql-server/src/main.rs:L42-L51 -->
+schema_path = "/etc/fraiseql/schema.compiled.json"
+
+# ── CORS ─────────────────────────────────────────────────────────────────────
+# The framework defaults to `cors_enabled = true`; in production mode that
+# requires `cors_origins` to be non-empty or `validate()` errors out. The
+# docs-test harness runs with `FRAISEQL_ENV=development` (set on the Compose
+# service) which relaxes this — but we still list a sensible origin so the
+# stack works the same way when an operator boots it with FRAISEQL_ENV unset.
+#
+# <!-- source: crates/fraiseql-server/src/server_config/methods.rs:L199-L217 -->
+# <!-- source: crates/fraiseql-server/src/server_config/mod.rs:L62-L68 -->
+cors_enabled = true
+cors_origins = ["http://localhost:8080"]
+
+# ── Endpoints kept on framework defaults ─────────────────────────────────────
+# `/health` is mounted unconditionally on the base router without auth — see
+# the routing module. The Cycle-2 healthcheck hits this path; do not move it.
+#
+# <!-- source: crates/fraiseql-server/src/server/routing/admin.rs:L28-L33 -->
+# <!-- source: crates/fraiseql-server/src/server_config/defaults.rs:L63-L65 -->
+health_path = "/health"
+
+# ── Production-side surface disabled for the docs harness ────────────────────
+# Playground / metrics / admin / introspection are all default-off for safety;
+# we restate them so reading this file makes the surface explicit. Per-page
+# overlays may turn individual surfaces on.
+#
+# <!-- source: crates/fraiseql-server/src/server_config/mod.rs:L149-L150 -->
+# <!-- source: crates/fraiseql-server/src/server_config/mod.rs:L174-L175 -->
+# <!-- source: crates/fraiseql-server/src/server_config/mod.rs:L190-L191 -->
+# <!-- source: crates/fraiseql-server/src/server_config/mod.rs:L227-L228 -->
+playground_enabled = false
+metrics_enabled = false
+admin_api_enabled = false
+introspection_enabled = false
+
+# ── Pool sizing ──────────────────────────────────────────────────────────────
+# Defaults are 5/20/30s. The docs-test stack is single-replica and bursty;
+# the defaults are fine. Recorded here so per-page overlays know what they
+# inherit.
+#
+# <!-- source: crates/fraiseql-server/src/server_config/defaults.rs:L95-L105 -->
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30

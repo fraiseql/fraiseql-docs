@@ -1,0 +1,56 @@
+# Storage backend overlay: Azure Blob (Azurite emulator).
+#
+# Layered on top of `configs/baseline.toml` to declare an Azure-Blob storage
+# binding. The Compose-stack `azurite` service emulates Azure Blob and the
+# pre-created container `fraiseql-docs-test` is provisioned by
+# `azurite-init` using the well-known dev account.
+#
+# Schema source (frozen FraiseQL SHA d0a4ed4ec):
+#   - `StorageConfig` TOML binding:
+#     <!-- source: crates/fraiseql-server/src/config/mod.rs:L113-L114 -->
+#   - `StorageConfig` field set (backend / bucket / account_name / ...):
+#     <!-- source: crates/fraiseql-server/src/config/mod.rs:L397-L425 -->
+#   - `azure` backend match arm in `create_backend`
+#     (account_name + bucket → AzureBackend::new):
+#     <!-- source: crates/fraiseql-storage/src/backend/mod.rs:L544-L554 -->
+#   - `AzureBackend::new` constructor (reads AZURE_STORAGE_KEY env var):
+#     <!-- source: crates/fraiseql-storage/src/backend/azure.rs:L35-L56 -->
+#
+# Cargo-feature dependency (NOT in the Cycle 2 default `CARGO_FEATURES`):
+#   The Azure backend is gated behind `fraiseql-server/azure-blob`. The
+#   Cycle 2 image must be rebuilt with this feature appended before this
+#   overlay produces a usable server.
+#
+# KNOWN FRAMEWORK LIMITATION — endpoint hardcoded:
+#   The `AzureBackend` constructs every URL as
+#   `https://{account}.blob.core.windows.net/{container}/{key}` with NO
+#   configurable endpoint override:
+#     <!-- source: crates/fraiseql-storage/src/backend/azure.rs:L58-L60 -->
+#   The `account` and `container` fields on the struct are the only
+#   externally-supplied identifiers:
+#     <!-- source: crates/fraiseql-storage/src/backend/azure.rs:L19-L24 -->
+#   This means the framework's `azure` backend, as of the frozen SHA,
+#   CANNOT be pointed at Azurite (or any non-Azure emulator) via
+#   configuration alone. Cycle 5's smoke test cannot exercise this overlay
+#   through the FraiseQL server without a framework patch that exposes
+#   `endpoint` on the `AzureBackend`. The Azurite sidecar in Compose remains
+#   useful for direct-client smoke (`lib/storage-smoke.sh` validates writes
+#   via `az` CLI) but the FraiseQL server cannot route to it.
+#
+#   Filed as a framework issue:
+#   https://github.com/fraiseql/fraiseql/issues/326
+#
+# Azurite well-known dev account (Microsoft published; do not invent):
+#   AccountName: devstoreaccount1
+#   AccountKey:  Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+#   https://learn.microsoft.com/azure/storage/common/storage-use-azurite#well-known-storage-account-and-key
+
+[storage.docs_test]
+backend      = "azure"
+bucket       = "fraiseql-docs-test"
+account_name = "devstoreaccount1"
+# `endpoint` is documented on the StorageConfig struct but is currently
+# IGNORED by the AzureBackend (see the limitation note above). Listed here
+# anticipating the framework fix; remove the comment block above once the
+# fix lands.
+# endpoint = "http://azurite:10000/devstoreaccount1"

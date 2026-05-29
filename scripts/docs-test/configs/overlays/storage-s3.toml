@@ -1,0 +1,43 @@
+# Storage backend overlay: S3-compatible (MinIO).
+#
+# Layered on top of `configs/baseline.toml` to point the FraiseQL server at
+# the Compose-stack `minio` service. See
+# `docker-compose.docs-test.yml`'s `minio` / `minio-init` services for the
+# matching sidecar wiring; the bucket `fraiseql-docs-test` is pre-created by
+# `minio-init` and the credentials match the `MINIO_ROOT_USER` /
+# `MINIO_ROOT_PASSWORD` defaults.
+#
+# Schema source (frozen FraiseQL SHA d0a4ed4ec):
+#   - `StorageConfig` TOML binding (HashMap keyed by storage name):
+#     <!-- source: crates/fraiseql-server/src/config/mod.rs:L113-L114 -->
+#   - `StorageConfig` field set (backend / bucket / region / endpoint / ...):
+#     <!-- source: crates/fraiseql-server/src/config/mod.rs:L397-L425 -->
+#   - `s3` backend match arm in `create_backend` (endpoint passthrough):
+#     <!-- source: crates/fraiseql-storage/src/backend/mod.rs:L442-L451 -->
+#   - `S3Backend::new` constructor (resolves endpoint into aws-sdk-s3 client
+#     and forces path-style addressing when an endpoint is set):
+#     <!-- source: crates/fraiseql-storage/src/backend/s3/mod.rs:L29-L52 -->
+#
+# Cargo-feature dependency (NOT in the Cycle 2 default `CARGO_FEATURES`):
+#   The S3 backend is gated behind `fraiseql-server/aws-s3`. The Cycle 2
+#   image must be rebuilt with this feature appended to `CARGO_FEATURES`
+#   before this overlay produces a usable server. Cycle 5 owns the rebuild
+#   flow.
+#
+# AWS credential resolution:
+#   The aws-sdk-s3 client resolves credentials from environment variables
+#   first (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY). Set these on the
+#   `fraiseql` Compose service for the smoke run; do not embed them in this
+#   file.
+#
+# Bucket: `fraiseql-docs-test` is shared across all three storage overlays;
+# do not divergently name it.
+
+[storage.docs_test]
+backend  = "s3"
+bucket   = "fraiseql-docs-test"
+region   = "us-east-1"
+# `minio:9000` is the in-Compose-network address; the host-port mapping is
+# 9100→9000 and is not used inside the Docker network. Path-style addressing
+# is forced by `S3Backend::new` when `endpoint` is set, which MinIO requires.
+endpoint = "http://minio:9000"

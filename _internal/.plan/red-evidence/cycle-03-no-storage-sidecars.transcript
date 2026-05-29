@@ -1,0 +1,39 @@
+==================================================================
+Cycle 3 RED evidence — storage sidecars not yet present in Compose.
+Captured: 2026-05-28T10:14:52Z
+Docker:       Docker version 29.5.1, build 2518b52d94
+Compose:      Docker Compose version 5.1.4
+Compose file: scripts/docs-test/docker-compose.docs-test.yml
+==================================================================
+
+--- verify the storage profile resolves to zero services ---
+$ docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile storage config --services
+[exit=0] (empty stdout = no storage services configured yet)
+
+--- attempt to boot storage-only stack (should be a no-op) ---
+$ docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile storage up -d --wait --wait-timeout 30
+no service selected
+[exit=1]
+
+--- representative storage-shaped probes against host ports specified by Cycle 3 (none should respond) ---
+$ curl --fail-with-body -sS --max-time 3 http://localhost:9100/minio/health/live
+curl: (7) Failed to connect to localhost port 9100 after 0 ms: Could not connect to server
+[exit=7]
+
+$ curl --fail-with-body -sS --max-time 3 http://localhost:9101/
+curl: (7) Failed to connect to localhost port 9101 after 0 ms: Could not connect to server
+[exit=7]
+
+$ curl --fail-with-body -sS --max-time 3 http://localhost:10100/devstoreaccount1?comp=list
+curl: (7) Failed to connect to localhost port 10100 after 0 ms: Could not connect to server
+[exit=7]
+
+$ curl --fail-with-body -sS --max-time 3 http://localhost:4443/storage/v1/b/fraiseql-docs-test
+curl: (7) Failed to connect to localhost port 4443 after 0 ms: Could not connect to server
+[exit=7]
+
+--- confirm zero storage containers running ---
+$ docker compose -f scripts/docs-test/docker-compose.docs-test.yml ps --status=running
+NAME      IMAGE     COMMAND   SERVICE   CREATED   STATUS    PORTS
+
+=== END OF RED CAPTURE ===

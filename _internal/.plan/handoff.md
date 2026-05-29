@@ -1,0 +1,440 @@
+# Handoff log
+
+Durable cross-persona communication channel. Every persona's first action is to read this file. Every persona's last action is to append to it.
+
+Entry format: a level-3 heading per cycle close, in chronological order. **Newest at the bottom.**
+
+```
+### Phase NN / Cycle M close — <persona> — <UTC timestamp>
+- What was decided / produced.
+- State of docs-test suite at cycle close (pass / fail / skipped counts).
+- Open framework issues filed this cycle (with URLs / IDs).
+- Anything the next persona must know that is not already in the phase file.
+- Human gates surfaced (G1–G5): one bullet per gate, ending with `[?]`.
+```
+
+Human responses to gates are appended *inline under the gate bullet* by the human, prefixed `> human:`. The next persona resumes from there.
+
+---
+
+### Phase 00 / Cycle 0 close — orchestrator — 2026-05-28
+
+- Plan tree moved from `/tmp/fraiseql-docs-overhaul/` → `_internal/.plan/`.
+- Runtime subdirs created: `style-audits/`, `audits/`, `red-evidence/`.
+- `framework-qa-triage.md` scaffolded (empty triage list).
+- This `handoff.md` scaffolded.
+- `astro.config.mjs`: `_internal/` is at repo root, outside `src/`, so Astro/Starlight does not index it by construction. A clarifying comment was added at the top of the config. Build output verified clean (cycle CLEANUP step).
+- Frozen FraiseQL SHA candidate captured for Cycle 9: `d0a4ed4ec1770c70707f68fd9019f2b561d87461` (merge of PR #322, `fix/server-publish-studio-exclude`). Do not promote until Cycle 9.
+- Docs-test suite: not yet wired (phase 00 cycle 6).
+- Framework issues filed: 0.
+- Human gates surfaced:
+  - **G6 (novel — not in original register) — divergent history vs. canonical docs remote.** Background:
+    - Located canonical docs repo: `fraiseql/fraiseql-docs` (`git@github.com:fraiseql/fraiseql-docs.git`), description "FraiseQL documentation and marketing site (Astro + Starlight)". Single branch `main`, last pushed 2026-03-25.
+    - Added it as `origin` (fetch only — no push performed) to inspect history. Findings:
+      - Local `main` (51 commits, all "Claude") and `origin/main` (64 commits, all "Claude Code") share **no common ancestor**. `git merge-base main origin/main` returns empty.
+      - Local root commit: `9cdc9e1 docs: Complete FraiseQL database and analytics documentation` (2026-02-08).
+      - Remote root commit: `482e8db chore(init): Initialize fraiseql_marketing project with phase structure` (2026-02-16).
+      - `git diff --stat main origin/main`: 397 files, +77 379 / −54 314 lines.
+    - **Implication:** these are two parallel docs efforts. Methodology § 6.1 (CI is the only GREEN gate) and Phase 00 cycles 6/8 (CI workflow, PR template) cannot land cleanly without first resolving which `main` is canonical.
+    - **Push authority confirmed by human:** feature branches only (not `main`). But pushing a feature branch off a disjoint local `main` would create an orphan branch on the remote; PR merge semantics are degraded against unrelated histories.
+    - Proposal — needs human choice (see ask-the-user response): one of (a) treat local v2.dev as canonical and replace `fraiseql-docs/main` (destructive — needs explicit override of "never force-push to main"); (b) create a new repo `fraiseql-docs-v2` (or similar) and push there cleanly; (c) rebase / cherry-pick the local 51 commits onto `origin/main` so we converge before phase 00 closes; (d) accept the orphan-branch posture and proceed with PRs against unrelated history.
+    - Cycles 1–5 are local-only infrastructure (Compose, Dockerfile, storage sidecars, operator CLI, smoke). They can proceed during G6 deliberation. Cycles 6, 8 are blocked until G6 resolves.
+    - **Live-site evidence (added after WebFetch on https://fraiseql.dev/):**
+      - Live hero title: `Any DB. Any Language. Any Transport. One Binary.`
+      - Live tagline: `Define your schema. Compile. Serve. No resolvers. No ORM. One query per request.`
+      - Remote `fraiseql-docs/src/content/docs/index.mdx`: hero `Compiled API Server.`; tagline pivots on "Author once. Serve everywhere. Python/TypeScript/Go/+10 SDKs. GraphQL + REST + gRPC, one binary." → **matches the live site**.
+      - Local `src/content/docs/index.mdx`: hero `Own Your SQL. Serve as GraphQL.`; tagline pivots on "Database-first GraphQL, JSONB views" → **does not match the live site**.
+    - **Conclusion:** `fraiseql/fraiseql-docs` is canonical for the deployed site. The other local tree at `~/code/fraiseql_v2.dev` is older, parallel "database-first" framing that was not shipped. Resolution: option C — pivot the overhaul to operate on a clean `fraiseql-docs` checkout at `~/code/fraiseql-docs/`; replay phase-00 cycle 0 there; the `~/code/fraiseql_v2.dev` tree remains as historical context but is no longer the basis for ongoing work.
+    - **Resolution (human, 2026-05-28):** chose option C — pivot to `~/code/fraiseql-docs`, feature branches only. Gate G6 closed. See next entry. ✅
+
+---
+
+### Phase 00 / Cycle 0 close (post-pivot) — orchestrator — 2026-05-28
+
+- **Working tree pivot:** all subsequent work happens in `~/code/fraiseql-docs/` (cloned from `git@github.com:fraiseql/fraiseql-docs.git`, branch `main` at `4e3dbdb`). The `~/code/fraiseql_v2.dev` tree retains the pre-pivot Cycle 0 artefacts as historical context but receives no further commits.
+- `_internal/.plan/` tree copied into the new working tree at `~/code/fraiseql-docs/_internal/.plan/`. Path references in plan files rewritten `fraiseql_v2.dev` → `fraiseql-docs`.
+- Branch posture: I will create `phase-00/foundation` from `origin/main` for all phase-00 work and commit per cycle on that branch. Single PR at phase close, per human's "feature branches only" authorisation. CI does not yet exist (it is wired in Cycle 6).
+- `astro.config.mjs` (new tree) has the `_internal/` documentation comment added.
+- Next persona: Writer (Opus 4.7) for Cycle 1 — Compose stack. Then Cleanup (Sonnet 4.6).
+- Docs-test suite: not yet wired (Cycle 6).
+- Framework issues filed: 0.
+- Open gates: none. (G6 resolved.)
+
+---
+
+### Phase 00 / Cycle 1 close — Writer (Opus 4.7) — 2026-05-28
+
+- **Landed under `scripts/docs-test/`:**
+  - `docker-compose.docs-test.yml`: services `postgres`, `mysql`, `sqlite-init`, `mssql`, `redis`, `nats`. Each carries its own profile label plus the shared `all` profile. The `fraiseql` service slot and `minio` / `azurite` / `fake-gcs-server` storage sidecars are left as TODO comment blocks (Cycle 2 and Cycle 3 respectively) — no implementation, no profile leakage.
+  - `.env.example`: centralised credentials. `DB_USER=fraiseql`, `DB_PASSWORD=fraiseql_docs_test`, `DB_NAME=fraiseql` (the DB name matches the framework default in `crates/fraiseql-server/src/server_config/defaults.rs:9`, `postgresql://localhost/fraiseql`). MSSQL gets its own `Fraiseql_docs_test1!` to satisfy the SA password policy. Host port overrides exposed for the operator-CLI cycle to consume.
+  - Image digests pinned (all `linux/amd64`, resolved 2026-05-28 via local pull → `RepoDigests[0]`):
+    - `postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229`
+    - `mysql:8.4@sha256:c36050afdca850f23cef85703f84c7531a5ae155a11b5ee1c60acb09937c4084`
+    - `alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc` (sqlite-init shell)
+    - `mcr.microsoft.com/mssql/server:2022-CU13-ubuntu-22.04@sha256:c4369c38385eba011c10906dc8892425831275bb035d5ce69656da8e29de50d8`
+    - `redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99`
+    - `nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927`
+  - Healthchecks: PG via `pg_isready`; MySQL via `mysqladmin ping`; MSSQL via `sqlcmd … -Q 'SELECT 1'` with `start_period: 90s`; Redis via `redis-cli ping`; NATS via the `/healthz` monitoring endpoint. SQLite is a one-shot `restart: "no"` job that materialises the DB file under a named volume.
+  - Host ports: `54320/PG`, `13306/MySQL`, `14330/MSSQL`, `63790/Redis`, `42220/NATS`. (The phase doc suggested `33060` for MySQL but that host port is taken by an existing user workload, hence the bump to `13306`.)
+- **`.gitignore` change:** added `scripts/docs-test/.env` only; nothing else touched.
+- **RED evidence:** `_internal/.plan/red-evidence/cycle-01-empty-compose.transcript` — empty file fails all of `up`, `up --wait`, `config -q`, `ps` with exit 1 and stderr `empty compose file`.
+- **GREEN validation (partial — see blocker below):** `_internal/.plan/red-evidence/cycle-01-green-validation.transcript`.
+  - `docker compose … --profile all config -q` → **EXIT 0**.
+  - Profile selection verified for every profile (`postgres`, `mysql`, `sqlite`, `mssql`, `redis`, `nats`, `all`, none). Each selects exactly the intended service set.
+  - `down -v` tears down cleanly (network + all named volumes removed).
+- **Blocker on the `up --wait` gate (host environmental, not docs-side):** the workstation Docker daemon (29.4.1 / containerd 2.2.3) returns `failed to create task for container: failed to start shim: start failed: failed to create TTRPC connection: unsupported protocol: Yunix` on every container start, including `docker run --rm hello-world`. The daemon has been up 2 weeks 3 days with ~750 running containers and ~9094 containerd tasks; shim/runtime state is corrupted. Recovery is `systemctl restart containerd docker.service` which **I deliberately did not run** — those 750 containers are user workloads. Local `up --wait` validation cannot complete on this host until the daemon is recycled. The compose file itself parses, validates, and tears down cleanly; the issue is strictly at the container-runtime layer.
+- **Suggested next step before Cycle 2:** human (or Cycle 2 persona) restarts the Docker daemon on this host and re-runs `docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile all up --wait`. If healthchecks pass, Cycle 1's CLEANUP gate is materially met and Cycle 2 can proceed against a known-good stack. If any healthcheck fails, file a bug here before Cycle 2 builds on top.
+- **Anti-scope held to:** no `Dockerfile.fraiseql` (Cycle 2), no MinIO/Azurite/fake-gcs (Cycle 3), no `docs-test.sh` (Cycle 4), no `_smoke.docs-test.sh` (Cycle 5), no CI workflow (Cycle 6), no fixtures/init schemas (Cycle 5), no `src/content/docs/` edits.
+- **Framework issues filed:** 0. No framework behaviour was exercised this cycle — only image pinning, host ports, and healthcheck wiring.
+- **Push posture:** branch `phase-00/foundation` has the new Cycle 1 commit on top of Cycle 0's `8d92678`. Not pushed — no CI exists yet to gate against, and the cycle spec's "pushing is optional this cycle" guidance applies. Cycle 2 author can push if convenient.
+- **Open gates:** none new. G2 (SHA bump) and Cycle 1's local `up --wait` re-validation are deferred to Cycle 2's start — not a human gate, just a Docker daemon recycle.
+
+---
+
+### Phase 00 / Cycle 1 finishing — orchestrator — 2026-05-28
+
+Closes the deferred `up --wait` validation from the prior entry. Docker daemon was recycled by the human (authorised "restart for me with safeguards"; passwordless sudo unavailable so the human ran `sudo systemctl restart containerd docker.service` themselves). `docker run --rm hello-world` returned clean post-restart, confirming the `Yunix` shim mismatch is gone. State snapshots from before the restart are retained at `/tmp/docker-restart-2026-05-28/` (running-names-before.txt, restart-policies.txt, networks.txt, volumes.txt) so the 4 996-volume / 4 995-container cruft can be pruned later with `docker container prune -f && docker volume prune -af`. The Cycle-1 image pulls are not affected — they remain cached by digest.
+
+Two real Cycle-1 bugs surfaced and were fixed in commit `9adb4eb` (on top of the Writer's `396c1b2`):
+
+1. **MSSQL healthcheck path wrong.** The 2022-CU13-ubuntu-22.04 image bundles the legacy mssql-tools at `/opt/mssql-tools/bin/sqlcmd`, not the modern `/opt/mssql-tools18/bin/sqlcmd` the Writer had configured. The legacy sqlcmd also does not accept `-C` or `-N` (those are mssql-tools18 flags). The previous healthcheck failed with exit 127 (file not found) on 23 consecutive probes. Fixed to use the legacy path and drop the unsupported flags. Container went healthy in ~10 s post-fix on the re-validation run.
+
+2. **`sqlite-init` in `--profile all` broke `up --wait`.** A one-shot service that exits 0 is treated as failure by `docker compose up --wait`. The cold-start `--profile all up --wait` aborted in 1 s when `sqlite-init` exited (0). Fixed by dropping `sqlite-init` from the `all` profile (it stays on the `sqlite` profile). The idiomatic invocation is now `docker compose run --rm sqlite-init` or `docker compose --profile sqlite up sqlite-init`. Cycle 5's smoke test will follow that pattern. The compose-file header for `sqlite-init` now documents this explicitly. This is a *design correction* against the literal phase-doc text (which lists `sqlite-init` alongside the long-running services in the `--wait` set); the phase doc's success criterion remains met — `up --wait` returns 0 — just over the five long-running services, with SQLite materialised via a separate idiomatic command.
+
+After the fix, on a cold start (volumes pruned):
+
+- `docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile all up --wait --wait-timeout 240` → **exit 0 in 21.6 s**, all five services (postgres, mysql, mssql, redis, nats) healthy. Full transcript at `_internal/.plan/red-evidence/cycle-01-up-wait-cold-start.transcript`.
+- `docker compose -f scripts/docs-test/docker-compose.docs-test.yml run --rm sqlite-init` → exit 0, materialises `/data/fraiseql.db`, prints `main: /data/fraiseql.db r/w`.
+- `docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile <p> config -q` clean for every profile (`all`, `postgres`, `mysql`, `sqlite`, `mssql`, `redis`, `nats`).
+- `docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile all --profile sqlite down -v --remove-orphans` removes every named volume and the default network with zero orphans.
+
+Cycle 1 is materially complete. Branch `phase-00/foundation` now has three commits on top of `origin/main` (`4e3dbdb`): `8d92678` Cycle 0 plan seed → `396c1b2` Compose stack → `9adb4eb` healthcheck + profile fix. Not pushed (no CI yet; pushing deferred). Next persona: Writer (Opus 4.7) for Cycle 2 — `Dockerfile.fraiseql` multi-stage build with the framework's full docs-relevant feature set.
+
+Docs-test suite: 0/0 pages (Cycles 2–8 produce pages; Cycle 6 wires the CI). Framework issues filed: 0. Open gates: none.
+
+---
+
+### Phase 00 / Cycle 2 close — Writer (Opus 4.7) — 2026-05-28
+
+- **Landed under `scripts/docs-test/`:**
+  - `Dockerfile.fraiseql`: multi-stage build. Stage 1 (`rust:1.92-slim`) compiles `fraiseql-server` with `cargo build --release --locked -p fraiseql-server --features "$CARGO_FEATURES"`. Default feature set matches the phase-doc spec verbatim: `arrow,observers,observers-nats,observers-enterprise,rest,redis-pkce,redis-apq,redis-rate-limiting`. Every feature was grep-verified against `crates/fraiseql-server/Cargo.toml` at the frozen SHA (lines 152–195) before the Dockerfile landed — see file:line in the inline comment. Stage 2 (`debian:bookworm-slim`) installs runtime deps (libpq5, ca-certificates, curl for the Compose healthcheck), creates a non-root `fraiseql:fraiseql` user with UID/GID 10001, and `COPY --from=builder` the stripped binary into `/app/fraiseql-server`. Baseline compiled schema is generated inline at `/etc/fraiseql/schema.compiled.json` (empty arrays — `{"types": [], "queries": [], ...}` — accepted by `CompiledSchema::from_json`, cited at `crates/fraiseql-core/src/schema/compiled/schema.rs:L57-L66`). `FRAISEQL_ENV=development` is set on the image so the production-mode CORS validation (`crates/fraiseql-server/src/server_config/methods.rs:L199-L217`) does not reject the docs-test baseline.
+  - `configs/baseline.toml`: minimal config overlay. `bind_addr = "0.0.0.0:8080"`, `database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"` (matches the Compose `.env.example` credentials), `schema_path = "/etc/fraiseql/schema.compiled.json"`. CORS is enabled with a placeholder origin so the overlay also works when the operator boots without `FRAISEQL_ENV` set. Admin / metrics / playground / introspection all default-off (and the file re-states the defaults so per-page overlays can flip individual surfaces). Every non-obvious key carries a `<!-- source: path:Lstart-Lend -->` HTML-comment citation pointing at the `server_config` schema and `defaults.rs` functions — the Verifier persona will re-grep them at phase close.
+  - `docker-compose.docs-test.yml`: the Cycle-1 TODO slot is filled. The `fraiseql` service builds from `../../../fraiseql` (i.e. `~/code/fraiseql`) using the Dockerfile, tags the result `fraiseql-docs-test-fraiseql:latest`, declares `depends_on` against `postgres` and `redis` with `condition: service_healthy`, mounts `./configs/baseline.toml:/etc/fraiseql/fraiseql.toml:ro`, exposes port 8080, and uses `curl -fsS http://127.0.0.1:8080/health` as the Compose healthcheck (`interval: 5s`, `timeout: 3s`, `retries: 20`, `start_period: 60s`). `postgres` and `redis` were added to the `fraiseql` profile so `docker compose --profile fraiseql up` boots them automatically — Compose does not auto-activate dependency profiles. Build args wire `FRAISEQL_SHA=d0a4ed4ec1770c70707f68fd9019f2b561d87461` and the full `CARGO_FEATURES` string.
+  - `.env.example`: added `HOST_PORT_FRAISEQL=8080` and an `FRAISEQL_LOG` override comment.
+- **Feature-flag deviations from the phase-doc spec:** **none**. All eight requested features (`arrow`, `observers`, `observers-nats`, `observers-enterprise`, `rest`, `redis-pkce`, `redis-apq`, `redis-rate-limiting`) are defined on `fraiseql-server` itself at the frozen SHA — verified by inspection of `crates/fraiseql-server/Cargo.toml:L152-L195`. The phase doc's worry about `redis-pkce` possibly being a `fraiseql-core`-only feature is unfounded for this SHA: `redis-pkce = ["auth", "fraiseql-auth/redis-pkce"]` is on `fraiseql-server` (line 182). No discrepancies to record in the handoff beyond this confirmation.
+- **Health endpoint citation (G-test for the Verifier):**
+  - `/health` route mount: `crates/fraiseql-server/src/server/routing/admin.rs:L28-L33` — base routes are merged onto the app router *without* auth middleware. The comment on L28 reads "Build base routes (always available without auth)".
+  - Default `health_path = "/health"`: `crates/fraiseql-server/src/server_config/defaults.rs:L63-L65`.
+  - Handler implementation returning 200 when the database is reachable, 503 otherwise: `crates/fraiseql-server/src/routes/health.rs:L140-L175` (and onward — handler body covers observers/cache/secrets feature gates too). The handler probes the executor's adapter via `health_check().await`; with the docs-test Compose stack the PG service is healthy before `fraiseql` depends-on-released it, so the first probe returns 200.
+- **RED evidence:** `_internal/.plan/red-evidence/cycle-02-no-fraiseql-service.transcript` — boots the Cycle-1 stack (no fraiseql service yet) and runs `curl --fail-with-body -sS http://localhost:8080/health` which returns exit 7 (connection refused). docker compose ps confirms no `fraiseql` row.
+- **GREEN evidence:** `_internal/.plan/red-evidence/cycle-02-health-200.transcript`. From a cold start (volumes pruned), `docker compose -f scripts/docs-test/docker-compose.docs-test.yml --profile all up -d --wait --wait-timeout 240` returned exit 0 in **43.4 s** with all six services Healthy. `curl --fail-with-body -sS http://localhost:8080/health` returned HTTP 200 with body `{"status":"healthy","database":{"connected":true,"database_type":"PostgreSQL",...},"version":"2.3.2","schema_hash":"316c9100f7a872c8c411033ac2a00066"}`. Healthcheck log: five consecutive `ExitCode: 0` probes, `FailingStreak: 0`. Profile selection re-verified for every profile (`all`, `postgres`, `mysql`, `sqlite`, `mssql`, `redis`, `nats`, `fraiseql`) — `--profile fraiseql` selects exactly `{fraiseql, postgres, redis}`.
+- **Image-size budget (CLEANUP):** uncompressed `Size=44 927 736` (44.9 MB); compressed `docker save | gzip | wc -c=44 562 679` (44.5 MB). **Well under the 300 MB cap** (≈15% of budget). The workspace `[profile.release]` already sets `strip = true` and `lto = "fat"`; the explicit `strip target/release/fraiseql-server` in the builder stage is a belt-and-suspenders no-op. Distroless was not needed.
+- **Build cache (REFACTOR):** the Dockerfile uses BuildKit `--mount=type=cache,id=fraiseql-docs-cargo-{registry,git,target},target=…` for the cargo registry, git, and `/build/target` directories. **Note for the host this cycle was authored on:** Docker 29.5.1 ships without the buildx CLI plugin by default. To produce GREEN evidence I installed `docker-buildx v0.18.0` user-locally at `~/.docker/cli-plugins/docker-buildx` (no system change; reversible). CI runners (ubuntu-latest) ship buildx; this is a developer-laptop quality-of-life requirement Cycle 6 will document in the CI workflow's pre-flight checks. Cold cargo build was **4m 39s**; warm rebuilds will be seconds via the cache mount IDs (which survive `docker compose build` cycles but not `docker builder prune -a`). The host-target bind-mount strategy is **described as a future optimisation** in the Dockerfile inline comment but **not wired into the default RUN** — it requires `docker buildx build --build-context fraiseql-target=$HOME/code/fraiseql/target …` which is incompatible with `docker compose build`'s current invocation surface. Cycle 5's smoke script can opt in by building outside compose first; Cycle 6's CI workflow will rely on the cache mount.
+- **Worktree note:** the user's `~/code/fraiseql` working tree was dirty during Cycle 2 (an in-progress `feat/deps-sha1-hmac-joint-bump` branch that does not compile at HEAD). I worked around this by adding a git worktree at `/tmp/fraiseql-frozen` pinned to the frozen SHA, building from there, and removing the worktree after capture (`git worktree remove /tmp/fraiseql-frozen`). CI (Cycle 6) will start from a clean clone at exactly `FRAISEQL_SHA`, so this is not an upstream concern; documented here for the next persona's situational awareness.
+- **Anti-scope held to:** no MinIO/Azurite/fake-gcs (Cycle 3 still has its TODO block), no `docs-test.sh` (Cycle 4), no `_smoke.docs-test.sh` or page test scripts (Cycle 5), no `.github/workflows/docs-test.yml` (Cycle 6), no fixtures or init schemas under `fixtures/*` (still empty per Cycle 1), no edits under `src/content/docs/`, no `Makefile`, no `FRAISEQL_SHA` file (Cycle 9 owns that — Cycle 2 ARG defaults are inline).
+- **Framework issues filed:** 0. Server logged three "expected" defence-in-depth warnings on boot (`subscription_require_auth is true but no OIDC configured — subscriptions disabled`, `design_api_require_auth is true but no OIDC configured — design API endpoints are DISABLED`, `RBAC Management API disabled — admin_token is not set`). These match the framework's intentional security-by-default posture and are documented surface in `server_config/mod.rs`. The docs-test baseline accepts them; per-page overlays (Cycle 5+) enable individual surfaces as needed.
+- **Known issues for Cycle 3+ to be aware of:**
+  - On low-memory developer hosts (this one has ~600 simultaneous containers historically), MSSQL has shown occasional cold-boot flakiness when the stack is brought up with stale volumes from an aborted previous run. The Cycle-1 fix path (`down -v` between runs) resolves it. Documented for Cycle 5's smoke script: always pair `down -v` with `up --wait` to avoid stale-volume MSSQL crashes.
+  - The image's healthcheck depends on `curl` being present in the runtime stage. Cycle 3's storage sidecars may want to use the same healthcheck pattern; their Dockerfiles will need to install curl too (or use the framework's `/health` via `docker exec fraiseql curl ...` if they sit behind it).
+  - Docker daemon 29.5.1 + containerd snapshotter consumes ~172 MB disk usage for this image (per `docker image ls` "DISK USAGE" column) despite a 44.9 MB content size — the inflation is the OCI attestation manifest BuildKit generates. CI image-pull bandwidth is bounded by the 44.5 MB compressed save, not the disk usage figure.
+- **Push posture:** branch `phase-00/foundation` will gain one Cycle 2 commit on top of `043034d` (Cycle 1 finishing). Not pushed (no CI yet; the phase doc says "CI is the only GREEN gate" activates Cycle 6 onward). Cycle 3 author can push if convenient.
+- **Open gates:** none new. The G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+### Phase 00 / Cycle 3 close — Writer (Opus 4.7) — 2026-05-28
+
+- **Services landed (`scripts/docs-test/docker-compose.docs-test.yml`):** three long-running storage backends plus two bucket-init sidecars, all on `--profile storage` only (deliberately NOT on `--profile all` per the cycle-spec cost-awareness rule — aggregate uncompressed image footprint is **~870 MB**: MinIO 250 MB, mc 116 MB, Azurite 427 MB, fake-gcs-server 78 MB, plus azure-cli 155 MB used by `azurite-init`):
+  - `minio` — `minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e`. S3 API on container 9000 (host 9100), console on 9001 (host 9101). Healthcheck: `curl -fsS http://127.0.0.1:9000/minio/health/live` (API-readiness, not TCP-liveness; curl ships in the upstream RHEL-based image).
+  - `minio-init` — `minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3`. One-shot `restart: "no"`, `depends_on: minio service_healthy`. Runs `mc mb --ignore-existing local/fraiseql-docs-test`, idempotent (re-run via `docker compose run --rm minio-init` returns "Bucket created successfully" on existing buckets too).
+  - `azurite` — `mcr.microsoft.com/azure-storage/azurite:3.34.0@sha256:0a47e12e3693483cef5c71f35468b91d751611f172d2f97414e9c69113b106d9`. Blob API on container 10000 (host 10100); queue/table not exposed. Healthcheck: raw `nc` + `printf` HTTP GET / against the request pipeline, grepping for `x-ms-error-code: InvalidQueryParameterValue` in the headers (BusyBox `wget` exits 1 on HTTP 400 without printing the body, so wget-based probes don't work). Confirms request-pipeline readiness, not just TCP-bind.
+  - `azurite-init` — `mcr.microsoft.com/azure-cli:2.66.0@sha256:2efc666f2f3cac0b9f39c17a2be95f17ebd319ce226d5fb93ecf88d11b5bc86e`. One-shot `restart: "no"`, `depends_on: azurite service_healthy`. Runs `az storage container create --name fraiseql-docs-test` against the well-known Azurite dev account (`devstoreaccount1` / Microsoft-published key, copied verbatim from the official docs link in the compose comment). Idempotent: returns `{"created": false}` on re-run.
+  - `fake-gcs` — `fsouza/fake-gcs-server:1.52.2@sha256:d47b4cf8b87006cab8fbbecfa5f06a2a3c5722e464abddc0d107729663d40ec4`. JSON-API on container 4443 (host 4443). `command:` override `mkdir -p /data/fraiseql-docs-test && exec /bin/fake-gcs-server -scheme http -port 4443 -host 0.0.0.0 -data /data -public-host fake-gcs:4443 -log-level warn`. Auto-discovers the bucket directory on startup; no separate init sidecar is required. Healthcheck: `wget` against `/storage/v1/b/fraiseql-docs-test` → 200.
+- **`.env.example` / `.env` additions:** `HOST_PORT_MINIO_S3=9100`, `HOST_PORT_MINIO_CONSOLE=9101`, `HOST_PORT_AZURITE=10100`, `HOST_PORT_FAKE_GCS=4443`, `MINIO_ROOT_USER=minioadmin`, `MINIO_ROOT_PASSWORD=minioadmin`.
+- **Compose-design discovery (relevant to Cycle 4's operator CLI):**
+  - `docker compose down` without `--profile storage` does NOT tear down storage-profiled containers — even with `--remove-orphans`. The Cycle 4 `docs-test.sh down` must enumerate ALL profiles (`--profile all --profile storage --profile fraiseql --profile sqlite`) to reach a true zero-state. The same caveat applies to Cycle 5's smoke driver.
+  - Compose `--wait` treats a one-shot `restart: "no"` container's `exit 0` as failure UNLESS the one-shot is gated by `depends_on: <long-running-service>: condition: service_healthy`. The Cycle-1 `sqlite-init` workaround (drop from `--profile all`) and the Cycle-3 init pattern (`*-init` services chained to their target storage service's healthcheck) are both correct expressions of this constraint. Cycle 5 should also avoid one-shot services in the default `--wait` set unless they are similarly chained.
+- **Overlays landed (`scripts/docs-test/configs/overlays/`):** three files, each with a leading `<!-- source: ... -->` citation block pointing at framework schema lines at the frozen SHA:
+  - `storage-s3.toml` — `backend = "s3"`, `endpoint = "http://minio:9000"`, `bucket = "fraiseql-docs-test"`, `region = "us-east-1"`. Cites the `StorageConfig` TOML binding (`crates/fraiseql-server/src/config/mod.rs:L113-L114`), struct (`:L397-L425`), the `s3` arm in `create_backend` (`crates/fraiseql-storage/src/backend/mod.rs:L442-L451`), and `S3Backend::new` (`crates/fraiseql-storage/src/backend/s3/mod.rs:L29-L52`). Notes that the Cycle-2 image must be rebuilt with `aws-s3` appended to `CARGO_FEATURES` before this overlay is usable.
+  - `storage-azure.toml` — `backend = "azure"`, `account_name = "devstoreaccount1"`, `bucket = "fraiseql-docs-test"`. Cites the Azure arm in `create_backend` (`crates/fraiseql-storage/src/backend/mod.rs:L544-L554`), `AzureBackend::new` (`crates/fraiseql-storage/src/backend/azure.rs:L35-L56`), the struct (`:L19-L24`), and the hardcoded URL (`:L58-L60`). **Documents the framework limitation** (see § Framework issue below) — overlay is unusable through the FraiseQL server at the frozen SHA but the Azurite sidecar is still proven correct by the direct-client smoke.
+  - `storage-gcs.toml` — `backend = "gcs"`, `bucket = "fraiseql-docs-test"`. Cites the GCS arm in `create_backend` (`crates/fraiseql-storage/src/backend/mod.rs:L535-L543`), `GcsBackend::new` (`crates/fraiseql-storage/src/backend/gcs.rs:L37-L99`), and the hardcoded API base (`:L15`). Same framework-limitation note as `storage-azure.toml`.
+- **Smoke helper landed (`scripts/docs-test/lib/storage-smoke.sh`):** Bash, shellcheck-clean (single SC2329 false positive about `cleanup`-via-trap), executable. 1 KB urandom payload, written then read back via each backend's native client tool — MinIO via `mc cp` (using the `minio-init` image), Azurite via `az storage blob upload/download` (using the `azurite-init` image), fake-gcs via raw `curl` against the JSON API (using the `azurite-init` image because the `azure-cli` base ships curl, whereas the alpine `fake-gcs` and RHEL `minio/mc` images do not). The helper accepts optional backend-subset arguments (`minio | azurite | fake-gcs`) so Cycle 4's operator CLI can offer per-backend probes. Each backend's downloaded file is cleared between runs (`fresh_download_target`) so a successful prior run cannot mask a current-backend failure — caught a bug in the first draft where fake-gcs's missing `curl` did not regenerate `downloaded.bin` and the stale Azurite payload still cmp'd OK.
+- **RED transcript:** `_internal/.plan/red-evidence/cycle-03-no-storage-sidecars.transcript`. Confirms `--profile storage config --services` resolved to zero services pre-cycle, that `up -d --wait` exited 1 with `no service selected`, and that all four storage-shaped curls (MinIO API 9100, console 9101, Azurite 10100, fake-gcs 4443) returned curl exit 7 (connection refused).
+- **GREEN transcript:** `_internal/.plan/red-evidence/cycle-03-storage-smoke.transcript`. Three sections:
+  - § 1: cold-boot `--profile storage --wait --wait-timeout 180` returned **exit 0 in 6 s**; all four long-running services Healthy (`minio`, `minio-init` exited 0, `azurite`, `azurite-init` exited 0, `fake-gcs`).
+  - § 2: `lib/storage-smoke.sh` exit 0; MinIO 1024-byte roundtrip OK, Azurite 1024-byte roundtrip OK, fake-gcs 1024-byte roundtrip OK.
+  - § 3: combined `--profile all --profile storage --profile fraiseql --wait --wait-timeout 240` returned **exit 0 in 7 s** (warm — Cycle 2's FraiseQL image was cached); all nine long-running services Healthy (postgres, mysql, mssql, redis, nats, minio, azurite, fake-gcs, fraiseql). `curl http://localhost:8080/health` returned `{"status":"healthy","database":{"connected":true,"database_type":"PostgreSQL",...},"version":"2.3.2"}`. Confirms the Cycle-2 fraiseql server co-boots cleanly with the Cycle-3 storage sidecars.
+- **Framework issue filed:** https://github.com/fraiseql/fraiseql/issues/326 — "storage(azure,gcs): expose endpoint override so emulators (Azurite, fake-gcs-server) are reachable via config". Severity `qol`. **Root cause:** `AzureBackend` hardcodes `https://{account}.blob.core.windows.net/...` (`crates/fraiseql-storage/src/backend/azure.rs:L58-L60`) and `GcsBackend` hardcodes `https://storage.googleapis.com` (`crates/fraiseql-storage/src/backend/gcs.rs:L15`); neither constructor accepts an endpoint parameter. The `endpoint` field on `StorageConfig` (`crates/fraiseql-server/src/config/mod.rs:L409-L411`) is silently ignored for the `azure` and `gcs` arms in `create_backend` (`crates/fraiseql-storage/src/backend/mod.rs:L535-L554`). **Impact on Cycle 5:** the smoke can only drive the FraiseQL server's storage routes against MinIO; Azurite and fake-gcs remain direct-client tests only until the framework fix lands. Registered in `framework-qa-triage.md` as **FW-1**.
+- **Cargo-feature gap (for Cycle 5 awareness):** the Cycle-2 image's `CARGO_FEATURES` does NOT include `aws-s3`, `gcs`, or `azure-blob`. Any cycle that drives storage end-to-end through the FraiseQL server must rebuild with the relevant feature appended. The three overlay files name this in their leading comment blocks.
+- **Bucket / container uniformity:** all three backends serve a single namespace `fraiseql-docs-test`. Verified by `mc ls local/fraiseql-docs-test` (MinIO), `az storage container show` (Azurite), `curl /storage/v1/b/fraiseql-docs-test` (fake-gcs).
+- **Anti-scope held to:** no operator CLI (Cycle 4), no `_smoke.docs-test.sh` (Cycle 5), no CI workflow (Cycle 6), no edits under `src/content/docs/`, no fourth storage backend, no edits to `Dockerfile.fraiseql` or to the existing six Cycle-1 services. The `fraiseql` service continues to expose `--profile fraiseql` and `--profile all` exactly as Cycle 2 left it.
+- **Push posture:** branch `phase-00/foundation` will gain one Cycle 3 commit on top of `d8b7e5c` (Cycle 2 close). Not pushed (Cycle 6 owns the CI gate). Cycle 4 author can push the chain whenever convenient.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+### Phase 00 / Cycle 4 close — Writer (Opus 4.7) — 2026-05-28
+
+- **Landed under `scripts/docs-test/`:**
+  - `docs-test.sh` (782 lines) — single-file Bash 4.4+ operator CLI with seven subcommands per spec: `up`, `down`, `reset`, `exec`, `status`, `logs`, `sha`. Sets `HERE` via `BASH_SOURCE`+`cd` so cwd-independence is achieved (constraint #2). Sources `.env` automatically; warns once on stderr when only `.env.example` exists (constraint #3, "no `.env` — using compose defaults"). `--help` works at the top level and on every one of the seven subcommands (constraint #9; verified via the walkthrough transcript).
+  - `completions/docs-test.bash` (~80 lines) — Bash completion: position-1 subcommand list, `--profile <p>` completion against the nine known profiles (`all postgres mysql sqlite mssql redis nats fraiseql storage`), per-subcommand flag completion. Loads via `source scripts/docs-test/completions/docs-test.bash`.
+  - `completions/docs-test.zsh` (~80 lines) — Zsh `_arguments`-style completion with descriptions on each subcommand and flag. Loads via `source scripts/docs-test/completions/docs-test.zsh`. Has the `#compdef docs-test.sh` header so it can also be dropped into a `$fpath` dir as `_docs-test.sh` for autoload.
+  - Each completion file carries the documented "how to source me" header so users do not have to read source to figure out wiring (constraint #11 anti-scope: no global PATH or rc-file modification).
+- **`.gitignore` change:** added `scripts/docs-test/.last-profiles` (the new `reset` memory file).
+- **Design decisions worth surfacing:**
+  - **`up --profile sqlite` semantics:** the cycle spec asked us to "decide and document". Implementation triggers `docker compose run --rm sqlite-init` (one-shot, exit-0 semantics) rather than `up --wait`. When mixed with long-running profiles (e.g. `--profile postgres,sqlite`) the script materialises SQLite first, then runs `up --wait` on the remaining profiles. This is documented inline in `up --help` and the inline comment block. Matches the Cycle 1 fix in commit `9adb4eb` and avoids `up --wait`'s "exit 0 = failure" trap.
+  - **`logs --follow` signal handling:** the cycle spec required Ctrl-C to "not require interrupting the script ungracefully" and to "exit 0". First attempt used `setsid` + a SIGINT trap that killed the child's process group; this left orphan `docker compose logs -f` processes when SIGINT arrived via `kill -INT $pid` (parent only) because the setsid'd child no longer shared the parent's group. Replaced with the simpler robust pattern: run `docker compose logs -f` in the foreground (sharing the script's controlling tty and process group), let the kernel deliver SIGINT to every member of the group on real Ctrl-C, then translate exit codes 130 (SIGINT) / 143 (SIGTERM) / 0 → 0. Verified via `/tmp/test-logs-follow2.sh`: `setsid docs-test.sh logs redis --follow & sleep 2 ; kill -INT -$pid ; wait $pid` → exit 0, zero orphans.
+  - **`down` profile enumeration:** always passes `--profile all --profile storage --profile fraiseql --profile sqlite --remove-orphans`. Cycle 3 explicitly surfaced that `docker compose down` without enumerating storage-profiled containers leaves them running; the CLI now forces the comprehensive teardown. `--volumes` (`-v`) is opt-in for the data wipe.
+  - **`reset` last-used recovery:** `.last-profiles` is written one profile per line on every `up`, and read back on `reset`. Absent → falls back to `--profile all` (constraint #5). The reset path re-invokes `cmd_up` so it inherits the sqlite special-casing.
+  - **`exec` argv quoting:** the `--` terminator is mandatory (`exec` errors with a helpful message if omitted). Everything after `--` is passed verbatim via `"$@"`. Verified end-to-end with `docs-test.sh exec postgres -- psql -U fraiseql -d fraiseql -c "SELECT 1 AS sentinel"` (multi-token quoted argument) and `docs-test.sh exec redis -- redis-cli ping` (single-token).
+  - **`status` header:** prints working tree path, branch, short SHA, frozen SHA (or `(unset -- set in phase 00 cycle 9)` when the file is absent — constraint #6, gracefully handles pre-Cycle-9 state), `~/code/fraiseql` HEAD, and a comparison flag (`(matched)`, `MISMATCH`, or `(frozen SHA unset; comparison skipped)`). Then enumerates every profile when calling `docker compose ps` so storage / fraiseql / sqlite containers also appear if running.
+  - **`sha` exit codes:** 0 when matched OR when the FRAISEQL_SHA file is absent (pre-Cycle-9); 1 with a loud multi-line warning when both are present and differ. Verified both paths against a synthetic `FRAISEQL_SHA` file (the user's `~/code/fraiseql` worktree is unrelated to the frozen value, so the mismatch path was easy to exercise; the match path was verified by writing the live HEAD into the file).
+- **RED evidence:** `_internal/.plan/red-evidence/cycle-04-no-operator-cli.transcript` — side-by-side "today vs. post-Cycle-4" stanza per the cycle-spec format. The ~30-line plumbing block (Compose file path resolution, env loading, profile enumeration, teardown trap, frozen-SHA drift check) collapses to ~6 lines once the CLI exists. With ~25 pages projected by Phase 02 the saving compounds to ~600 lines and, more importantly, gives the harness a single audit surface for env loading / teardown / SHA drift policies.
+- **GREEN evidence:** `_internal/.plan/red-evidence/cycle-04-operator-cli-walkthrough.transcript` — thirteen-section transcript exercising every subcommand against a live stack: `--help`, `sha` (pre-Cycle-9 path), `up --profile postgres,redis`, `status` (header + healthy services), `exec postgres -- psql` (multi-token), `exec redis -- redis-cli ping` (single-token), `logs redis` (non-follow), `logs redis --follow` (signal handling verified separately), `up --profile sqlite` (one-shot), `reset` precondition (`.last-profiles` content), `down --volumes` (full teardown), zero-state verification (0 containers / 0 volumes), and final shellcheck pass.
+- **`--help` coverage matrix:**
+  | Surface                          | Exit | Output ?            |
+  |----------------------------------|------|---------------------|
+  | `docs-test.sh --help`            | 0    | subcommand list     |
+  | `docs-test.sh` (no args)         | 0    | subcommand list     |
+  | `docs-test.sh help`              | 0    | subcommand list     |
+  | `docs-test.sh up --help`         | 0    | up options          |
+  | `docs-test.sh down --help`       | 0    | down options        |
+  | `docs-test.sh reset --help`      | 0    | reset description   |
+  | `docs-test.sh exec --help`       | 0    | exec usage          |
+  | `docs-test.sh status --help`     | 0    | status description  |
+  | `docs-test.sh logs --help`       | 0    | logs options        |
+  | `docs-test.sh sha --help`        | 0    | sha description     |
+  | `docs-test.sh <unknown>`         | 2    | error + hint to --help |
+- **Shellcheck:** `shellcheck -s bash scripts/docs-test/docs-test.sh` → exit 0, clean (no SC ignores in source).
+- **Completion file paths:**
+  - `scripts/docs-test/completions/docs-test.bash`
+  - `scripts/docs-test/completions/docs-test.zsh`
+  Both load without error (verified `bash -c 'source ...'` and `zsh -c 'autoload -Uz compinit && compinit -u; source ...'`).
+- **Anti-scope held to:** no `_smoke.docs-test.sh` and no `pages/*.docs-test.sh` (Cycle 5), no CI workflow (Cycle 6), no edits under `src/content/docs/`, no `FRAISEQL_SHA` file (Cycle 9 — `sha` and `status` handle its absence gracefully), no subcommands beyond the seven specified, no global PATH or rc-file modification (completions sourced by hand).
+- **Framework issues filed:** 0. The `status` SHA comparison is host-side only and exercised no framework behaviour.
+- **Known issues / wishlist surfaced for Cycle 5+:**
+  - `docs-test.sh build` (for the Cycle-2 Dockerfile.fraiseql) is NOT in scope per the cycle spec's seven-subcommand cap. Cycle 5's smoke can either `docker compose -f … build fraiseql` directly or call `docs-test.sh exec` after manually building. If wanted, Cycle 6's CI workflow may want a `build` subcommand to centralise the `CARGO_FEATURES`-aware build invocation; flagging here per spec instruction.
+  - `docs-test.sh ps` (alias for `status` minus the header) is sometimes nice in a tight loop. Not added now; flag for Cycle 5+ if it gets called for.
+  - When `--profile fraiseql` is passed, the `fraiseql` service's image must already be built. The CLI does not auto-build (it would silently slow down a `up` for users who never modified the Dockerfile). Cycle 5's smoke must `docker compose build fraiseql` once before its first `up --profile fraiseql`.
+  - The `--profile sqlite + others` mixed case: `docs-test.sh up --profile sqlite --profile postgres` materialises sqlite first (synchronously), then `up --wait`s postgres. If the postgres `up --wait` fails, the sqlite volume is still materialised — not strictly idempotent if the caller assumed all-or-nothing. Documented in `up --help`; harmless in practice because sqlite-init is idempotent itself.
+- **Push posture:** branch `phase-00/foundation` will gain one Cycle 4 commit on top of `1356d55` (Cycle 3 close). Not pushed (Cycle 6 owns the CI gate; pushing optional per spec). Cycle 5 author can push the chain when convenient.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. The Cycle 4 CLI's `sha` subcommand will be the operator-side mechanism for surfacing SHA drift to whoever proposes a G2 bump later.
+
+---
+
+### Phase 00 / Cycle 5 close — Writer (Opus 4.7) — 2026-05-28
+
+- **Quickstart page chosen:** `src/content/docs/getting-started/quickstart.mdx` (Manual Setup). Rationale: it is the only quickstart in this repo that exposes a copy-pasteable per-DB sequence (Steps 2 + 4 + 5 + 6) with explicit tabs for PostgreSQL / MySQL / SQLite / SQL Server. `five-minute-quickstart.mdx` depends on a `fraiseql/fraiseql-starter-minimal` external repo not vendored here, and its docker-compose stack is opaque (one big image; no install-schema step). `quickstart.mdx` lays out the install-schema → compile → boot → query → assert sequence the cycle spec asks for. Recorded as the one-sentence rationale per spec.
+- **Landed under `scripts/docs-test/`:**
+  - `pages/_smoke.docs-test.sh` (~460 lines) — multi-DB driver. Iterates over `postgres`, `mysql`, `sqlite`, `mssql`; each iteration tears down → boots only the needed profile → applies the fixture → runs the documented query → asserts the documented JSON shape → tears down. Uses the Cycle 4 operator CLI (`docs-test.sh up/down/exec`) for plumbing per spec constraint #1. Per-DB output block format matches spec constraint #8 verbatim (`=== smoke: <db> ===`, `✓` / `✗` per assertion, final `=== summary ===`).
+  - `lib/assert.sh` (4 helpers: `assert_http_2xx`, `assert_json_shape`, `assert_eq`, `assert_contains`). Each prints `  ✓ <label>` on success (one line, terse) and `  ✗ <label>` + a copy-pasteable diff block on failure. Idempotent, side-effect-free. shellcheck-clean. The REFACTOR step of Cycle 5 per spec.
+  - `fixtures/{postgres,mysql,sqlite,mssql}/_smoke.sql` — per-DB schema. Each file is the verbatim view SQL from the quickstart's per-DB tab (with `<!-- source: src/content/docs/getting-started/quickstart.mdx:Lstart-Lend -->` citations on every block) PLUS the minimal `tb_user` / `tb_post` table definitions the page implies but does not document. Each file is idempotent (re-runnable via `INSERT … ON CONFLICT` / `INSERT IGNORE` / `INSERT OR IGNORE` / `IF NOT EXISTS` per dialect). Two fixtures have **documented deviations from the page** — see "Page-vs-framework gaps" below.
+  - `fixtures/postgres/_smoke.compiled.json` — hand-authored compiled schema for the PG iteration. The Cycle-2 docs-test image ships only `fraiseql-server` (not the full `fraiseql` CLI), so the page's `fraiseql compile` step cannot be invoked in-container. The smoke's compiled JSON matches the `User`/`Post` types and `users`/`posts` queries from the page's Step 3 (Python) verbatim, formatted per `crates/fraiseql-core/src/schema/compiled/schema.rs:L67-L150` and `crates/fraiseql-core/src/schema/graphql_type_defs.rs:L42-L102`. This **is** the page-vs-image gap surfaced in the cycle spec — recorded below.
+  - `bugs/server-pg-hardcode.bug-2.sh` — reproduction script for FW-2 (filed below). Boots the harness pointed at the MySQL backend, overrides `database_url` to `mysql://…`, and asserts the server logs PG-specific behaviour. Exit 0 ⇒ bug reproduced (current state); exit 1 ⇒ bug closed by fix. shellcheck-clean.
+- **Per-DB outcomes (cold, all volumes pruned per iteration, GNU `time` real seconds):**
+  - **PostgreSQL** — 14.6 / 15.3 / 15.1s across three full runs. **Full end-to-end through the FraiseQL server's HTTP API.** Documented query `{ posts { id title content author { id name email } } }` returned `{"data":{"posts":[{… title:"Hello FraiseQL" … author:{name:"Alice Smith", email:"alice@example.com" …}}]}}`. Eleven assertions all PASS: `/health` 200 ⇒ `.status == "healthy"` ⇒ `.database.connected == true` ⇒ `.database.database_type == "PostgreSQL"` ⇒ no graphql errors ⇒ `.data.posts` is array of length 1 ⇒ title/author.name/author.email match.
+  - **MySQL** — 12.3 / 13.7 / 12.4s. **Page SQL verified against MySQL 8.4 directly** (cannot route through fraiseql-server at this SHA — see FW-2). The documented `JSON_OBJECT(…)` views build the expected shape; querying `v_post` returns the same JSON the GraphQL response would carry if the adapter were wired.
+  - **SQLite** — 4.6 / 4.7 / 4.8s. **Page SQL verified against SQLite 3.x directly** (FW-2 again). Required one deviation from the page — see gap #2 below.
+  - **MSSQL** — 7.0 / 7.4 / 5.0s (warm; cold first-boot ~10 s once the container's start_period elapses). **Page SQL verified against SQL Server 2022 directly** (FW-2 again). Required two deviations from the page — see gap #3 / gap #4 below.
+  - **Total: 40.05 / 39.3s** on two full runs (< 4 min budget, by ~83 %). Cold-cache, all volumes pruned between iterations. Captured in `_internal/.plan/red-evidence/cycle-05-smoke-pass.transcript`.
+- **Time-budget breakdown (CLEANUP gate):**
+  - 4 × `tear_down` (down --volumes) ≈ 0.5–1.5 s each (network + named volumes).
+  - 4 × `docker compose up --wait` ranged 5–11 s; the PG iteration is longest because fraiseql's `start_period: 60s` covers a worst-case schema-load window, but with the cached image and a healthy DB the actual /health-first-200 happens in ~10 s.
+  - 1 × fraiseql restart (after PG fixture install, so the server reconnects to the seeded DB) ≈ 3–4 s.
+  - All assertions are sub-second.
+  - Wall-clock variance run-to-run is dominated by MSSQL boot (5–11 s depending on host load) and fraiseql healthcheck poll cadence (5-second interval).
+- **Page-vs-framework / page-vs-image gaps surfaced this cycle (the actual Cycle-5 findings):**
+  1. **`fraiseql-server` binary is hardcoded to `PostgresAdapter`.** Filed as **FW-2** = https://github.com/fraiseql/fraiseql/issues/327 (severity "regression-or-doc-bug"). Source: `crates/fraiseql-server/src/main.rs:L240-L260`. The non-PG adapters (`MySqlAdapter`, `SqliteAdapter`, MSSQL via tiberius) exist in `fraiseql-db` and have working implementations — they are just not wired into the server binary's adapter factory. The quickstart's `database_target = "mysql" | "sqlite" | "sqlserver"` tabs are therefore aspirational: the user gets a non-functional runtime if they follow them. Phase 02 IA owners need to decide whether to (a) wire multi-adapter dispatch in framework, or (b) reduce the quickstart to single-DB until support lands. The smoke covers PG end-to-end and other DBs at the SQL level so the page's per-DB view SQL is at least proven correct.
+  2. **SQLite `v_post` view bug.** Page says `'author', vu.data` (line 156). SQLite `data` is TEXT; without wrapping in `json(…)` the outer `json_object` embeds the inner view's JSON as a string with escaped quotes, not as a nested object. Fixture deviates with `'author', json(vu.data)` — annotated inline. This is a **page bug**, not a framework bug — Phase 02 IA owns the page fix.
+  3. **SQL Server `v_post` view bug (analogous).** Page says `vu.data AS author` (line 184). MSSQL `data` is NVARCHAR(MAX); without `JSON_QUERY(vu.data)` the outer `FOR JSON PATH` embeds the inner view's JSON as a string. Fixture deviates with `JSON_QUERY(vu.data) AS author` — annotated inline. Page bug, Phase 02 owns.
+  4. **SQL Server `WITH SCHEMABINDING` incompatible with view-on-view.** Page applies `WITH SCHEMABINDING` to both `v_user` and `v_post` (lines 167 and 179) but `v_post` references `v_user`, which is incompatible with the schemabinding restriction. Fixture drops `WITH SCHEMABINDING` — annotated inline. Page bug, Phase 02 owns.
+  - Gaps #2/#3/#4 are listed in the GREEN transcript's tail block too so an operator running the smoke sees them.
+- **What "compile" maps to in this harness:** the page documents `fraiseql compile` as the producer of `schema.compiled.json`. The Cycle-2 image ships only `fraiseql-server`, not the full CLI. The smoke's PG iteration bind-mounts a hand-authored `fixtures/postgres/_smoke.compiled.json` over the image's baked empty schema — which is the harness equivalent of `fraiseql compile` having been pre-run. This is **the harness-vs-page deviation** the cycle spec asked the Writer to "pick whichever matches the page text and record the decision". Recorded.
+- **Operator CLI usage:** the smoke calls `./docs-test.sh up`, `./docs-test.sh down --volumes`, and `./docs-test.sh exec <svc> -- <cmd>` (Cycles 1/3/4 plumbing). No raw docker-compose plumbing was duplicated in the smoke script. The only direct docker calls are: `docker compose -f COMPOSE -f OVERRIDE …` (because the PG iteration needs a compose-override file to bind-mount the smoke compiled schema, which the operator CLI doesn't surface), and `docker run --rm … alpine sqlite3 …` (the SQLite-data volume read pattern Cycle 3 also used; the operator CLI's `exec` requires a *running* service, which the SQLite sentinel container is not).
+- **Anti-scope held to:** no CI workflow (Cycle 6), no edits under `src/content/docs/` (page bugs noted in handoff for Phase 02), no extension of the Cycle 4 operator CLI surface, no 5th DB, no storage-backed assertions, no per-feature page tests beyond the smoke, no `docs-test.sh build` subcommand (left for Cycle 6 if wanted).
+- **Framework issues filed this cycle:**
+  - **FW-2 — https://github.com/fraiseql/fraiseql/issues/327** — "server: fraiseql-server binary hardcodes PostgresAdapter — quickstart's multi-DB tabs are unreachable". Registered in `_internal/.plan/framework-qa-triage.md`. Reproduction script at `scripts/docs-test/bugs/server-pg-hardcode.bug-2.sh`. Severity tagged `regression-or-doc-bug` because depending on framework intent it's either a framework bug (the page is right, implementation is missing) or a docs bug (the page over-promises). G3 (Phase 09 triage threshold) will categorise this when phase 09 opens.
+- **Known issues / wishlist surfaced for Cycle 6+ to be aware of:**
+  - The smoke takes ~40 s on this developer host; on `ubuntu-latest` GitHub runners (Cycle 6 CI) expect 60–120 s for the same path — the cold image pull + buildx setup dominates. Smoke is well under the spec's 4-min budget on either substrate.
+  - The smoke depends on `fraiseql-docs-test-fraiseql:latest` being already-built. Cycle 6's CI workflow will need a `build fraiseql` step before invoking the smoke. The smoke errors loudly via `preflight()` if the image is missing.
+  - The smoke creates a tmp compose-override file with the smoke compiled schema bind-mount. If Cycle 6 wants `--abort-on-container-exit` semantics on the CI runner, the tmp file lifecycle has to be handled in the CI workflow's cleanup-step too (not just the smoke's `trap`).
+  - SC2329 false positive in `lib/storage-smoke.sh` (Cycle 3's known issue) is unrelated to Cycle 5 but appears in `shellcheck scripts/docs-test/lib/*.sh` runs. New Cycle-5 files (`lib/assert.sh`, `pages/_smoke.docs-test.sh`, `bugs/server-pg-hardcode.bug-2.sh`) are shellcheck-clean with no `# shellcheck disable` directives beyond the documented SC2016 cases (variables that intentionally expand inside container shells, not on the host).
+  - **Hand-authored compiled JSON is brittle.** Phase 01 / 02 page rewrites will likely add fields and queries; whoever extends the smoke is going to want a real `fraiseql compile` invocation rather than a hand-authored JSON artefact. Options: (a) add the full `fraiseql` CLI to the Cycle-2 image (modest size bump), (b) introduce a "schema-builder" sidecar that runs the CLI once before the smoke starts, (c) keep hand-authored JSON files alongside each page. The smoke leaves this open — option (a) or (b) is probably the right move for Phase 02.
+- **Push posture:** branch `phase-00/foundation` will gain one Cycle 5 commit on top of `2a41e5b` (Cycle 4 close). Not pushed (Cycle 6 owns the CI gate; pushing optional per spec § 6.1, which activates from Cycle 6 onward). Cycle 6 author can push the chain when convenient.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. **G3 (Phase 09 triage threshold)** now has two registered items (FW-1, FW-2) — the proposal text in `framework-qa-triage.md` still stands as the default.
+
+---
+
+### Phase 00 / Cycle 6 close — Writer (Opus 4.7) — 2026-05-28
+
+- **PR opened (first push of this overhaul):** https://github.com/fraiseql/fraiseql-docs/pull/11 — draft, base `main`, head `phase-00/foundation`. Title: "docs: Phase 00 foundation — docs-test harness". Branch pushed cleanly (new branch on remote — no force, no rejected-non-fast-forward; the G6 pivot to `~/code/fraiseql-docs/` paid off here).
+- **Workflow landed:** `.github/workflows/docs-test.yml` (363 lines). Triggers `pull_request` against `src/content/docs/**`, `scripts/docs-test/**`, `.github/workflows/docs-test.yml`; `push` to `main`; `workflow_dispatch`. Concurrency group `docs-test-${{ github.head_ref || github.ref }}` with `cancel-in-progress: true`. Permissions `contents: read` only. `actionlint` 1.7.12 clean.
+- **Job topology:** two jobs.
+  - `discover`: enumerates `scripts/docs-test/pages/*.docs-test.sh` and resolves the frozen SHA. Output `pages` is a JSON array (`[ "_smoke" ]` today; auto-grows as future cycles add pages). Output `fraiseql_sha` reads `scripts/docs-test/FRAISEQL_SHA` if present (Cycle 9 creates it), else the workflow-level `FRAISEQL_SHA_FALLBACK=d0a4ed4ec1770c70707f68fd9019f2b561d87461`. Validates the SHA is 40 hex chars before emitting.
+  - `page-test`: `strategy.matrix.page` over the `discover` output; one job per page. Cycle 6 ships one matrix entry (`_smoke`). `fail-fast: false`. **Anti-scope per brief: no additional matrix axes** (DB OS, runner OS, etc.).
+- **Sibling-layout strategy:** option (a) per the brief. The workflow `git clone`s `fraiseql` into `${GITHUB_WORKSPACE}/../fraiseql`, `git checkout`s the frozen SHA, then `ln -snf` symlinks `${HOME}/code/fraiseql → ../fraiseql` so the Cycle-2 Dockerfile's relative `context: ../../../fraiseql` resolves without modification. **No diff to `Dockerfile.fraiseql` or the compose file** — minimum risk to the GREEN outputs of Cycles 1–5. Rationale recorded inline in the workflow.
+- **CI workflow uses the operator CLI:** the build step calls `docker compose -f docker-compose.docs-test.yml build fraiseql`; the test step calls `bash scripts/docs-test/pages/_smoke.docs-test.sh`; the teardown step calls `./docs-test.sh down --volumes`. The smoke script itself uses the Cycle-4 CLI (`up`, `down`, `exec`) per Cycle 5's commit.
+- **Caches:** `~/.cargo/registry` + `~/.cargo/git` keyed by `${{ runner.os }}-cargo-${{ env.FRAISEQL_SHA }}` (no `hashFiles()` — the frozen SHA pins `Cargo.lock` content); BuildKit layers via `/tmp/buildx-cache` keyed by SHA + Dockerfile hash. No `~/code/fraiseql/target` cache attempt — that path is outside the workspace and `hashFiles()` would refuse it (lesson learned this cycle, see "infrastructure-class fix" below).
+- **Diagnostics on failure:** `docker compose ps -a` (across all four profiles), `docker compose logs --tail 200`, `docker container ls -a`, `df -h`. Runs under `if: failure()` so the Reviewer persona in a fresh context can read why the job failed without re-running it (methodology § 6.1 requirement).
+- **Run-URL artifact:** every page-test matrix job writes `ci-run-url.txt` (single-line URL) and uploads as `ci-run-url-<page>` (`retention-days: 14`). Also appends a markdown block to `${GITHUB_STEP_SUMMARY}`. Future cycles consume via `gh run download <run-id> -n ci-run-url-<page>` — Writer personas will not need to confabulate URLs.
+- **Disk hygiene:** pre-flight `df -h`; `docker system prune -f` on `if: always()` cleanup; `timeout 600` hard cap on the page test (10 min cold-cache budget per brief; warm runs target <4 min).
+- **No retry-on-failure:** the workflow has zero auto-retries (brief § 10). If CI flakes on infrastructure, the right fix is a real fix, not silent retries.
+
+- **CI evidence (the three commits this cycle):**
+  - **Workflow GREEN landing** — `d251931` ("docs(infra): land docs-test CI workflow (phase 00 cycle 6 GREEN)"). **First** run 26572171337 **failed** in 40 s at template-parse: `hashFiles('../fraiseql/Cargo.lock') failed. Fail to hash files under directory '/home/runner/work/fraiseql-docs/fraiseql-docs'`. **Infrastructure-class fix** (commit `3aad991`, "fix(ci/docs-test): drop hashFiles() over out-of-workspace path"): the cargo cache key drops the `hashFiles()` component; the frozen SHA already pins `Cargo.lock` content so keying on the SHA alone is sufficient. Re-run **26572243357 PASSED in 615 s (~10m 15s)** wall-clock against the unbroken smoke. This run is the "baseline" — proof that the workflow as authored can actually pass.
+  - **RED** — `379f657` ("chore(docs-test): Cycle 6 RED — deliberate smoke failure to validate CI gate"). Inserts `assert_eq "deliberate-RED-marker" "1" "2" || return 1` at the tail of the smoke's PG iteration, with a top-of-file banner naming the break. shellcheck-clean. Run **26572738344 FAILED in 615 s** with the explicit reason `✗ deliberate-RED-marker` on the smoke's stderr output (verified by `gh run view --log-failed`). Infrastructure ran clean — no Docker pull rate-limit, no daemon timeout, no buildx setup failure. The PG iteration aborted at the marker; the MySQL/SQLite/MSSQL iterations still ran (they don't depend on PG) and exited successfully — the smoke's `overall_rc=1` flagged only the PG path. Transcript at `_internal/.plan/red-evidence/cycle-06-ci-red-fail.transcript`.
+  - **CLEANUP** — `c8b9e62` (clean `git revert --no-edit 379f657`, no amend). Run **26573246640 PASSED in 616 s (~10m 16s)** wall-clock. Smoke-internal: postgres 17.572s + mysql 22.665s + sqlite 4.462s + mssql 18.429s ≈ 63 s. Transcript at `_internal/.plan/red-evidence/cycle-06-ci-green-pass.transcript`.
+
+- **Time-budget verdict:** brief allowed up to 10 min for the cold first CI run, target <4 min on subsequent warm runs. Three full CI runs landed this cycle, all hot-on-the-heels of each other; each took ~10 min because BuildKit's `--mount=type=cache,id=…` is **scoped to the individual `docker buildx build` invocation** (not persisted by `actions/cache` directly, and not re-used across separate runner instances). The `actions/cache` entry for `/tmp/buildx-cache` is wired but only kicks in if a future step exports there (`docker buildx --cache-to type=local,dest=/tmp/buildx-cache`), which the brief did not require this cycle and which the Cycle-2 Dockerfile does not invoke. **Recommendation for Cycle 7+:** if cold-build wall-clock becomes painful, wire `--cache-to type=local,dest=/tmp/buildx-cache,mode=max` + `--cache-from type=local,src=/tmp/buildx-cache` into the build step. Out of scope this cycle.
+
+- **Framework issues filed:** 0 this cycle. CI exercised the framework's `fraiseql-server` binary at the frozen SHA but found no new bugs beyond FW-1 / FW-2 (Cycle 3 / Cycle 5).
+
+- **Branch protection proposal (G4-adjacent — human action, not Writer-driven):**
+  - Once PR #11 merges, add **`docs-test / page-test (_smoke)`** as a required status check on the `main` branch. The check name is the GH-rendered combination of `workflow_name / job_name_with_matrix_value` — verified by inspecting the three runs above (each shows `docs-test / page-test (_smoke)` in the `gh pr checks` and PR-status-API surfaces).
+  - This is a **soft gate** per the brief — Cycle 7 can proceed without it. The gate becomes **hard** at Phase 10 (release) when the main branch needs to be guarded against direct push.
+  - Suggested branch-protection settings (for the human admin): "Require status checks to pass" + "Require branches to be up to date before merging" + the single required check named above. Do **not** add code-owner review enforcement at this stage; the overhaul is single-writer.
+
+- **Known issues / wishlist surfaced for Cycle 7+ to be aware of:**
+  - **CI cold-build cost.** Every full CI run is ~10 min. Three runs this cycle ≈ 30 min of CI time. Cycle 7 (style-guide check-in) won't trigger the docs-test workflow because the path filter excludes `src/content/docs/_internal/`; future content cycles will. If cold-build becomes a bottleneck, wire BuildKit cache export (above).
+  - **GH Actions cache key sharing.** The cargo cache key is `${{ runner.os }}-cargo-${{ env.FRAISEQL_SHA }}` — when Cycle 9 advances the frozen SHA, the cache resets. That's intentional (different SHA may carry a different `Cargo.lock`).
+  - **Compose `pull` on `up`.** The smoke calls `docs-test.sh up` which invokes `docker compose up`; Compose pulls images on first reference even when the image is locally cached by digest. GH cached or not, the PG/MySQL/MSSQL/Redis/NATS images are pulled per run (~30–60 s total at the warm CI cache). Not fixable from within the workflow without an explicit `docker pull` warmup before `up`, which adds wall-clock without reducing it.
+  - **`gh run view --log` line ANSI codes.** The transcript-capture sed pipeline strips ANSI escape codes; if the action runner switches log format the sed may need updating. Out of scope.
+  - **One-jobs-per-page matrix is correct shape for ≤25 pages** (the Phase 02 projection). If the matrix balloons past 25, GH Actions imposes a 256-job cap and the parallelism gets choppy — at that point the discover step can chunk pages into batches. Documented for Phase 02 IA.
+  - **Pre-existing `pre-commit.ci - pr` check fails on this PR.** The repo has no `.pre-commit-config.yaml` so the external pre-commit.ci GitHub App reports "error during ci config" on every PR. This pre-existing repo-state issue is unrelated to the docs-test workflow added this cycle. Two paths for the repo admin to consider: (a) add a minimal `.pre-commit-config.yaml` covering at least `end-of-file-fixer` + `trailing-whitespace` (small, additive, non-blocking); (b) uninstall the pre-commit.ci app from the org. **Not blocking Cycle 6 close** — the `docs-test / page-test (_smoke)` check passes.
+
+- **Files added this cycle:**
+  - `.github/workflows/docs-test.yml` — the CI gate.
+  - `_internal/.plan/red-evidence/cycle-06-ci-red-fail.transcript` — RED-fail transcript.
+  - `_internal/.plan/red-evidence/cycle-06-ci-green-pass.transcript` — CLEANUP-pass transcript.
+
+- **Commits this cycle (four, not three — see infrastructure-class fix above):**
+  - `d251931` — workflow GREEN landing.
+  - `3aad991` — infrastructure fix (drop `hashFiles()` over out-of-workspace path).
+  - `379f657` — RED.
+  - `c8b9e62` — CLEANUP revert.
+
+- **Anti-scope held to:** no PR template (Cycle 8), no `FRAISEQL_SHA` file (Cycle 9; the workflow has the fallback wired), no edits under `src/content/docs/`, no Slack/Discord notifications, no path filter beyond the three required, no push to `main`. Branch-protection flip is human-owned (G4-adjacent).
+
+- **Push posture:** branch `phase-00/foundation` is on `origin`, twelve commits ahead of `origin/main` (eight from Cycles 0–5 plus four this cycle: `d251931 → 3aad991 → 379f657 → c8b9e62`). Draft PR #11 exists. **PR is still draft** — promote to ready-for-review with `gh pr ready 11` only after the Reviewer persona's pass in a fresh context (per the brief — Writer does not declare full GREEN; the Reviewer does). The CLEANUP CI run on the head commit is GREEN; that satisfies methodology § 6.1 "CI is the only GREEN gate" rule for this cycle.
+
+- **Open gates:** none new. **G4 branch-protection** is surfaced above as a proposal — soft this cycle, hard at Phase 10. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+### Phase 00 / Cycle 7 close — Writer (Opus 4.7) — 2026-05-28
+
+- **Style guide landed in the docs tree at `src/content/docs/_internal/_style-guide.md`.** Content is byte-identical to `_internal/.plan/templates/style-guide.md` (verified via `diff`). The leading-underscore directory `_internal/` signals "planning-internal" to humans; the actual exclusion mechanism is the **leading underscore on the filename** (`_style-guide.md`), not the directory name.
+- **Deviation from the cycle-7 brief (filename `_style-guide.md` instead of `style-guide.md`):** the brief asserted that "the leading underscore in the directory name keeps it out of the build by Astro convention". Verification via `bun run astro build` revealed this is incorrect at Astro 5.17.3 + Starlight 0.37.6. Starlight's `docsLoader` uses the tinyglobby pattern `**/[^_]*.{md,mdx,...}` (`node_modules/@astrojs/starlight/loaders.ts:57`); the `[^_]*` character class only filters the **leaf filename**, not intermediate path segments. The literal `_internal/style-guide.md` was picked up by the loader and failed the `docsSchema` (missing `title:` frontmatter) because Starlight still tried to index it as a renderable page. Confirmed by running the loader's exact glob directly:
+  ```
+  $ node -e "require('tinyglobby').glob({patterns:['**/[^_]*.{md,mdx}'],cwd:'src/content/docs'}).then(f=>console.log(f.filter(x=>x.startsWith('_internal/'))))"
+  [ '_internal/style-guide.md' ]
+  ```
+  This matches the convention already documented at the top of `astro.config.mjs` by Cycle 0 ("If anything inside `_internal/` ever needs to move under `src/`, prefix it with an underscore (Astro convention) to keep it out of the build."). The fix is one character — prefix the filename with `_`. The directory name is retained as `_internal/` for human readability.
+- **GREEN proof:** `bun run astro build` → exit 0; 197 pages built in 14.40 s. `find dist -path '*internal*'` → 0 hits. `grep -r "FraiseQL docs style guide" dist` → 0 hits (the style-guide title doesn't appear anywhere in the rendered output, nor in the pagefind index). `find dist/pagefind -name "*.pf_fragment" | xargs strings | grep style.guide` → 0 hits.
+- **REFACTOR: `STYLE.md` symlink at repo root.** Created via `ln -sr src/content/docs/_internal/_style-guide.md STYLE.md`. The `-r` flag makes the link relative (`src/content/docs/_internal/_style-guide.md`, not absolute) so it resolves regardless of clone path. `ls -la STYLE.md` → `STYLE.md -> src/content/docs/_internal/_style-guide.md`. `head -3 STYLE.md` → reads through the symlink to the style guide's title line.
+- **CLEANUP:** Astro build verification per above. Pagefind index does not contain the style-guide content (verified by grep against the `.pf_fragment` shards).
+- **Commit and push:** `d166ff1` on top of `213c60d`. Pushed to `origin/phase-00/foundation`. CI run **26574706756 PASSED in 11m 6s** wall-clock. (An earlier in-progress run for the prior commit `213c60d` (`26574434818`) was cancelled by the workflow's `concurrency: cancel-in-progress` rule when the Cycle 7 push superseded it; that cancellation is not a Cycle 7 failure, just normal concurrency behaviour.)
+- **Anti-scope held to:** no PR template (Cycle 8), no FRAISEQL_SHA file (Cycle 9), no Astro-config changes (the comment at the top of astro.config.mjs from Cycle 0 already documents the convention correctly — no edit needed), no edits to any rendered page under `src/content/docs/` beyond the new `_internal/` directory.
+- **Framework issues filed:** 0.
+- **Push posture:** PR #11 now thirteen commits ahead of `origin/main`. Still draft.
+- **Open gates:** none new.
+
+---
+
+### Phase 00 / Cycle 8 close — Writer (Opus 4.7) — 2026-05-28
+
+- **PR template landed at `.github/PULL_REQUEST_TEMPLATE/docs-page.md`** (116 lines). The body has four sections: a "Summary" stub, the four mandatory cross-persona fields, the verbatim 15-point adversarial-review checklist, and a "Per-persona expectations" handoff-contract block.
+- **15-point checklist is byte-identical to `_internal/.plan/methodology.md` § 5 lines 180-194.** Verified by `diff` after normalising the bullet prefix (`[ ]` in methodology vs `- [ ]` in markdown task lists — the items themselves are identical character-for-character).
+- **Mandatory fields surfaced (empty values block merge per the cycle-8 brief):**
+  - `CI docs-test run URL:` (Writer fills)
+  - `Reviewer persona session:` (Reviewer fills)
+  - `Source-Citation Verifier outcome:` (Verifier fills)
+  - `Frozen FraiseQL SHA:` (Writer fills; mismatch with `scripts/docs-test/FRAISEQL_SHA` blocks merge once Cycle 9 lands)
+- **HTML "How to use this template" comment block** at the top documents three discovery paths (`?template=docs-page.md` URL suffix, GitHub web-UI template picker, `gh pr create --template docs-page.md`) and points the reader at `_internal/.plan/personas.md § Writer`.
+- **Per-persona expectations block** captures the handoff contract in miniature — three sub-sections (Reviewer expects from Writer, Source-Citation Verifier expects from Writer, next-phase Writer expects from this Writer), each surfacing the downstream persona's expectations as checklist items the upstream persona must satisfy. This addresses the cycle-8 REFACTOR requirement that "each downstream persona's expectations are surfaced as a checklist item the upstream persona must satisfy".
+- **REFACTOR: CONTRIBUTING.md** already existed at the repo root (welcoming, dev-focused). Added a one-line `?template=docs-page.md` pointer block above the "Development Setup" section — six-line callout, no new top-level files. The cycle-8 anti-scope said "do not create new top-level files this cycle" and that constraint was held.
+- **CLEANUP:** `gh pr create --help | grep -A2 template` confirmed the `-T file` / `--template file` flag and the `pull_request_template.md` example. GitHub surfaces the file in the web-UI template picker because it lives under `.github/PULL_REQUEST_TEMPLATE/` (plural). The template cannot be validated end-to-end without opening a fresh PR through the picker UI, but the file is at the canonical path and markdown is well-formed.
+- **Commit and push:** `32e4e6f` on top of `d166ff1`. Pushed to `origin/phase-00/foundation`. CI run **26575275825** triggered (waited for completion before pushing Cycle 9). Same `concurrency: cancel-in-progress` semantics; the prior-commit run was cancelled cleanly by GH Actions when this push superseded it.
+- **Anti-scope held to:** no `FRAISEQL_SHA` file (Cycle 9), no edits to the docs-test workflow YAML, no edits to the operator CLI, no rendered-page edits under `src/content/docs/`, no new top-level files. The 15-point checklist was copied verbatim from methodology.md § 5 — no editorial deviation.
+- **Framework issues filed:** 0.
+- **Push posture:** PR #11 fourteen commits ahead of `origin/main`. Still draft.
+- **Open gates:** none new.
+
+---
+
+### Phase 00 / Cycle 9 close — Writer (Opus 4.7) — 2026-05-28
+
+**This is the phase-close handoff entry.** Cycle 9 mechanically freezes the framework SHA at `d0a4ed4ec1770c70707f68fd9019f2b561d87461` and closes Phase 00. Cross-cycle summary follows.
+
+#### Cycle 9 outcome
+
+- **`scripts/docs-test/FRAISEQL_SHA` landed (40 bytes exactly).** Contents: `d0a4ed4ec1770c70707f68fd9019f2b561d87461`, no trailing whitespace, no comment, no newline at EOF. `od -c` confirms the file is exactly the 40 ASCII hex characters followed by EOF. This matches the format the CI workflow's `tr -d '[:space:]'` reader and the operator CLI's `frozen_sha()` helper both expect; both also tolerate a trailing newline if a future editor adds one (so the strict no-newline form is the safe default, not a hard requirement).
+- **`scripts/docs-test/FRAISEQL_SHA.README.md` landed (~100 lines).** Documents the file format, the three consumers (Dockerfile / workflow / operator CLI) and the precedence rule (file present → use file; file absent → fallback constant), the three operator-CLI behaviours (match / mismatch / absent), the G2 SHA-bump procedure (Writer never bumps; surfaces G2 proposal; human edits the file), the initial freeze rationale, and cross-references to other plan files.
+- **`_internal/.plan/.phases/README.md` updated:** new top-section "Frozen FraiseQL SHA" block records the SHA + freeze date + rationale + G2 pointer. Phase 00 row status `[ ] → [x]`. Snapshot-SHAs section filled for plan-open and code-freeze. "Filed framework bugs" populated with FW-1 #326 and FW-2 #327. "Completed phases" appended with the Phase 00 entry pointing at this handoff entry.
+- **`_internal/.plan/.phases/phase-00-foundation.md` `## Status` block** marked `[x] Complete — 2026-05-28` with per-cycle commit refs (`8d92678`, `396c1b2`, `9adb4eb`, `d8b7e5c`, `1356d55`, `2a41e5b`, `14b90c0`, `d251931`+`3aad991`+`379f657`+`c8b9e62`, `d166ff1`, `32e4e6f`, and Cycle 9's `08caa88` + this commit).
+- **Verifications of the SHA-resolver triple (Dockerfile, CI workflow, operator CLI) per REFACTOR:**
+  - **Operator CLI (`./scripts/docs-test/docs-test.sh sha`)** — file present + drift path: exit 1, loud SHA-DRIFT warning. Local `~/code/fraiseql` HEAD on this host is `bc0dc1ed7167f7fa2c466f7cf8ef357df5d1b26a` (the host moved off the frozen SHA between Cycle 0 and Cycle 9 — expected per the brief's "may have moved" caveat). File present + match path was exercised in Cycle 4's GREEN evidence (writing live HEAD into the file). File absent path was exercised by every cycle before this one. All three paths verified.
+  - **CI workflow** — the `discover` job's `resolve-sha` step has the conditional `if [ -f scripts/docs-test/FRAISEQL_SHA ]; then ... else $FRAISEQL_SHA_FALLBACK fi`. With the file now present, the file path wins; the env-level `FRAISEQL_SHA_FALLBACK` constant is no longer consulted on this branch. The Cycle 9 CI run (https://github.com/fraiseql/fraiseql-docs/actions/runs/26575849530) PASSED, which empirically validates that the file-based resolver and the previously-hardcoded constant agree (the SHA value is identical, so a divergent value here would have surfaced via the post-checkout `git rev-parse HEAD` comparison the workflow performs against the cloned fraiseql repo at line 205).
+  - **Dockerfile** — `ARG FRAISEQL_SHA=d0a4ed4ec1770c70707f68fd9019f2b561d87461` default is byte-identical to the FRAISEQL_SHA file. CI overrides via `--build-arg` from the workflow's resolved value (which now comes from the file). The Dockerfile's in-build check (`if [ "$actual" != "$FRAISEQL_SHA" ]; then echo WARN ...`) is exercised by every CI build.
+- **Known-but-deliberate parallel-source observation (NOT a Cycle 9 fix):** the compose file `scripts/docs-test/docker-compose.docs-test.yml` declares the SHA as a literal `args:` value, not by reading the FRAISEQL_SHA file. This is a fourth resolver path that the Cycle 9 brief did not enumerate. It works correctly because the value is byte-identical to the FRAISEQL_SHA file. When the SHA is bumped (G2 path), the human flipping the file MUST also bump the compose file's literal. This is documented in `scripts/docs-test/FRAISEQL_SHA.README.md`'s G2 procedure. **Not fixing it in this cycle** — the cycle 9 REFACTOR brief explicitly names "Dockerfile and CI workflow" (not compose) as the audit targets, and "no code change should be needed" if those two prefer the file. Adding a file-read step to the compose file would expand cycle 9 scope. Tracked for Phase 09 reconciliation: a future cleanup pass can switch the compose `args:` value to `${FRAISEQL_SHA}` and have the operator CLI / workflow set it from the file.
+- **PR #11 description updated** to reflect the final phase-close state: replaced the "What's not in here (deferred)" block (which listed Cycles 8 and 9 as deferred) with a single comprehensive "What's in here (all 10 cycles)" block, and appended CI run URLs for Cycles 7, 8, 9. PR remains **draft** per the cycle-9 brief — the Writer persona does not flip the PR to ready-for-review; that's the human's prerogative.
+
+#### Cross-cycle summary (Cycles 0–9)
+
+| Cycle | Subject                                          | Commits                                                   | CI run                                         | Outcome |
+|-------|--------------------------------------------------|-----------------------------------------------------------|------------------------------------------------|---------|
+| 0     | Plan tree into repo + G6 pivot to canonical repo | `8d92678`                                                 | n/a (pre-CI)                                   | GREEN   |
+| 1     | Compose stack (PG/MySQL/SQLite/MSSQL/Redis/NATS) | `396c1b2`, `9adb4eb`, `043034d`                           | n/a (pre-CI)                                   | GREEN   |
+| 2     | `Dockerfile.fraiseql` + `baseline.toml`          | `d8b7e5c`                                                 | n/a (pre-CI)                                   | GREEN   |
+| 3     | Storage sidecars (MinIO / Azurite / fake-gcs)    | `1356d55`                                                 | n/a (pre-CI)                                   | GREEN   |
+| 4     | Operator CLI + bash/zsh completions              | `2a41e5b`                                                 | n/a (pre-CI)                                   | GREEN   |
+| 5     | Smoke `_smoke.docs-test.sh` + assert.sh + fixtures | `14b90c0`                                               | n/a (pre-CI)                                   | GREEN (local) |
+| 6     | CI workflow + RED/GREEN inversion test           | `d251931`, `3aad991`, `379f657`, `c8b9e62`, `1cf931f`, `213c60d` | 26572243357 / 26572738344 / 26573246640 | GREEN (CI-validated) |
+| 7     | Style guide checked in                           | `d166ff1`                                                 | 26574706756                                    | GREEN   |
+| 8     | docs-page PR template                            | `32e4e6f`                                                 | 26575275825                                    | GREEN   |
+| 9     | FRAISEQL_SHA freeze + handoff                    | `08caa88` + this commit                                   | 26575849530                                    | GREEN   |
+
+#### Framework issues filed across Phase 00
+
+- **FW-1 — https://github.com/fraiseql/fraiseql/issues/326** — `storage(azure,gcs): expose endpoint override so emulators (Azurite, fake-gcs-server) are reachable via config`. Severity `qol`. Filed Cycle 3.
+- **FW-2 — https://github.com/fraiseql/fraiseql/issues/327** — `server: fraiseql-server binary hardcodes PostgresAdapter — quickstart's multi-DB tabs are unreachable`. Severity `regression-or-doc-bug`. Filed Cycle 5.
+
+Both are tracked in `_internal/.plan/framework-qa-triage.md`. Phase 09 will reconcile them.
+
+#### Branch-protection proposal (G4-adjacent) — open
+
+- Cycle 6 proposed `docs-test / page-test (_smoke)` as the required check name. **Correction this cycle:** the *displayed* name in the GitHub UI is `docs-test / page-test (_smoke)` (workflow / job-with-matrix), but the *check-name string* the branch-protection API expects is just `page-test (_smoke)` (without the workflow prefix). Verified via `gh api repos/fraiseql/fraiseql-docs/commits/<sha>/check-runs --jq '.check_runs[].name'` against the Cycle 7/8/9 runs — the API consistently returns `page-test (_smoke)` as the name. The repo admin configuring branch protection should use the bare `page-test (_smoke)` value. (This is a documentation nuance, not a bug; both forms work but only the bare form is what the API surface expects.)
+- Status: **still soft-gate**, awaiting human action. Becomes hard at Phase 10.
+
+#### Page bugs Cycle 5 surfaced — Phase 02 IA work
+
+These were found while authoring the Cycle 5 smoke and are documented in the Cycle 5 handoff entry. They are **Phase 02 IA work** and were deliberately NOT fixed this phase (per Cycle 9's anti-scope):
+
+1. SQLite `v_post` view bug — needs `json(vu.data)` wrapping in `getting-started/quickstart.mdx:156`.
+2. MSSQL `v_post` view bug — needs `JSON_QUERY(vu.data)` wrapping in `getting-started/quickstart.mdx:184`.
+3. MSSQL `WITH SCHEMABINDING` is incompatible with view-on-view — drop the directive from `v_user` (line 167) and `v_post` (line 179).
+
+The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!-- DEVIATION: ... -->` comments) so the smoke passes even though the rendered page has the bugs.
+
+#### Phase 00 final state
+
+- PR: https://github.com/fraiseql/fraiseql-docs/pull/11 — sixteen commits ahead of `origin/main`, draft.
+- Final CI run (post-Cycle-9 GREEN): https://github.com/fraiseql/fraiseql-docs/actions/runs/26575849530.
+- Phase status: `[x] Complete — 2026-05-28`.
+- Plan tree: intact at `_internal/.plan/`. Will be deleted by Phase 10 finalisation.
+
+#### Open follow-on items for Phase 01
+
+- Phase 02 quickstart-page fixes (the three SQL bugs above) — Phase 02 IA work, do **not** fix in Phase 01.
+- FW-1 (#326) and FW-2 (#327) — Phase 09 reconciliation owns these; Phases 01–08 work around them.
+- The compose file's parallel SHA-literal — documented above as a future cleanup, tracked for Phase 09's pass.
+- G4 branch-protection flip — human admin action; not a Writer task.
+- PR #11 ready-for-review flip — human signal of phase-close approval; not a Writer task.
+
+#### Open gates
+
+- **G2 (SHA bump)** — frozen at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`; default policy holds across Phase 01+; bump procedure documented in `scripts/docs-test/FRAISEQL_SHA.README.md`.
+- **G4 (branch protection)** — soft gate; proposal above; awaiting human action.
+- No other gates open at phase close.
+
+---

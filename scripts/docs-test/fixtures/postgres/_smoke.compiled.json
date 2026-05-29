@@ -1,0 +1,63 @@
+{
+  "_comment": "Compiled schema for `pages/_smoke.docs-test.sh` PostgreSQL iteration.",
+  "_comment_2": "Hand-written to match the quickstart page's User/Post types and the v_user / v_post views from _smoke.sql.",
+  "_source": "src/content/docs/getting-started/quickstart.mdx:L196-L222 (Python type definitions, lines 197-221 for User/Post) and L75-L102 (PostgreSQL views).",
+  "_format_source": "crates/fraiseql-core/src/schema/compiled/schema.rs:L67-L150 (CompiledSchema struct).",
+  "_query_format_source": "crates/fraiseql-core/src/schema/compiled/query.rs:L46-L120 (QueryDefinition struct).",
+  "_type_format_source": "crates/fraiseql-core/src/schema/graphql_type_defs.rs:L42-L102 (TypeDefinition struct).",
+  "_baseline_example": "~/code/fraiseql/docker/e2e/schema.compiled.json — used as the shape reference.",
+
+  "types": [
+    {
+      "name": "User",
+      "sql_source": "v_user",
+      "jsonb_column": "data",
+      "fields": [
+        {"name": "id",         "field_type": "ID",     "nullable": false},
+        {"name": "name",       "field_type": "String", "nullable": false},
+        {"name": "email",      "field_type": "String", "nullable": false},
+        {"name": "created_at", "field_type": "String", "nullable": false}
+      ],
+      "description": "A user in the system."
+    },
+    {
+      "name": "Post",
+      "sql_source": "v_post",
+      "jsonb_column": "data",
+      "fields": [
+        {"name": "id",      "field_type": "ID",                  "nullable": false},
+        {"name": "title",   "field_type": "String",              "nullable": false},
+        {"name": "content", "field_type": "String",              "nullable": false},
+        {"name": "author",  "field_type": {"Object": "User"},    "nullable": false}
+      ],
+      "description": "A blog post."
+    }
+  ],
+  "queries": [
+    {
+      "name": "users",
+      "return_type": "User",
+      "returns_list": true,
+      "nullable": false,
+      "sql_source": "v_user",
+      "jsonb_column": "data",
+      "arguments": []
+    },
+    {
+      "name": "posts",
+      "return_type": "Post",
+      "returns_list": true,
+      "nullable": false,
+      "sql_source": "v_post",
+      "jsonb_column": "data",
+      "arguments": []
+    }
+  ],
+  "mutations": [],
+  "subscriptions": [],
+  "enums": [],
+  "input_types": [],
+  "interfaces": [],
+  "unions": [],
+  "directives": []
+}

@@ -1,0 +1,492 @@
+# Docs-test reproduction harness.
+#
+# Boots the database, cache, and messaging dependencies that documented
+# FraiseQL features run against, so every page in `src/content/docs/` has an
+# executable reproduction surface that someone else can re-run from a cold
+# clone.
+#
+# Layout & rationale: see `_internal/.plan/methodology.md` § 6 "Container
+# harness" and `_internal/.plan/.phases/phase-00-foundation.md` § Cycle 1.
+#
+# Image-pinning policy:
+#   - Every `image:` is pinned to a content-trust digest (sha256:...).
+#   - The human-readable tag (e.g. `postgres:16-alpine`) is left in the
+#     reference for documentation purposes; the digest is the source of truth.
+#   - Bump procedure: change BOTH the tag and the digest in the same commit.
+#
+# Profile policy:
+#   - Every service carries its own profile label (`postgres`, `mysql`, etc.)
+#     so single-DB tests can boot a subset.
+#   - Every service also carries the `all` profile; the smoke test boots
+#     `--profile all` to get the full stack in one invocation.
+#   - Compose v2 only starts a service when at least one of its profiles is
+#     explicitly requested via `--profile`. There is therefore no implicit
+#     "boot everything" mode — callers must pass profiles.
+#
+# Credentials:
+#   - Centralised in `.env` (gitignored) / `.env.example` (committed).
+#   - The same `${DB_USER}` / `${DB_PASSWORD}` / `${DB_NAME}` are used across
+#     all four database services so downstream cycles do not have to thread
+#     different credentials per backend.
+#   - Default DB name `fraiseql` matches the framework's
+#     `default_database_url` in `crates/fraiseql-server/src/server_config/defaults.rs:9`.
+
+name: fraiseql-docs-test
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 (alpine) — primary supported backend for FraiseQL.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
+    # `fraiseql` is included so the Cycle-2 server can boot with just
+    # `--profile fraiseql` and inherit its DB dependency.
+    profiles: ["all", "postgres", "fraiseql"]
+    environment:
+      POSTGRES_USER: ${DB_USER:-fraiseql}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fraiseql_docs_test}
+      POSTGRES_DB: ${DB_NAME:-fraiseql}
+    expose:
+      - "5432"
+    ports:
+      - "${HOST_PORT_POSTGRES:-54320}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fraiseql} -d ${DB_NAME:-fraiseql}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # MySQL 8.4 LTS — required for the cross-DB matrix (federation, core CRUD).
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4@sha256:c36050afdca850f23cef85703f84c7531a5ae155a11b5ee1c60acb09937c4084
+    profiles: ["all", "mysql"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-fraiseql_docs_test}
+      MYSQL_USER: ${DB_USER:-fraiseql}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-fraiseql_docs_test}
+      MYSQL_DATABASE: ${DB_NAME:-fraiseql}
+    expose:
+      - "3306"
+    ports:
+      - "${HOST_PORT_MYSQL:-13306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # mysqladmin ping returns 0 once the server is accepting connections.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p${DB_PASSWORD:-fraiseql_docs_test} --silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # SQLite — not a service; a file. This one-shot container materialises the
+  # database file under a named volume so Cycle 2's FraiseQL server (and any
+  # documented reproduction) can attach to the same file. It exits 0 once the
+  # file is created and is intentionally NOT depended on by other services'
+  # healthchecks — sqlite is per-page opt-in.
+  #
+  # It is deliberately NOT in the `all` profile: a one-shot exit confuses
+  # `docker compose up --wait`, which treats any exiting container as failure.
+  # Callers materialise the SQLite file via `docker compose run --rm
+  # sqlite-init` or `docker compose --profile sqlite up sqlite-init`.
+  # ---------------------------------------------------------------------------
+  sqlite-init:
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    profiles: ["sqlite"]
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        apk add --no-cache sqlite >/dev/null
+        sqlite3 /data/fraiseql.db '.databases'
+        # Touch a sentinel so callers can verify the init ran.
+        : >/data/.initialised
+        echo "sqlite-init: ready at /data/fraiseql.db"
+    volumes:
+      - sqlite-data:/data
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Microsoft SQL Server 2022 (CU13) — slow boot, ~2 GB RAM.
+  # ---------------------------------------------------------------------------
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-CU13-ubuntu-22.04@sha256:c4369c38385eba011c10906dc8892425831275bb035d5ce69656da8e29de50d8
+    profiles: ["all", "mssql"]
+    environment:
+      ACCEPT_EULA: "Y"
+      # MSSQL requires a strong password: ≥8 chars, mixed case, digit, symbol.
+      # `Fraiseql_docs_test1!` satisfies the policy; do not relax it.
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Fraiseql_docs_test1!}
+      MSSQL_PID: Developer
+    expose:
+      - "1433"
+    ports:
+      - "${HOST_PORT_MSSQL:-14330}:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      # The 2022-CU13-ubuntu-22.04 image bundles the legacy mssql-tools at
+      # /opt/mssql-tools/bin/sqlcmd (not the newer mssql-tools18). That legacy
+      # sqlcmd does not accept -C or -N — encryption is off by default and the
+      # self-signed cert is implicitly trusted on loopback.
+      test:
+        - "CMD-SHELL"
+        - >-
+          /opt/mssql-tools/bin/sqlcmd -S localhost
+          -U sa -P "$$MSSQL_SA_PASSWORD" -Q 'SELECT 1' -t 3
+      interval: 5s
+      timeout: 5s
+      retries: 25
+      start_period: 90s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — required for PKCE/APQ/rate-limit features (Cycle 2 will wire
+  # the FraiseQL server against this).
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    # `fraiseql` profile pulls Redis in for redis-pkce / redis-apq /
+    # redis-rate-limiting (compiled into the Cycle 2 image).
+    profiles: ["all", "redis", "fraiseql"]
+    expose:
+      - "6379"
+    ports:
+      - "${HOST_PORT_REDIS:-63790}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 2s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # NATS 2.10 — required for the observers-nats feature.
+  # ---------------------------------------------------------------------------
+  nats:
+    image: nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+    profiles: ["all", "nats"]
+    command:
+      - "--name=fraiseql-docs-nats"
+      - "--http_port=8222"
+      - "--jetstream"
+    expose:
+      - "4222"
+      - "8222"
+    ports:
+      - "${HOST_PORT_NATS:-42220}:4222"
+    healthcheck:
+      # The `/healthz` endpoint on the NATS monitoring HTTP port (8222) returns
+      # a JSON `{"status":"ok"}` once the server is accepting connections.
+      # We use `wget` from busybox (present in alpine) rather than curl.
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8222/healthz | grep -q '\"status\":\"ok\"'"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # FraiseQL server — Cycle 2 (Phase 00).
+  #
+  # Built from the sibling `~/code/fraiseql` workspace via
+  # `Dockerfile.fraiseql`. Pinned to the frozen SHA via the `FRAISEQL_SHA`
+  # build-arg below (Cycle 9 will promote that ARG to
+  # `scripts/docs-test/FRAISEQL_SHA` and source it from the file).
+  #
+  # Feature set matches `_internal/.plan/.phases/phase-00-foundation.md` § Cycle 2:
+  # arrow, observers, observers-nats, observers-enterprise, rest, redis-pkce,
+  # redis-apq, redis-rate-limiting. Every feature was verified against
+  # `~/code/fraiseql/crates/fraiseql-server/Cargo.toml` at the frozen SHA.
+  #
+  # Depends on postgres only at the baseline; storage / federation / smoke
+  # cycles add their own dependencies via Compose overrides.
+  # ---------------------------------------------------------------------------
+  fraiseql:
+    build:
+      # Build context is the sibling framework checkout. The path is relative
+      # to this compose file: from `scripts/docs-test/`, go up two levels to
+      # `~/code/`, then into the `fraiseql` workspace.
+      context: ../../../fraiseql
+      dockerfile: ../fraiseql-docs/scripts/docs-test/Dockerfile.fraiseql
+      args:
+        FRAISEQL_SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+        CARGO_FEATURES: "arrow,observers,observers-nats,observers-enterprise,rest,redis-pkce,redis-apq,redis-rate-limiting"
+    image: fraiseql-docs-test-fraiseql:latest
+    profiles: ["all", "fraiseql"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Development mode relaxes the production-mode CORS validation; see
+      # `crates/fraiseql-server/src/server_config/methods.rs:L199-L217`.
+      FRAISEQL_ENV: development
+      # Route the binary at the mounted baseline config.
+      FRAISEQL_CONFIG: /etc/fraiseql/fraiseql.toml
+      RUST_LOG: ${FRAISEQL_LOG:-fraiseql_server=info,tower_http=info,axum=info}
+    expose:
+      - "8080"
+    ports:
+      - "${HOST_PORT_FRAISEQL:-8080}:8080"
+    volumes:
+      # Mount the baseline.toml at the path the binary's FRAISEQL_CONFIG
+      # env var points at. `:ro` because per-page overlays should swap the
+      # whole file rather than mutate this one in place.
+      - ./configs/baseline.toml:/etc/fraiseql/fraiseql.toml:ro
+    healthcheck:
+      # curl ships in the runtime image (added explicitly in Dockerfile.fraiseql).
+      # `start_period: 60s` covers the schema-load + PG-pool-prewarm window;
+      # `retries: 20` × `interval: 5s` ⇒ up to 100 s additional grace.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Storage sidecars — Cycle 3 (Phase 00).
+  #
+  # All three storage backends sit behind `--profile storage` only (NOT in
+  # `--profile all`). Aggregate image footprint is ~870 MB (MinIO 250, mc 116,
+  # Azurite 427, fake-gcs 78), which is large enough to justify gating per
+  # the phase spec's cost-awareness rule.
+  #
+  # Each backend pre-creates a uniformly named bucket / container
+  # `fraiseql-docs-test`; Cycle 4's operator CLI and Cycle 5's smoke test
+  # assume this exact name. The bucket-init step is idempotent (`mc mb
+  # --ignore-existing`, `az storage container create` returns success on an
+  # existing container, fake-gcs auto-discovers pre-seeded directories).
+  #
+  # Framework wiring caveat (relevant to Cycle 5):
+  #   The frozen-SHA Cycle-2 image is NOT built with the `aws-s3`, `gcs`, or
+  #   `azure-blob` features (see `Dockerfile.fraiseql`'s `CARGO_FEATURES` arg).
+  #   Cycle 5 must rebuild with the relevant feature(s) to route storage
+  #   through `fraiseql-server`. Additionally, the framework's `azure` and
+  #   `gcs` backends have their endpoint URLs hardcoded
+  #   (`*.blob.core.windows.net`, `storage.googleapis.com` — see
+  #   <!-- source: crates/fraiseql-storage/src/backend/azure.rs:L59 -->
+  #   <!-- source: crates/fraiseql-storage/src/backend/gcs.rs:L15 -->),
+  #   so Azurite and fake-gcs-server cannot be reached from the FraiseQL
+  #   server via the documented `[storage.*]` TOML schema alone. MinIO works
+  #   through the S3 backend's `endpoint` override. Framework issue filed:
+  #   https://github.com/fraiseql/fraiseql/issues/326
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage. Native API on 9000, console on 9001.
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
+    profiles: ["storage"]
+    command:
+      - "server"
+      - "/data"
+      - "--address"
+      - ":9000"
+      - "--console-address"
+      - ":9001"
+    environment:
+      # Defaults `minioadmin:minioadmin` are the documented MinIO server
+      # admin credentials and are correct for a local docs-test stack;
+      # do not relax in production overlays. The bucket is created by
+      # `minio-init` below.
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    expose:
+      - "9000"
+      - "9001"
+    ports:
+      # Skip host 9000 in case a dev tool claims it; route 9000→9100.
+      - "${HOST_PORT_MINIO_S3:-9100}:9000"
+      - "${HOST_PORT_MINIO_CONSOLE:-9101}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      # The `/minio/health/live` endpoint returns 200 only when the API is
+      # accepting requests — TCP on 9000 binds well before that. curl is
+      # included in the upstream image (verified via `which curl`).
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # MinIO bucket init — one-shot using `mc` (MinIO Client).
+  #
+  # Compose's `up --wait` treats `exit 0` from a one-shot as success ONLY
+  # when the service is gated by a `depends_on: condition: service_healthy`
+  # against a long-running service. We chain through `minio` here (the same
+  # pattern is used for `azurite-init`).
+  # ---------------------------------------------------------------------------
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
+    profiles: ["storage"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    entrypoint:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        mc alias set --quiet local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing local/fraiseql-docs-test
+        mc ls local
+        echo "minio-init: bucket fraiseql-docs-test ready"
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Azurite — Microsoft Azure Blob/Queue/Table emulator.
+  #
+  # We expose only the blob port (10000); queue/table are not used by the
+  # docs-test surface. The container bind-host is overridden to 0.0.0.0 so
+  # the Compose host-port mapping reaches the service.
+  # ---------------------------------------------------------------------------
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.34.0@sha256:0a47e12e3693483cef5c71f35468b91d751611f172d2f97414e9c69113b106d9
+    profiles: ["storage"]
+    # Default entrypoint runs `azurite -l /data --blobHost 0.0.0.0 ...`
+    # which already binds correctly; we re-specify explicitly so a config
+    # reader can see the surface without leaving this file.
+    command:
+      - "azurite-blob"
+      - "--blobHost"
+      - "0.0.0.0"
+      - "--blobPort"
+      - "10000"
+      - "-l"
+      - "/data"
+      - "--skipApiVersionCheck"
+      - "--silent"
+    expose:
+      - "10000"
+    ports:
+      - "${HOST_PORT_AZURITE:-10100}:10000"
+    volumes:
+      - azurite-data:/data
+    healthcheck:
+      # Azurite binds TCP on 10000 before the HTTP request pipeline is up,
+      # and has no `/health` endpoint. The most reliable readiness probe is
+      # to issue a raw HTTP request that exercises the pipeline; without
+      # auth, Azurite responds 400 with the structured header
+      # `x-ms-error-code: InvalidQueryParameterValue`. We use busybox `nc`
+      # (present in the upstream alpine-based image) because busybox `wget`
+      # exits 1 on HTTP 400 without printing the body.
+      test:
+        - "CMD-SHELL"
+        - >-
+          printf 'GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n'
+          | nc -w 3 127.0.0.1 10000
+          | grep -q 'x-ms-error-code: InvalidQueryParameterValue'
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Azurite container init — uses the well-known Azurite dev account.
+  #
+  # Microsoft documents a single fixed dev account for Azurite:
+  #   account name: devstoreaccount1
+  #   account key:  Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+  # https://learn.microsoft.com/azure/storage/common/storage-use-azurite#well-known-storage-account-and-key
+  # ---------------------------------------------------------------------------
+  azurite-init:
+    image: mcr.microsoft.com/azure-cli:2.66.0@sha256:2efc666f2f3cac0b9f39c17a2be95f17ebd319ce226d5fb93ecf88d11b5bc86e
+    profiles: ["storage"]
+    depends_on:
+      azurite:
+        condition: service_healthy
+    environment:
+      AZURE_STORAGE_CONNECTION_STRING: >-
+        DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+    entrypoint:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        # `az storage container create` is idempotent: succeeds whether
+        # the container exists or not (returns {"created": true|false}).
+        az storage container create --name fraiseql-docs-test --only-show-errors
+        az storage container show --name fraiseql-docs-test --only-show-errors >/dev/null
+        echo "azurite-init: container fraiseql-docs-test ready"
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # fake-gcs-server — Google Cloud Storage emulator.
+  #
+  # Default scheme is HTTPS; we override to HTTP for plaintext docs-test use.
+  # The `-public-host` value is what the server reports in 303 Location
+  # redirects on resumable uploads; setting it to the container hostname keeps
+  # cross-container URLs consistent.
+  #
+  # No separate init sidecar is needed: fake-gcs auto-discovers any directory
+  # at `-data` as a pre-existing bucket on startup, so we mkdir before exec.
+  # ---------------------------------------------------------------------------
+  fake-gcs:
+    image: fsouza/fake-gcs-server:1.52.2@sha256:d47b4cf8b87006cab8fbbecfa5f06a2a3c5722e464abddc0d107729663d40ec4
+    profiles: ["storage"]
+    entrypoint:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        mkdir -p /data/fraiseql-docs-test
+        exec /bin/fake-gcs-server \
+          -scheme http \
+          -port 4443 \
+          -host 0.0.0.0 \
+          -data /data \
+          -public-host fake-gcs:4443 \
+          -log-level warn
+    expose:
+      - "4443"
+    ports:
+      - "${HOST_PORT_FAKE_GCS:-4443}:4443"
+    volumes:
+      - fake-gcs-data:/data
+    healthcheck:
+      # The bucket-info endpoint returns 200 once the auto-discovered bucket
+      # is in the catalog. wget is present in the alpine-busybox base.
+      test:
+        - "CMD-SHELL"
+        - >-
+          wget -q -O - --tries=1 --timeout=3
+          http://127.0.0.1:4443/storage/v1/b/fraiseql-docs-test
+          >/dev/null
+      interval: 3s
+      timeout: 4s
+      retries: 15
+      start_period: 3s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  mysql-data:
+  sqlite-data:
+  mssql-data:
+  redis-data:
+  minio-data:
+  azurite-data:
+  fake-gcs-data:

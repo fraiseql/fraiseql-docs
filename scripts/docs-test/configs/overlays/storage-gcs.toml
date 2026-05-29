@@ -1,0 +1,47 @@
+# Storage backend overlay: Google Cloud Storage (fake-gcs-server emulator).
+#
+# Layered on top of `configs/baseline.toml` to declare a GCS storage
+# binding. The Compose-stack `fake-gcs` service emulates GCS; the bucket
+# `fraiseql-docs-test` is auto-discovered by the emulator on startup
+# because the `command:` override `mkdir -p /data/fraiseql-docs-test`
+# pre-creates the data directory.
+#
+# Schema source (frozen FraiseQL SHA d0a4ed4ec):
+#   - `StorageConfig` TOML binding:
+#     <!-- source: crates/fraiseql-server/src/config/mod.rs:L113-L114 -->
+#   - `StorageConfig` field set (backend / bucket / project_id / ...):
+#     <!-- source: crates/fraiseql-server/src/config/mod.rs:L397-L425 -->
+#   - `gcs` backend match arm in `create_backend` (bucket → GcsBackend::new):
+#     <!-- source: crates/fraiseql-storage/src/backend/mod.rs:L535-L543 -->
+#   - `GcsBackend::new` constructor (reads GOOGLE_CLOUD_TOKEN or
+#     GOOGLE_APPLICATION_CREDENTIALS env vars):
+#     <!-- source: crates/fraiseql-storage/src/backend/gcs.rs:L37-L99 -->
+#
+# Cargo-feature dependency (NOT in the Cycle 2 default `CARGO_FEATURES`):
+#   The GCS backend is gated behind `fraiseql-server/gcs`. The Cycle 2
+#   image must be rebuilt with this feature appended before this overlay
+#   produces a usable server.
+#
+# KNOWN FRAMEWORK LIMITATION — endpoint hardcoded:
+#   The `GcsBackend` constructs every URL against a hardcoded API base
+#   `https://storage.googleapis.com` with NO configurable endpoint:
+#     <!-- source: crates/fraiseql-storage/src/backend/gcs.rs:L15 -->
+#   This means the framework's `gcs` backend, as of the frozen SHA,
+#   CANNOT be pointed at fake-gcs-server (or any non-Google emulator) via
+#   configuration alone. Cycle 5's smoke test cannot exercise this overlay
+#   through the FraiseQL server without a framework patch that exposes the
+#   API base on the `GcsBackend`. The fake-gcs sidecar in Compose remains
+#   useful for direct-client smoke (`lib/storage-smoke.sh` validates writes
+#   via the REST API) but the FraiseQL server cannot route to it.
+#
+#   Filed as a framework issue:
+#   https://github.com/fraiseql/fraiseql/issues/326
+#
+# `project_id` is declared on the StorageConfig struct but does not affect
+# `GcsBackend` construction at the frozen SHA — the field is reserved for
+# future use. Listed for completeness.
+
+[storage.docs_test]
+backend    = "gcs"
+bucket     = "fraiseql-docs-test"
+project_id = "fraiseql-docs-test"

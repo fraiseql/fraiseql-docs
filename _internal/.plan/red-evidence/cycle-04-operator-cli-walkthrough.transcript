@@ -1,0 +1,169 @@
+Cycle 4 walkthrough: representative docs-test.sh invocations against the cold-Cycle-3 stack state.
+Captured 2026-05-28.
+
+===============================================================================
+1) docs-test.sh --help
+===============================================================================
+docs-test.sh — FraiseQL docs-test harness operator CLI.
+
+Usage:
+  docs-test.sh <subcommand> [args...]
+
+Subcommands:
+  up        Boot harness services. Default --profile all.
+  down      Tear down across ALL profiles. --volumes wipes data.
+  reset     down --volumes then up with the last-used profile set.
+  exec      Run a command in a service container.
+              docs-test.sh exec <service> -- <cmd> [args...]
+  status    Operator-facing health summary (working tree, frozen SHA, ps).
+  logs      Tail or follow logs. --follow exits 0 on Ctrl-C.
+  sha       Compare ~/code/fraiseql HEAD vs. the frozen SHA file.
+
+Run `docs-test.sh <subcommand> --help` for per-subcommand options.
+
+Notes:
+  - MSSQL needs ~2 GB RAM and ~10–30 s to become healthy.
+  - `--profile sqlite` triggers `docker compose run --rm sqlite-init` rather
+    than `up --wait` (sqlite-init is a one-shot, exits 0).
+  - `down` always enumerates all profiles to avoid storage / fraiseql
+    containers being left running (Compose v2 design).
+
+Known profiles:
+  all postgres mysql sqlite mssql redis nats fraiseql storage
+
+Resources:
+  Compose file : /home/lionel/code/fraiseql-docs/scripts/docs-test/docker-compose.docs-test.yml
+  Env file     : /home/lionel/code/fraiseql-docs/scripts/docs-test/.env (optional; example at /home/lionel/code/fraiseql-docs/scripts/docs-test/.env.example)
+  Frozen SHA   : /home/lionel/code/fraiseql-docs/scripts/docs-test/FRAISEQL_SHA (created in phase 00 cycle 9)
+
+===============================================================================
+2) docs-test.sh sha (no FRAISEQL_SHA file — phase 00 cycle 9 not yet)
+===============================================================================
+docs-test sha: ~/code/fraiseql HEAD = c6a72142bce772d43d1a6fec9053735ea6405d73
+docs-test sha: frozen SHA file absent (created in phase 00 cycle 9)
+exit: 0
+
+===============================================================================
+3) docs-test.sh up --profile postgres,redis
+===============================================================================
+docs-test: up --wait --wait-timeout 120 (profiles: postgres redis)...
+ Network fraiseql-docs-test_default Creating 
+ Network fraiseql-docs-test_default Created 
+ Volume fraiseql-docs-test_redis-data Creating 
+ Volume fraiseql-docs-test_redis-data Created 
+ Volume fraiseql-docs-test_postgres-data Creating 
+ Volume fraiseql-docs-test_postgres-data Created 
+ Container fraiseql-docs-test-redis-1 Creating 
+ Container fraiseql-docs-test-postgres-1 Creating 
+ Container fraiseql-docs-test-redis-1 Created 
+ Container fraiseql-docs-test-postgres-1 Created 
+ Container fraiseql-docs-test-redis-1 Starting 
+ Container fraiseql-docs-test-postgres-1 Starting 
+ Container fraiseql-docs-test-redis-1 Started 
+ Container fraiseql-docs-test-postgres-1 Started 
+ Container fraiseql-docs-test-redis-1 Waiting 
+ Container fraiseql-docs-test-postgres-1 Waiting 
+ Container fraiseql-docs-test-redis-1 Healthy 
+ Container fraiseql-docs-test-postgres-1 Healthy 
+exit: 0
+
+===============================================================================
+4) docs-test.sh status (showing running services)
+===============================================================================
+================================================================================
+ FraiseQL docs-test harness — status
+================================================================================
+ Working tree     : /home/lionel/code/fraiseql-docs
+ Branch           : phase-00/foundation
+ Commit (short)   : 1356d55
+ Frozen SHA       : (unset -- set in phase 00 cycle 9)
+ ~/code/fraiseql  : c6a72142bce772d43d1a6fec9053735ea6405d73
+ SHA comparison   : (frozen SHA unset; comparison skipped)
+--------------------------------------------------------------------------------
+NAME                            IMAGE                                                                                        COMMAND                  SERVICE    CREATED         STATUS                   PORTS
+fraiseql-docs-test-postgres-1   postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229   "docker-entrypoint.s…"   postgres   7 seconds ago   Up 6 seconds (healthy)   0.0.0.0:54320->5432/tcp, [::]:54320->5432/tcp
+fraiseql-docs-test-redis-1      redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99       "docker-entrypoint.s…"   redis      7 seconds ago   Up 6 seconds (healthy)   0.0.0.0:63790->6379/tcp, [::]:63790->6379/tcp
+exit: 0
+
+===============================================================================
+5) docs-test.sh exec postgres -- psql -U fraiseql -d fraiseql -c "SELECT 1 AS sentinel"
+===============================================================================
+ sentinel 
+----------
+        1
+(1 row)
+
+exit: 0
+
+===============================================================================
+6) docs-test.sh exec redis -- redis-cli ping
+===============================================================================
+PONG
+exit: 0
+
+===============================================================================
+7) docs-test.sh logs redis (non-follow, last few lines)
+===============================================================================
+redis-1  | 1:M 28 May 2026 11:04:35.228 * Increased maximum number of open files to 10032 (it was originally set to 1024).
+redis-1  | 1:M 28 May 2026 11:04:35.228 * monotonic clock: POSIX clock_gettime
+redis-1  | 1:M 28 May 2026 11:04:35.232 * Running mode=standalone, port=6379.
+redis-1  | 1:M 28 May 2026 11:04:35.232 * Server initialized
+redis-1  | 1:M 28 May 2026 11:04:35.232 * Ready to accept connections tcp
+
+===============================================================================
+8) docs-test.sh logs redis --follow (SIGINT after 2s; exits 0)
+===============================================================================
+(run via test harness; output capture exercised separately in /tmp/test-logs-follow2.sh)
+Spawned via setsid; kill -INT -$pgid; docs-test exit code: 0; no orphan compose processes.
+
+===============================================================================
+9) docs-test.sh up --profile sqlite (one-shot sqlite-init via compose run --rm)
+===============================================================================
+docs-test: materialising sqlite (one-shot)...
+ Volume fraiseql-docs-test_sqlite-data Creating 
+ Volume fraiseql-docs-test_sqlite-data Created 
+ Container fraiseql-docs-test-sqlite-init-run-d4cce5f7b990 Creating 
+ Container fraiseql-docs-test-sqlite-init-run-d4cce5f7b990 Created 
+main: /data/fraiseql.db r/w
+sqlite-init: ready at /data/fraiseql.db
+exit: 0
+
+===============================================================================
+10) docs-test.sh reset (down -v then up postgres,redis,sqlite from last-profiles)
+===============================================================================
+sqlite
+(last-profiles above; reset replays this set)
+
+===============================================================================
+11) docs-test.sh down --volumes (tears down across ALL profiles + named volumes)
+===============================================================================
+ Container fraiseql-docs-test-redis-1 Stopping 
+ Container fraiseql-docs-test-postgres-1 Stopping 
+ Container fraiseql-docs-test-redis-1 Stopped 
+ Container fraiseql-docs-test-redis-1 Removing 
+ Container fraiseql-docs-test-postgres-1 Stopped 
+ Container fraiseql-docs-test-postgres-1 Removing 
+ Container fraiseql-docs-test-redis-1 Removed 
+ Container fraiseql-docs-test-postgres-1 Removed 
+ Network fraiseql-docs-test_default Removing 
+ Volume fraiseql-docs-test_redis-data Removing 
+ Volume fraiseql-docs-test_postgres-data Removing 
+ Volume fraiseql-docs-test_sqlite-data Removing 
+ Volume fraiseql-docs-test_redis-data Removed 
+ Volume fraiseql-docs-test_postgres-data Removed 
+ Volume fraiseql-docs-test_sqlite-data Removed 
+ Network fraiseql-docs-test_default Removed 
+exit: 0
+
+===============================================================================
+12) Verify zero-state
+===============================================================================
+0
+(0 containers above)
+0
+(0 volumes above)
+
+===============================================================================
+13) shellcheck
+===============================================================================
+shellcheck exit: 0

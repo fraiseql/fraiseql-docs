@@ -1,0 +1,40 @@
+# RED evidence — Phase 00 / Cycle 2
+# Captured: 2026-05-28T09:45:06Z
+# Working tree: /home/lionel/code/fraiseql-docs
+# Branch: phase-00/foundation
+# HEAD: 043034d55cf03b9066d930b3620761d1b8b221c0
+#
+# Demonstrates: with the Cycle 1 Compose stack (no fraiseql service yet),
+# a curl to the expected http://localhost:8080/health endpoint returns a
+# connection failure. Cycle 5's future smoke script will hit that endpoint;
+# Cycle 2's job is to make it return 200.
+
+## docker compose ps (no fraiseql in the service list)
+$ docker compose -f scripts/docs-test/docker-compose.docs-test.yml ps
+NAME                            IMAGE                                                                                                                           COMMAND                  SERVICE    CREATED          STATUS                    PORTS
+fraiseql-docs-test-mssql-1      mcr.microsoft.com/mssql/server:2022-CU13-ubuntu-22.04@sha256:c4369c38385eba011c10906dc8892425831275bb035d5ce69656da8e29de50d8   "/opt/mssql/bin/perm…"   mssql      24 seconds ago   Up 23 seconds (healthy)   0.0.0.0:14330->1433/tcp, [::]:14330->1433/tcp
+fraiseql-docs-test-mysql-1      mysql:8.4@sha256:c36050afdca850f23cef85703f84c7531a5ae155a11b5ee1c60acb09937c4084                                               "docker-entrypoint.s…"   mysql      24 seconds ago   Up 23 seconds (healthy)   33060/tcp, 0.0.0.0:13306->3306/tcp, [::]:13306->3306/tcp
+fraiseql-docs-test-nats-1       nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927                                        "docker-entrypoint.s…"   nats       24 seconds ago   Up 23 seconds (healthy)   6222/tcp, 8222/tcp, 0.0.0.0:42220->4222/tcp, [::]:42220->4222/tcp
+fraiseql-docs-test-postgres-1   postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229                                      "docker-entrypoint.s…"   postgres   24 seconds ago   Up 23 seconds (healthy)   0.0.0.0:54320->5432/tcp, [::]:54320->5432/tcp
+fraiseql-docs-test-redis-1      redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99                                          "docker-entrypoint.s…"   redis      24 seconds ago   Up 23 seconds (healthy)   0.0.0.0:63790->6379/tcp, [::]:63790->6379/tcp
+
+## curl --fail-with-body -sS http://localhost:8080/health
+$ curl --fail-with-body -sS -o /dev/null -w "exit_curl=%{exitcode} http=%{http_code} url=%{url}\n" http://localhost:8080/health; echo "exit_shell=$?"
+curl: (7) Failed to connect to localhost port 8080 after 0 ms: Could not connect to server
+exit_curl=7 http=000 url=http://localhost:8080/health
+exit_shell=7
+
+## verbose connect attempt
+$ curl -v --fail-with-body -sS http://localhost:8080/health
+* Host localhost:8080 was resolved.
+* IPv6: ::1
+* IPv4: 127.0.0.1
+*   Trying [::1]:8080...
+* connect to ::1 port 8080 from ::1 port 40642 failed: Connection refused
+*   Trying 127.0.0.1:8080...
+* connect to 127.0.0.1 port 8080 from 127.0.0.1 port 41796 failed: Connection refused
+* Failed to connect to localhost port 8080 after 0 ms: Could not connect to server
+* closing connection #0
+curl: (7) Failed to connect to localhost port 8080 after 0 ms: Could not connect to server
+
+exit_shell=0

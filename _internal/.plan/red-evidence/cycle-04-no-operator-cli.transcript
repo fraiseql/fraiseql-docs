@@ -1,0 +1,92 @@
+# Cycle 4 RED evidence: the gap a page reproduction must inline today.
+#
+# Every documented page in `src/content/docs/` that needs a live FraiseQL
+# stack must, BEFORE Cycle 4 lands, inline the same ~30 lines of Compose
+# plumbing.  That plumbing is:
+#
+#   - locating the Compose file relative to the page test
+#   - sourcing the harness `.env` (or warning when only `.env.example` exists)
+#   - enumerating profiles (because Compose v2 does not auto-activate
+#     dependency profiles — verified in Cycle 2 handoff when adding
+#     `--profile fraiseql` had to also list `postgres` + `redis`)
+#   - calling `up --wait` with a sensible timeout
+#   - tearing down across EVERY profile on exit because `docker compose down`
+#     does NOT touch storage-profiled containers without enumerating
+#     `--profile storage` (Cycle 3 handoff)
+#   - distinguishing one-shot init services (sqlite-init) from long-running
+#     services so `--wait` does not treat `exit 0` as failure (Cycle 1 fix
+#     commit 9adb4eb)
+#   - presenting `docker compose exec` with proper argv quoting so users do
+#     not wrestle with shell quoting in `psql -c "SELECT 1"`
+#   - comparing the local `~/code/fraiseql` HEAD against the frozen
+#     `FRAISEQL_SHA` so Source-Citation Verifier runs catch SHA drift
+#
+# ----------------------------------------------------------------------
+# Canonical stanza that a page test would have to inline TODAY
+# (before docs-test.sh exists). Every page repeats this verbatim.
+# ----------------------------------------------------------------------
+#
+# #!/usr/bin/env bash
+# set -euo pipefail
+#
+# HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# HARNESS="$HERE/../.."  # scripts/docs-test/
+# COMPOSE_FILE="$HARNESS/docker-compose.docs-test.yml"
+#
+# # Source harness env without polluting caller environment.
+# if [ -f "$HARNESS/.env" ]; then
+#   set -a; . "$HARNESS/.env"; set +a
+# elif [ -f "$HARNESS/.env.example" ]; then
+#   echo "warning: no .env, using compose defaults" >&2
+# fi
+#
+# # Profile selection (additive — repeated --profile flags).
+# PROFILES=(--profile postgres --profile fraiseql)
+#
+# # Boot the stack. --wait blocks until healthchecks pass.
+# docker compose -f "$COMPOSE_FILE" "${PROFILES[@]}" up -d --wait --wait-timeout 240
+#
+# # Teardown across EVERY profile (otherwise storage / fraiseql / sqlite
+# # containers linger — confirmed in Cycle 3 close handoff).
+# cleanup() {
+#   docker compose -f "$COMPOSE_FILE" \
+#     --profile all --profile storage --profile fraiseql --profile sqlite \
+#     down --remove-orphans
+# }
+# trap cleanup EXIT INT TERM
+#
+# # Frozen-SHA drift check (Phase 00 Cycle 9 will create FRAISEQL_SHA).
+# if [ -f "$HARNESS/FRAISEQL_SHA" ]; then
+#   frozen="$(cat "$HARNESS/FRAISEQL_SHA")"
+#   head="$(cd ~/code/fraiseql && git rev-parse HEAD)"
+#   if [ "$frozen" != "$head" ]; then
+#     echo "WARNING: ~/code/fraiseql HEAD ($head) != frozen ($frozen)" >&2
+#   fi
+# fi
+#
+# # Now the page-test-specific work can begin...
+# docker compose -f "$COMPOSE_FILE" exec postgres psql -U fraiseql -d fraiseql -c 'SELECT 1'
+#
+# ----------------------------------------------------------------------
+# After docs-test.sh lands (Cycle 4 GREEN), the same page test reduces
+# to its actual work. Plumbing → CLI:
+# ----------------------------------------------------------------------
+#
+# #!/usr/bin/env bash
+# set -euo pipefail
+#
+# HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# DOCS_TEST="$HERE/../docs-test.sh"
+#
+# "$DOCS_TEST" up --profile postgres,fraiseql
+# trap '"$DOCS_TEST" down' EXIT INT TERM
+# "$DOCS_TEST" sha   # warns on drift, non-fatal
+#
+# "$DOCS_TEST" exec postgres -- psql -U fraiseql -d fraiseql -c 'SELECT 1'
+#
+# ----------------------------------------------------------------------
+# Line count delta: ~30 lines per page → ~6 lines per page.
+# Repetition: ~25 pages projected by Phase 02 → 600 lines of boilerplate
+# saved, plus a single audit surface for env loading / teardown / SHA
+# drift policies.
+# ----------------------------------------------------------------------
