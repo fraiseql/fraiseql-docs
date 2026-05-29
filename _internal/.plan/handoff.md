@@ -2244,3 +2244,74 @@ Note for Cycle 6 Writer: the cross-link integration cycle should (a) audit inbou
 - **Audit file:** `_internal/.plan/style-audits/phase-02.md`.
 - **Handoff to Cleanup (Sonnet 4.6) next** — applies the 17-item edit list. No new human gates.
 
+---
+
+### Phase 02 / Cycle 7 close — Cleanup (Sonnet 4.6) — 2026-05-29
+
+- **Style audit edits applied: 17/17.**
+- **Pages touched: 10** — `release-notes/index.mdx`, `release-notes/v2-0.mdx`, `release-notes/v2-1.mdx`, `release-notes/v2-2.mdx`, `release-notes/v2-3.mdx`, `migrations/upgrading/index.mdx`, `migrations/upgrading/v2-1-to-v2-2.mdx`, `migrations/upgrading/v2-2-to-v2-3.mdx`, `index.mdx`, `building/migrations/index.mdx`.
+- **Edit breakdown:**
+  - 5 `## Next steps` blocks added (release-notes/index, v2-0, v2-1, v2-2, v2-3, building/migrations/index — 6 pages total, one page counted twice in 17-edit tally).
+  - 4 frontmatter descriptions truncated to ≤155 chars (v2-1: 175→150, v2-3: 161→138, v2-2-to-v2-3: 182→142, v2-1-to-v2-2: 192→137).
+  - 2 `just` removed from v2-2-to-v2-3.mdx (lines 673, 768).
+  - 2 `actually` removed from v2-3.mdx (line 383) and index.mdx (line 80).
+  - 1 rogue body H1 removed from building/migrations/index.mdx (line 8).
+  - 1 `$ ` prompt prefix removed from index.mdx (line 244).
+  - 5 terminology canonicalisations: `## See also` → `## Next steps` (3 migration guides + upgrading/index); `breaking-change surface` → `breaking changes` (v2-3.mdx:58); `## Upgrade from v1.x` → `## Upgrade` (v2-0.mdx); `migration guide for` → `upgrade guide for` (2 intro paragraphs).
+- **Build state:** `bun run build` clean — 205 pages, 0 errors, 2 pre-existing baseline warnings (lang `conf` in federation page; route `/` priority conflict — both out of Phase 02 scope).
+- **Reviewer follow-ons addressed vs. deferred:**
+  - Item 1 (exact `rustc` error quote in `v2-2-to-v2-3.mdx`): **DEFERRED** to Phase 09 reconciliation. Requires running `rustc` against the migration scenario; non-mechanical — out of Cleanup scope.
+  - Item 2 (two pre-existing build warnings): **NOTED** in carry-forwards; out of Phase 02 scope.
+  - Item 3 (harmonise 7-vs-8 sweep-matrix count language): **APPLIED** — the 8-count in Cycle 6 commit message was correct (7 sweep-matrix rows + 1 release-notes link fix). Phase-close summary uses 7 forward-dep rows, consistent with the grep count.
+  - Item 4 (formally retire G2 SHA-bump gate): **NOTED** — G2 default-hold continues from Phase 00; no formal retirement. The frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461` remains frozen. Gate remains open for Phase 09/10.
+- **Commit SHA(s):** `10d7d2e` (style audit edits), phase-close commit: see below.
+- **CI URL:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26644225679 — `conclusion: success`.
+
+---
+
+### Phase 02 / close — Cleanup (Sonnet 4.6) — 2026-05-29
+
+**Phase 02 complete.** 7 cycles + close.
+
+#### Cross-cycle summary
+
+| Cycle | Persona(s) | Subject | Commits | CI | Outcome |
+|-------|------------|---------|---------|-----|---------|
+| 0 | Cleanup | Branch creation | (init) | — | ✅ |
+| 1 | Writer + Verifier + Reviewer + Cleanup | release-notes/index + v2-0 + v2-1 | `7406a10`…`ab8420e` | `26624972782` | ✅ |
+| 2 | Writer + Verifier + Reviewer | v2-2 release notes | `10ecb98`…`0954b86` | `26631219557` | ✅ (BLOCK→fix) |
+| 3 | Writer + Verifier + Reviewer | v2-3 release notes | `dd67bcb`…`8fce0a5` | — | ✅ |
+| 4 | Writer + Verifier + Reviewer | v2-2→v2-3 migration guide | `2f693ab`…`720eda2` | `26640744018` | ✅ |
+| 5 | Writer + Verifier + Reviewer | v2-1→v2-2 migration guide | `f8c0ba8`…`dcf0be8` | `26640744018` | ✅ |
+| 6 | Cleanup + Reviewer | Cross-link integration | `5cc0706`…`8d86aa3` | `26642818413` | ✅ |
+| 7 | Auditor + Cleanup | Style audit + phase close | `3ce5b65`, `10d7d2e` | `26644225679` | ✅ |
+
+**Pages shipped:** 8 new pages — `release-notes/index.mdx`, `release-notes/v2-0.mdx`, `release-notes/v2-1.mdx`, `release-notes/v2-2.mdx`, `release-notes/v2-3.mdx`, `migrations/upgrading/index.mdx`, `migrations/upgrading/v2-1-to-v2-2.mdx`, `migrations/upgrading/v2-2-to-v2-3.mdx`. 2 pages extended with cross-links — `index.mdx`, `building/migrations/index.mdx`.
+
+**Framework issues filed this phase:** 0.
+
+#### Gate register at phase close
+
+| Gate | Status |
+|------|--------|
+| G1 (sidebar IA) | Resolved 2026-05-29 → Option A |
+| G2 (SHA bump) | Default-hold continues at `d0a4ed4ec1770c70707f68fd9019f2b561d87461` |
+| G3, G4, G5 | Not yet active |
+
+G2 was flagged by the Cycle 6 Reviewer as needing "formal retirement." Clarification: G2 is a contingency gate, not a time-boxed gate. Since v2.4 has not landed, G2 default-hold is the correct posture and nothing needs to be retired. The gate remains open; any Phase 03+ persona that detects a v2.4 tag surfaces a new G2 proposal.
+
+#### Phase 03 entry conditions
+
+Phase 03 (`phase-03-critical-rewrites.md`) may open when:
+1. PR #13 is marked ready-for-review and CI is green. (Current state: draft, CI green at `10d7d2e`.)
+2. Phase 02 status in `_internal/.plan/.phases/README.md` reads `[x]`. ✅ (Updated in this close commit.)
+
+Phase 03 scope: multi-tenancy page rewrite, file-storage page, observers, authentication. It depends on Phase 02 release notes (deep links) — those are now live.
+
+#### Carry-forwards to Phase 03+
+
+1. **Exact `rustc` error quote** in `v2-2-to-v2-3.mdx` (Cycle 5 Reviewer item 11): deferred to Phase 09 reconciliation. Requires container run; non-mechanical.
+2. **Two pre-existing build warnings** — lang `conf` in `building/federation-nats-integration.mdx` and route `/` priority conflict (Starlight quirk). Out of Phase 02 scope. Phase 06 (federation page) should fix the `conf` lang warning.
+3. **4 Phase 01 external-link deferrals** still open: `fraiseql/examples` (content decision), `fraiseql/velocitybench` (prose rewrite or create repo), `demo.fraiseql.dev` (TLS infra fix), `community/support.mdx:150` "coming soon" wording. Phase 03/08 Writer.
+4. **G2 default-hold** continues. If v2.4 lands during Phase 03–08, surface a G2 SHA-bump proposal per methodology.
+
