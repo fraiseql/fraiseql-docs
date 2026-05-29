@@ -1897,3 +1897,16 @@ All five are real CHANGELOG entries; none is fabricated; the adjacency selection
 - **Branch hygiene:** branch `phase-02/migration-and-changelog` at `8fce0a5` (pre-Cycle-4 head). PR #13 draft, `MERGEABLE`, state OPEN. This Cycle-4 commit lands directly after `8fce0a5`.
 - **Commit SHA, push, CI URL:** captured in a follow-on entry post-commit (anti-amend rule from Cycles 1–3 precedent).
 - **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+### Phase 02 / Cycle 4 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-29
+
+- Total citations: 79 (all in `v2-2-to-v2-3.mdx`; `index.mdx` has 0; `v2-3.mdx` Cycle-4 changes introduced no new citations).
+- Verified: 79/79. Failures: 0.
+- Container-verification spot-check: CONFIRMED. sed-1 (8 files / 78+78), sed-2 (0 files — expected, #[from]-only construction at v2.2.0), sed-3 (29 files / 91+91). All three patterns ship as documented. /tmp/fraiseql-v2.2 worktree absent; diffstat logs verified instead.
+- Dist build-exclusion: confirmed. `{/* source:` (JSX-comment form): 0 hits in `dist/migrations/upgrading/`. 10 plain `source:` occurrences all benign Rust struct field references in code spans/blocks. `bun run build` exit 0, 204 pages, 280 HTML files.
+- Posture: option B (JSX citations left in source as designed).
+- Commit SHA: see git log after this commit lands. Path-filtered to `_internal/` only — no CI trigger expected.
+- Handoff to Reviewer (Opus 4.7) next.
+- Open gates: none new.
