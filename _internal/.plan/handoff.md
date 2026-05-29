@@ -1108,3 +1108,28 @@ Please reply inline below this line with `> human:` your pick (A / B / C) and an
 > human: **A.** No modifications. Default proposal accepted as-written. G1 closed 2026-05-29 (recorded by orchestrator on user's behalf — original chat-channel response was "ok, I agree with the option A from the writer"). Open questions 1–7 in the Writer's proposal remain Writer judgement during Cycle 6 REFACTOR/CLEANUP unless they require another gate — surface novel gates rather than guess.
 
 ---
+
+### Phase 01 / Cycle 6 REFACTOR+CLEANUP close — Writer (Opus 4.7) — 2026-05-29
+
+- **G1 result honoured: Option A, no modifications.** Implementation lands the full Option A move plan in three commits on `phase-01/triage-and-ia`.
+- **Sidebar groups: 10** (was 18), plus Examples as an 11th top-level. Top-level move count: **76**. Pages moved: **76**. Redirects added: **76**. In-page internal-link updates: **0** (the 338+ links to old slugs resolve via the redirect map; Phase 02/03 prose rewrites will update them in-place).
+- **7 open questions resolved** (with one-line rationale, see `src/content/docs/_internal/_sidebar-decision.md` § 4):
+  1. SEO unknown → full redirect map covers all 76 moved slugs.
+  2. `vs/` → `Community → Comparisons` sub-group.
+  3. `ai/` → `Community → AI-Assisted` sub-group.
+  4. `Examples` → kept as top-level group (11th visible).
+  5. Phase 02 quickstart bugs → confirmed independent; quickstart slug unchanged.
+  6. Partial vs. staged → full move now (per "no modifications").
+  7. Redirect-map regression test → deferred to Cycle 7 / Phase 10.
+- **Build state:** 197 pages built; 273 HTML files (197 pages + 76 redirect stubs); zero new warnings (only the two pre-existing baselines).
+- **`_internal/_sidebar-decision.md` authored at `src/content/docs/_internal/_sidebar-decision.md`** and confirmed excluded from the build (`find dist -name '*sidebar-decision*'` → 0 hits; Pagefind index does not contain the doc).
+- **Commits (three):**
+  - `2edb72e` docs(ia): step 1 — sidebar redraw to Option A (10 groups). astro.config.mjs only; build clean with sidebar items still pointing at OLD slugs.
+  - `01ed373` docs(ia): step 2 — 76 page moves; sidebar slugs repointed; 76 OLD→NEW redirects added.
+  - `<step-3-SHA>` docs(ia): step 3 CLEANUP — `_sidebar-decision.md` authored. (SHA appended after commit lands below this entry.)
+- **CI run URLs:** captured per commit below this entry once each push has triggered a run.
+- **Cycle 7 (sweep matrix) now unblocked** — depends on the new sidebar shape, which is now stable on `phase-01/triage-and-ia`.
+- **Anti-scope held:** no prose edits, no Phase-02 fixes, no Cycle 4 deferral fixes, no main pushes, no commit amendments.
+- **Open gates:** none new. G1 closed. G2 SHA freeze still at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
