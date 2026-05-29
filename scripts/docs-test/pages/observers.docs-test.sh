@@ -199,7 +199,7 @@ assert_observers_auto_wired_in_binary() {
     routing=$(git -C "$FRAISEQL_REPO" show \
         "${FRAISEQL_SHA}:crates/fraiseql-server/src/server/routing/observers.rs")
 
-    if printf '%s' "$routing" | grep -qE 'app.nest\("/api/observers"'; then
+    if printf '%s' "$routing" | grep -qE '\.nest\("/api/observers"'; then
         step "observer routes nested under /api/observers at frozen SHA"
     else
         err "observer route nesting changed at frozen SHA — page drift"
@@ -207,7 +207,7 @@ assert_observers_auto_wired_in_binary() {
     fi
 
     # FW-13: runtime routes mounted with .merge at ROOT (not nested).
-    if printf '%s' "$routing" | grep -qE 'app.merge\(observer_runtime_routes'; then
+    if printf '%s' "$routing" | grep -qE '\.merge\(observer_runtime_routes'; then
         step "FW-13 layout reproduces: observer_runtime_routes mounted at root via .merge"
     else
         err "FW-13 layout no longer reproduces — runtime routes may have moved under /api/observers; update page"
@@ -331,8 +331,12 @@ assert_fw15_fw23_still_reproduce() {
 
     # The page's FW-15 documented symptom: observers.running=false because
     # tb_observer is missing.
+    # NB: do NOT use `// empty` here — jq's `//` operator treats the boolean
+    # `false` as falsy and replaces it with the alternative, swallowing the
+    # very value this assertion needs. Probe the field directly; missing or
+    # null fields map to the literal string "null".
     local observers_running
-    observers_running=$(printf '%s' "$health_body" | jq -r '.observers.running // empty' 2>/dev/null || true)
+    observers_running=$(printf '%s' "$health_body" | jq -r '.observers.running' 2>/dev/null || true)
 
     if [ "$observers_running" = "false" ]; then
         step "/health observers.running == false (FW-15: tb_observer missing); body: $(printf '%s' "$health_body" | head -c 200)"

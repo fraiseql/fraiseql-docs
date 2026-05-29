@@ -4440,3 +4440,72 @@ Unchanged. G1 closed, G2 default-hold, G7 resolved.
 #### Pointer
 
 Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 3 — fresh-context 15-point adversarial pass on `/features/observers.mdx`. Verifier's PASS on the other 66 citations stands; L201 is now in the same PASS state per the orchestrator's independent re-verification at frozen SHA.
+
+---
+
+### Phase 03 / Cycle 3 GREEN — orchestrator follow-on (observers docs-test fix) — 2026-05-30
+
+CI run `26666952192` on `70cd38d` came back with `page-test (observers)` FAILURE. Local repro reproduced both errors. Both root causes are mechanical, within orchestrator scope.
+
+#### Root cause 1: route-nesting regex too strict
+
+- Script L202: `grep -qE 'app.nest\("/api/observers"'`.
+- Framework actual at frozen SHA (`crates/fraiseql-server/src/server/routing/observers.rs:L42-L44`): the `app.nest` call sits on a continuation of a method chain — the source line is `        .nest("/api/observers", observer_routes(observer_state))`, preceded by `let app = app\n`. The literal `app.nest` substring never appears.
+- Fix: drop the `app` prefix → `grep -qE '\.nest\("/api/observers"'`. Same fix for the FW-13 line that checks `app.merge\(observer_runtime_routes` → `\.merge\(observer_runtime_routes` (L60 of the framework file does start with `app.merge` — the change is defensive, not strictly required for that line, but keeps the two assertions symmetric).
+
+#### Root cause 2: `jq '// empty'` swallows `false`
+
+- Script L335: `jq -r '.observers.running // empty'`.
+- jq's `//` (alternative) operator treats both `null` and the boolean `false` as falsy. When `.observers.running` is `false`, the expression returns `empty`, the captured shell var is empty, and the script hits the "could not extract" branch — the very value the assertion is checking for.
+- Fix: drop the `// empty` fallback. `jq -r '.observers.running'` returns the string `"false"` (which is what the next conditional expects); a missing key yields `"null"`, still distinguishable from `"false"` / `"true"`.
+- Added a one-line comment noting the jq pitfall so future writers don't reintroduce it.
+
+#### Local verification after both fixes
+
+```
+=== observers: F014 — worker panic propagation holds ===
+  · JoinError::is_panic() matcher present in executor at frozen SHA
+  · job_failed(_, "panic") metric site present at frozen SHA
+
+=== observers: F056 — entity_type_index reload uses ArcSwap snapshot ===
+  · runtime.rs ArcSwap reload path present at frozen SHA
+
+=== observers: F040 — observer changelog handlers present at frozen SHA ===
+  · observer_changelog_routes mounted at frozen SHA
+
+=== observers: known-issue bugs (FW-16..FW-23) still reproduce at frozen SHA ===
+  · observers.bug-1.sh — BUG REPRODUCED (FW-16 remains real)
+  · observers.bug-2.sh — BUG REPRODUCED (FW-17 remains real)
+  · observers.bug-3.sh — BUG REPRODUCED (FW-18 remains real)
+  · observers.bug-4.sh — BUG REPRODUCED (FW-19 remains real)
+  · observers.bug-5.sh — BUG REPRODUCED (FW-20 remains real)
+  · observers.bug-6.sh — BUG REPRODUCED (FW-21 remains real)
+  · observers.bug-7.sh — BUG REPRODUCED (FW-22 remains real)
+  · observers.bug-8.sh — BUG REPRODUCED (FW-23 remains real)
+
+=== observers: FW-15 #342 + FW-23 #350 — tb_observer missing + transport hardcoded to PG ===
+  · stack up with observers overlay
+  · /health observers.running == false (FW-15: tb_observer missing); body: {...}
+  · GET /api/observers/runtime/health returns 404 (FW-13 reproduces: nested mount missing)
+  · GET /runtime/health returns 503 (FW-13 reproduces: runtime routes at root)
+  · GET /api/observers/dlq returned 200 (no 401/403 — FW-21 reproduces: admin API anonymous)
+  · stack down clean
+
+observers.docs-test: PASS
+```
+
+Exit 0. All assertions hold.
+
+#### Anti-scope
+
+- No re-spawn of Writer-Opus for these two mechanical regex/jq bugs.
+- No edits to the page, harness fixtures, framework, or other docs-test scripts.
+- No amend; new commit only.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved.
+
+#### Pointer
+
+Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 3 — once CI on this commit is green. The Reviewer should re-run the docs-test from a clean Docker state and confirm exit 0 with the assertion log above.
