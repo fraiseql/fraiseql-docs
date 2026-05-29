@@ -3527,3 +3527,72 @@ The cumulative security severity (FW-8 #335 is critical-class) continues to weig
 #### 12. Commit / push
 
 Commit `[Phase 03, Cycle 2: GREEN, Persona: Writer]` per methodology § 8. Push to `origin/phase-03/critical-rewrites`. PR #14 auto-updates.
+
+### Phase 03 / Cycle 2 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-29
+
+#### Summary
+
+| Metric | Value |
+|---|---|
+| Page | `src/content/docs/features/file-storage.md` |
+| Citation-bearing lines in page | 83 (matches Writer's claim) |
+| Individual citation instances | 93 (83 lines, some lines carry 2–3 citations) |
+| Unique citation targets | 67 |
+| Verified | 93 |
+| Failures | 0 |
+| Non-blocking notes | 2 |
+
+#### Spot-checks performed (7 — elevated for security-critical page)
+
+1. `routes/mod.rs:L372-L434` — presign_handler no-RLS (FW-8). PASS.
+2. `rls/mod.rs:L40-L52` — can_read PublicRead always allowed. PASS.
+3. `CHANGELOG.md:L277-L320` — F050 migration (8 new FileError variants, NotFound→404, InvalidKey→400). PASS.
+4. `metadata/mod.rs:L160-L208` — LIKE pattern injection FW-12. PASS.
+5. `server_config/defaults.rs:L32-L36` — 1 MiB global body limit default. PASS.
+6. `backend/mod.rs:L361-L373` — validate_key path-traversal protection. PASS.
+7. `routes/mod.rs:L208-L416` — FW-9 bucket name dropped before backend calls. PASS.
+
+#### FW-8 through FW-12 security-caveats sub-verification
+
+Each of the five security-caveats citations was cross-verified against both the frozen-SHA source
+and the corresponding `scripts/docs-test/bugs/file-storage.bug-{1..5}.sh` Actual: block.
+
+| Bug | Citation | Source confirms bug-shape | Repro Actual: matches |
+|---|---|---|---|
+| FW-8 (#335) presign no-RLS | `routes/mod.rs:L372-L434` | YES — presign_handler has no StorageUser param, no rls.can_* call | YES |
+| FW-9 (#336) bucket dropped | `routes/mod.rs:L208-L416` | YES — all four handlers forward only `&key`, not bucket_name | YES |
+| FW-10 (#337) MIME confusion/XSS | `routes/mod.rs:L237-L283` | YES — get_handler sets Content-Type verbatim, no nosniff, no Content-Disposition | YES |
+| FW-11 (#338) global 1 MiB cap | `defaults.rs:L32-L36` + `middleware.rs:L39-L45` + `routes/mod.rs:L148-L168` | YES — all three locations confirm | YES |
+| FW-12 (#339) LIKE injection | `metadata/mod.rs:L160-L208` | YES — `.bind(format!("{pfx}%"))` with no ESCAPE clause | YES |
+
+All five mitigation claims are correctly scoped: each citation points to the framework location that
+DOES NOT enforce the security property (i.e., the bug location), matching the methodology requirement
+for security-caveats sections.
+
+#### Non-blocking notes
+
+- **NOTE-1** (page line 23): `defaults.rs:L32-L36` — `default_max_request_body_bytes` function starts
+  at L34 (doc comment at L33). Range is 2 lines early but function body is within range. Non-blocking.
+- **NOTE-2** (page line 113): `config/mod.rs:L60-L86` cited for "backend field values: local, s3...".
+  Cited location shows StorageConfig struct (backend: String field). Valid values are in create_backend
+  match arms in backend/mod.rs, not in this file. Citation is illustrative (confirms the field), not
+  exhaustive (doesn't enumerate valid strings). Non-blocking per methodology § 4.
+
+#### Posture B leak scan
+
+- Build: `bun run build` — clean (205 pages built, 16.40s).
+- Strip integration log: `strip-source-citations: scanned 281 HTML files, modified 2, stripped 149 source-citation comments.`
+- Leak scan: `grep -rE '<!--\s*source:' dist/` → **0 matches**. CLEAN.
+
+#### Artefact
+
+Per-citation log: `_internal/.plan/red-evidence/phase-03-cycle-02-citation-verification.log`
+(93 entries: 93 PASS, 0 FAIL, 2 NOTE).
+
+#### Verdict: PASS
+
+All 93 citations resolve at the frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+Zero failures. Posture B leak scan clean.
+Page is cleared for Reviewer pass (15-point checklist) and eventual CLEANUP.
+
+Next persona: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 2 adversarial 15-point review.
