@@ -34,15 +34,18 @@
 - `src/content/docs/vs/hasura-sqlserver.mdx:142`
 - `src/content/docs/vs/hasura.mdx:632`
 - `src/content/docs/migrations/incremental.mdx:132`
-- **Action:** Remove links or replace with `https://github.com/fraiseql/fraiseql/releases` until the install domain is live.
+- ~~**Action:** Remove links or replace with `https://github.com/fraiseql/fraiseql/releases` until the install domain is live.~~
+- [x] **applied** (commit `<see handoff>`) — replaced curl pipe-to-sh with a comment pointing to releases page. Files: `vs/hasura.mdx`, `vs/hasura-sqlserver.mdx`, `migrations/incremental.mdx`, `use-cases/dotnet-teams.mdx`, `use-cases/python-teams.mdx` (5 occurrences total — additional occurrences found during grep sweep).
 
 **`https://status.fraiseql.dev`** — NXDOMAIN
 - `src/content/docs/community/support.mdx:150`
-- **Action:** Remove link or replace with a note "(status page coming soon)" until the domain is live.
+- ~~**Action:** Remove link or replace with a note "(status page coming soon)" until the domain is live.~~
+- [x] **applied** — replaced with prose "status page coming soon — check [GitHub Issues]".
 
 **`https://truststore.amazonaws.com/rds-ca-2019-root.pem`** — NXDOMAIN
 - `src/content/docs/troubleshooting/common-issues.mdx:285`
-- **Action:** Replace with `https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem` (the current AWS RDS trust bundle URL as of 2026).
+- ~~**Action:** Replace with `https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem` (the current AWS RDS trust bundle URL as of 2026).~~
+- [x] **applied** — swapped to correct 2026 RDS CA bundle URL (confirmed HTTP 200).
 
 #### TLS failure (1)
 
@@ -50,7 +53,10 @@
 - `src/content/docs/playground.mdx:14`
 - `src/content/docs/concepts/how-it-works.mdx:424`
 - `src/content/docs/getting-started/quickstart.mdx:448`
-- **Action:** Either (a) add a SAN for `demo.fraiseql.dev` to the TLS certificate (infra fix, not docs), or (b) replace demo links with `https://fraiseql.dev` (the apex cert covers this) or remove the demo link entirely if the demo is not yet live. **Note:** DNS resolves (`82.66.42.150`) so the server exists; this is purely a certificate configuration issue.
+- `src/content/docs/features/rich-filters.mdx:83`
+- `src/content/docs/features/mutual-exclusivity.mdx:195`
+- `src/content/docs/features/automatic-where.mdx:150`
+- [ ] **deferred — Phase 02/03 Writer.** `fraiseql.dev/graphql` returns HTTP 200 HTML (not a live GraphQL API endpoint), so the mechanical swap `demo.fraiseql.dev → fraiseql.dev/graphql` is not valid. The server exists (DNS resolves to 82.66.42.150) but the TLS cert lacks the SAN for the subdomain. Infra fix needed (add SAN) or prose rewrite needed.
 
 #### 404 — fraiseql/examples org repos (11 URLs all 404)
 
@@ -67,45 +73,38 @@ The entire `github.com/fraiseql/examples` namespace returns 404. These repos hav
 - `https://github.com/fraiseql/examples/saas-blog` — `src/content/docs/examples/saas-blog.mdx:10`, `:516`
 - `https://github.com/fraiseql/examples/saas-blog-platform` — `src/content/docs/examples/index.mdx:93`
 - `https://github.com/fraiseql/examples/saas-federation-nats` — `src/content/docs/examples/index.mdx:250`
+- [ ] **deferred — Phase 02/03 Writer.** Content decision needed: create `fraiseql/examples` org repos, or rewrite example pages without GitHub clone links. Do NOT silently delete the pages.
 
-**Action:** These example repos have not been created. Options:
-  1. Add a note "Example code coming soon" and remove GitHub links.
-  2. Create placeholder repos in the `fraiseql` org (human decision — out of Cleanup scope).
-  3. Point to a "coming soon" stub. **Recommended:** Option 1 for now, remove the `.git` clone URL, leave placeholder text.
-
-#### 404 — Other repos / pages (4)
+#### 404 — Other repos / pages (8)
 
 **`https://github.com/fraiseql/specql`** — Repo does not exist
-- `src/content/docs/concepts/schema.mdx:222`
-- `src/content/docs/getting-started/introduction.mdx:25`
-- `src/content/docs/reference/decorators.mdx:15`
-- **Action:** Remove link or replace with `https://github.com/fraiseql/fraiseql` (the main repo).
+- `src/content/docs/concepts/schema.mdx:222`, `getting-started/introduction.mdx:25`, `reference/decorators.mdx:15`, `reference/authoring-ir.mdx:346`, `use-cases/python-teams.mdx:120+133`
+- [x] **applied** — removed all hyperlinks; SpecQL is now referenced as plain text only (5 occurrences across 5 files).
 
 **`https://github.com/fraiseql/velocitybench`** — Repo does not exist
 - `src/content/docs/guides/performance-benchmarks.mdx:10`, `:190`, `:200`
-- **Action:** Remove link. If benchmarks are documented in the main repo, link there.
+- `src/content/docs/blog/rest-direct-execution-benchmark.mdx:28`, `:37`, `:54`, `:94`
+- [ ] **deferred — Phase 02/03 Writer.** The prose centre claim is "independent data from VelocityBench" — removing the link without addressing the prose claim would leave an uncited claim. Content decision needed.
 
 **`https://github.com/fraiseql/velocitybench.git`** — Repo does not exist
 - `src/content/docs/blog/rest-direct-execution-benchmark.mdx:94`
-- **Action:** Remove clone URL.
+- [ ] **deferred** — same as above.
 
 **`https://github.com/fraiseql/fraiseql/discussions`** — GitHub Discussions not enabled on this repo
-- `src/content/docs/community/support.mdx:29`
-- `src/content/docs/community/contributing.mdx:92`, `:185`
-- **Action:** Replace with `https://github.com/fraiseql/fraiseql/issues` (the issues tab is live and available for community discussion).
+- `src/content/docs/community/support.mdx:29`, `community/contributing.mdx:92`, `:185`, `:331`, `guides/faq.mdx:232`, `:322`
+- [x] **applied** — replaced with `https://github.com/fraiseql/fraiseql/issues` in all 6 occurrences.
 
 **`https://github.com/fraiseql/fraiseql/blob/main/docs/deployment-security-guide.md`** — File does not exist
 - `src/content/docs/features/audit-logging.mdx:164`
-- **Note:** The fraiseql repo has `docs/guides/production-security-checklist.md` and `docs/security/` directory.
-- **Action:** Replace with `https://github.com/fraiseql/fraiseql/blob/main/docs/guides/production-security-checklist.md` (closest match).
+- [x] **applied** — replaced with GH permalink to frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`: `blob/d0a4ed4ec1770.../docs/guides/production-security-checklist.md`. File confirmed at frozen SHA.
 
 **`https://github.com/apollographql/apollo-sandbox`** — Repo deleted/renamed
 - `src/content/docs/guides/apollo-sandbox-security.mdx:153`, `:166`
-- **Action:** Replace with `https://www.apollographql.com/docs/apollo-sandbox/` (the product docs) or `https://studio.apollographql.com/sandbox` (the live tool).
+- [x] **applied** — replaced hyperlinks with `https://www.apollographql.com/docs/graphos/platform/sandbox` (confirmed 200 after redirect) and plain text for the repo reference.
 
 **`https://www.apollographql.com/docs/apollo-server/security/`** — 404 (page removed from Apollo docs)
 - `src/content/docs/guides/apollo-sandbox-security.mdx:254`
-- **Action:** Replace with `https://www.apollographql.com/docs/apollo-server/` (the Apollo Server docs root) or remove the specific security page link.
+- [x] **applied** — replaced with `https://www.apollographql.com/docs/apollo-server` (confirmed 200).
 
 ---
 
@@ -113,25 +112,20 @@ The entire `github.com/fraiseql/examples` namespace returns 404. These repos hav
 
 **`https://docs.microsoft.com/sql/sql-server/`** → `https://learn.microsoft.com/en-us/sql/sql-server/?view=sql-server-ver17` (3 hops)
 - `src/content/docs/troubleshooting/by-database/sqlserver.mdx:818`
-- **Action:** Update source URL to `https://learn.microsoft.com/en-us/sql/sql-server/` (without the view parameter, which is auto-resolved).
+- [x] **applied** — updated to `https://learn.microsoft.com/en-us/sql/sql-server/` (canonical, no view-param).
 
 **`https://accounts.google.com`** → login redirect chain (3 hops) — *informational only*
-- `src/content/docs/features/security.mdx:419`
-- `src/content/docs/features/oauth-providers.mdx:42`
-- `src/content/docs/use-cases/saas-companies.mdx:83`
-- **Note:** This URL is used as a config value in TOML examples (`issuer_url = "https://accounts.google.com"`), not as a navigable hyperlink. No action needed.
+- [x] **no-op** — used as config value in TOML examples, not a navigable hyperlink.
 
 **`https://ollama.com/install.sh`** → GitHub release CDN (3 hops) — *informational only*
-- `src/content/docs/ai/generating-views.mdx:598`
-- **Note:** Install script redirect is intentional and stable (ollama.com controls the redirect). The source URL is the canonical reference. No action needed.
+- [x] **no-op** — install script redirect is intentional and stable.
 
 ---
 
 ### INFORMATIONAL: 403-bot-blocked (1)
 
 **`https://dev.mysql.com/doc/`** — Returns HTTP 403 for all UA strings (bot-protection, not content restriction; site is live)
-- `src/content/docs/databases/mysql.mdx` (multiple lines)
-- **Action:** None. The link is to the MySQL documentation homepage which is live; the 403 is CloudFlare/bot protection on HEAD requests.
+- [x] **no-op** — Link is live; 403 is CloudFlare/bot protection on HEAD requests.
 
 ---
 
@@ -164,7 +158,8 @@ The following GitHub links point to `main`-branch paths (version-sensitive) and 
 |---|---|
 | `https://github.com/enisdenjo/graphql-ws/blob/master/PROTOCOL.md` | Not a fraiseql repo — leave as-is (external dep). |
 
-No `github.com/fraiseql/fraiseql/blob/main/...` URLs were found returning 200 in this audit (the only `blob/main` URL was the 404 `deployment-security-guide.md`). No frozen-SHA upgrades needed at this time.
+- [x] `fraiseql/fraiseql/blob/main/docs/deployment-security-guide.md` → pinned to frozen SHA (see above).
+- No other `blob/main` URLs found returning 200 at audit time.
 
 ---
 
@@ -176,12 +171,18 @@ None. All URLs resolved without 5xx or timeout within the 3-retry window.
 
 ## Notes for subsequent phases
 
-1. **`fraiseql/examples` org** — 11 URLs point to repos that don't exist. This is a large content liability. Phase 02 or Phase 04's Writer persona should coordinate with the project owner about whether these repos will be created, or the example pages should be rewritten without the GitHub clone links.
+1. **`fraiseql/examples` org** — 11 URLs point to repos that don't exist. Large content liability. Phase 02 or Phase 04's Writer persona should coordinate with the project owner about whether these repos will be created, or the example pages should be rewritten without GitHub clone links.
 
-2. **`demo.fraiseql.dev` TLS** — The demo endpoint has a certificate that doesn't cover the subdomain. This needs an infra fix (add SAN) before the quickstart can link to it. File this as a separate infra issue.
+2. **`demo.fraiseql.dev` TLS** — The demo endpoint has a certificate that doesn't cover the subdomain. Needs infra fix (add SAN) before quickstart, playground, and feature sandbox pages can link to it.
 
-3. **`install.fraiseql.dev` and `status.fraiseql.dev`** — Both are NXDOMAIN. These appear to be planned but not-yet-deployed subdomains. Links should be removed until the services are live.
+3. **`install.fraiseql.dev`** — NXDOMAIN. All install-script occurrences updated with releases-page comment (mechanical). A proper install script should be published to resolve this permanently.
 
-4. **`github.com/fraiseql/fraiseql/discussions`** — GitHub Discussions is not enabled. The community pages link to it. The Cleanup persona should redirect these to the Issues tab.
+4. **`fraiseql/velocitybench`** — Repo does not exist. Performance-benchmarks page and benchmark blog post make claims that depend on this repo. Phase 02/03 Writer must either create the repo or rewrite the claims.
 
-5. **`dev.mysql.com`** — Bot-blocked but live. No action needed.
+5. **`fraiseql/specql`** — Repo does not exist. All hyperlinks removed (mechanical); SpecQL is now referenced as plain text. Phase 02/03 Writer can re-add a link once the repo is created.
+
+6. **`dev.mysql.com`** — Bot-blocked but live. No action needed.
+
+---
+*Action list updated by Cleanup (Sonnet 4.6) — 2026-05-29. Applied fixes committed with Phase 01 / Cycle 4 GREEN commit.*
+*Phase 08 re-audit reminder: re-run external link audit at Phase 08 close to catch any new rot.*

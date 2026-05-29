@@ -675,3 +675,29 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - **Open gates:** none new. G1 (sidebar IA) is Cycle 6.
 
 ---
+
+### Phase 01 / Cycle 4 close (GREEN) — Cleanup (Sonnet 4.6) — 2026-05-29
+
+- Must-fix URLs swapped / removed mechanically: 22 must-fix targets addressed across 16 files
+  - `fraiseql/fraiseql/discussions` → `fraiseql/fraiseql/issues`: 6 occurrences (community/support.mdx, community/contributing.mdx ×3, guides/faq.mdx ×2)
+  - `truststore.amazonaws.com/rds-ca-2019-root.pem` → `truststore.pki.rds.amazonaws.com/global/global-bundle.pem`: 1 occurrence (troubleshooting/common-issues.mdx)
+  - `apollographql/apollo-sandbox` → Apollo product docs + plain text: 2 occurrences (guides/apollo-sandbox-security.mdx)
+  - `apollographql.com/docs/apollo-server/security/` → `/docs/apollo-server`: 1 occurrence (guides/apollo-sandbox-security.mdx)
+  - `fraiseql/fraiseql/blob/main/docs/deployment-security-guide.md` → GH permalink frozen SHA `d0a4ed4ec17.../docs/guides/production-security-checklist.md`: 1 occurrence (features/audit-logging.mdx)
+  - `fraiseql/specql` hyperlinks → plain text "SpecQL": 5 occurrences (getting-started/introduction.mdx, concepts/schema.mdx, reference/decorators.mdx, reference/authoring-ir.mdx, use-cases/python-teams.mdx)
+  - `install.fraiseql.dev` → releases-page comment: 5 occurrences (vs/hasura.mdx, vs/hasura-sqlserver.mdx, migrations/incremental.mdx, use-cases/dotnet-teams.mdx, use-cases/python-teams.mdx)
+  - `status.fraiseql.dev` → prose "status page coming soon": 1 occurrence (community/support.mdx)
+- chain-N redirect upgrades: 1 — `docs.microsoft.com/sql/sql-server/` → `learn.microsoft.com/en-us/sql/sql-server/` (troubleshooting/by-database/sqlserver.mdx)
+- GH-permalinks pinned to frozen SHA: 1 — `blob/main/docs/deployment-security-guide.md` → `blob/d0a4ed4ec17.../docs/guides/production-security-checklist.md` (confirmed at frozen SHA)
+- Deferred to Phase 02/03 Writer (with reasons):
+  - 11 `fraiseql/examples` repo URLs across 4 pages: repos do not exist; content decision needed.
+  - 4+ `fraiseql/velocitybench` URLs across 2 pages: repo does not exist; prose claim "independent data from VelocityBench" is load-bearing — cannot remove without content rewrite.
+  - 6 `demo.fraiseql.dev` use sites: TLS cert SAN mismatch; `fraiseql.dev/graphql` returns HTML, not API; infra fix needed.
+- no-ops (leave as-is): `oauth2.googleapis.com/token`, `openidconnect.googleapis.com/v1/userinfo` (correct POST-only OAuth endpoints), `payments.internal/process` (fictional placeholder in code block), `dev.mysql.com/doc/` (CloudFlare 403 HEAD, site is live), `accounts.google.com` redirect chain (used as config value, not hyperlink), `ollama.com/install.sh` redirect chain (stable install script CDN).
+- Commit SHA(s): see `git log` below — committed to `phase-01/triage-and-ia`.
+- CI run: see push result below.
+- Lint/build state: clean (`bun run build` — 197 pages, no warnings).
+- Open gates: none new. G1 still pending in Cycle 6.
+- Phase 08 re-audit reminder: re-run external link audit at Phase 08 close (use `scripts/docs-test/audit-external-links.sh`).
+
+---
