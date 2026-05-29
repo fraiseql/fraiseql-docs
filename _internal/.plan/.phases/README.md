@@ -40,7 +40,7 @@ the bump decision belongs to Phase 09 or Phase 10. See
 | #  | File                                       | Theme                                                          | Effort | Status | Gates |
 |----|--------------------------------------------|----------------------------------------------------------------|-------:|--------|-------|
 | 00 | `phase-00-foundation.md`                   | Container harness, CI gating, style guide, SHA freeze, plan-into-repo move | 2.0 | `[x]`  | G2 (contingent) |
-| 01 | `phase-01-triage-and-ia.md`                | Stale-fact sweep, sidebar IA (G1), link audit, sweep matrix    | 1.0 | `[ ]`  | **G1** |
+| 01 | `phase-01-triage-and-ia.md`                | Stale-fact sweep, sidebar IA (G1), link audit, sweep matrix    | 1.0 | `[x]`  | G1 (resolved 2026-05-29 → Option A) |
 | 02 | `phase-02-migration-and-changelog.md`      | Release-notes hub, v2.0→v2.3 migration pages, breaking matrix  | 1.0 | `[ ]`  | — |
 | 03 | `phase-03-critical-rewrites.md`            | multi-tenancy, file-storage, observers, authentication         | 2.0 | `[ ]`  | — |
 | 04 | `phase-04-new-features-part1.md`           | Studio, Functions (WASM), Realtime subsystem                   | 2.0 | `[ ]`  | — |
@@ -71,6 +71,7 @@ Phases 04, 05, 06 can run in parallel if multiple writers are available — they
 *(append one line per phase as it merges)*
 
 - **Phase 00** — 2026-05-28 — container harness (Compose + Dockerfile + storage sidecars + operator CLI + smoke + CI), style guide check-in, docs-page PR template, frozen FraiseQL SHA. PR #11 (draft until human marks ready-for-review). Final cycle commit: see Phase 00 / Cycle 9 close entry in `_internal/.plan/handoff.md`.
+- **Phase 01** — 2026-05-29 — triage and IA. Version-string sweep, stray-syntax sweep, internal link audit (0 dead links), external link audit (66 audited, 22 must-fix mechanically applied, 4 deferral groups to Phase 02/03), Homebrew claim verified absent and removed, sidebar redrawn to **Option A** (10 audience-grouped top-levels + Examples as 11th visible — G1 resolved), 76 page moves with 76 Astro `redirects` entries, sweep matrix authored at `src/content/docs/_internal/_sweep-matrix.md` (172 page rows + 2 framework-bug rows + 9 cross-phase rows + 4 deferral-class rows). Methodology § 4 amended to accept the `{/* source: ... */}` JSX comment form for `.mdx` (MDX 3 incompatibility). PR #12 (draft until human marks ready-for-review). Final cycle commit: see Phase 01 / Cycle 7 close entry in `_internal/.plan/handoff.md`.
 
 ## Filed framework bugs
 

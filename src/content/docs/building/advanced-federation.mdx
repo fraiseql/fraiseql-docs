@@ -5,10 +5,11 @@ description: Apollo Federation v2 subgraph composition with FraiseQL — archite
 
 import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
+{/* source: CHANGELOG.md (v2.3.0 federation entries); v2.0.1 predated the v2.1.0 release baseline. v2.2.0 shipped on 2026-05-02. */}
 :::caution[Beta feature]
-Apollo Federation support is available in v2.0.1 as a beta feature.
+Apollo Federation support is available as a beta feature.
 Core federation queries (`_service`, `_entities`) work in production today.
-Full compatibility with Apollo Router, federated query planning, and multi-service tracing are planned for v2.2.0 (Q1 2027). Saga execution across services is production-ready — see [Federation](/features/federation) for details.
+Full compatibility with Apollo Router, federated query planning, and multi-service tracing are in progress. Saga execution across services is production-ready — see [Federation](/features/federation) for details.
 :::
 
 FraiseQL federation means **Apollo Federation v2 subgraphs**. Each FraiseQL service defines its own GraphQL schema using Python decorators, compiles it to a Rust runtime, and exposes a standard Apollo Federation subgraph endpoint. A gateway — either the built-in `fraiseql gateway` or Apollo Router — composes these independent subgraphs into a unified supergraph for clients.

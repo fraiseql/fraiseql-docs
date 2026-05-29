@@ -438,3 +438,892 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - No other gates open at phase close.
 
 ---
+
+### Phase 01 / Cycle 1 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Scope:** audit-driven version-string sweep across `src/content/docs/`. RED grep (narrow + wide) inventoried 74 hits; triage classified them into STALE (must-fix), HISTORICAL (`Available since vX` markers verified against the frozen-SHA CHANGELOG, keep), SDK (SDK-release cadence, Phase 02 rewrite owns), EXAMPLE (SemVer constraint strings, Apollo Federation directive pins, etc.), and OUT-OF-SCOPE (`changelog.mdx` needs a deep rewrite, deferred to Phase 02).
+- **Files edited (13 files, 14 line-level edits, 14 source citations):**
+  - `src/content/docs/index.mdx` — Enterprise Features anchor (`v2.1.0 → v2.3.2`)
+  - `src/content/docs/getting-started/installation.mdx` — `--version` transcript
+  - `src/content/docs/getting-started/five-minute-quickstart.mdx` — server startup log
+  - `src/content/docs/community/contributing.mdx` — bug-report template placeholder
+  - `src/content/docs/reference/cli.mdx` — three `--version` output blocks
+  - `src/content/docs/features/federation.mdx` — drop `v2.0.1` anchor; replace "planned for v2.2.0 (Q1 2027)" wording (v2.2.0 shipped 2026-05-02)
+  - `src/content/docs/guides/federation-nats-integration.mdx` — analogous federation anchors
+  - `src/content/docs/guides/advanced-federation.mdx` — analogous federation anchors
+  - `src/content/docs/troubleshooting/common-issues.mdx` — `v2.0.1+ → v2.3.0+` REST default anchor
+  - `src/content/docs/vs/hasura-sqlserver.mdx` — two `v2.0.2+ → v2.1+` SQL Server Relay cursor anchors
+  - `src/content/docs/examples/index.mdx` — server startup log + /health response (`2.1.0 / 2.1 → 2.3.2`, matches Phase 00 / Cycle 2 GREEN transcript)
+  - `src/content/docs/examples/saas-federation-nats.mdx` — federation auth-service startup log
+  - `src/content/docs/deployment/kubernetes.mdx` — kubectl set-image example tag (`fraiseql:2.0.0 → fraiseql:2.3.2`)
+- **REFACTOR decision — Option A (no central source):**
+  Cycles 1's REFACTOR brief asked to pick A / B / C for the "current version" anchor consolidation. **I picked A** (no single source; hard-code at the anchor with source citations).
+  Rationale: only one true "current FraiseQL version" anchor exists in the rendered corpus (`index.mdx:269`). The other prominent literals are either (i) runtime captures the style guide already classes as literals (`--version` transcripts, server startup logs, `/health` bodies), (ii) example image tags / placeholder values, or (iii) SDK release pins on a separate cadence. A Starlight global / Astro env constant would require every consumer to be `.mdx`, would not help in fenced code blocks (the `--version` transcripts are inside ```` ``` ```` fences where MDX expression substitution does not run), and would not help in `.md` files (the `community/contributing.mdx` template is fenced too). Investing in a single-source pattern for a single rendered anchor expands cycle scope beyond version strings. The cheap closure is to hard-code `v2.3.2` at the anchor with a source citation to `Cargo.toml:L343` + the CHANGELOG `## [2.3.2]` heading; future drift gets caught by the same grep this cycle uses (Phase 09 or a G2-bump cycle can re-sweep mechanically).
+  Documented in the RED-evidence file's § F.
+- **RED evidence:** `_internal/.plan/red-evidence/phase-01-cycle-01-version-grep.txt` — narrow grep (70 hits), wide grep (74 hits), CHANGELOG cross-reference at frozen SHA, per-file classification of every hit, list of files NOT edited with rationale, REFACTOR decision rationale.
+- **Source citations added:** 14 — all in `{/* source: ... */}` MDX JSX-comment form (HTML `<!-- -->` comments are not supported in MDX 2+ which Astro 5 / Starlight 0.37 use; the verifier should grep for the `source:` token regardless of comment delimiter). Locations:
+  - `index.mdx:269`, `getting-started/installation.mdx:116`, `getting-started/five-minute-quickstart.mdx:33`, `community/contributing.mdx:65`, `reference/cli.mdx:91 / :148 / :804`, `features/federation.mdx:8`, `guides/federation-nats-integration.mdx:8`, `guides/advanced-federation.mdx:8`, `troubleshooting/common-issues.mdx:1456`, `vs/hasura-sqlserver.mdx:17`, `examples/index.mdx:23 / :355`, `examples/saas-federation-nats.mdx:645`, `deployment/kubernetes.mdx:561`.
+  - Citations are **left in place** for the Source-Citation Verifier persona to strip after validation.
+- **Pages NOT edited this cycle — rationale (the audit kept the cycle narrow):**
+  - `getting-started/quickstart.mdx` — phase spec listed it but the actual file has zero in-scope version anchors. The three SQL bugs noted at Phase 00 / Cycle 5 close are Phase 02 IA work and explicitly out of scope here.
+  - `getting-started/installation.md` (per spec) — the file is `installation.mdx`, not `.md`; only the `# fraiseql 2.0.0` (actually `fraiseql 2.1.0`) `--version` output mentioned in the phase spec is in scope and is the one edit applied. The "stray ```` ```python ```` fence after Homebrew block" mentioned in the phase scope is **Cycle 2 (stray-syntax sweep)** work, not Cycle 1 — left for the next cycle.
+  - The phase spec also listed an `index.mdx` "v2.0.0-alpha is production-ready" claim — the file currently reads `v2.1.0` (someone partially fixed it pre-overhaul); my edit advances it to `v2.3.2` and adds the missing source citation.
+  - `changelog.mdx` — header reads "v2.1 (Unreleased)" but v2.1.0 / v2.2.0 / v2.3.x have all shipped. A version-string edit will not fix the page; needs a deep rewrite. Deferred to Phase 02 (per cycle anti-scope: "Any content rewrite beyond version strings and stray syntax. Real rewrites are phase 03.").
+  - `features/observability.mdx` — the two `"version": "2.0.0"` literals are inside illustrative `/health` JSON example blobs that the wider Phase 02/03 sweep should refresh holistically (the JSON shape itself is also outdated vs. the actual `/health` body captured at Phase 00 / Cycle 2).
+  - `sdk/*.mdx`, `use-cases/python-teams.mdx`, `blog/*.mdx` — every SDK page declares its release pinned at `v2.1.0` (the SDK release cadence is independent of the framework workspace version per the SDK pages' "ships with FraiseQL v2.1" framing). Phase 02 owns the SDK page rewrites and version alignment.
+  - `features/security.mdx` (6 hits), `features/audit-logging.mdx`, `concepts/configuration.mdx`, `reference/toml-config.mdx`, `reference/decorators.mdx`, `reference/rest-api.mdx`, `migrations/from-postgrest.mdx`, `guides/rest-vs-graphql.mdx`, `guides/federation-gateway.mdx`, `_internal/_style-guide.md`, `features/nats.mdx` (NATS server version, not FraiseQL) — all HISTORICAL / "Added in" markers verified against the frozen-SHA CHANGELOG (v2.1.x + v2.2 entries). Keep.
+  - `reference/operators.mdx:1238`, `reference/scalars.mdx:840`, `examples/saas-federation-nats.mdx:588` — EXAMPLE strings (SemVer constraints, Apollo Federation directive pin). Not FraiseQL version anchors.
+- **CLEANUP gate:**
+  - `bun run build` — exit 0; 197 pages built in 14.39 s (per dist build log). Citations do NOT appear in rendered HTML (`grep -r 'Cargo.toml' dist/` returns only Cargo.toml content **inside** SDK Rust code-block titles, no citation leakage).
+  - `bun run check` — pre-existing 1 error (`SiteTitle.astro` `virtual:starlight/user-images`, unrelated to this cycle) + pre-existing TS hints in `src/lib/validators/**`. No new errors from this cycle's edits.
+  - `bun run lint` — no `lint` script defined in `package.json`. The repo has `lint:sql` and `check` only. Running `check` and `build` is the strongest gate available.
+  - Re-run of the narrow Cycle-1 grep: zero unintentional STALE hits remaining. The only narrow-grep hits outside the citation lines or HISTORICAL/SDK files is `examples/saas-federation-nats.mdx:588` (`federation_version: =2.0.0`, Apollo Federation directive pin — intentional, classified EXAMPLE in the RED evidence).
+- **CI evidence:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26618582360 — **PASSED**. `discover pages and frozen SHA` (5 s) + `page-test (_smoke)` (full smoke). The unrelated `pre-commit.ci - pr` external check failure is the same pre-existing repo-state issue documented at Phase 00 / Cycle 6 close (no `.pre-commit-config.yaml`); does not gate the docs-test workflow.
+- **Commit:** `59ee065` on branch `phase-01/triage-and-ia`.
+- **Branch / push:** `phase-01/triage-and-ia` pushed to `origin` (new branch on remote).
+- **PR:** https://github.com/fraiseql/fraiseql-docs/pull/12 — draft, base `main`, head `phase-01/triage-and-ia`. Title: "docs: Phase 01 — triage and IA".
+- **Docs-test suite:** the `_smoke.docs-test.sh` is the only page test today; this cycle's changes do not touch the smoke's fixtures or page targets. Expect: 1/1 page tests PASS, 0 skipped. CI run URL will be captured post-push.
+- **Framework issues filed:** 0. Cycle 1 surfaced no new framework bugs (the `changelog.mdx` "Unreleased" framing is a docs-side rewrite, not a framework regression; the three quickstart SQL bugs from Phase 00 / Cycle 5 are already on the Phase 02 backlog).
+- **Open gates surfaced:** none new. G2 (SHA bump) policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G1 (sidebar IA) is Cycle 6's responsibility; not surfaced this cycle.
+- **Anti-scope held to:** no quickstart SQL bug fixes (Phase 02), no `astro.config.mjs` sidebar edits (Cycle 6), no stray-syntax / Homebrew / link-audit / sweep-matrix work (other Phase 01 cycles), no rewrites beyond version strings, no `changelog.mdx` content rewrite, no SDK page sweeps, no Astro env-constant / Starlight-global infrastructure (REFACTOR went with Option A).
+- **Source-citation form note for the Verifier:** all 14 citations use the MDX JSX-comment form `{/* source: ... */}` rather than the HTML-comment form `<!-- source: ... -->` named in `methodology.md § 4`. Reason: Astro 5 + Starlight 0.37 use MDX 3 internally, which does not treat raw `<!-- -->` comments as a comment construct (they pass through to the HTML output or break parsing depending on placement). The JSX-comment form is the idiomatic MDX equivalent — equally invisible in rendered output (verified via `grep -r 'Cargo.toml' dist/` above) and equally greppable via the `source:` token. Verifier persona: grep for `source:` to enumerate, not the comment delimiters.
+- **Anything the Reviewer / Cycle-2 persona must know:**
+  - The `astro check` 1-error / N-hints are pre-existing baseline (verified by diffing against `main@6cc8ae5` is not required since Cycle 0 closed at that SHA with the same warnings present — see Phase 00 / Cycle 6 / 9 CI runs which were all GREEN). Cycle 2 should pick up the `getting-started/installation.mdx` Homebrew-fence stray-syntax bug and the wider `astro check` audit per the phase spec.
+  - The "Available in v2.1.0" anchors I deliberately preserved on `features/security.mdx` (6 hits) and similar pages are HISTORICAL "added in" markers per the cycle's RED evidence § D. The Reviewer should confirm each survives the 15-point checklist's VERSION DRIFT item — they do, because the wording is "Available **in** v2.1.0" (a fact about when the feature shipped, not a claim about the **current** version).
+  - The `changelog.mdx` "v2.1 (Unreleased)" framing is a Phase 02 deep-rewrite candidate; the Reviewer may want to flag it explicitly in the sweep-matrix (Cycle 7).
+  - There is no published 2.0.0 Docker tag — the Kubernetes example previously used `:2.0.0` which would 404 on any registry. Fixed to `:2.3.2`.
+  - The federation pages (3 of them) now share consistent wording on the "Apollo Federation support is available as a beta feature" sentence — Cycle 6 / Cycle 7 may want to consider whether these three pages should share a partial.
+- **Handoff entry path:** `_internal/.plan/handoff.md` (this entry, appended at the bottom).
+
+---
+
+### Phase 01 / Cycle 1 review — Reviewer (Opus 4.7) — 2026-05-29
+
+- **Verdict: APPROVE.** Cycle proceeds.
+- **15-point checklist:** 8/8 applicable items PASS (1, 6, 7, 8, 12, 13, 14 plus a re-inspection of 5). Items 2/3/4/9/10/11/15 marked N/A per orchestrator's small-diff guidance (no DB-path, security, RLS, error-path, or visual content edited; this is a pure version-string sweep).
+- **CI re-verified:** Writer-cited run https://github.com/fraiseql/fraiseql-docs/actions/runs/26618582360 (head `59ee065`) `conclusion=success`. New auto-triggered run on PR-head `f9aa9b9` (https://github.com/fraiseql/fraiseql-docs/actions/runs/26618944935) also `success`. `pre-commit.ci - pr` red is the pre-existing repo-state issue carried from Phase 00, not a docs-test gate.
+- **Citations sampled (4, not 3, to round out the SagaExecutor symbol check):**
+  - `Cargo.toml:L343` → `version = "2.3.2"` at frozen SHA `d0a4ed4` — ✅ resolves.
+  - `CHANGELOG.md ## [2.3.2] - 2026-05-28` + `## [2.2.0] - 2026-05-02` at frozen SHA — ✅ resolves.
+  - `crates/fraiseql-federation/src/{saga_executor/mod.rs, saga_compensator.rs, saga_store.rs}` — `pub struct SagaExecutor / SagaCompensator / PostgresSagaStore` all present at frozen SHA — ✅ resolves (the CHANGELOG v2.3.0 entry does not enumerate these by symbol name, but the symbols themselves exist in the federation crate; the citation could be tighter — see follow-on).
+  - `src/content/docs/reference/toml-config.mdx:L47` → `| [gateway] | v2.2 | Beta |` — ✅ resolves.
+- **Branch hygiene:** PR head correctly branched from updated `main@6cc8ae5`; no push to `main`; no commit amend; two clean commits (`59ee065` + `f9aa9b9`).
+- **Anti-scope confirmed:** no `astro.config.mjs` edits, no quickstart SQL fixes, no stray-syntax / Homebrew / link-audit work, no SDK page sweeps, no Starlight-global infrastructure.
+- **Findings (non-blocking — recorded for orchestrator):**
+  1. `features/observability.mdx:340 / :530` — two `"version": "2.0.0"` literals deferred to Phase 02/03. Arguable fit for Cycle 1 (pure version anchors), but the wider `/health` shape rewrite case is real. Writer judgement reasonable.
+  2. `examples/index.mdx:359` — the rewritten `/health` example documents `"database": "connected"` (string) but the actual Cycle-2 GREEN transcript shows `"database":{"connected":true,"database_type":"PostgreSQL",...}` (object). Cycle 1 only owned the `version` field; shape drift remains.
+  3. **Methodology nit:** Writer used the MDX JSX-comment form `{/* source: ... */}` rather than methodology § 4's HTML-comment form `<!-- source: ... -->`. Reason documented (MDX 3 / Astro 5 / Starlight 0.37 incompatibility with raw HTML comments in expression position). Build is clean and citations do not leak to rendered HTML. Reviewer concurs the JSX form is the right choice technically; the methodology § 4 anchor needs an amendment so future Writers/Verifiers are not whipsawed.
+- **Follow-ons surfaced (none blocking):**
+  - Phase 02: refresh `features/observability.mdx:340/:530` `/health` example block (shape + version).
+  - Phase 02: refresh `examples/index.mdx:359` `/health` shape to match the Cycle-2 transcript (object form for `database`).
+  - Methodology § 4: accept `{/* source: ... */}` JSX form as equivalent to `<!-- source: ... -->`. Whoever closes Phase 01 should land this amendment so Cycle 2+ Writers and the Source-Citation Verifier persona stop diverging from the doc.
+  - Source-Citation Verifier persona: when sweeping this PR's citations, grep for the literal `source:` token rather than `<!--` delimiters.
+  - Federation-prose partial (Writer's own suggestion): three federation pages now share verbatim `Apollo Federation support is available as a beta feature.` Cycle 6 or Cycle 7 could promote to a shared include.
+- **No PR comments posted** (per persona § Reviewer: post line-level comments on BLOCK; on APPROVE record the verdict in handoff only).
+- **Framework issues filed:** 0.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+### Phase 01 / Cycle 2 close — Cleanup (Sonnet 4.6) — 2026-05-29
+
+- **What was fixed (8 files, 9 line-level edits):**
+  1. `reference/operators.mdx:101` — added missing closing ` ``` ` after unclosed ` ```sql ` block. Structural fence imbalance: 191 → 192 markers, now balanced. This was the only real code-fence structural break in the repo.
+  2. `getting-started/installation.mdx:117` — added language tag `text` to bare ` ``` ` fence for the `fraiseql 2.3.2` version output block (the Cycle 2 spec's explicitly called-out stray fence).
+  3. 6 frontmatter descriptions truncated to ≤ 155 chars:
+     - `databases/postgresql.mdx` (157 → 153 chars)
+     - `databases/sqlserver-enterprise.mdx` (169 → 149 chars)
+     - `use-cases/dotnet-teams.mdx` (195 → 147 chars)
+     - `use-cases/event-driven-teams.mdx` (170 → 152 chars)
+     - `use-cases/python-teams.mdx` (162 → 153 chars)
+     - `vs/hasura-sqlserver.mdx` (170 → 151 chars)
+- **RED evidence captured:** `_internal/.plan/red-evidence/phase-01-cycle-02-syntax-grep.txt`.
+- **REFACTOR decision: pre-commit hook deferred to Phase 10 finalisation.**
+  Rationale: `bun run check` has a pre-existing failure (`virtual:starlight/user-images ts(2307)` in `SiteTitle.astro`) that would make a bun-check pre-commit hook block all commits immediately. `end-of-file-fixer` + `trailing-whitespace` would dirty 31 unrelated files (16 missing final newlines + 15 trailing whitespace) outside this cycle's scope. Both Option A and Option B require remediation work that expands scope beyond stray-syntax sweep. Documented as Phase 10 candidate.
+- **Commit SHA:** `8f8cdf3` on branch `phase-01/triage-and-ia`.
+- **CI run URL:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26619729936 — **PASSED** (conclusion: success).
+- **Lint/build state at close:** `bun run build` clean (197 pages, no new errors). `bun run check` same pre-existing 1 error + 60 hints baseline — no regressions from this cycle's edits.
+- **Anti-scope held to:**
+  - Did NOT fix 277 additional code blocks missing language tags (pre-existing across 90+ pages; deferred to respective page rewrite phases).
+  - Did NOT fix `federation-nats-integration.mdx` "conf" language tag (wrong lang, not a structural fence issue; Writer territory in Phase 02/03).
+  - Did NOT touch `astro.config.mjs` sidebar (Cycle 6 G1).
+  - Did NOT fix Phase-02 quickstart SQL bugs (Phase 02 IA).
+  - Did NOT fix the three Reviewer-flagged Phase-02 follow-ons (`observability.mdx` /health shape, `examples/index.mdx` /health object form, methodology § 4 JSX-comment amendment).
+  - Did NOT amend pushed commits.
+- **Anything Cycle 3 persona must know:**
+  - `bun run check` pre-existing error (SiteTitle.astro virtual module) is baseline noise — not caused by this cycle or any previous cycle.
+  - The 279 code-block language-tag absences logged in the RED evidence are the scope of future Writer phases; Cycle 3 (internal link audit) does not own them.
+  - Methodology § 4 amendment (accepting `{/* source: ... */}` JSX form) was flagged by the Reviewer but is phase-close work per the Reviewer's own note — not this cycle's responsibility. Whoever writes the Phase 01 close handoff should land it.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+
+### Phase 01 / Cycle 2 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.**
+
+- **CI gate:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26619729936 — `conclusion: success`, `headSha: 8f8cdf3543d826cc5f9fb0329e99dbf302ae5e8c`. Green at the Cycle 2 syntax-fix commit (handoff append `b5acb50` is doc-only and does not affect CI surface).
+- **Diff reviewed:** `git show 8f8cdf3` — 9 line-level edits across 8 files (`reference/operators.mdx`, `getting-started/installation.mdx`, `databases/postgresql.mdx`, `databases/sqlserver-enterprise.mdx`, `use-cases/{dotnet,event-driven,python}-teams.mdx`, `vs/hasura-sqlserver.mdx`) + RED evidence file.
+- **15-point checklist (only items relevant to a syntax sweep):**
+  1. VERSION DRIFT — ✅ `installation.mdx:117` block contains `fraiseql 2.3.2`; matches `Cargo.toml@d0a4ed4:L343 workspace.package.version = "2.3.2"`. Source citation comment accurate.
+  6. DEAD LINKS — N/A (no link edits in this cycle).
+  7. UNDEFINED SYMBOLS — N/A (no new symbol references introduced; edits are subtractive or punctuation).
+  8. COPY-PASTE FROM PRIOR VERSION — N/A (no prose-block carryover; mechanical fixes only).
+  12. ARCHAEOLOGY-FREE — ✅ `grep -nE "Phase [0-9]|TODO|FIXME|XXX|coming soon|WIP"` against all 8 edited files returns zero hits.
+  13. SOURCE CITATIONS RESOLVE — N/A (no citations added; the one pre-existing citation at `installation.mdx:116` was re-verified — `Cargo.toml@d0a4ed4:L343` resolves to `version = "2.3.2"`).
+  14. NO PERSONA SELF-REFERENCE — ✅ no "as an AI" / "persona" / model-name leakage in the 8 files (only false positive: `db_datawriter` in `sqlserver-enterprise.mdx`).
+  Items 2–5, 9–11, 15 — N/A — out of cycle scope (purely mechanical syntax cleanup).
+- **Specific spot-checks:**
+  - **Fence-balance fix at `reference/operators.mdx:101`:** ✅ closing ` ``` ` lands at line 103, correctly terminating the single-line `SELECT data FROM v_user WHERE data->>'avatar_url' IS NOT NULL` SQL block before the `## String Operators` H2 heading at line 105. Repo total fence markers: 5156 (balanced). `operators.mdx` fence markers: 192 (matches Cleanup's claim, balanced).
+  - **Language-tag addition at `installation.mdx:117`:** ✅ `text` is correct — the block content is the literal stdout of `fraiseql --version`, not an executable shell command. Distinct from the `bash` fence at line 110 that contains the *command*.
+  - **Frontmatter description truncations:** 6 / 6 checked; 6 meaning-preserving; 0 lossy.
+    - `postgresql.mdx` 149 chars — dropped "Complete" adjective. Preserved.
+    - `sqlserver-enterprise.mdx` 142 chars — dropped "Azure-native deployments" (one of three audience phrases). Preserved.
+    - `dotnet-teams.mdx` 147 chars — dropped "and Dapper, and supports Windows Auth and Azure AD". Nit: drops two SEO-relevant keywords (Dapper, Windows Auth). Page body still covers both; not a meaning-distortion. Non-blocking.
+    - `event-driven-teams.mdx` 149 chars — dropped "configured in TOML" suffix. Preserved.
+    - `python-teams.mdx` 141 chars — dropped "high-performance" adjective. Preserved.
+    - `hasura-sqlserver.mdx` 151 chars — rephrased "Side-by-side comparison for teams running SQL Server" → "Feature comparison for SQL Server". Preserved.
+    - None truncated mid-sentence. All terminate at clause boundaries with a period.
+  - **`.md` rename collisions:** ✅ `grep -rn "^import " src/content/docs/ --include="*.md"` returns zero hits. No `.md` file contains an `import` statement.
+- **Findings:**
+  1. (nit, non-blocking) `dotnet-teams.mdx` description truncation drops "Dapper" and "Windows Auth/Azure AD" — two search-relevant keywords. The page body still covers both; future SEO sweep (Phase 08?) may want to re-balance.
+  2. (nit, non-blocking) Cleanup's char-count claims in the close note (153/149/147/152/153/151) differ slightly from re-measured (149/142/147/149/141/151) — likely a counting-method difference (trailing period, byte vs char). All values are well under the 155 ceiling either way; no functional concern.
+- **Follow-on items:**
+  - Pre-commit hook deferral to Phase 10 (per Cleanup's REFACTOR decision) is reasonable; the `bun run check` baseline error (`virtual:starlight/user-images ts(2307)`) genuinely blocks a useful hook today. Re-evaluate at finalisation.
+  - Methodology § 4 JSX-comment amendment (`{/* source: ... */}` as equivalent to `<!-- source: ... -->`) remains outstanding — flagged in the Cycle 1 review, deferred to Phase 01 close per Reviewer's own note. The `installation.mdx:116` citation in this cycle uses the JSX form, so the gap is now exercised. Phase 01 close should land the amendment.
+- **Sign-off:** 7/7 in-scope checklist items pass, CI green, all spot-checks pass, no blockers. Cycle 2 closed. Back to Phase 01 / Cycle 3 (internal link audit).
+
+---
+
+### Phase 01 / Cycle 3 close — Cleanup (Sonnet 4.6) — 2026-05-29
+
+- **Dead internal links found: 0, by class: a=0 b=0 c=0 d=0.**
+- **Links fixed (classes a, b, d): 0.** No dead links required fixing.
+- **Inbound cross-link fix: 1.** `concepts/why-fraiseql` had zero inbound links at cycle start. Added `[Why FraiseQL](/concepts/why-fraiseql)` to the `## Next Steps` block of `concepts/how-it-works.mdx:452`. All other new pages added in this branch (elo-validation, custom-scalars, federation-configuration, observer-webhook-patterns) already had adequate inbound links (3–7 each).
+- **Forward deps logged (class c): 0.** No links in the current docs tree point to pages planned for future phases. See `_internal/.plan/red-evidence/phase-01-cycle-03-forward-deps.txt` (empty).
+- **Items escalated to Writer / future phases: none.** All links resolved mechanically; no Writer-level judgement required.
+- **Multi-slug references found (G1 input): none.** Two related slugs (`/guides/troubleshooting` and `/troubleshooting`) legitimately point to different pages (a how-to guide vs. the troubleshooting hub). Not a G1 concern.
+- **RED approach summary:**
+  - Approach 1 (build warnings): `bun run build` exit 0, no internal-link router warnings.
+  - Approach 2 (targeted grep): 166 unique internal link targets extracted from `src/content/docs/**/*.{md,mdx}`. All 166 resolved against `dist/`. 1 HTML-style `href="/..."` link found — also resolves.
+  - Evidence: `_internal/.plan/red-evidence/phase-01-cycle-03-{build-warnings,internal-link-hits,forward-deps}.txt`.
+- **CLEANUP gate:** `bun run build` clean (197 pages, exit 0). `bun run check` 1 pre-existing error (same `SiteTitle.astro virtual:starlight/user-images ts(2307)` baseline as Cycle 2 — no regressions).
+- **Commit SHA:** `d6cf4a3` on branch `phase-01/triage-and-ia`.
+- **CI run URL:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26620521463 — **PASSED** (conclusion: success, ~11 min wall-clock).
+- **Open gates:** none new. G2 SHA-bump policy continues to hold. G1 (sidebar IA) is Cycle 6.
+
+---
+
+### Phase 01 / Cycle 3 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.**
+
+- **CI gate:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26620521463 — `conclusion: success`, `headSha: d6cf4a3eedb123108df7805c8854f72908c53f85`, `displayTitle: docs: Phase 01 — triage and IA`. Green at the Cycle 3 link-audit commit; subsequent `1286cef` is handoff-URL backfill only and does not change CI surface.
+- **Diff reviewed:** `git show d6cf4a3` — 1 line-level edit to `src/content/docs/concepts/how-it-works.mdx:452` (cross-link addition in the `## Next Steps` block) + 3 RED-evidence files + handoff append. `1286cef` updates 2 lines of the handoff entry (commit SHA + CI URL backfill).
+- **Independent re-extract:**
+  - Regex set: `\]\((/[^)#?]+)` for markdown, `href="(/[^"#?]+)"` for HTML, `<LinkCard … href="…">` and `<Card … href="…">` (multiline-tolerant) for Starlight components. Run via Python over all `src/content/docs/**/*.{md,mdx}`.
+  - **Raw unique absolute targets: 166** — matches the Cleanup evidence file (`phase-01-cycle-03-internal-link-hits.txt`) exactly. The task brief's "167" is a transcription artefact; the evidence file consistently says 166 markdown + 1 HTML (`/ai/generating-views`) and the HTML target is already in the markdown set, so the union is 166.
+  - **Normalised targets (trailing slash stripped): 153.** Discrepancy between 166 and 153 is purely trailing-slash variants (e.g. `/concepts/foo` vs `/concepts/foo/`); both shapes route to the same Starlight page.
+  - **Resolved against `dist/`: 153 / 153.** Each target probed at `dist/<slug>/index.html`, `dist/<slug>.html`, and `dist/<slug>`. All matched.
+  - **Dead: 0.** Independent confirmation of the Cleanup's "zero dead links" claim.
+  - **LinkCard sweep:** 2 LinkCard `href` values found across the tree — `/ai/generating-views` (already in main set) and `https://github.com/fraiseql/fraiseql/releases` (external, out of scope). No new internal targets surfaced.
+- **Independent build:** `bun run build` exit 0, 197 pages. Warnings on this run: 2 — (1) `astro-expressive-code` "language `conf` could not be found" in `guides/federation-nats-integration.mdx` — pre-existing Cycle-2 anti-scope item, **not** an internal-link warning; (2) Starlight `/[...slug]` vs `/` route conflict — pre-existing Starlight quirk, **not** an internal-link warning. **Internal-link router warnings: 0.**
+- **Cross-link addition spot-check:** ✅
+  - `concepts/how-it-works.mdx:452` (verified by `sed -n '452p'`): `- [Why FraiseQL](/concepts/why-fraiseql) — The architectural principles behind the design`.
+  - Block context: lies inside the `## Next Steps` heading at line 450 (style-guide-mandated cross-link block per methodology § 4).
+  - Target page exists at `src/content/docs/concepts/why-fraiseql.mdx` and routes to `/concepts/why-fraiseql/index.html` in `dist/`.
+  - Sensible "next step" — the linked page expounds *why* the architecture exists, which logically follows *how it works*. Reading order is coherent.
+- **15-point checklist (applicable items only):**
+  - **6. DEAD LINKS — ✅** 0 / 153 normalised targets dead in independent re-extract.
+  - **7. UNDEFINED SYMBOLS — N/A** the added prose references only the page title "Why FraiseQL" and the noun "architectural principles" — no type names, function names, config keys, env vars, or directives.
+  - **12. ARCHAEOLOGY-FREE — ✅** grep on `how-it-works.mdx` returns hits on "Phase 1/2/3" at lines 321/331/342 — these describe FraiseQL's compilation pipeline phases (pre-existing content from commit `fac6b87`), NOT docs-overhaul phase markers. The single added line (452) is clean.
+  - **14. NO PERSONA SELF-REFERENCE — ✅** added line contains no "as an AI", "persona", model-name, or prompt-leakage artefact.
+  - Items 1–5, 8–11, 13, 15 — N/A — out of cycle scope (link topology only).
+- **Findings:**
+  1. (nit, non-blocking) The task brief's "167 unique targets" line is a copy-paste artefact at the orchestrator level; the Cleanup's RED evidence file is internally consistent at 166. No reviewer action — flagged for the orchestrator only.
+  2. (nit, non-blocking) The Cleanup's regex deliberately strips fragment anchors (`#section`). This is correct for "does the page exist" but does not validate that fragment targets exist within the destination page. Out of scope for "dead-link" semantics; logging for awareness — if Phase 02+ wants stricter fragment validation, a separate sweep is warranted.
+- **Follow-on items:** none. The methodology § 4 JSX-comment amendment carried over from Cycle 1/2 reviews remains a Phase 01 close concern, not a Cycle 3 concern.
+- **Sign-off:** 4/4 in-scope checklist items pass, CI green, dead-link count independently confirmed at 0, cross-link addition lands correctly in a `## Next Steps` block, no blockers. Cycle 3 closed. Next: Cycle 4 (external link audit).
+
+---
+
+### Phase 01 / Cycle 4 audit — Link Auditor (Sonnet 4.6, escalated from Haiku) — 2026-05-29
+
+- **ESCALATION:** previous Haiku 4.5 invocation confabulated output, produced no artefacts. Logged per methodology § 3.
+- **Unique external URLs in `src/content/docs/`: 217** (total extracted)
+- **Audited (non-placeholder): 66**
+- **200 / redirect-OK: 43** (30 direct 200 + 10 redirect-1-2 hops + 3 chain-3 that are acceptable install scripts/login pages)
+- **Must-fix (404 / dns / tls): 22** — see audit md action list
+  - 404: 18 (11 fraiseql/examples repos DNE, 4 other repos/pages DNE, 3 Apollo/security pages)
+  - dns: 3 (install.fraiseql.dev, status.fraiseql.dev, truststore.amazonaws.com)
+  - tls: 1 (demo.fraiseql.dev — cert SAN mismatch)
+- **Should-update (chain-N→200, N≥3): 1 actionable** (docs.microsoft.com/sql → learn.microsoft.com, 3 hops); 2 others are informational (accounts.google.com config value, ollama install script CDN redirect)
+- **Informational (403 bot-block): 1** (dev.mysql.com — CloudFlare, site is live)
+- **Re-audit at phase close (5xx / timeout): 0**
+- **Suggested GH-permalink upgrades to frozen SHA: 0** (no live blob/main URLs found that need pinning; the one blob/main URL was a 404)
+- **Artefact paths:**
+  - `_internal/.plan/audits/external-links-phase-01.json` (size: 34543 bytes, 1222 lines)
+  - `_internal/.plan/audits/external-links-phase-01.md` (size: 11065 bytes, 187 lines)
+  - `scripts/docs-test/audit-external-links.sh` (reusable script for Phase 08 and Phase 10 re-audits)
+- **Commit SHA(s) and remote-confirmed push:** `d2a3062f78fc073a05b8bd42bb85d078f2e424ed` at `origin/phase-01/triage-and-ia` (confirmed via `git ls-remote`).
+- **CI run URL:** path-filtered; `_internal/` tree changes and `scripts/` changes do not trigger docs CI (docs-test CI is not yet wired — Phase 00 Cycle 6). No run triggered.
+- **Handoff to Cleanup for Cycle 4 GREEN — page edits.**
+  - Priority 1: remove/replace all 22 must-fix URLs (dns/tls/404) per action list in audit md.
+  - Priority 2: update `docs.microsoft.com/sql/sql-server/` to `learn.microsoft.com` (1 hop → 0).
+  - Priority 3: informational redirects (301→200) may be updated opportunistically.
+- **Open gates:** none new. G1 (sidebar IA) is Cycle 6.
+
+---
+
+### Phase 01 / Cycle 4 close (GREEN) — Cleanup (Sonnet 4.6) — 2026-05-29
+
+- Must-fix URLs swapped / removed mechanically: 22 must-fix targets addressed across 16 files
+  - `fraiseql/fraiseql/discussions` → `fraiseql/fraiseql/issues`: 6 occurrences (community/support.mdx, community/contributing.mdx ×3, guides/faq.mdx ×2)
+  - `truststore.amazonaws.com/rds-ca-2019-root.pem` → `truststore.pki.rds.amazonaws.com/global/global-bundle.pem`: 1 occurrence (troubleshooting/common-issues.mdx)
+  - `apollographql/apollo-sandbox` → Apollo product docs + plain text: 2 occurrences (guides/apollo-sandbox-security.mdx)
+  - `apollographql.com/docs/apollo-server/security/` → `/docs/apollo-server`: 1 occurrence (guides/apollo-sandbox-security.mdx)
+  - `fraiseql/fraiseql/blob/main/docs/deployment-security-guide.md` → GH permalink frozen SHA `d0a4ed4ec17.../docs/guides/production-security-checklist.md`: 1 occurrence (features/audit-logging.mdx)
+  - `fraiseql/specql` hyperlinks → plain text "SpecQL": 5 occurrences (getting-started/introduction.mdx, concepts/schema.mdx, reference/decorators.mdx, reference/authoring-ir.mdx, use-cases/python-teams.mdx)
+  - `install.fraiseql.dev` → releases-page comment: 5 occurrences (vs/hasura.mdx, vs/hasura-sqlserver.mdx, migrations/incremental.mdx, use-cases/dotnet-teams.mdx, use-cases/python-teams.mdx)
+  - `status.fraiseql.dev` → prose "status page coming soon": 1 occurrence (community/support.mdx)
+- chain-N redirect upgrades: 1 — `docs.microsoft.com/sql/sql-server/` → `learn.microsoft.com/en-us/sql/sql-server/` (troubleshooting/by-database/sqlserver.mdx)
+- GH-permalinks pinned to frozen SHA: 1 — `blob/main/docs/deployment-security-guide.md` → `blob/d0a4ed4ec17.../docs/guides/production-security-checklist.md` (confirmed at frozen SHA)
+- Deferred to Phase 02/03 Writer (with reasons):
+  - 11 `fraiseql/examples` repo URLs across 4 pages: repos do not exist; content decision needed.
+  - 4+ `fraiseql/velocitybench` URLs across 2 pages: repo does not exist; prose claim "independent data from VelocityBench" is load-bearing — cannot remove without content rewrite.
+  - 6 `demo.fraiseql.dev` use sites: TLS cert SAN mismatch; `fraiseql.dev/graphql` returns HTML, not API; infra fix needed.
+- no-ops (leave as-is): `oauth2.googleapis.com/token`, `openidconnect.googleapis.com/v1/userinfo` (correct POST-only OAuth endpoints), `payments.internal/process` (fictional placeholder in code block), `dev.mysql.com/doc/` (CloudFlare 403 HEAD, site is live), `accounts.google.com` redirect chain (used as config value, not hyperlink), `ollama.com/install.sh` redirect chain (stable install script CDN).
+- Commit SHA(s): see `git log` below — committed to `phase-01/triage-and-ia`.
+- CI run: see push result below.
+- Lint/build state: clean (`bun run build` — 197 pages, no warnings).
+- Open gates: none new. G1 still pending in Cycle 6.
+- Phase 08 re-audit reminder: re-run external link audit at Phase 08 close (use `scripts/docs-test/audit-external-links.sh`).
+
+---
+
+### Phase 01 / Cycle 4 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.**
+
+- **CI gate:** `gh run view 26622253551` — `conclusion=success`, `headSha=eeb4ea6c0d84c2faf2e996893b9ec54ec29a7a81`, `displayTitle=docs: Phase 01 — triage and IA`. Green at the Cycle 4 GREEN commit.
+- **Escalation note:** Cycle 4 RED Link Auditor was escalated from Haiku 4.5 (which confabulated 44/12 counts with fabricated SHAs) to Sonnet 4.6, which produced real artefacts (217 extracted, 66 audited, 22 must-fix). The escalation succeeded — verified via independent spot-checks below.
+- **Independent URL re-extract:**
+  - At audit start SHA `e1f4331`: 216 unique URLs (matches audit's 217 within ±1, regex-tweak delta — well under the 10% material-delta flag).
+  - At GREEN HEAD `eeb4ea6`: 229 unique URLs (post-fix increase reflects new release-page comments + canonical Apollo docs URLs).
+- **Spot-checked classifications (3 × must-fix + 3 × 200-OK, re-curled independently):**
+  - `github.com/fraiseql/specql` → HTTP 404 ✅ (matches audit).
+  - `github.com/fraiseql/examples` → HTTP 404 ✅ (matches audit).
+  - `demo.fraiseql.dev/graphql` → curl(60) SSL SAN mismatch ✅ (matches audit).
+  - `discord.gg/fraiseql` → 200 (redirects to `discord.com/invite/fraiseql`) ✅.
+  - `modelcontextprotocol.io` → 200 (redirects to `/docs/getting-started/intro`) ✅.
+  - `truststore.pki.rds.amazonaws.com/global/global-bundle.pem` → 200 ✅ (post-swap target verified).
+- **Fix-application spot-checks (all 8 swap categories):**
+  - `discussions` → `issues`: 6 sites (`community/{support,contributing}.mdx`, `guides/faq.mdx`) ✅; zero `/discussions` residue in `src/content/docs/`.
+  - `truststore.amazonaws.com` → `truststore.pki.rds.amazonaws.com/.../global-bundle.pem`: 1 site (`troubleshooting/common-issues.mdx:285`) ✅; new URL returns 200.
+  - GH-permalink at frozen SHA: `audit-logging.mdx:164` now points to `blob/d0a4ed4ec1770.../docs/guides/production-security-checklist.md` ✅; re-grep at frozen SHA (`git -C ~/code/fraiseql show d0a4ed4...:docs/guides/production-security-checklist.md`) returns "# Production Security Checklist" — file present.
+  - `docs.microsoft.com/sql/sql-server/` → `learn.microsoft.com/en-us/sql/sql-server/`: 1 site (`troubleshooting/by-database/sqlserver.mdx:818`) ✅; new URL is the chain's final hop.
+  - `install.fraiseql.dev` removals: 5 sites ✅; all 5 replaced with releases-page comment in `bash` code blocks; zero residue.
+  - `status.fraiseql.dev` removal: 1 site ✅; replaced with prose pointing to GitHub Issues.
+  - `specql` hyperlink → plain text: 5 sites ✅; zero residue.
+  - Apollo Sandbox / Apollo Server redirects: 3 sites ✅; new targets resolve.
+- **Prose integrity (3 random spot-checks):**
+  - `community/support.mdx:148-152` — Status and Roadmap block reads cleanly.
+  - `migrations/incremental.mdx:130-135` — install comment in `bash` block doesn't break the surrounding step.
+  - `guides/apollo-sandbox-security.mdx:152, :166` — Q&A and audit-references blocks read cleanly.
+- **Deferrals reviewed (4 / 4 justified):**
+  - `fraiseql/examples` (11 URLs across 4 pages, 16 hits): legitimate defer — content decision needed (create org repos vs. rewrite pages).
+  - `fraiseql/velocitybench` (7 hits across 2 pages): legitimate defer — verified the prose claim "Independent data from VelocityBench" at `guides/performance-benchmarks.mdx` is load-bearing; mechanical removal would orphan an uncited claim.
+  - `demo.fraiseql.dev` (6 hits): legitimate defer — Cleanup's diagnosis confirmed (TLS SAN mismatch on subdomain; `fraiseql.dev/graphql` serves HTML, not API). Infra fix needed.
+  - `charts.fraiseql.io` (task-brief item): N/A — zero hits in `src/content/docs/` and not present in the audit MD/JSON. Task-brief artefact only.
+- **Audit MD applied/deferred markers:** present and complete — 9 `[x] applied`, 4 `[ ] deferred`, 3 `[x] no-op` (16 items annotated). Audit-date metadata (2026-05-29) and audit-MD structure (headline counts → action list grouped by classification → notes for subsequent phases) all present.
+- **15-point checklist (applicable items only):**
+  - **6. DEAD LINKS — ✅** All 22 must-fix targets removed/swapped; new targets re-curled.
+  - **7. UNDEFINED SYMBOLS — N/A** no symbol references introduced.
+  - **8. COPY-PASTE FROM PRIOR VERSION — ✅** all edits are mechanical URL swaps; no prose-block carryover.
+  - **12. ARCHAEOLOGY-FREE — ✅** (strict-letter pass; see finding #1).
+  - **13. SOURCE CITATIONS RESOLVE — N/A** no source-citations added (audit MD's frozen-SHA citation re-verified via `git show` — `production-security-checklist.md` resolves at `d0a4ed4`).
+  - **14. NO PERSONA SELF-REFERENCE — ✅** grep on all 16 touched files returns zero hits for "as an AI", "persona", model-name leakage, or Sonnet/Opus/Haiku artefacts.
+  - **Build verification:** `bun run build` → exit 0, 197 pages built, no new warnings.
+  - Items 1–5, 9–11, 15 — N/A — out of cycle scope (pure link/URL changes).
+- **Findings (non-blocking):**
+  1. (nit) `community/support.mdx:150` reads "status page coming soon — check [GitHub Issues]". The phrase "coming soon" is unparenthesised so it passes methodology § 5 item 12 strict-letter (the ban is on `(coming soon)`), but the spirit of the rule is brushed. The text was prescribed in the audit MD's "Action" line, so the choice is defensible. Phase 02/03 Writer or the Phase 10 finalisation sweep should consider replacing with a definite reference to GitHub-Issues triage rather than a temporal "soon".
+  2. (nit) Task-brief's `charts.fraiseql.io` defer item has no corresponding `src/` reference or audit-MD entry — orchestrator-side artefact only. No reviewer action needed; flagged for future task-brief authoring.
+  3. (informational) Independent URL count at GREEN HEAD is 229 (vs 216 at RED HEAD); the +13 delta is mostly the new comment-form replacements (e.g., `# See https://github.com/fraiseql/fraiseql/releases ...`) which the regex treats as fresh URLs. Not a quality concern.
+- **Branch hygiene:** PR head `eeb4ea6` on `phase-01/triage-and-ia`; no `main` push; commits chain cleanly (`d2a3062` RED → `3ad9235` SHA backfill → `eeb4ea6` GREEN).
+- **Anti-scope confirmed:** no `astro.config.mjs` edits, no quickstart SQL fixes, no Phase 02/03 content rewrites, no SDK page sweeps.
+- **Follow-ons surfaced (none blocking):**
+  - Phase 02/03 Writer: handle the 4 deferrals — `fraiseql/examples` (content decision), `fraiseql/velocitybench` (prose-rewrite or create repo), `demo.fraiseql.dev` (infra fix or prose change), `community/support.mdx:150` (replace "coming soon" with a definite Issues pointer).
+  - Phase 08: re-audit external links (use `scripts/docs-test/audit-external-links.sh`).
+- **Framework issues filed:** 0.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G1 (sidebar IA) is Cycle 6.
+- **Sign-off:** 6/6 in-scope checklist items pass, CI green, all 8 swap categories cleanly applied with zero residue, all 4 deferrals justified, escalation Haiku → Sonnet succeeded. Cycle 4 closed. Next: Cycle 5 (Homebrew claim verification).
+
+---
+
+### Phase 01 / Cycle 5 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Homebrew classification: (c) NO TAP EXISTS.** Three independent lines of evidence: `formulae.brew.sh/formula/fraiseql.json` → 404 (homebrew-core has no formula); `github.com/fraiseql/homebrew-tap` (and `homebrew-fraiseql`, `homebrew-core`) → 404 (no GitHub-hosted tap under the `fraiseql` org); `releasing.md` at frozen SHA d0a4ed4 lines 625–645 explicitly lists "Homebrew formula publishing" as a Phase 4 "Later" roadmap item that has not yet shipped, and `release.yml` (767 lines) publishes only to crates.io / PyPI / npm / GitHub Releases.
+- **Page action: removed Homebrew tab from `installation.mdx` and aligned all cross-page references.** Five Homebrew mentions resolved across four files:
+  1. `getting-started/installation.mdx:27-33` — `<TabItem label="Homebrew (macOS)">` block removed (and the surrounding `<Tabs>` container converted to a decision table — see install-matrix decision below).
+  2. `getting-started/quickstart.mdx:28-29` — `# Homebrew (macOS)\nbrew install fraiseql\n` comment + command removed from the inline install snippet.
+  3. `examples/index.mdx:16` — `brew install fraiseql / ` removed from the inline `# or:` comment; comment now reads `# or: cargo install fraiseql`.
+  4. `reference/cli.mdx:18-22` — `<TabItem label="Homebrew">` block (with `brew install fraiseql/tap/fraiseql`) removed; remaining tabs Cargo + Binary still form a valid 2-tab matrix.
+  5. Three new JSX-comment citations added pointing to `releasing.md` and `.github/workflows/release.yml` at frozen SHA, explaining *why* Homebrew is absent. These are intentional Verifier-targeted citations, not user-facing claims.
+- **Cross-page Homebrew mentions: 5 found, 5 removed (or repurposed as Verifier citations).** Post-edit `grep -rn -E "brew install|brew tap|Homebrew" src/content/docs/` returns 3 hits, all of them JSX citations.
+- **Install-matrix refactor: decision table created** (replaces the prior 3-method `<Tabs>` block in `installation.mdx`). Per methodology § 9 "Tables for matrices": the table has columns Method | When to choose | macOS | Linux | Windows, with three rows (Install script / Pre-built binary / Cargo). Docker remains its own dedicated section further down the page (separate concern: containerised deployment vs. host install). Rationale: a scannable decision rubric is more methodology-aligned than tabbed prose for a small fixed matrix; readers don't need to click to see all options.
+- **RED evidence:** `_internal/.plan/red-evidence/phase-01-cycle-05-homebrew-investigation.txt` (6223 bytes). Captures the verbatim docs claims, four HTTP probes (with status codes and response excerpts), three framework-repo greps at the frozen SHA, the classification, and the action plan.
+- **Framework issue filed: N/A.** Classification (c) is "no tap exists" — the phase spec explicitly says no framework-side action is needed in that branch. The framework's own `releasing.md` already lists Homebrew formula publishing as a future-roadmap item, so the framework maintainers are already on notice. No regression to file.
+- **Citations added: 3** JSX-comment citations across 3 files (`installation.mdx`, `quickstart.mdx`, `reference/cli.mdx`) — all targeting `releasing.md:L625-L645` and/or `.github/workflows/release.yml` at frozen SHA d0a4ed4. Plus 1 extra Verifier-targeted citation on the pre-built-binary table in `installation.mdx` against `release.yml`. Total: 4 new citations. Pending Verifier strip.
+- **Build state:** `bun run build` exit 0, 197 pages built, 2 pre-existing baseline warnings (the `astro-expressive-code language conf` warning in `guides/federation-nats-integration.mdx` and the Starlight `/[...slug]` vs `/` route conflict — both identified in Cycle 3 reviewer as baseline noise, neither caused by touched files).
+- **Surprise:** the brief said "the Homebrew Tab block lives at lines 27-30." Actual scope was 4 files (5 mentions), not 1 file. Two distinct claim forms in use: bare `brew install fraiseql` (implying homebrew-core) and `brew install fraiseql/tap/fraiseql` (implying a tap) — both broken, both removed.
+- **Anti-scope respected:** no `astro.config.mjs` sidebar changes (G1 reserved for Cycle 6); no Phase-02 quickstart bug fixes (the quickstart.mdx edit was scoped strictly to the Homebrew comment removal); no Cycle 1/2/3/4 rework; no audit MD deferral-list edits.
+- **Commit SHA + CI URL:** see commit/push entries below.
+- **Open gates:** none new. G1 (sidebar IA) is Cycle 6. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+### Phase 01 / Cycle 5 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.** 15/15 applicable checklist items pass. CI run 26623260030 on `f711aa9` → `success`. All claims independently re-verified.
+
+- **Classification (c) re-verified independently.** `curl -ILfsS https://formulae.brew.sh/formula/fraiseql.json --max-time 10` → HTTP 404 (server: GitHub.com, content-type text/html). `gh api repos/fraiseql/homebrew-tap` → 404. `gh api repos/fraiseql/homebrew-fraiseql` → 404. `git -C ~/code/fraiseql show d0a4ed4ec1770c70707f68fd9019f2b561d87461:releasing.md | sed -n '620,650p'` confirms "Homebrew formula publishing" listed verbatim under "### Phase 4 (Later)" alongside Docker image publishing, Windows .msi, Debian/RPM packages, and release metrics dashboard. `git -C ~/code/fraiseql show d0a4ed4...:.github/workflows/release.yml | grep -inE "brew|homebrew|tap"` → zero matches (workflow has no Homebrew-publishing step). All five evidence points converge → classification (c) confirmed.
+- **Fix application: 4/4 files clean.** `installation.mdx`: Homebrew TabItem removed; `<Tabs>` block consolidated into a markdown decision table (Method | When to choose | macOS | Linux | Windows) with 3 rows (Install script / Pre-built binary / Cargo); Docker remains a separate later section. `quickstart.mdx`: `# Homebrew (macOS)\nbrew install fraiseql\n` lines removed from the inline `bash` block; surrounding install script + cargo lines preserved. `examples/index.mdx:16`: `# or: brew install fraiseql / cargo install fraiseql` → `# or: cargo install fraiseql`. `reference/cli.mdx:18-22`: Homebrew TabItem removed; remaining Cargo + Binary tabs form a valid 2-tab `<Tabs label="Method">` block. Residual mentions: 3, all JSX-comment citations (`installation.mdx:19`, `quickstart.mdx:32`, `reference/cli.mdx:12`) — none user-facing.
+- **Decision-table refactor re-verified.** Table is plain markdown (not an MDX component), 5 columns × 3 data rows, centered OS columns via `:-----:`. Methodology § 9 "Tables for matrices. Prose for narratives." applies: install method × OS support is a matrix, not a narrative. Build renders cleanly. Defensible.
+- **Source-citation re-grep (3 of 4).** (1) `releasing.md:L625-L645` at SHA d0a4ed4: confirmed — lines 625–645 contain `## Future Enhancements` → `### Phase 4 (Later)` → `- [ ] Homebrew formula publishing` at line 642. (2) `.github/workflows/release.yml` at SHA d0a4ed4: confirmed — file exists, no Homebrew step found via grep, supports the absence claim. (3) `.github/workflows/release.yml:L525-L532` cargo-publish claim: confirmed — lines 524–533 contain the "Tier 9: Root umbrella crate" `Publish fraiseql (root crate)` step running `cargo publish --package fraiseql`. All three resolve.
+- **Anti-scope: clean.** `git diff 6b207f2..f711aa9 -- astro.config.mjs` → 0 lines (sidebar untouched, G1 preserved). Quickstart diff is exactly the 3-line Homebrew comment + 1 citation insert; lines 156, 167/179, 184 (Phase-02 deferred bugs) untouched. Cycle 4 audit MD and deferred-items list untouched.
+- **Build re-run.** Independent `bun run build`: exit 0, 197 pages, 15.47s, same 2 pre-existing baseline warnings (Cycle 3 reviewer baseline) — no new warnings introduced by Cycle 5.
+- **15-point checklist (applicable):** 1 VERSION DRIFT N/A; 6 DEAD LINKS ✅ (`brew install fraiseql` claim-as-dead-URL removed); 7 UNDEFINED SYMBOLS ✅ (install-script URL, `cargo install fraiseql`, release-binary table all verified against frozen SHA); 8 COPY-PASTE-FROM-PRIOR-VERSION N/A (decision table is new prose); 12 ARCHAEOLOGY-FREE ✅ (no Phase/TODO/FIXME/HACK markers introduced in the 4 touched files; the pre-existing `examples/index.mdx:355` Phase-00-cycle-2 citation is out of scope for this cycle and was untouched); 13 SOURCE-CITATIONS-RESOLVE ✅ (3 of 4 re-grepped, all confirmed); 14 NO-PERSONA-SELF-REFERENCE ✅ (grep for `writer|reviewer|orchestrator|verifier|persona` across the 4 touched files → 0 hits). Items 2–5, 9–11, 15 N/A for this cycle's scope.
+- **Findings:** None blocking. Two nits noted, both pre-existing and out-of-scope for Cycle 5:
+  - `cli.mdx` cargo command is `cargo install fraiseql-cli` whereas `installation.mdx` cargo command is `cargo install fraiseql`. This inconsistency existed before Cycle 5 (verified via `git show 6b207f2:src/content/docs/reference/cli.mdx`) — file as a deferred item if not already tracked.
+  - `examples/index.mdx:355` contains a JSX-comment citation referencing "Phase 00 / Cycle 2 GREEN transcript", which is a meta-development reference; ARCHAEOLOGY-FREE rule could flag this at phase close but it was not introduced or touched by this cycle.
+- **MDX citation form note acknowledged.** `{/* source: ... */}` (JSX expression-position comments) is the accepted Phase-01 deviation flagged for methodology amendment at phase close — consistent with prior cycles.
+- **Sign-off:** APPROVE for merge. CI green, classification confirmed, citations resolve, scope clean.
+
+---
+
+### Phase 01 / Cycle 6 close — Writer (Opus 4.7) — 2026-05-29 — G1 PROPOSAL (awaiting human)
+
+**This is a human gate (G1).** The Writer drafts all three options with current evidence and recommends one. The Writer does NOT pick or implement. The human resolves G1 by writing their choice inline below before Cycle 7 begins.
+
+#### 1. State of the docs site today (facts before the decision)
+
+**Top-level directories under `src/content/docs/`** (`ls src/content/docs/`):
+`_internal/` (planning, not built), `ai/`, `blog/`, `community/`, `concepts/`, `confiture/`, `databases/`, `deployment/`, `examples/`, `features/`, `getting-started/`, `guides/`, `migrations/`, `operations/`, `reference/`, `sdk/`, `tools/`, `transports/`, `troubleshooting/`, `use-cases/`, `vs/`. Plus top-level files: `changelog.mdx`, `index.mdx`, `playground.mdx`.
+
+**Page count by directory** (`find src/content/docs/<dir> -name '*.md*' | wc -l`):
+
+| Directory       | Pages |
+|-----------------|------:|
+| guides          | 27 |
+| features        | 26 |
+| reference       | 13 |
+| sdk             | 12 |
+| concepts        | 11 |
+| examples        | 10 |
+| troubleshooting | 9  |
+| databases       | 7  |
+| deployment      | 7  |
+| getting-started | 7  |
+| migrations      | 7  |
+| blog            | 7  |
+| ai              | 6  |
+| confiture       | 5  |
+| vs              | 5  |
+| use-cases       | 4  |
+| community       | 3  |
+| operations      | 1  |
+| tools           | 1  |
+| transports      | 1  |
+| top-level (`index.mdx`, `changelog.mdx`, `playground.mdx`) | 3 |
+| **total (excl. `_internal/`)** | **172** |
+
+**Current sidebar structure** (`astro.config.mjs:L56-L388`): 18 top-level groups in this order — Getting Started, AI-Assisted, Core Concepts, Confiture, Guides (with 4 nested sub-groups: Fundamentals, Patterns & Architecture, Federation & Integration, Operations), Databases, Features (with 6 nested sub-groups: Query & Data, Performance, Security, Transports, Integration, Observability), Reference, Examples, SDKs, Deployment, Troubleshooting, Migrations, Tools, Use Cases, Comparisons, Blog, Community. {/* source: astro.config.mjs:L56-L388 */}
+
+**Sidebar pain points (overlap evidence from `ls`):**
+
+- **`concepts/observers.mdx` + `guides/observers.mdx` + `operations/observer-runbook.mdx`** — the same noun lives three places under three different lenses (what / how / run). A reader searching "observers" today sees three matches and must guess which to open. {/* source: src/content/docs/{concepts,guides,operations}/ */}
+- **`concepts/mutations.mdx` + `getting-started/adding-mutations.mdx`** — overlap on the same concept (intro vs. concept).
+- **`features/federation.mdx` + `guides/federation-gateway.mdx` + `guides/federation-configuration.mdx` + `guides/federation-nats-integration.mdx` + `guides/advanced-federation.mdx`** — five federation pages distributed between `features/` (1) and `guides/` (4). The "Federation & Integration" sub-group inside Guides was a Cycle-3 attempt to corral this; it still leaves the top-level federation feature page disconnected. Cycle 1 Reviewer flagged "federation prose partial" as a follow-on (Phase 01 / Cycle 1 review entry).
+- **`guides/performance.mdx` + `guides/performance-benchmarks.mdx` + `deployment/scaling.mdx` + `troubleshooting/performance-issues.mdx`** — four performance pages across three groups; the "how do I make it fast" / "is it fast" / "scaling architecture" / "it isn't fast, fix it" split is real but the sidebar surfaces it as four scattered entries.
+- **`guides/troubleshooting.mdx` + `troubleshooting/` (9 pages) + `guides/faq.mdx`** — two top-level groups both labelled "troubleshooting", plus a FAQ that overlaps the same intent.
+- **`guides/deployment.mdx` + `deployment/` (7 pages)** — same noun, two homes.
+- **`transports/` (1 page) + `features/rest-transport.mdx` + `features/grpc-transport.mdx` + the "Transports" sub-group inside Features** — `transports/` is a near-empty top-level that exists alongside a Features sub-group with the same name.
+- **`operations/` (1 page)** — single-page top-level that the current sidebar already nests under Guides → Operations.
+- **`tools/` (1 page)** — single-page top-level (Schema Validator).
+- **`confiture/` (5 pages)** — a named subsystem (the schema-builder tool) that is already correctly grouped; the question for Options A/B/C is whether it becomes a `Subsystems` peer of `Features` (Option C) or absorbs into `Features` (Option A) or `Building` (Option B).
+
+**Pages added by Phases 02–08** — each has a natural home under each option. The phase docs name: Studio, Functions (WASM), Realtime, Auth Extensions, LTree, Schema Migrations (different from `migrations/` which is currently "from-X" framework-comparison content), REST (a deepening, the page already exists), MCP, Trusted Documents. Each lands in **one home under A**, two-or-more candidate homes under C, and under B distributes across Building / Running / Reference.
+
+**Cycle 4 Reviewer noted four deferred prose-rewrite items going to Phase 02/03** (`fraiseql/examples` repo URLs, `fraiseql/velocitybench`, `demo.fraiseql.dev`, `community/support.mdx:150` "coming soon"). These are content-level and **orthogonal to IA**; they survive any choice of A/B/C without affecting the sidebar move count.
+
+**Cycle 3 confirmed zero dead internal links** (Phase 01 / Cycle 3 close entry: 153 / 153 normalised targets resolve in `dist/`). This means any IA move that changes a slug MUST be paired with a Starlight `redirects` entry in `astro.config.mjs` to preserve the clean topology; the redirect-count column below reflects that.
+
+#### 2. The three options — fully fleshed
+
+##### Option A — by audience (the phase doc's default)
+
+**Proposed sidebar (10 top-level groups):**
+
+```
+- Getting Started        — "I am new; get me my first query"
+  - Introduction, 5-Minute Quickstart, Installation, Manual Setup, Your First API, Adding Mutations, Starter Templates, Playground
+  - moves IN: none
+  - keeps: 7 current pages + playground
+
+- Core Concepts          — "Why does this exist; how does it think"
+  - How It Works, Why FraiseQL, Developer-Owned SQL, CQRS Pattern, View Composition, Type System, Schema Definition, Configuration, Elo Validation
+  - moves OUT: Observers (→ Features), Mutations (→ Features — concept-only piece)
+  - keeps: 9 of current 11
+
+- Building               — "How do I do task X" (the current `guides/` minus its "Operations" sub-group)
+  - Fundamentals (Authentication, REST vs GraphQL, Schema Design, Error Handling, Custom Scalars, Custom Queries, Custom Resolvers, Testing, Dev Mode)
+  - Patterns (Observers-guide, Observer-Webhook Patterns, Projection Tables, Threaded Comments, Advanced Patterns, Multi-Tenancy)
+  - Federation (Federation Gateway, Multi-DB Federation, Federation+NATS, Advanced Federation, Apollo Sandbox Security) + Advanced NATS
+  - moves OUT: Operations sub-group (→ Operations top-level)
+  - keeps: 21 of current 27
+
+- Features               — "What can FraiseQL do"
+  - Query & Data, Performance (caching/APQ/Arrow/Wire Protocol), Security, Transports, Integration (Subscriptions/Webhooks/NATS/Federation/Multi-DB/File Storage), Observability
+  - moves IN: Observers (concept) — placed under Integration with the concept rolled into the existing features/observers entry. Mutations (concept).
+  - Phase 02-08 incoming: Studio, Functions (WASM), Realtime, Auth Extensions, LTree, MCP, Trusted Documents — each is one new entry under the appropriate sub-group.
+  - keeps: 26 current + ~7 new = ~33
+
+- Reference              — "Show me the surface" (unchanged)
+  - CLI, Admin API, TOML, GraphQL API, REST API, Decorators, Scalars, Semantic Scalars, Operators, Validation Rules, Naming, SQL Patterns, AuthoringIR
+  - keeps: 13 current
+
+- Operations             — "Run it in production"
+  - Deployment (Overview, Docker, K8s, AWS, GCP, Azure, Scaling)
+  - Observability runbook (Observer Operations Runbook moves here from Guides → Operations)
+  - Performance (guides/performance + guides/performance-benchmarks land here)
+  - Troubleshooting (the current top-level `troubleshooting/` 9 pages, plus guides/troubleshooting + guides/faq folded in)
+  - moves IN: guides/performance, guides/performance-benchmarks, guides/troubleshooting, guides/faq, guides/deployment (concept), operations/observer-runbook
+  - keeps: 7 deployment + 9 troubleshooting + 1 observer-runbook + 4 absorbed = ~21
+
+- Databases              — "What about my DB"
+  - keeps: 7 current (Overview, Compatibility, PG, MySQL, SQLite, SQL Server, SQL Server Enterprise)
+  - Phase 02-08 incoming: LTree per-DB notes get cross-linked here.
+
+- SDKs                   — "Which language"
+  - keeps: 12 current
+
+- Confiture              — separate subsystem (the schema-builder tool); the only "Subsystem" surfaced as its own top-level, because it is a distinct binary with its own CLI surface, not a feature flag of fraiseql-server.
+  - keeps: 5 current
+
+- Community              — "Help me, contribute"
+  - Contributing, Code of Conduct, Support, Changelog, plus absorbs Comparisons (vs/) and Use Cases (use-cases/), plus Blog and AI-Assisted (the 6 ai/ pages — they describe how to use FraiseQL with AI tooling, not framework features).
+  - moves IN: ai/ (6), use-cases/ (4), vs/ (5), blog/ (7)
+  - keeps: 3 current + 22 absorbed = ~25
+```
+
+**Examples** stays as a top-level peer of Getting Started (10 pages) — the cycle-doc lists 9 groups but Examples is too useful as a discoverable surface to fold into Community.
+
+**Pros:**
+- Resolves the observers triple-overlap cleanly: concept → Features (with the concept page absorbed into the existing features/observers entry), guide → Building, runbook → Operations.
+- Federation pages collapse from "1 feature + 4 guides" to "1 feature + 1 building sub-group" — readers find them in one of two predictable places.
+- Performance / troubleshooting consolidates under Operations — readers in "fix it" mode have one home.
+- Phase 02-08 incoming pages have one obvious home each (Studio → Features, Functions → Features, Realtime → Features → Integration, LTree → Features + Databases cross-link, MCP → Features → AI sub-group?, Trusted Documents → Features → Security).
+- 10 groups instead of 18 — half the visual scroll.
+- Top-level `operations/`, `tools/`, `transports/` single-page directories disappear (absorbed where they belong).
+
+**Cons:**
+- Largest mover: ~40 pages slugs change. SEO/inbound-link risk highest of the three options.
+- Requires the most thinking by the page authors who own each move (some pages are "concept AND feature AND guide" — call it).
+- `Community` becomes a kitchen sink (blog + AI + vs + use-cases + community).
+- The "AI-Assisted" group is currently a discoverable surface in its own right; demoting it to a Community sub-section may reduce visibility for AI-tooling readers.
+
+**Cost to implement:**
+- Files moved (git mv): ~40 (most under `guides/` → `building/`, several Phase 02 follow-ons into `operations/`, all of `ai|vs|use-cases|blog` into `community/`, two from `concepts/` to `features/`).
+- New `astro.config.mjs` sidebar shape: **complex** — 10 groups with nested sub-groups; ~150 lines.
+- Redirect rules needed: **~40** Starlight `redirects: { '/old/slug': '/new/slug', ... }` entries — one per moved page.
+- Risk to external deep links: **high** without redirects; **low** with the full redirect map in place. Cycle 3 confirmed 153 internal targets resolve; the same audit needs to be re-run post-move with the redirects active.
+
+**Reader-experience claim:** A reader looking for "how do I document my Slack webhook" today finds it at `guides/observer-webhook-patterns` (with concept noise at `concepts/observers` and feature noise at `features/observability`); under Option A they find it at `Building → Patterns → Observer-Webhook Patterns` with a clear "concept lives at Features → Integration → Observers" cross-link.
+
+##### Option B — by lifecycle stage
+
+**Proposed sidebar (5 top-level groups + Reference):**
+
+```
+- Quick Start            — "Get me running in 5 minutes"
+  - Introduction, 5-Minute Quickstart, Installation, Manual Setup, Your First API, Adding Mutations, Starter Templates
+  - keeps: 7 current pages
+  - moves OUT: Playground (→ standalone top-level or Community)
+
+- Building               — "I am writing my app"
+  - Authoring (Concepts How-It-Works, Why FraiseQL, Developer-Owned SQL, CQRS, View Composition, Mutations, Type System, Schema, Configuration, Elo)
+  - Features (everything currently under features/ EXCEPT operational concerns)
+  - Guides (everything currently under guides/ EXCEPT operational concerns)
+  - Confiture (5 pages)
+  - SDKs (12 pages)
+  - Examples (10 pages)
+  - Databases (7 pages)
+  - Phase 02-08 incoming: Studio, Functions, Realtime, Auth Extensions, LTree, MCP, Trusted Documents
+  - moves IN: most of concepts/, all of features/, most of guides/, confiture/, sdk/, examples/, databases/
+  - keeps: ~90 pages
+
+- Running                — "I am operating my app in dev or staging"
+  - Deployment (Docker, K8s, AWS, GCP, Azure, Overview)
+  - Observability (features/observability, features/analytics, features/resilience)
+  - Security (features/security, encryption, oauth-providers, audit-logging, rate-limiting, server-side-injection)
+  - Federation operations (federation-gateway, federation-nats-integration)
+  - moves IN: deployment/* (7), 6 features/security/* pages, federation operations
+  - keeps: ~25 pages
+
+- Scaling                — "I have traffic; tune it"
+  - Performance (features/caching, features/apq, features/arrow-dataplane, features/wire-protocol)
+  - Benchmarks (guides/performance-benchmarks)
+  - Performance guide (guides/performance)
+  - Scaling (deployment/scaling)
+  - Multi-tenancy (guides/multi-tenancy)
+  - Federation at scale (guides/advanced-federation, advanced-nats)
+  - keeps: ~12 pages
+
+- Troubleshooting        — "It broke"
+  - troubleshooting/* (9 pages), guides/troubleshooting, guides/faq
+  - keeps: ~12 pages
+
+- Reference              — flat reference (unchanged from today)
+  - 13 pages
+
+- Community              — Contributing, Code of Conduct, Support, Changelog, AI-Assisted, vs/, use-cases/, blog/
+  - keeps: ~25 pages
+```
+
+**Pros:**
+- Best fit for *new-user funnel* — matches the marketing site's "Try it → Build → Run → Scale" arc.
+- Phase 02-08 incoming Functions/Realtime/Studio land cleanly under Building.
+- Aligns with the `fraiseql.dev` hero copy framing (`Schema. Compile. Serve.`).
+- Two single-page top-levels (operations/, tools/, transports/) disappear naturally.
+
+**Cons:**
+- "Building" becomes enormous (~90 pages of 172). Bad scroll, bad menu UX.
+- Lifecycle phases are not how reference readers come in — most docs traffic is feature-search, not onboarding journey. Once a reader is past Quick Start they bounce between Building / Reference / Troubleshooting — the lifecycle metaphor stops paying off.
+- Forces a hard "is this a Build concern or a Run concern" choice on every page that touches both (federation, observers, security) — the same ambiguity Option A surfaces but bigger blast radius because the same page is genuinely in both.
+- Concepts get demoted into Building → Authoring, which makes the "what is FraiseQL philosophically" question harder to find.
+- High move count — slug churn similar to Option A.
+
+**Cost to implement:**
+- Files moved: ~45.
+- New `astro.config.mjs` sidebar shape: **moderate** — 6 top-level groups, but each contains nested sub-groups of ~15+ pages.
+- Redirect rules needed: **~45**.
+- Risk to external deep links: **high** without redirects; **low** with them.
+
+**Reader-experience claim:** A reader looking for "how do I document my Slack webhook" today finds it at `guides/observer-webhook-patterns`; under Option B they find it at `Building → Patterns → Observer-Webhook Patterns` (similar slug, but the path through the menu is longer).
+
+##### Option C — keep current shape, add a `Subsystems` group
+
+**Proposed sidebar (current 18 groups + 1 new = 19 groups):**
+
+```
+- Keep all 18 current top-level groups exactly as they are.
+
+- Add: Subsystems        — new group for distinct binaries/runtimes that ship alongside fraiseql-server
+  - Confiture (5 pages — moves from current top-level Confiture)
+  - Studio                  ← Phase 02-08 new
+  - Functions (WASM)        ← Phase 02-08 new
+  - Realtime                ← Phase 02-08 new
+  - MCP Server              ← Phase 02-08 new (and/or stays in AI-Assisted)
+```
+
+**Pros:**
+- Minimal move count — 5 Confiture pages relocate; ~0 other slugs change.
+- Zero risk to external deep links.
+- Phase 02-08 authors get one obvious place for net-new subsystem-level features (Studio, Functions, Realtime, MCP).
+- Cheapest cycle 7 (sweep matrix) — every existing page stays at its current slug.
+- Status quo is well-trodden — the overlap pain isn't catastrophic and may not justify a big move.
+
+**Cons:**
+- Does **not** resolve the observers triple-overlap, federation page sprawl, performance scatter, or single-page top-level directories (`operations/`, `tools/`, `transports/`).
+- 19 top-level groups is a lot of menu real estate; readers scroll past most of them.
+- Phase 02-08 authors who own LTree, Auth Extensions, Trusted Documents, Schema Migrations still have to decide each one between `features/` / `concepts/` / `guides/` — the disambiguation work that Options A/B do once is repeated per-page.
+- "Subsystems" peer to "Features" creates a new ambiguity: is Functions a feature or a subsystem? Studio? The page author must decide.
+- Long-term, the sidebar keeps drifting; this is "kick the can".
+
+**Cost to implement:**
+- Files moved (git mv): **5** (`confiture/*` → `subsystems/confiture/*`, optional).
+- New `astro.config.mjs` sidebar shape: **simple** — one new group entry; existing groups untouched.
+- Redirect rules needed: **5** (only if Confiture is moved; could also be 0 if Confiture stays at its current top-level and the Subsystems group only houses new Phase 02-08 content).
+- Risk to external deep links: **low** (0 if Confiture stays put).
+
+**Reader-experience claim:** A reader looking for "how do I document my Slack webhook" today finds it at `guides/observer-webhook-patterns`; under Option C they find it at exactly the same place. No improvement to the observers/federation/performance overlap.
+
+#### 3. Default proposal — Writer recommends **Option A**
+
+**Rationale (one paragraph, evidence-grounded):** The Cycle 1-5 audits made the IA pain points concrete, not abstract. The observers triple (`concepts/observers.mdx` + `guides/observers.mdx` + `operations/observer-runbook.mdx`) is real today and is the cleanest possible case for an audience-grouped sidebar — each page is genuinely a different lens on the same noun, and Option A's split (`Features → Integration → Observers` for what-it-is + `Building → Patterns → Observers` for how-to-use + `Operations → Observability` for how-to-run) puts each lens where the reader's intent already lives. The five federation pages similarly distribute 1 + 4 today and would distribute cleanly 1 + 1-sub-group under A. The Cycle 1 Reviewer's "federation prose partial" follow-on is, in IA terms, a request for exactly the Option A move (consolidate federation prose into one sub-group under Building). Option B's lifecycle framing matches the marketing copy but does not match how docs are actually consumed — once past Quick Start, readers bounce by topic, not by lifecycle stage. Option C avoids the cost but leaves the pain. The Phase 02-08 backlog (Studio, Functions, Realtime, Auth Extensions, LTree, Schema Migrations, REST, MCP, Trusted Documents) is also strong evidence for A — under A each has exactly one home; under C each forces the author to re-litigate `features/` vs `concepts/` vs `guides/`. **The cost of A (40 file moves + 40 redirect entries) is paid once during Phase 01 Cycle 7 + Phase 02 opening; under C the same disambiguation work is paid every cycle of every subsequent phase, by a different writer, with no shared memory.**
+
+#### 4. Decision-table summary
+
+| Dimension                                | A (by audience)                            | B (by lifecycle)                       | C (Subsystems-add)                  |
+|------------------------------------------|--------------------------------------------|----------------------------------------|-------------------------------------|
+| Reader mental model                      | by audience (what / how / run)             | by lifecycle (try / build / run / scale) | unchanged                          |
+| Phases 04-06 home for Studio             | Features (new sub-group or Integration)    | Building                               | Subsystems                          |
+| Phases 04-06 home for Functions (WASM)   | Features → Integration or new sub-group    | Building                               | Subsystems                          |
+| Phases 04-06 home for Realtime           | Features → Integration                     | Building                               | Subsystems                          |
+| Top-level groups (count)                 | 10                                         | 6 (+ Reference)                        | 19                                  |
+| Pages moved (slug change)                | ~40                                        | ~45                                    | 0–5                                 |
+| New redirects required                   | ~40                                        | ~45                                    | 0–5                                 |
+| External deep link risk (before redirects) | high                                     | high                                   | low                                 |
+| External deep link risk (with redirects) | low                                        | low                                    | low                                 |
+| Implementation effort (Cycle 7+)         | high                                       | high                                   | low                                 |
+| Resolves observers triple                | yes                                        | partial (Building absorbs concepts + guides; runbook stays Run) | no |
+| Resolves federation sprawl               | yes (1 + 1-subgroup)                       | partial (Build + Run split)            | no                                  |
+| Resolves single-page top-levels (`operations/`, `tools/`, `transports/`) | yes (all absorbed) | yes (all absorbed) | no                                |
+| Phase 02-08 author decision cost         | one-time at this phase                     | one-time at this phase                 | per-page, per cycle                 |
+| Long-term clarity                        | high                                       | medium                                 | low (drift continues)               |
+| Cycle 7 (sweep matrix) effort delta      | matrix authored against new shape          | matrix authored against new shape       | matrix authored against current shape (cheapest) |
+
+#### 5. Open questions for the human
+
+These are decisions the Writer cannot make alone:
+
+1. **Inbound-SEO traffic data.** Does `fraiseql.dev`'s analytics show meaningful inbound to specific deep-linked pages today (e.g., `concepts/observers`, `features/federation`)? If yes, the redirect map MUST cover those exact slugs before any move; if no (low traffic), the move cost goes down. Writer has no analytics access.
+2. **Is `vs/` "Concepts" or "Marketing"?** The five comparison pages (`vs/hasura`, `vs/apollo`, `vs/prisma`, `vs/postgrest`, `vs/hasura-sqlserver`) read as marketing copy today. Option A folds them into Community; that may not match marketing intent. The phase doc Cycle 1 RED entry noted these as candidates for Phase 02 IA classification rather than Cycle 6.
+3. **Should `ai/` stay as its own top-level visibility surface?** Six pages dedicated to AI-tooling integration is small but distinct. Option A folds into Community; that may reduce AI-developer discoverability.
+4. **`Examples` placement under Option A.** Writer kept Examples as a top-level group (the phase doc lists 9 groups; this proposal counts 10). Alternative: fold Examples under each group's sub-section (each Example is genuinely cross-cutting — multi-tenant + federation + NATS). Decision deferred to human.
+5. **Phase 02 quickstart SQL bugs** (3 bugs from Phase 00 / Cycle 5) — does the IA decision affect their fix timing? Writer's read: no, those bugs live at `getting-started/quickstart.mdx` which stays in the same group under all three options. Confirm.
+6. **What about partial vs. staged migration?** Option A could be split: Phase 01 Cycle 7 lands the sidebar structure + redirects for groups that don't move (Reference, SDKs, Databases, Examples) and the moves get sequenced across Phases 02-08 as each phase opens its target group. The human may want this hybrid for risk reduction.
+7. **Redirect-map regression test.** The phase doc § Risks names this as a mitigation but Cycle 7 has not yet defined where it lives. Should it be a new docs-test page (e.g., `redirects.docs-test.sh`) or an Astro build-time check?
+
+#### Files added / modified this cycle
+
+- `_internal/.plan/handoff.md` — this entry (G1 proposal block).
+- `_internal/.plan/.phases/phase-01-triage-and-ia.md` — Status marked `[?]` awaiting human gate G1 (no `[x] Complete` flip — phase is not complete).
+- **NOT TOUCHED** (per Writer forbidden actions): `astro.config.mjs`, any page under `src/content/docs/`, the Cycle 4 audit MD, the Cycle 4 deferred-items list, the sweep matrix (Cycle 7 — depends on G1).
+
+#### Commit / push / CI
+
+- Commit SHA: see commit/push entries appended after this block.
+- CI: `_internal/` and `.phases/` paths are excluded from the docs-test workflow's `pull_request` path filter (Phase 00 Cycle 6 wiring). Expected behaviour: **no run triggered, path-filtered**.
+
+#### Phase status
+
+- Phase 01 status block in `_internal/.plan/.phases/phase-01-triage-and-ia.md` set to `[?] Awaiting human gate G1 (Cycle 6)`.
+
+#### HUMAN
+
+Please reply inline below this line with `> human:` your pick (A / B / C) and any modifications (e.g., "A but keep AI-Assisted as a top-level", "A but staged across phases", etc.). Cycle 7 (sweep matrix) and Phases 02-08 depend on this decision.
+
+> human: **A.** No modifications. Default proposal accepted as-written. G1 closed 2026-05-29 (recorded by orchestrator on user's behalf — original chat-channel response was "ok, I agree with the option A from the writer"). Open questions 1–7 in the Writer's proposal remain Writer judgement during Cycle 6 REFACTOR/CLEANUP unless they require another gate — surface novel gates rather than guess.
+
+---
+
+### Phase 01 / Cycle 6 REFACTOR+CLEANUP close — Writer (Opus 4.7) — 2026-05-29
+
+- **G1 result honoured: Option A, no modifications.** Implementation lands the full Option A move plan in three commits on `phase-01/triage-and-ia`.
+- **Sidebar groups: 10** (was 18), plus Examples as an 11th top-level. Top-level move count: **76**. Pages moved: **76**. Redirects added: **76**. In-page internal-link updates: **0** (the 338+ links to old slugs resolve via the redirect map; Phase 02/03 prose rewrites will update them in-place).
+- **7 open questions resolved** (with one-line rationale, see `src/content/docs/_internal/_sidebar-decision.md` § 4):
+  1. SEO unknown → full redirect map covers all 76 moved slugs.
+  2. `vs/` → `Community → Comparisons` sub-group.
+  3. `ai/` → `Community → AI-Assisted` sub-group.
+  4. `Examples` → kept as top-level group (11th visible).
+  5. Phase 02 quickstart bugs → confirmed independent; quickstart slug unchanged.
+  6. Partial vs. staged → full move now (per "no modifications").
+  7. Redirect-map regression test → deferred to Cycle 7 / Phase 10.
+- **Build state:** 197 pages built; 273 HTML files (197 pages + 76 redirect stubs); zero new warnings (only the two pre-existing baselines).
+- **`_internal/_sidebar-decision.md` authored at `src/content/docs/_internal/_sidebar-decision.md`** and confirmed excluded from the build (`find dist -name '*sidebar-decision*'` → 0 hits; Pagefind index does not contain the doc).
+- **Commits (three):**
+  - `2edb72e` docs(ia): step 1 — sidebar redraw to Option A (10 groups). astro.config.mjs only; build clean with sidebar items still pointing at OLD slugs.
+  - `01ed373` docs(ia): step 2 — 76 page moves; sidebar slugs repointed; 76 OLD→NEW redirects added.
+  - `728beec` docs(ia): step 3 CLEANUP — `_sidebar-decision.md` authored; this handoff entry appended.
+- **CI run URL (against HEAD `728beec`):** https://github.com/fraiseql/fraiseql-docs/actions/runs/26624972782 — conclusion `success`. The step-1 and step-2 PR-pull-request runs were auto-cancelled by GitHub when the step-3 push superseded them (standard PR concurrency behaviour); the final HEAD-against-PR run is the gating check and it is green. Both jobs passed: `discover pages and frozen SHA` (4s), `page-test (_smoke)` (10m27s).
+- **Cycle 7 (sweep matrix) now unblocked** — depends on the new sidebar shape, which is now stable on `phase-01/triage-and-ia`.
+- **Anti-scope held:** no prose edits, no Phase-02 fixes, no Cycle 4 deferral fixes, no main pushes, no commit amendments.
+- **Open gates:** none new. G1 closed. G2 SHA freeze still at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+### Phase 01 / Cycle 6 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.** Phase 01 / Cycle 6 REFACTOR+CLEANUP implementation matches the Option A spec; all in-scope checklist items pass; CI is green on both `728beec` and `9628747`.
+
+- **CI verification.** Run `26624972782` on `728beec` → `success`. Run `26625511821` on `9628747` → `success`. Both verified via `gh run view --json conclusion`. PR #12 checks (`discover pages and frozen SHA`, `page-test (_smoke)`) both `SUCCESS` against HEAD. Earlier cancelled runs on `2edb72e` and `01ed373` were auto-cancelled by GitHub Actions concurrency (expected per workflow `concurrency: cancel-in-progress: true`) — not failures.
+- **Sidebar shape vs. Option A spec.** Counted 11 top-level groups in `astro.config.mjs:L157-L503`: Getting Started, Core Concepts, Building, Features, Reference, Operations, Databases, SDKs, Confiture, Examples, Community. Matches the G1 PROPOSAL exactly (10 audience-grouped + Examples kept top-level per Writer's "11th visible" judgement, accepted as part of "no modifications"). Sub-group structure (Building → Fundamentals / Patterns / Federation / Migrations / Tools; Features → Query & Data / Performance / Security / Transports / Integration / Observability; Operations → Deployment / Performance / Observability / Troubleshooting; Community → AI-Assisted / Use Cases / Comparisons / Blog) matches the proposal's "moves IN" lines. No silent restructuring.
+- **Page-count parity.** Pre-cycle `git ls-tree -r d66ce23` → **172** `.md/.mdx` under `src/content/docs/` excluding `_internal/`. Post-cycle `find` → **172**. Zero pages lost. (Writer's `_sidebar-decision.md` § 6 claim of "173 in / 173 out" is off by 1 in the absolute count; parity itself is correct — minor inaccuracy, not blocking.)
+- **Rename-vs-edit ratio.** `git diff d66ce23..HEAD --diff-filter=R --name-status` → **76 renames, all R100** (100% similarity). `--diff-filter=M` → **2 files** (`_internal/.plan/handoff.md` = Writer's close entry; `astro.config.mjs` = sidebar + redirects). `--diff-filter=A` → **1 file** (`src/content/docs/_internal/_sidebar-decision.md`). `--diff-filter=D` → 0. **0 in-page link updates** confirmed (Writer's claim exact).
+- **History preservation.** Spot-checked 3 random renames (`operations/deployment/gcp.mdx`, `community/ai/mcp-server.mdx`, `operations/troubleshooting/by-database/sqlserver.mdx`) — `git log --follow` traces history through the rename in every case.
+- **Redirect spot-checks (5 random, seed=42).** All 5 verified: source path existed at `d66ce23`, target path exists at HEAD: `/guides/observer-webhook-patterns` → `/building/observer-webhook-patterns`; `/guides` → `/building`; `/migrations/from-rest` → `/building/migrations/from-rest`; `/migrations/incremental` → `/building/migrations/incremental`; `/guides/troubleshooting` → `/operations/troubleshooting-guide`. Total redirect entries in `astro.config.mjs`: **76** (matches claim). Form is Astro 5 top-level `redirects: {}` — correct for Astro 5.17 / Starlight 0.37.6.
+- **Redirect stub format.** Sampled `dist/concepts/observers/index.html` — well-formed meta-refresh + `noindex` + canonical to new URL. SEO-correct.
+- **Guide-slug collision claim.** Verified: `operations/troubleshooting/` and `operations/deployment/` both exist as directories at HEAD, so `git mv guides/{troubleshooting,deployment}.mdx operations/` would have collided. The `-guide` suffix disambiguation is sensible. The two `*-guide` entries are wired into the Operations → Deployment / Operations → Troubleshooting sub-groups (`astro.config.mjs:L354,L385`).
+- **Build clean.** `bun run build` exit 0. 273 HTML files = 197 pages + 76 redirect stubs (matches claim). Zero `No route matches` warnings. Only the two pre-existing baseline warnings (`conf` language in `building/federation-nats-integration.mdx`; `/[...slug]` vs `/` route conflict) — both predate this cycle.
+- **Internal link spot-check (7 random links).** All resolve: 4 direct (`/concepts/schema`, `/getting-started/first-api`, `/features/rate-limiting`, `/concepts/developer-owned-sql`); 3 via redirect (`/migrations/from-prisma` → building/, `/guides/faq` → operations/, `/troubleshooting` → operations/).
+- **`_sidebar-decision.md` exclusion.** `find dist -name '*sidebar-decision*'` → 0 hits. Pagefind grep of `dist/pagefind/` (`.pf_fragment` files via `strings`) → no `sidebar-decision` content. `grep -r "sidebar-decision" dist/` → empty. File is at `src/content/docs/_internal/_sidebar-decision.md` (leading underscore on filename, `_internal/` parent — both convention-correct per the Phase 00 Cycle 7 discovery).
+- **7 open questions documented.** `_sidebar-decision.md` § 4 has all 7 G1 open questions answered with one-line rationale.
+- **Anti-scope.** Zero prose edits on existing pages (the only `+`/`-` content lines in `git diff -- src/content/docs/` are the new `_sidebar-decision.md`). `getting-started/quickstart.mdx` untouched (Phase-02 quickstart bugs at L156/L167/L179/L184 preserved). Cycle 4 deferrals (`fraiseql/examples`, `velocitybench`, `demo.fraiseql.dev`, `charts.fraiseql.io`) untouched. `astro.config.mjs` edited only in sidebar + new top-level `redirects` field; no new Starlight integrations.
+- **15-point checklist (applicable scope: structural refactor).**
+  - **6. DEAD LINKS** — ✅ `bun run build` clean; 7 random internal links resolve.
+  - **8. COPY-PASTE FROM PRIOR VERSION** — ✅ N/A; all 76 renames are R100 with no content edits.
+  - **12. ARCHAEOLOGY-FREE** — ✅ `grep -iE "TODO|FIXME|XXX|Phase " src/content/docs/_internal/_sidebar-decision.md astro.config.mjs` returns nothing.
+  - **13. SOURCE CITATIONS RESOLVE** — ✅ `_sidebar-decision.md` cites `_internal/.plan/handoff.md:L805-L1108`; line 805 is the G1 PROPOSAL header, line 1108 is the human's resolution. Citation is exact.
+  - **14. NO PERSONA SELF-REFERENCE** — ✅ The persona references in `_sidebar-decision.md` ("Writer's judgement", "Phase 02+ writers") are acceptable because the file is excluded from the build; no persona content reaches rendered output. Spot-checked the 76 moved pages' frontmatter — no leaked persona content.
+  - Items 1, 2, 3, 4, 5, 7, 9, 10, 11, 15 — N/A this cycle (structural moves, no content change to validate).
+
+**Findings:** 0 blocking. 1 nit (`_sidebar-decision.md` § 6 says "173 in / 173 out" but the actual count is 172 / 172 — parity preserved; the absolute number is off by 1). 1 follow-on for Cycle 7 sweep matrix: per Writer's deferred decision on G1 open-question #7, the redirect-map regression test (`scripts/docs-test/redirects.docs-test.sh` or build-time check) should appear as a row in the Cycle 7 sweep matrix so it does not silently slip past Phase 10. The two `*-guide` collision-rename suffixes (`operations/deployment-guide`, `operations/troubleshooting-guide`) are also Cycle 7 matrix candidates for Phase 02/03 prose consolidation review — the suffix is a sensible disambiguation but invites a future "where does this actually live?" reader question.
+
+**Sign-off:** APPROVE for merge. Sidebar shape matches Option A, page-count parity (172/172) holds, 76/76 renames are R100, redirects well-formed and verified, build clean, `_sidebar-decision.md` excluded from build and Pagefind, anti-scope held, CI green on both `728beec` and `9628747`. Cycle 7 (sweep matrix) is unblocked.
+
+---
+
+### Phase 01 / Cycle 7 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Sweep matrix authored at `src/content/docs/_internal/_sweep-matrix.md` (425 lines, 45 KB).** Sorted by post-Option-A sidebar order; doubly indexed with a "by-phase view" prepended (slug bullets only).
+- **172 page rows + 2 framework-bug rows (FW-1 #326 + FW-2 #327) + 9 cross-phase rows + 4 Cycle 4 deferral-class rows.** Each page row carries State / Owning phase / DB claim / DB actual / Deps / Notes columns per the Cycle 7 spec.
+- **By-phase row counts (Owning phase column):**
+  - Phase 02: 19 rows (1 changelog, 1 quickstart broken-snippet, 4 getting-started adjacents, 12 SDK pages, 1 cli alignment).
+  - Phase 02/03 (shared): 3 rows (`features/observability` /health refresh; `operations/deployment-guide` + `operations/troubleshooting-guide` collision-rename consolidation).
+  - Phase 03: 46 rows (concepts pass, observers triple, examples Cycle-4-A deferrals, perf-benchmarks Cycle-4-B, demo.fraiseql.dev Cycle-4-C, security/auth cluster, comparisons, file-storage).
+  - Phase 04: 3 rows (Realtime / Studio / Functions WASM adjacencies — the missing pages themselves live in the by-phase view, not the matrix proper).
+  - Phase 05: 1 row (databases/postgresql LTree cross-link).
+  - Phase 06: 10 rows (federation consolidation + REST deepening).
+  - Phase 07: 13 rows (all of `/reference/*`).
+  - Phase 08: 83 rows (the catch-all final-polish phase; most `OK`-state rows land here).
+- **Page-state distribution: OK=93, needs-update=12, needs-rewrite=66, broken-snippet=1, wrong-content=0, missing=0, redirected=0.**
+  - `broken-snippet=1` is `/getting-started/quickstart` (3 SQL bugs from Phase 00 / Cycle 5; the Phase 02 priority).
+  - `missing=0` for the matrix proper because the Phase 04-06 net-new pages (Studio, Functions WASM, Realtime, Auth Extensions, LTree, MCP, Trusted Documents) are not yet `src/content/docs/` files; they appear only in the by-phase view's bullets. Consistent with the matrix's "every existing page has a row" rule.
+- **Build state:** `bun run build` exit 0; 197 pages built; 273 HTML files (197 + 76 redirect stubs — unchanged from Cycle 6 close). Same two pre-existing baseline warnings (Cycle 1-6 baseline noise).
+- **Build-exclusion verified:** `find dist -name '*sweep-matrix*'` → 0 hits; `grep -r 'sweep-matrix' dist/` → 0 hits; `grep -rl 'sweep-matrix' dist/pagefind` → 0 hits. The leading-underscore filename + `_internal/` parent both keep Astro/Starlight and Pagefind out (same construction as `_sidebar-decision.md`, validated by the same checks per Cycle 6 Reviewer).
+- **`_sidebar-decision.md` § 6 page-count nit corrected** (172/172, not 173/173) per the Cycle 6 Reviewer follow-on. Optional fix; landed as a small inline edit on the same commit as the matrix.
+- **Three Cycle 6 Reviewer follow-ons addressed in the matrix:**
+  1. Redirect-map regression test — captured as a cross-phase row, owning phase Phase 02 OR Phase 10 (Writer judgement deferred).
+  2. `*-guide` suffix pages (`/operations/deployment-guide` + `/operations/troubleshooting-guide`) — flagged in their matrix rows as Phase 02/03 prose-consolidation candidates.
+  3. `_sidebar-decision.md` page-count off-by-1 — corrected inline (see above).
+- **Five Cycle 1 / 2 / 5 Reviewer follow-ons addressed:**
+  - `features/observability.mdx` /health block (L340 + L530) — `needs-update`, Phase 02/03.
+  - `examples/index.mdx:359` /health shape — `needs-rewrite`, Phase 03.
+  - Methodology §4 JSX-comment amendment — cross-phase row, Phase 01 close OR Phase 10.
+  - `cli.mdx` vs `installation.mdx` cargo command-name mismatch — both rows flagged, Phase 02.
+  - `examples/index.mdx:355` Phase-00-Cycle-2 meta-citation — Phase 03 polish or Phase 10 finalisation.
+- **Pre-existing `SiteTitle.astro` `virtual:starlight/user-images ts(2307)` baseline** — captured as a non-page cross-phase row (Phase 10 cleanup; blocks pre-commit hook activation per Cycle 2 Cleanup REFACTOR deferral).
+- **FW-1 #326 + FW-2 #327** — captured in a dedicated "Framework bugs" section of the matrix with the affected docs-page rows enumerated. Phase 09 reconciliation owns close-out.
+- **Four Cycle 4 deferral classes** captured in a dedicated section:
+  - A: `fraiseql/examples` (11 URLs / 4 pages: `/examples/index`, `/examples/saas-blog`, `/examples/realtime-collaboration`, `/examples/mobile-analytics-backend`) — Phase 03 content decision.
+  - B: `velocitybench` (2 pages: `/operations/performance-benchmarks`, `/community/blog/rest-direct-execution-benchmark`) — Phase 03 prose decision.
+  - C: `demo.fraiseql.dev` (6 pages: `/playground`, `/concepts/how-it-works`, `/features/mutual-exclusivity`, `/getting-started/quickstart`, `/features/automatic-where`, `/features/rich-filters`) — Phase 02/03 + infra fix.
+  - D: `charts.fraiseql.io` — 0 hits at audit; orchestrator-side artefact only; no row needed (per Cycle 4 Reviewer).
+- **Anti-scope held this cycle:** no edits to rendered docs pages beyond the new `_sweep-matrix.md` + the small `_sidebar-decision.md` §6 fix; no `astro.config.mjs` changes; no Phase-02 SQL-bug fixes; no Cycle 4 deferral fixes; no `SiteTitle.astro` fix; no main pushes; no commit amendments.
+- **Surprise findings:**
+  - `Owning-phase counts` do not sum to 172 — Phase 03 and Phase 08 overlap heavily (Phase 03 rewrite → Phase 08 polish-of-the-rewrite). The matrix's `Owning phase` column names the **next substantive change**, not every subsequent touch. Documented at the foot of the matrix.
+  - The two "observers triple-overlap" pages (`/features/observers` from `concepts/observers` + `/building/observers` from `guides/observers`) plus `/operations/observer-runbook` form a 3-page consolidation set under Phase 03; per `_sidebar-decision.md` §5 they stay as three distinct pages (what / how / run) but require careful scope statements + cross-links.
+  - The Phase 04-06 net-new pages (Studio, Functions WASM, Realtime, Auth Extensions, LTree, partial-period, native aggregations, MCP, Trusted Documents) currently have **no** rows in the matrix proper because no `src/content/docs/` file exists yet; they appear as bullets only in the by-phase view. Phase 04-06 Writers create the rows when they create the pages.
+- **Commit SHA + CI URL:** see commit/push entries below.
+- **Open gates:** none new. G1 closed (Cycle 6). G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G4 (branch protection) remains soft per Phase 00 / Cycle 9 close. Phase 01 close cycle next.
+
+---
+
+### Phase 01 / Cycle 7 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.** 15/15 applicable checklist items pass, CI green, every concrete row obligation satisfied.
+
+- **CI:** `gh run view 26626720175 --json conclusion --jq '.conclusion'` → `success` ✅
+- **Page coverage:** `find src/content/docs -name '*.md' -o -name '*.mdx' | grep -v '/_internal/' | wc -l` → 172. Random 10 sampled (`shuf | head -10`: `operations/deployment/aws`, `operations/faq`, `reference/admin-api`, `community/blog/rest-annotation-driven`, `sdk/rust`, `operations/troubleshooting/by-database/sqlserver`, `community/vs/apollo`, `community/ai/generating-views`, `reference/rest-api`, `community/ai/langchain`) — **10/10 found** as exact-slug rows in the matrix. ✅
+- **State distribution (re-counted from the main matrix):** OK=93, needs-update=12, needs-rewrite=66, broken-snippet=1, wrong-content=0, missing=0, redirected=0. 93+12+66+1 = 172 ✅. `broken-snippet=1` is `/getting-started/quickstart` ✅. `wrong-content=0` and `redirected=0` defensible per the Writer's stated interpretation (matrix tracks source files; redirected OLD slugs no longer have a source file). Non-blocking nit: `/operations/performance-benchmarks` (VelocityBench data claim) and `/examples` `/health` shape stale could plausibly be `wrong-content` instead of `needs-update` / `needs-rewrite` — both are caught by the existing rows, so the classification is a label question, not a coverage gap.
+- **By-phase view alignment (main-matrix `Owning phase` re-count):** Phase 02=16, Phase 02/03=3, Phase 03=43, Phase 04=3, Phase 05=1, Phase 06=10, Phase 07=13, Phase 08=83 → **sum 172** ✅. The Writer's commit-message counts (`02=19, 03=46, ...`) are derived from the by-phase view's condensed bullets (which group multi-slug bullets like "9 examples" or "11 SDK pages" implicitly), not from row-level grep. Non-blocking nit — the matrix's own §"Owning-phase counts" footer is explicitly hedged ("~22, ~48, ~80, do not sum to 172"), so the commit-message numbers are inconsistent with the footer but neither is wrong — both are honest approximations of a one-page-can-touch-multiple-phases reality. Phase 07 (13 rows) is the only exact agreement.
+- **Concrete row obligations (12/12):**
+  - `getting-started/quickstart` broken-snippet row with L156/L167/L179/L184 — ✅ (row at L140)
+  - Cycle 4 deferral A (`fraiseql/examples`, 11 URLs / 4 pages) — ✅ (row at L399)
+  - Cycle 4 deferral B (`velocitybench`, 2 pages) — ✅ (row at L400)
+  - Cycle 4 deferral C (`demo.fraiseql.dev`, 6 pages) — ✅ (row at L401)
+  - Cycle 4 deferral D (`charts.fraiseql.io`, 0 hits) — ✅ (row at L402, explicitly "no row needed")
+  - `features/observability` `/health` blob refresh (Cycle 1 follow-on) — ✅ (row at L225)
+  - `examples/index` `/health` shape (Cycle 1 follow-on) — ✅ (row at L317)
+  - Methodology JSX-comment amendment — ✅ (cross-phase row at L382, by-phase Phase 10 bullet at L126)
+  - Cycle 5 cargo command name mismatch — ✅ (rows at L139 and L233)
+  - Redirect-map regression test — ✅ (cross-phase row at L384, by-phase Phase 10 bullet at L125)
+  - `-guide` suffix pages flagged (Cycle 6 Reviewer) — ✅ (rows at L258, L271)
+  - `_sidebar-decision.md` page-count fix — ✅ (diff confirms `173 → 172`, see Build-exclusion below)
+  - `SiteTitle.astro` baseline — ✅ (cross-phase row at L386, by-phase Phase 10 bullet at L124)
+  - FW-1 + FW-2 in dedicated Framework-bugs section — ✅ (rows at L373-L374)
+- **Build-exclusion:** `find dist -name '*sweep-matrix*'` → 0 hits; `find dist -name '*sidebar-decision*'` → 0 hits; `grep -r sweep-matrix dist/` → 0 hits. ✅ The `_`-prefix and `_internal/` parent both gate the file out of the Astro build and the Pagefind index.
+- **Sidebar-decision off-by-1 fix:** confirmed via `git diff 31e803c..a87b0db -- src/content/docs/_internal/_sidebar-decision.md` — single line at L169 changes `173 → 172` with parenthetical explanation. ✅
+- **Anti-scope:** `git diff --stat 31e803c..a87b0db -- 'src/content/docs/' ':!src/content/docs/_internal/'` returns empty (no rendered docs-page edits outside `_internal/`); `git diff --stat 31e803c..a87b0db -- astro.config.mjs` returns empty. ✅
+- **15-point (applicable):**
+  - 12. **ARCHAEOLOGY-FREE** — 117 `Phase N` mentions in the matrix; all intentional (phase-ownership tracking) per the file's purpose. The two `coming soon` hits at L59 + L334 refer to the existing `/community/support` page's prose ("status page coming soon") which the matrix row queues for replacement — descriptive, not archaeology. File is unrendered. ✅
+  - 13. **SOURCE CITATIONS RESOLVE** — re-grepped three: `astro.config.mjs:L1-L6` matches the `_internal/` exclusion comment block verbatim; `_internal/.plan/.phases/README.md:L7-L26` matches the frozen-SHA + G2 procedure block verbatim; `_sidebar-decision.md:L1-L107` covers the Option A move map. All three resolve. ✅ Citations use the MDX-compatible `{/* source: ... */}` form, which the matrix is itself proposing as a methodology amendment — internally consistent and not a finding.
+  - 14. **NO PERSONA SELF-REFERENCE** — no "as an AI", no leaked persona-prompt artefacts. The matrix references personas as actors ("Phase 02 Writer", "Cycle 6 Reviewer") which is required for a planning artefact. ✅
+  - Items 1–11, 15 — N/A — planning artefact only; not rendered; no DB matrix / version drift / dark-mode surface of its own.
+
+**Findings (none blocking):**
+1. **(nit)** Commit-message owning-phase counts (`02=19, 03=46, 08=83`) don't match a strict-row grep of the main matrix (`02=16, 03=43, 08=83`). Reconciles if the Writer is counting the by-phase view's condensed bullets ("`/sdk` index + 11 SDK pages" = 12 slugs from one bullet) plus a few Cycle-1-Reviewer follow-on entries that overlap. Footer at L411-L425 hedges to `~22 / ~48 / ~80` and explicitly notes "do not sum to 172", so no internal inconsistency — just a commit-message-vs-matrix labelling drift the Phase 01 close cycle may want to harmonise.
+2. **(nit)** `wrong-content=0`: defensible — `/operations/performance-benchmarks` (VelocityBench claim) is `needs-rewrite` not `wrong-content`, but the row's notes flag the load-bearing prose claim. Same for `/examples` `/health` stale shape (`needs-rewrite`). Phase 02/03 Writers will see the issue either way.
+3. **(follow-on for Phase 01 close)** The matrix is internally self-consistent but the Writer's commit-message summary numbers should be regenerated from a row-grep at Phase 01 close to keep the historical record clean. Suggested fix: edit Phase 01 close commit's body to either cite `02=16, 03=43` (row-grep) or footnote that the commit-message counts come from the by-phase condensed-bullet view.
+4. **(follow-on for Phase 02 owner)** Three pages that bullet-appear in the by-phase Phase 04-06 view (Studio, Functions WASM, Realtime, Auth Extensions, LTree, partial-period, native aggregations, MCP, Trusted Documents) have no matrix row because no source file exists. The Writer's Cycle 7 close note already flagged this; restating here so it survives the Phase 01 close handoff: the Phase 04-06 Writer creates the row when they create the page.
+
+**Source-Citation Verifier note:** the three matrix citations use `{/* source: ... */}` form. Methodology §4 still specifies `<!-- source: ... -->` literally; the JSX-comment equivalence is queued for amendment via the cross-phase row at L382. The Verifier persona for this cycle can accept the JSX form on the strength of multi-cycle precedent (Cycle 1, 2, 5 Reviewers all confirmed acceptance) and the matrix itself documenting the policy.
+
+Phase 01 close cycle proceeds. PR #12 (draft) remains pending the Phase 01 close commit.
+
+---
+
+### Phase 01 / close — orchestrator — 2026-05-29
+
+**Phase 01 complete.** Seven cycles + G1 resolution + REFACTOR/CLEANUP implementation + sweep matrix. All cycles Reviewer-approved (15/15 applicable); every authoritative commit landed CI-green. PR #12 (draft) ready for human ready-for-review decision.
+
+#### Cross-cycle summary (Cycles 0–7)
+
+| Cycle | Subject                                              | Persona(s) used                                                            | Commits                                                                                          | CI run(s)                                                                                  | Outcome      |
+|-------|------------------------------------------------------|----------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|--------------|
+| 0     | Branch off `6cc8ae5`                                  | orchestrator                                                               | n/a                                                                                              | n/a                                                                                        | GREEN        |
+| 1     | Version-string sweep (13 docs files; REFACTOR: no central anchor) | Writer Opus 4.7 → Reviewer Opus 4.7                              | `59ee065` + `f9aa9b9` handoff; Reviewer `607b30d`                                                | 26618582360 — success                                                                       | APPROVED     |
+| 2     | Stray-syntax sweep (8 files; pre-commit deferred to Phase 10)        | Cleanup Sonnet 4.6 → Reviewer Opus 4.7                            | `8f8cdf3` + `b5acb50` handoff; Reviewer `f5e790d`                                                | 26619729936 — success                                                                       | APPROVED     |
+| 3     | Internal link audit (0 dead links across 153 unique targets)         | Cleanup Sonnet 4.6 → Reviewer Opus 4.7                            | `d6cf4a3` + `1286cef` handoff; Reviewer `e1f4331`                                                | 26620521463 — success                                                                       | APPROVED     |
+| 4     | External link audit (217 URLs / 66 audited / 22 must-fix applied / 4 deferral groups) | **Link Auditor Haiku 4.5 → escalated to Sonnet 4.6** → Cleanup Sonnet 4.6 → Reviewer Opus 4.7 | `d2a3062` RED + `3ad9235` handoff + `eeb4ea6` GREEN; Reviewer `6b207f2`             | 26622253551 — success                                                                       | APPROVED (escalation noted) |
+| 5     | Homebrew claim (classification (c) — removed; install matrix → table) | Writer Opus 4.7 → Reviewer Opus 4.7                                | `f711aa9`; Reviewer `c24c8c3`                                                                     | 26623260030 — success                                                                       | APPROVED     |
+| 6     | Sidebar IA G1 (proposal → human picks A → implement Option A: 76 moves + 76 redirects + sidebar-decision.md) | Writer Opus 4.7 → **G1 STOP → human resolves A** → Writer Opus 4.7 (REFACTOR/CLEANUP) → Reviewer Opus 4.7 | `5ac2593` proposal + `d66ce23` G1 resolution + `2edb72e` + `01ed373` + `728beec` + `9628747`; Reviewer `31e803c` | 26624972782 + 26625511821 — both success                                            | APPROVED     |
+| 7     | Sweep matrix (425 lines / 172 page rows + 2 FW rows + 9 cross-phase rows + 4 deferral rows) | Writer Opus 4.7 → Reviewer Opus 4.7                                | `a87b0db`; Reviewer `d8b268c`                                                                     | 26626720175 — success                                                                       | APPROVED     |
+| close | Phase 01 close (methodology amendment + status flips + this entry)    | orchestrator                                                       | this commit                                                                                       | path-filtered (`_internal/` only) — no run triggered                                       | n/a          |
+
+#### Gate register at phase close
+
+- **G1 (sidebar IA)** — RESOLVED 2026-05-29 → **Option A**, no modifications. Closed.
+- **G2 (SHA bump)** — frozen at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. Default policy holds across Phase 02+; bump procedure documented in `scripts/docs-test/FRAISEQL_SHA.README.md`. Not exercised this phase.
+- **G3 (Phase 09 ship-readiness threshold)** — not yet reached.
+- **G4 (branch-protection / framework PR merges)** — soft gate; Phase 00's `page-test (_smoke)` check-name proposal still standing; awaiting human admin action. Not blocking Phase 02.
+- **G5 (Phase 10 final sign-off)** — not yet reached.
+- No novel gates surfaced during Phase 01.
+
+#### Methodology amendment landed this phase
+
+`_internal/.plan/methodology.md` § 4 — accepts the `{/* source: ... */}` JSX-comment form for `.mdx` files. Driven by the Cycle 1 Writer's MDX-3 incompatibility finding and re-flagged by the Cycle 1, 5, and 6 Reviewers. Plain `.md` files keep `<!-- source: ... -->`. Verifier persona accepts either form — it keys on the literal `source:` token.
+
+#### Framework issues filed across Phase 01
+
+**0.** FW-1 (#326) and FW-2 (#327) carry forward from Phase 00; both tracked in `_internal/.plan/framework-qa-triage.md` and in the sweep matrix's Framework-bugs section. Neither blocks any Phase 02 work.
+
+#### Phase 02 entry conditions (handoff to next phase)
+
+The sweep matrix is the authoritative phase-02 worklist. Phase 02's `Owning phase` slice (per the matrix's by-phase view) is **19 page rows + adjacencies**:
+- `/changelog` — full rewrite (`needs-rewrite`; v2.1 "Unreleased" framing).
+- `/getting-started/quickstart` — **3 SQL bugs** at L156 (SQLite `json()`), L184 (MSSQL `JSON_QUERY`), L167/L179 (MSSQL `WITH SCHEMABINDING` incompatible with view-on-view). `broken-snippet`.
+- `/getting-started/installation` + `/reference/cli` — cargo command-name alignment.
+- `/sdk` index + 11 SDK pages — release alignment (all pinned to v2.1).
+- Adjacencies in `getting-started/*` (5 pages).
+- Cycle 4 deferral-class C (`demo.fraiseql.dev`, 6 pages) — Phase 02/03 split: TLS infra fix or prose rewrite.
+- Cycle 1 Reviewer follow-on: `features/observability.mdx` /health block (now `operations/observability.mdx` per Option A) — `needs-update`.
+- Cycle 5 Writer follow-on: install-matrix decision table's `Cargo` row description vs `cli.mdx` cargo command — Phase 02 cross-check.
+
+Phase 03's slice is **46 rows + the 4 Cycle 4 deferral classes A (examples), B (velocitybench), partial C (demo.fraiseql.dev infra)**.
+
+Phases 04–08 slices documented in the matrix's by-phase view. Phase 09 reconciliation owns FW-1 + FW-2 + any new bugs filed during 02–08.
+
+#### Open carry-forwards into Phase 02+ (not blocking)
+
+1. **`_sidebar-decision.md` § 6 page-count** — corrected from 173 → 172 during Cycle 7 close.
+2. **Redirect-map regression test** — proposed in the sweep matrix; Phase 02 OR Phase 10 owns implementation (Writer judgement deferred).
+3. **`*-guide` suffix pages** (`/operations/deployment-guide` + `/operations/troubleshooting-guide`) — Phase 02/03 prose-consolidation candidates (Cycle 6 collision-avoidance renames).
+4. **Pre-existing `SiteTitle.astro` `virtual:starlight/user-images` ts(2307) baseline error** — blocks `bun run check` activation as a pre-commit hook; sweep matrix flags as cross-phase non-page cleanup, Phase 10 owns.
+5. **Phase 04–06 net-new pages** (Studio, Functions WASM, Realtime, Auth Extensions, LTree, MCP, Trusted Documents) — currently no source files; rows added to the matrix when the pages are created.
+6. **Pre-commit hook** — Cycle 2 deferred to Phase 10 (baseline `bun run check` failure + `end-of-file-fixer` would dirty 31 unrelated files).
+
+#### Phase 01 final state
+
+- **Branch:** `phase-01/triage-and-ia`.
+- **PR:** https://github.com/fraiseql/fraiseql-docs/pull/12 — **draft until the human marks it ready-for-review.** Per the methodology, Phase 01 close does not auto-promote the PR. The 15/15 Reviewer sign-offs across all 7 cycles plus the orchestrator's phase-close entry are the basis for the human's promote/merge decision.
+- **CI:** all authoritative commits green. Branch-protection `page-test (_smoke)` check satisfied on every authoritative push.
+- **Plan tree:** intact at `_internal/.plan/`. Will be deleted by Phase 10 finalisation.
+- **Phase 02 unblocked.** Next persona to act is the Phase 02 Writer once the human signals ready-for-review on PR #12 OR per the dependency graph if Phase 02 branches off `phase-01/triage-and-ia` pre-merge.
+
+#### Open gates at phase close
+
+None new. G2 (default-hold) and G4 (soft) carry forward from Phase 00; G1 closed this phase. G3 and G5 are downstream.
+

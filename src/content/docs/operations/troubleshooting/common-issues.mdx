@@ -282,7 +282,7 @@ openssl x509 -in cert.pem -noout -issuer
 
 # 4. Update CA bundle
 # AWS RDS
-wget https://truststore.amazonaws.com/rds-ca-2019-root.pem
+wget https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 ```
 
 ### Database Server Closed Connection
@@ -1453,6 +1453,7 @@ COPY . /app
 ### REST Endpoint Returns 404
 **Problem**: `GET /rest/v1/users` returns 404 (the default path is `/rest/v1`; configure with `[rest]` `path`)
 
+{/* source: CHANGELOG.md v2.3.0 entry — REST transport landed in the v2.1 line and is on by default in v2.3.x. The v2.0.1 anchor predated the v2.1.0 release baseline. */}
 **Solutions**:
 ```bash
 # 1. Check resource name matches schema query/mutation name
@@ -1462,7 +1463,7 @@ COPY . /app
 # 2. Verify fraiseql started without errors
 fraiseql run  # Check startup logs
 
-# 3. Confirm REST is enabled (it is by default in v2.0.1+)
+# 3. Confirm REST is enabled (it is by default in v2.3.0+)
 
 # 4. Test GraphQL endpoint to confirm API is running
 curl http://localhost:8080/graphql -d '{"query":"{ __typename }"}'

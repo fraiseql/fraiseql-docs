@@ -1,0 +1,359 @@
+Phase 01 / Cycle 1 — Audit-driven version-string sweep — RED evidence
+Frozen FraiseQL SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+Frozen workspace version: 2.3.2  (Cargo.toml:343, CHANGELOG.md heading)
+Captured: 2026-05-29
+
+=====================================================================
+SECTION A — Narrow grep (per phase spec § Cycle 1 RED)
+=====================================================================
+Command:
+  grep -rnE '\bv?(2\.[0-2]\.[0-9]+|2\.0\.0-(alpha|beta))\b' src/content/docs/
+
+Total hits: 70.
+
+=====================================================================
+SECTION B — Wide grep (per persona prompt: widen to catch FraiseQL
+2.X / v2.X / 2.3.X / "as of v2.X" / "since v2.X")
+=====================================================================
+Command:
+  grep -rnE '\b(v?2\.[0-3]\.[0-9]+|FraiseQL[[:space:]]+v?2\.[0-9]+(\.[0-9]+)?|v?2\.0\.0-(alpha|beta))\b' src/content/docs/
+
+Total hits: 74 (4 additional rows above the narrow grep — `index.mdx:269`,
+`five-minute-quickstart.mdx:34`, `examples/index.mdx:25`, `changelog.mdx:11`,
+`_internal/_style-guide.md:91`).
+
+A separate grep for "since v2." / "as of v2." also surfaced supporting
+context rows the narrow grep already covered.
+
+=====================================================================
+SECTION C — CHANGELOG cross-reference at frozen SHA
+=====================================================================
+From `git -C ~/code/fraiseql show <SHA>:CHANGELOG.md`:
+
+  Released versions, newest first:
+    2.3.2 — 2026-05-28
+    2.3.1 — 2026-05-27
+    2.3.0 — 2026-05-25
+    2.2.0 — 2026-05-02
+    2.1.6 — 2026-04-14
+    2.1.5 — 2026-04-12
+    2.1.4 — 2026-04-11
+    2.1.3 — 2026-04-08
+    2.1.0 — 2026-03-30
+
+Implication for triage:
+- "FraiseQL v2.1.0 is production-ready" anchors are stale: current is v2.3.2.
+- "planned for v2.2.0 (Q1 2027)" is stale: v2.2.0 shipped 2026-05-02.
+- "Available in v2.0.1 as a beta feature" anchors pre-date the v2.1.0
+  release baseline. Apollo Federation support is listed against the
+  v2.1.0 / v2.2.0 / v2.3.0 entries (e.g. SagaExecutor in v2.3.0). The
+  v2.0.1 anchor is no longer load-bearing — current support is the
+  v2.3.x line. These get neutralised, not preserved as historical fact.
+- "Available since v2.1" or "since v2.1.0" anchors that the CHANGELOG
+  does support (TOML sections added in v2.1, REST/gRPC config since v2.1)
+  are intentional historical "added-in" markers and remain.
+
+=====================================================================
+SECTION D — Classification per-hit (W = wide; N = narrow)
+=====================================================================
+
+Legend:
+  STALE              must fix (current state is wrong)
+  ANCHOR             "current version" anchor that will drift; consolidate
+  HISTORICAL         intentional "added-in vX" marker; keep, verify against CHANGELOG
+  SDK                SDK version pin / package-manager string;
+                     keep at v2.1.0 unless contradicted (SDK release cadence
+                     is independent of framework workspace version per the
+                     SDK pages' "ships with FraiseQL v2.1" framing)
+  EXAMPLE            example / placeholder version inside a code block
+                     that is neither a runtime claim nor a download
+                     instruction
+  OUT-OF-SCOPE       the broader page is wrong / "Unreleased" framing;
+                     a version-only edit would not fix the page; defer
+                     to Phase 02/03
+
+--- src/content/docs/index.mdx ---
+269 | "FraiseQL v2.1.0 is production-ready ..." | ANCHOR | hard-anchored
+       version in the prominently displayed Enterprise Features intro.
+       The persona prompt explicitly calls out this line. → fix to v2.3.2
+       via the REFACTOR vehicle (see Section E).
+
+--- src/content/docs/getting-started/installation.mdx ---
+117 | "fraiseql 2.1.0"  (inside a verbatim ```--version``` transcript) |
+       STALE | runtime-capture style but the page documents this as the
+       "expected output". Currently no fraiseql 2.1.0 binary in
+       circulation; the umbrella crate version is 2.3.2. → fix to
+       `fraiseql 2.3.2`.
+
+--- src/content/docs/getting-started/quickstart.mdx ---
+(no in-scope version hits; the phase spec listed the page in scope but
+the actual file is clean of version anchors. The three SQL bugs noted
+in the Phase 00 / Cycle 5 handoff are Phase 02 IA work and explicitly
+out of scope for this cycle.)
+
+--- src/content/docs/getting-started/five-minute-quickstart.mdx ---
+34 | "INFO  FraiseQL v2.1 starting…" (inside server-startup transcript) |
+     STALE | example log line shown as expected output; current server
+     would log v2.3.2. → fix to `FraiseQL v2.3.2 starting…`.
+
+--- src/content/docs/changelog.mdx ---
+11 | "These changes are on the `dev` branch and will ship in FraiseQL
+       v2.1." | OUT-OF-SCOPE | the entire page header reads "v2.1
+       (Unreleased)" yet the CHANGELOG shows v2.1.0 shipped 2026-03-30
+       and v2.2.0 + v2.3.x are out. A version-string edit will not
+       resolve the page. Defer to Phase 02 deep rewrite.
+
+--- src/content/docs/community/contributing.mdx ---
+69 | "- FraiseQL version: 2.0.0" (inside a bug-report TEMPLATE example) |
+     STALE-as-placeholder | placeholder field showing what value the
+     reader should fill in; 2.0.0 is not a real release. → fix to 2.3.2
+     so the placeholder doesn't model an impossible version.
+
+--- src/content/docs/reference/cli.mdx ---
+93  | "🍓 FraiseQL v2.1.0" (--version output block) | STALE | → v2.3.2.
+149 | "🍓 FraiseQL Gateway v2.1.0" (--version output block) | STALE | → v2.3.2.
+804 | "fraiseql 2.1.0" (--version output block) | STALE | → fraiseql 2.3.2.
+
+--- src/content/docs/reference/toml-config.mdx ---
+39  | "[tracing]   | 2.1.0 | Stable" | HISTORICAL | column header is
+       "Added in"; this is a historical marker. Cross-checked against
+       CHANGELOG: the `[tracing]` section's enablement aligns with the
+       v2.1 timeframe. Keep.
+40  | "[server.limits] | 2.1.0 | Stable" | HISTORICAL | as above.
+41–45 | "[rest] | v2.1 | Stable" etc | HISTORICAL | matches CHANGELOG.
+46–47 | "[dev] | v2.2 | Stable" / "[gateway] | v2.2 | Beta" | HISTORICAL.
+239 | "Available since v2.1. Requires the `rest-transport` Cargo feature." |
+       HISTORICAL | matches CHANGELOG's v2.1.x REST transport landing.
+286 | "Available since v2.1. Requires the `grpc-transport` Cargo feature." |
+       HISTORICAL.
+
+--- src/content/docs/reference/decorators.mdx ---
+229 | "Available since v2.1. gRPC endpoints are auto-generated..." |
+       HISTORICAL.
+
+--- src/content/docs/reference/operators.mdx ---
+1238 | "_satisfies: String           # \"^1.2.0\", \"~1.2.0\", \">=1.0.0
+        <2.0.0\"" | EXAMPLE | SemVer constraint example strings for the
+        operator — not a FraiseQL version claim. Keep.
+
+--- src/content/docs/reference/scalars.mdx ---
+840 | "packages(where: { version: { _satisfies: \"^2.0.0\" } })" |
+      EXAMPLE | SemVer query example. Keep.
+
+--- src/content/docs/concepts/configuration.mdx ---
+129 | "Tracing can be configured via the `[tracing]` TOML section
+       (since v2.1.0) or `OTEL_*` env vars." | HISTORICAL.
+135 | "**Available since v2.1**" (multi-transport callout) | HISTORICAL.
+281 | "**Available since v2.1**" (multi-transport callout) | HISTORICAL.
+
+--- src/content/docs/features/audit-logging.mdx ---
+141 | "Available since v2.1.0. Requires the `audit-syslog` or
+       `audit-webhook` Cargo feature flags." | HISTORICAL | matches a
+       v2.1.x landing per CHANGELOG. Keep.
+
+--- src/content/docs/features/security.mdx ---
+234, 285, 318, 338, 364, 394 | "Available in v2.1.0." | HISTORICAL.
+
+--- src/content/docs/features/observability.mdx ---
+11  | "Tracing is configured via the `[tracing]` TOML section
+       (since v2.1.0) ..." | HISTORICAL.
+340 | "\"version\": \"2.0.0\"" (inside example /health response JSON) |
+       EXAMPLE | server response shape illustration; nothing the reader
+       configures; reflects an outdated example schema. The shape itself
+       is what matters here, not the version literal — Phase 02/03 may
+       refresh the whole block when it audits the response shape. Defer.
+530 | "\"version\": \"2.0.0\"" (similar example block) | EXAMPLE | as
+       above; defer to Phase 02/03.
+
+--- src/content/docs/features/federation.mdx ---
+9   | "Apollo Federation support is available in v2.0.1 as a beta
+       feature." | STALE | v2.0.1 anchor predates the v2.1.0 baseline.
+       Federation has continued evolution through v2.3.x per CHANGELOG
+       (SagaExecutor entries in v2.3.0). → rewrite to drop the v2.0.1
+       anchor: "Apollo Federation support is available as a beta
+       feature." Keeps factual force ("available, beta") without an
+       outdated version anchor.
+11  | "planned for v2.2.0 (Q1 2027). Saga execution across services is
+       production-ready ..." | STALE | v2.2.0 shipped 2026-05-02. →
+       rewrite to remove the v2.2.0 / Q1 2027 reference: "The built-in
+       federation gateway is GA as of v2.2; full Apollo Router
+       compatibility is in progress."
+
+--- src/content/docs/features/rest-transport.mdx ---
+21  | "REST annotation parity: annotations are available in the Python
+       SDK in v2.1.0. Go, Java, and C# support is in unreleased commits."
+       | SDK | factual SDK-cadence statement; the v2.1.0 anchor is the
+       SDK release tag, not the framework version. Cross-page consistency
+       check passed (other SDK pages share the v2.1.0 tag). Keep.
+
+--- src/content/docs/transports/index.mdx ---
+15  | "REST annotations are available in the Python SDK in v2.1.0." |
+       SDK | as above.
+
+--- src/content/docs/use-cases/python-teams.mdx ---
+8   | "REST annotation support (v2.1.0)" | SDK | keep.
+89  | "## REST Annotations (Python-only, v2.1.0)" | SDK | keep.
+92  | "REST annotations (`rest_path`, `rest_method`) are available in
+       the Python SDK in v2.1.0." | SDK | keep.
+
+--- src/content/docs/guides/federation-nats-integration.mdx ---
+9   | "Apollo Federation support is available in v2.0.1 as a beta
+       feature." | STALE | → drop v2.0.1 anchor.
+11  | "Full compatibility ... planned for v2.2.0 (Q1 2027)." | STALE |
+       → rewrite per features/federation.mdx fix above (consistent
+       wording across federation pages).
+
+--- src/content/docs/guides/advanced-federation.mdx ---
+9   | "Apollo Federation support is available in v2.0.1 as a beta
+       feature." | STALE | → drop v2.0.1.
+11  | "Full compatibility ... planned for v2.2.0 (Q1 2027)..." | STALE
+       | → rewrite consistently with the other federation pages.
+
+--- src/content/docs/guides/federation-gateway.mdx ---
+9   | "The `fraiseql federation gateway` command is available as of
+       v2.1.0." | HISTORICAL | gateway sub-command is referenced against
+       the v2.1.x line which matches the CHANGELOG. Keep.
+
+--- src/content/docs/guides/rest-vs-graphql.mdx ---
+17  | "Configuration via `[rest]` in the schema TOML is available since
+       v2.1." | HISTORICAL | matches `[rest]` v2.1 marker.
+
+--- src/content/docs/migrations/from-postgrest.mdx ---
+157 | "The `[rest]` configuration section is available since v2.1." |
+       HISTORICAL.
+267 | "available since v2.1" | HISTORICAL.
+
+--- src/content/docs/reference/rest-api.mdx ---
+11  | "Configuration via the `[rest]` section in your schema TOML is
+       available since v2.1." | HISTORICAL.
+
+--- src/content/docs/troubleshooting/common-issues.mdx ---
+1465 | "# 3. Confirm REST is enabled (it is by default in v2.0.1+)" |
+       STALE | REST transport landed in the v2.1 line per CHANGELOG, not
+       v2.0.1. → fix to `v2.3.0+` (the wider claim that REST is enabled
+       by default is fact-checkable separately; the version anchor is
+       what this cycle owns).
+
+--- src/content/docs/vs/hasura-sqlserver.mdx ---
+25  | "| **Relay cursor pagination** | ❌ (SQL Server) | ✅ v2.0.2+ |" |
+       STALE | v2.0.2 predates the v2.1.0 baseline. SQL Server Relay
+       cursor pagination is documented against the v2.1 line elsewhere
+       in this repo. → fix to `✅ v2.1+`.
+92  | "# Relay cursor pagination — available in v2.0.2+" | STALE |
+       → fix to `v2.1+`.
+
+--- src/content/docs/examples/index.mdx ---
+25  | "INFO  FraiseQL v2.1 starting…" (server log transcript) | STALE
+       | parallel to five-minute-quickstart's line. → fix to
+       `FraiseQL v2.3.2 starting…`.
+357 | "{\"status\": \"healthy\", \"database\": \"connected\", \"version\":
+       \"2.1.0\"}" | STALE | the /health response actually returns
+       `"version": "2.3.2"` per the Phase 00 / Cycle 5 GREEN transcript
+       (citation in handoff line 130: "version":"2.3.2"). → fix to
+       2.3.2.
+
+--- src/content/docs/examples/saas-federation-nats.mdx ---
+588 | "federation_version: =2.0.0" | EXAMPLE | this is an Apollo
+       Federation version pin in the supergraph YAML, NOT a FraiseQL
+       version. (Apollo Federation v2 is the spec; "=2.0.0" pins the
+       federation directive version.) Keep.
+647 | "FraiseQL v2.0.1 — auth-service" (expected log line in a step) |
+       STALE | as with the other startup-transcript examples. → fix to
+       `FraiseQL v2.3.2 — auth-service`.
+
+--- src/content/docs/blog/eleven-languages-one-server.mdx ---
+95  | "`rest_path` and `rest_method` are confirmed in the Python SDK
+       (v2.1.0)." | SDK | keep.
+99  | "- Python (stable, v2.1.0)" | SDK | keep.
+
+--- src/content/docs/deployment/kubernetes.mdx ---
+564 | "fraiseql=your-registry/fraiseql:2.0.0" (kubectl set image
+       example) | EXAMPLE | a placeholder image-tag string in an
+       operations example. `2.0.0` was never a published tag; keep
+       the literal as the reader's substitution target but make it
+       at least plausible. → fix to `:2.3.2` (matches the umbrella
+       crate version reader sees on crates.io / docker tag).
+
+--- src/content/docs/sdk/*.mdx (Python/TS/Go/Java/Rust/PHP/C#/Ruby/Elixir/F#/Dart) ---
+Each SDK page declares its SDK release pinned at v2.1.0 (e.g.
+"The Elixir SDK v2.1.0 ships with FraiseQL v2.1"; "fraiseql-client =
+\"2.1.0\""). SDK release cadence is independent of the framework
+workspace version per the SDK pages' framing. The Phase 02 sweep
+will own SDK-vs-framework version alignment as part of the SDK page
+rewrites. Classify all SDK page hits as SDK / out-of-scope-this-cycle.
+
+--- src/content/docs/_internal/_style-guide.md ---
+91  | "Version strings: `v2.3.2`. Lowercase `v`. SemVer triplet." |
+       HISTORICAL (style-guide prescription — the source of truth for
+       this cycle). Keep.
+
+=====================================================================
+SECTION E — Pre-GREEN decision summary
+=====================================================================
+
+Files to edit this cycle (15 files, ~26 line-level edits):
+
+  src/content/docs/index.mdx                         — 1 anchor (REFACTOR vehicle)
+  src/content/docs/getting-started/installation.mdx  — 1 transcript line
+  src/content/docs/getting-started/five-minute-quickstart.mdx — 1 startup log
+  src/content/docs/community/contributing.mdx        — 1 template placeholder
+  src/content/docs/reference/cli.mdx                 — 3 --version blocks
+  src/content/docs/features/federation.mdx           — 2 stale anchors
+  src/content/docs/guides/federation-nats-integration.mdx — 2 stale anchors
+  src/content/docs/guides/advanced-federation.mdx    — 2 stale anchors
+  src/content/docs/troubleshooting/common-issues.mdx — 1 REST-default anchor
+  src/content/docs/vs/hasura-sqlserver.mdx           — 2 SQL-Server Relay anchors
+  src/content/docs/examples/index.mdx                — 2 (log + /health)
+  src/content/docs/examples/saas-federation-nats.mdx — 1 startup log
+  src/content/docs/deployment/kubernetes.mdx         — 1 kubectl image tag
+
+Files NOT edited this cycle, with rationale:
+
+  src/content/docs/changelog.mdx                    — OUT-OF-SCOPE; Phase 02
+  src/content/docs/features/observability.mdx (340, 530) — example /health
+                                                     blobs; defer to Phase 02/03
+                                                     when response shapes get
+                                                     audited holistically
+  src/content/docs/getting-started/quickstart.mdx   — no in-scope hits; the
+                                                     three SQL bugs are Phase 02
+  src/content/docs/sdk/*.mdx                        — SDK release cadence;
+                                                     Phase 02 owns the rewrite
+  src/content/docs/use-cases/python-teams.mdx       — SDK-cadence claims
+  src/content/docs/blog/*.mdx                       — SDK-cadence claims
+  src/content/docs/features/security.mdx            — historical "Available in
+                                                     v2.1.0" markers verified
+                                                     OK against CHANGELOG
+  src/content/docs/concepts/configuration.mdx       — historical anchors
+  src/content/docs/reference/toml-config.mdx        — historical "Added in" col
+  src/content/docs/reference/decorators.mdx         — historical anchor
+  src/content/docs/reference/rest-api.mdx           — historical anchor
+  src/content/docs/migrations/from-postgrest.mdx    — historical anchors
+  src/content/docs/guides/rest-vs-graphql.mdx       — historical anchor
+  src/content/docs/guides/federation-gateway.mdx    — historical anchor
+  src/content/docs/features/audit-logging.mdx       — historical anchor
+  src/content/docs/reference/operators.mdx          — SemVer example string
+  src/content/docs/reference/scalars.mdx            — SemVer example string
+  src/content/docs/examples/saas-federation-nats.mdx:588 — Apollo Federation
+                                                     directive pin, not FraiseQL
+  src/content/docs/features/nats.mdx:18             — NATS server version,
+                                                     not FraiseQL
+  src/content/docs/_internal/_style-guide.md        — prescription source
+
+=====================================================================
+SECTION F — REFACTOR decision (recorded here for Reviewer/Verifier)
+=====================================================================
+
+See the cycle's REFACTOR section in the handoff entry. Summary:
+
+  Decision: Option A — no central source.
+  Rationale: only one true "current version" anchor exists in the corpus
+  (index.mdx:269). A Starlight global / Astro env constant requires
+  every consumer to be .mdx (the .md community/contributing.mdx hit
+  is in a fenced code block where MDX expression substitution would
+  not help anyway; reference/cli.mdx --version transcripts are runtime
+  captures the style guide explicitly classes as literals, not
+  drift anchors). Investing in a single-source pattern for a single
+  rendered anchor expands cycle scope beyond version strings. The cheap
+  closure is to hard-code `v2.3.2` at the anchor with a source citation
+  to Cargo.toml:L343 + CHANGELOG.md heading; future drift gets caught
+  by Phase 09's full pass and by the same grep this cycle uses.

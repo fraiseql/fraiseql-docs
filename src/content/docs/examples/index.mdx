@@ -13,16 +13,17 @@ Before running any example:
 - FraiseQL installed:
   ```bash
   curl -fsSL https://fraiseql.dev/install.sh | sh
-  # or: brew install fraiseql / cargo install fraiseql
+  # or: cargo install fraiseql
   ```
 - PostgreSQL 14+ running locally or via Docker (`docker run -p 5432:5432 postgres:16`)
 - Node.js 18+ (for frontend examples)
 
 When the development server starts successfully you will see:
 
+{/* source: Cargo.toml:L343 (workspace.package.version = "2.3.2") */}
 ```
 $ fraiseql run
-INFO  FraiseQL v2.1 starting…
+INFO  FraiseQL v2.3.2 starting…
 INFO  Schema compiled — 12 types, 8 queries, 4 mutations
 INFO  Connected to PostgreSQL at localhost:5432/mydb
 INFO  GraphQL endpoint: http://localhost:8080/graphql
@@ -351,10 +352,11 @@ New to FraiseQL? Start with the **[SaaS Blog](../saas-blog)** example — it cov
    curl http://localhost:8080/health
    ```
 
+   {/* source: Phase 00 / Cycle 2 GREEN transcript — /health body contains `"version":"2.3.2"` per the handoff at line 130; matches Cargo.toml:L343 workspace.package.version. */}
    Expected response:
 
    ```json
-   {"status": "healthy", "database": "connected", "version": "2.1.0"}
+   {"status": "healthy", "database": "connected", "version": "2.3.2"}
    ```
 
 8. **In another terminal, start frontend**

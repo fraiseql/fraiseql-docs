@@ -1,6 +1,6 @@
 ---
 title: FraiseQL vs Hasura — SQL Server Support
-description: Hasura requires PostgreSQL for full functionality. FraiseQL runs natively on SQL Server with no feature degradation. Side-by-side comparison for teams running SQL Server.
+description: Hasura requires PostgreSQL for full functionality. FraiseQL runs natively on SQL Server with no feature degradation. Feature comparison for SQL Server.
 ---
 
 import { Tabs, TabItem, Aside, Steps, CardGrid, Card } from '@astrojs/starlight/components';
@@ -14,6 +14,7 @@ FraiseQL also serves REST and gRPC alongside GraphQL on SQL Server — not just 
 
 ## The Core Difference
 
+{/* source: CHANGELOG.md — SQL Server Relay cursor pagination is part of the v2.1 line; v2.0.2 predated the v2.1.0 release baseline. */}
 | | Hasura | FraiseQL |
 |--|--------|---------|
 | **SQL Server support** | ❌ Not supported | ✅ First-class |
@@ -22,7 +23,7 @@ FraiseQL also serves REST and gRPC alongside GraphQL on SQL Server — not just 
 | **Azure AD / Entra ID** | ❌ | ✅ ActiveDirectoryMsi |
 | **Azure SQL Managed Instance** | ❌ | ✅ |
 | **Always On Availability Groups** | ❌ | ✅ via AG listener |
-| **Relay cursor pagination** | ❌ (SQL Server) | ✅ v2.0.2+ |
+| **Relay cursor pagination** | ❌ (SQL Server) | ✅ v2.1+ |
 | **Row-level security** | ❌ (SQL Server) | ✅ via `inject` + SQL Server RLS |
 | **Pricing** | $995+/month (Hasura Cloud) | Self-hosted, open core |
 | **Architecture** | Runtime SQL generation | Compiled at build time |
@@ -89,7 +90,7 @@ Authentication — all work without modification.
       }
     }
 
-    # Relay cursor pagination — available in v2.0.2+
+    # Relay cursor pagination — available in v2.1+
     query {
       postsConnection(first: 20, after: "cursor...") {
         edges {
@@ -138,7 +139,7 @@ straightforward because you already have a SQL Server schema.
 1. **Install FraiseQL**
 
    ```bash
-   curl -fsSL https://install.fraiseql.dev | sh
+   # Visit https://github.com/fraiseql/fraiseql/releases for the latest install instructions
    fraiseql --version
    ```
 
