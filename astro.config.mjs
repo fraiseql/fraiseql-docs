@@ -335,6 +335,15 @@ export default defineConfig({
             { label: 'Naming Conventions', slug: 'reference/naming-conventions' },
             { label: 'SQL Patterns', slug: 'reference/sql-patterns' },
             { label: 'AuthoringIR Format', slug: 'reference/authoring-ir' },
+            {
+              label: 'Release Notes',
+              collapsed: true,
+              items: [
+                { label: 'Overview', slug: 'release-notes' },
+                { label: 'v2.1', slug: 'release-notes/v2-1' },
+                { label: 'v2.0', slug: 'release-notes/v2-0' },
+              ],
+            },
           ],
         },
         {

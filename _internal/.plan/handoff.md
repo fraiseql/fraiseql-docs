@@ -1341,3 +1341,32 @@ None new. G2 (default-hold) and G4 (soft) carry forward from Phase 00; G1 closed
   - CHANGELOG.md sections: `[2.3.2] 2026-05-28`, `[2.3.1] 2026-05-27`, `[2.3.0] 2026-05-25`, `[2.2.0] 2026-05-02`, `[2.1.6] 2026-04-14`, `[2.1.5]`, `[2.1.4]`, `[2.1.3]`, `[2.1.0] 2026-03-30`. No `[2.0.x]` section in the present file — Cycle 1 Writer must confirm whether v2.0 release notes can be authored from earlier-tag content or whether the v2.0 row in the release-notes hub is `unreleased on this CHANGELOG` and links to earlier history.
 - Next persona: **Writer (Opus 4.7) for Cycle 1** (release-notes index + v2.0 + v2.1).
 - Open gates: none new. G1 closed (Phase 01). G2 default-hold on the frozen SHA continues.
+
+---
+
+### Phase 02 / Cycle 1 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Pages created (three):**
+  - `src/content/docs/release-notes/index.mdx` (65 lines, hub).
+  - `src/content/docs/release-notes/v2-0.mdx` (101 lines, frontmatter title `v2.0`, slug `release-notes/v2-0`).
+  - `src/content/docs/release-notes/v2-1.mdx` (331 lines, frontmatter title `v2.1`, slug `release-notes/v2-1`).
+- **v2.0 sourcing outcome: FOUND at tag.** The frozen-SHA `CHANGELOG.md` has no `[2.0.x]` section (earliest entry is `[2.1.0]` at L999). The v2.0 release-notes page sources from `CHANGELOG.md@v2.0.0:L10-L68` (the v2.0.0 stable section at the v2.0.0 git tag; 4 Added bullets, 10 Fixed bullets dominated by auth / cookie / rate-limit hardening). The page carries a `caution`-flavoured Aside that calls out the tag-vs-trunk sourcing and links to GitHub Releases for the full alpha/beta/rc trail (which the page does NOT cover — anti-scope-by-design, since the v2.0.0 tag CHANGELOG runs L69–L601 for the rc/beta/alpha history and the release-notes audience wants the stable record).
+- **v2.1 sourcing outcome: `CHANGELOG.md@frozen-SHA L714-L1262` (v2.1.0 + v2.1.3-v2.1.6).** The CHANGELOG has six v2.1.x sections: v2.1.0 (L999-L1262, foundation release; 11 SDKs / Relay / APQ / federation / observers / 14-row Security table), v2.1.3 (L918-L998, moka cache + pool prewarm + observer pool sizing), v2.1.4 (L873-L917, recursive JSONB projection + cache invalidation correctness), v2.1.5 (L819-L872, `GET /auth/me` + cookie-fallback + `extra_claims`), v2.1.6 (L714-L818, session variables / naming convention / nested filters / HS256 / perf work + `compression_enabled` default flip). NO `[2.1.1]` or `[2.1.2]` sections at frozen SHA — the patch numbering jumps directly from .0 to .3; noted on the page via an `Aside`.
+- **Sidebar placement decision: (a) Under Reference.** Rationale: Release Notes is a reference artefact (historical record per version); fits adjacent to CLI / Admin API / TOML Configuration / Decorators. Promoting it to a new top-level group would over-weight read-on-demand content. The existing Community → Changelog entry (`astro.config.mjs:L455`) stays this cycle for backwards compatibility; Cycle 6 (cross-link integration) handles whether to demote, replace, or cross-link it. No novel sidebar-shape change; no G1-equivalent gate.
+- **Source citations added: 52** (`grep -c source:` → index 5, v2-0 7, v2-1 40). All use the JSX-comment form `{/* source: ... */}` per the methodology § 4 amendment landed at Phase 01 close — `.mdx` files only. Pending Source-Citation Verifier in the next session.
+- **Container verification scope adjusted: no install-commands authored on the release-notes pages.** Per Cycle 1 spec CLEANUP discussion: install commands belong on `/getting-started/installation`, not release notes. `grep -nE 'cargo install|pip install|npm install' src/content/docs/release-notes/*.mdx` → 0 hits. No version-output claims either. Container-verification step is therefore vacuous-by-design.
+- **Build state:** clean. `bun run build` → exit 0, 200 pages built (was 197; +3 release-notes pages), 276 HTML files (200 + 76 redirect stubs). Only the two pre-existing baseline warnings (`conf` language in `building/federation-nats-integration.mdx`; `/[...slug]` vs `/` route conflict). No new warnings.
+- **Style scan:** `grep -niE 'TODO|FIXME|XXX|easily|simply|just |WIP|coming soon|^!' src/content/docs/release-notes/*.mdx` → 0 hits. No exclamation marks in body. No archaeology markers.
+- **Anti-scope held:**
+  - No v2.2 release notes (Cycle 2 owns).
+  - No v2.3 release notes (Cycle 3 owns).
+  - No migration guides (Cycles 4-5 own).
+  - No index.mdx Enterprise Features card-grid integration (Cycle 6 owns).
+  - No edits to `getting-started/quickstart.mdx` SQL bugs (separate sweep-matrix row).
+  - No edits to SDK pages.
+  - No edits to install/cli cargo command-name alignment.
+  - No edits to existing `changelog.mdx` (Cycle 6 cross-link decision).
+- **RED evidence:** `_internal/.plan/red-evidence/phase-02-cycle-01-changelog-sourcing.txt` — captures the 404 verification, v2.1 line-range table, v2.0 tag-CHANGELOG sourcing investigation, hub forthcoming-row scope, and the sidebar placement decision.
+- **Framework issues filed:** 0. Sourcing was clean — no CHANGELOG entries contradicted source-of-truth grep.
+- **Commit SHA, push, PR:** captured in commit message; see PR URL + CI run URL below.
+- **Open gates:** none new. G2 default-hold continues at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
