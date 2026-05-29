@@ -2632,3 +2632,117 @@ Bug-Finder's recommended page shape for GREEN (non-binding):
 **Open gates at this RED close:** unchanged. G1 closed. G2 default-hold. G3/G4/G5 downstream. No novel gates surfaced this pass.
 
 Handoff to **Writer-GREEN (Opus 4.7)** for Phase 03 / Cycle 1 next.
+
+---
+
+### Phase 03 / Cycle 1 GREEN — Writer (Opus 4.7) — 2026-05-29
+
+**Frozen FraiseQL SHA verified:** `d0a4ed4ec1770c70707f68fd9019f2b561d87461` (v2.3.2). `scripts/docs-test/FRAISEQL_SHA` byte-identical (no trailing newline; bash callers strip whitespace before passing to `git show`).
+
+**Anti-scope held:** no edits to `~/code/fraiseql`; no edits to other `src/content/docs/` pages beyond the slug under rewrite; no amends to prior commits; no push to `main`. The `astro.config.mjs` redirect `/guides/multi-tenancy` → `/building/multi-tenancy` was already in place from Phase 01 (line 42); not touched. The sidebar entry at `astro.config.mjs:L213` already references `building/multi-tenancy`; not touched.
+
+#### 1. Artifact summary
+
+| Artifact | Path | Notes |
+|---|---|---|
+| Page (new) | `src/content/docs/building/multi-tenancy.md` | 2,706 words, 14 H2 sections, 53 source citations. Replaces the stale `.mdx`. |
+| Page (removed) | `src/content/docs/building/multi-tenancy.mdx` | `git rm` — the pre-v2.2 Python `TenantRouter` framing. |
+| Docs-test script | `scripts/docs-test/pages/multi-tenancy.docs-test.sh` | `+x`, `set -euo pipefail`, three assertion blocks. Framing **A2** (see §3 below). |
+| Overlay TOML | `scripts/docs-test/configs/overlays/multi-tenancy.toml` | Sets `admin_token` so the FW-3 assertion reproduces the handler short-circuit, not a missing-route 404. `admin_api_enabled = false` (the #330 sidenote). |
+| Compiled-schema fixture | `scripts/docs-test/fixtures/postgres/multi-tenancy.compiled.json` | Hand-written; mirrors the `_smoke.compiled.json` shape with a single `Project` type + `projects` query. Does NOT populate `security.tenancy` — that wouldn't flip the binary into multi-tenant mode anyway (#330). |
+
+Word/section/citation counts:
+
+- Words: **2,706** (`wc -w src/content/docs/building/multi-tenancy.md`).
+- Sections (H2): **14** — Quick reference; How tenancy is composed today; Tenancy modes; Dispatch sources and precedence; Security defaults; Admin REST API; Hot-reload semantics; Quotas and rate limiting; Audit trail; Schema isolation helpers (PostgreSQL); Worked example; Migration from the pre-v2.2 page; Known issues; Next steps.
+- Source citations: **53** (`grep -c '<!-- source:' src/content/docs/building/multi-tenancy.md`). Target was ≥ 25; comfortably over. The Verifier will re-grep each. Spot-verified during drafting against the Writer-RED §2 list and additional ranges: `tenant_key.rs:L20-L21,L36-L102,L83-L102,L108-L122,L132-L165`, `tenant_registry.rs:L1-L50,L50-L62,L67-L92,L93-L105,L99,L140-L182,L199-L212,L242-L271,L273-L290`, `app_state.rs:L95-L106,L171-L182,L226-L283`, `handler.rs:L506-L520,L577-L583`, `schema_isolation.rs:L1-L120,L17-L120`, `audit.rs:L1-L60,L60-L120`, `tenant_admin.rs:L160-L212,L195-L212,L217-L247,L237-L242,L250-L283,L275-L283,L285-L317,L355-L370,L372-L398,L450-L475,L477-L505,L507-L530`, `admin.rs:L389-L489`, `security_config.rs:L113-L142,L144-L186`, `converter/tenancy.rs:L1-L60,L62-L135`, `subscriptions.rs:L182-L184`, `rate_limit/dispatch.rs:L122-L138,L128-L137`, `rate_limit/in_memory.rs:L31-L80`, `middleware/tenant.rs:L20-L43`, `tests/multitenancy_test.rs:L107-L130`.
+
+#### 2. Framing choice — page
+
+Library-API (option **A**) per the Bug-Finder's recommendation. The page leads with how tenancy is composed today (host binary wrapping `fraiseql-server` and calling `AppState::with_tenant_registry(...)` / `with_tenant_executor_factory(...)` / `with_domain_registry(...)` / `with_tenant_audit_log(...)`), then documents the runtime contract that holds when the registry is wired, and ends with an explicit `## Known issues` section covering FW-3 #330, FW-4 #331, FW-5 #332, FW-6 #333, and the inline #329 cross-link.
+
+Security-default callouts (`:::caution[These are library-API guarantees]`) are placed inline at the end of `## Security defaults` so a reader who skims the security promises cannot miss the binary-wiring caveat. The legacy `X-Org-ID` middleware is footnoted as dead-code-deprecated in a `:::note[Deprecated path — do not use]` block inside `## Dispatch sources and precedence` rather than omitted entirely, because operators upgrading from the pre-v2.2 page will go looking for it.
+
+Starlight directive syntax (`:::caution`, `:::note`) is used in place of the `<Aside>` component because the page is `.md`, not `.mdx`. The directive syntax renders to the same Starlight callout components and is already in use elsewhere in the docs (e.g. `src/content/docs/_internal/_style-guide.md` documents `:::caution`, and `src/content/docs/reference/toml-config.mdx:L914` and `src/content/docs/building/federation-gateway.mdx:L8` use the form). Build verified (`bun run build` clean, 205 pages, 15 s).
+
+#### 3. Framing choice — docs-test script (A1 vs A2)
+
+**Chose A2** per the brief's allowance. Reason: A1 (a sidecar host-binary container that calls `AppState::with_tenant_registry`) is meaningful additional engineering (a Rust toolchain in the harness image OR a pre-baked example binary baked into the image), and the harness image is currently server-only. A2 is the lower-cost path that still **does not silently skip**.
+
+How A2 avoids silent skipping (the Reviewer will check this):
+
+1. The script's three assertion blocks each have real exit-code semantics. The library-API recipe assertion (block 1) greps the actual `AppState` source at the frozen SHA for the four documented builder methods. The upstream-test assertion (block 3) greps `multitenancy_test.rs` for the explicit-deny test name and the `with_tenant_registry` call. Either of these flips to exit 1 if the page drifts from source — they are not skip-style assertions.
+2. The FW-3 reproduction (block 2) **asserts the documented symptom** — `PUT /api/v1/admin/tenants/{key}` returns 404; unregistered `X-Tenant-ID` does NOT return 403. When #330 lands and the binary wires the runtime, the symptom flips and the script fails loudly with a message telling the Phase 09 maintainer to rewrite the assertion against the wired binary. This is the regression-signal Phase 09 needs.
+3. There is no `SKIP_REASON=FW-3-#330` line because the script does not skip. The FW-3 path is asserted as a present-day truth, not a deferred truth.
+
+A1 remains the right next step once #330 lands or once a small host-binary fixture is introduced; this script's structure makes that future migration trivial (block 2 becomes "create acme/nova via PUT; query via X-Tenant-ID; assert 403 on xyz" against the wired binary).
+
+#### 4. Harness fixtures added
+
+- `scripts/docs-test/configs/overlays/multi-tenancy.toml` — full `fraiseql.toml` overlay (mounted as the binary's only TOML, not layered). Sets `admin_token` so the admin write router IS mounted at the binary level. Leaves `admin_api_enabled = false` because `true` triggers the RBAC bootstrap failure documented inline in #330. The overlay header explains both decisions; the Reviewer should compare against `configs/baseline.toml` to confirm the deltas are minimal.
+- `scripts/docs-test/fixtures/postgres/multi-tenancy.compiled.json` — hand-written compiled schema giving the binary a non-empty surface so it boots cleanly. Declared shape mirrors `_smoke.compiled.json` (Cycle 5) — single `Project` type with a `projects` query. `security.tenancy` is intentionally NOT populated; the fixture's `_note_on_tenancy_section` field explains why (populating it would not flip the binary into multi-tenant mode — #330).
+
+Both fixtures preserve the source-citation convention used by `configs/baseline.toml` and `_smoke.compiled.json` so the Verifier's automated scan handles them uniformly.
+
+#### 5. Framework bugs filed during GREEN
+
+**Zero.** The four-bug surface (FW-3/4/5/6) plus the cross-link to FW-? (#329) was already established by the Writer-RED and Bug-Finder passes. No new symptoms encountered during drafting. The Bug-Finder's static-source reproductions in `scripts/docs-test/bugs/multi-tenancy.bug-{1,2,3}.sh` are the regression harness; this GREEN does not refile or amend them.
+
+#### 6. Adversarial-checklist self-audit (informal — the Reviewer will run the formal one)
+
+| Item | Self-audit |
+|---|---|
+| 1 VERSION DRIFT | v2.3.2 cited once in the lead; CHANGELOG anchor (`CHANGELOG.md:L92-L99` and `:L609-L617`) implicit via the page's prose, explicit in the Writer-RED §2 list the Verifier consumes. |
+| 2 WRONG-DB PATHS | `## Tenancy modes` calls out adapter support per mode: `row` is all four, `schema` is PostgreSQL only. Stated twice (once in the Quick reference, once in the mode subsection). |
+| 3 FEATURE-FLAG OMISSIONS | The Bug-Finder verified tenancy types are not behind any `#[cfg(feature = ...)]` gate (no `arrow` / `observers-*` / `redis-*` requirement); the page does not mention feature flags. Rate-limit backend matrix is called out (in-memory only at backend level for per-tenant). |
+| 4 SECURITY-DEFAULT REGRESSIONS | Explicit-deny / suspended-503 / strict-mode promises framed as library-API guarantees with a `:::caution` callout pointing at the binary-wiring gap. No `require_auth = false` in any example. |
+| 5 SDK DIVERGENCE | No SDK code. |
+| 6 DEAD LINKS | Five cross-links to other pages plus four issue links. `bun run build` clean. The Link Auditor at phase close will hit the GitHub issue URLs. |
+| 7 UNDEFINED SYMBOLS | Every symbol referenced (`TenantExecutorRegistry`, `TenantExecutorFactory`, `DomainRegistry`, `TenantAuditLog`, `InMemoryAuditLog`, `TenancyMode`, `TenancyConfig`, `TenantQuota`, `TenantEventKind`, `TenantKeyResolver`, `MAX_TENANT_KEY_LEN`, `SUSPENDED_RETRY_AFTER_SECS`, `tenant_schema_name`, `search_path_sql`, `create_schema_ddl`, `drop_schema_ddl`, `provision_tenant_schema`, `drop_tenant_schema`, the four `AppState::with_tenant_*` builder methods, `executor_for`, `executor_for_tenant`, `require_active`, `upsert`, `ArcSwap`, `FraiseQLError::{Authorization, ServiceUnavailable, Validation, RateLimited}`, `ErrorCode::Forbidden`, `tenant_audit_log`, `TenantAuditLog::record`) was re-grepped during drafting against the frozen SHA. |
+| 8 COPY-PASTE FROM PRIOR VERSION | The Python `TenantRouter`, `tenant_scoped=True`, and `inject={"tenant_id": "jwt:tenant_id"}` decorator content from the old `.mdx` is gone. The migration callout names the prior shape explicitly so readers searching for it land on the explanation. |
+| 9 CONDITIONAL CAVEATS | Subscription bypass (FW-4), suspended-503 mapping (FW-5), tenant-key alphabet drift (FW-6), case-sensitive domain lookup, dangling-domain delete order — all called out. |
+| 10 RLS / SECURITY INTERACTIONS | RLS interaction with strict mode is documented (`strict_tenant_validation = executor.schema().has_rls_configured()`); RLS session-variable propagation gap (#329) is in `## Known issues`. |
+| 11 ERROR-PATH COVERAGE | Three exact error messages quoted: `"Tenant '<key>' is not registered"`, `"X-Tenant-ID contains invalid characters (allowed: a-zA-Z0-9_-)"`, `"X-Tenant-ID exceeds maximum length of 128 characters"`. Plus the admin handler 404 message `"multi-tenant mode not enabled"` in the script's assertion narrative. |
+| 12 ARCHAEOLOGY-FREE | `git grep -i "TODO\|FIXME\|XXX\|Phase " src/content/docs/building/multi-tenancy.md` returns nothing. The page text has no phase markers. (Citations contain the literal `source:` token but are intentional and are stripped by the Verifier.) |
+| 13 SOURCE CITATIONS RESOLVE | All citations spot-verified during drafting. The Verifier (next session) re-greps every range. |
+| 14 NO PERSONA SELF-REFERENCE | No "as the Writer", "as an AI", "as a documentation agent" in the page. |
+| 15 DARK MODE | Same Starlight theme used by every other page; no custom CSS introduced. The `:::caution` / `:::note` directives use the standard Starlight callout styling. |
+
+The Reviewer should especially scrutinise: the `## Quick reference` table (high citation density per cell), the `## Security defaults` library-API caveat (load-bearing), and the `## Known issues` row for FW-5 (the wording about "suspended-state HTTP contract" — care taken to not lie about what the binary actually returns).
+
+#### 7. Anti-scope assertion (hard)
+
+- ✅ No edits to `~/code/fraiseql` (verified: `git -C ~/code/fraiseql status` is unchanged from the frozen SHA).
+- ✅ No edits to other `src/content/docs/` pages. Only the `/building/multi-tenancy` slug was touched — `.mdx` removed, `.md` created. The redirect `/guides/multi-tenancy` → `/building/multi-tenancy` was already in `astro.config.mjs:L42` from Phase 01 (not touched).
+- ✅ No amends to prior commits.
+- ✅ No push to `main`.
+- ✅ No refile of FW-3/4/5/6/#329.
+
+#### 8. CI and push status
+
+Pushed to `origin/phase-03/critical-rewrites` as a new commit on top of `124fcd3`. PR #14 (draft) automatically picks up the new commit. CI's `page-test (_smoke)` and any `page-test` matrix entry for `multi-tenancy` will run against this commit.
+
+**CI run URL:** appears in the next session once the GitHub Actions workflow picks up the push. The Writer cannot view the actual CI run from this session — the Reviewer or Verifier will record the URL when they confirm CI green.
+
+Per methodology § 6.1, the Writer does NOT declare GREEN. The CI run is the gate; the Reviewer in a fresh context reads the CI output, not this entry's claim about it.
+
+#### 9. Open gates at this GREEN close
+
+- **G1** — closed (Phase 01).
+- **G2** — default-hold (no v2.4 bump in flight).
+- **G3** — downstream (Phase 09 G3 proposal).
+- **G4** — downstream (Phase 09 per-PR merges).
+- **G5** — downstream (Phase 10 final sign-off).
+
+No novel gates surfaced this GREEN. FW-3/4/5/6 are framework bugs (already filed) and FW-? for #329 is also already filed; none of them are human gates. The page documents around them per the Bug-Finder's blocking / `## Known issues` split.
+
+#### 10. Pointer to next persona pair
+
+This GREEN draft hands off to two personas in sequence:
+
+1. **Source-Citation Verifier (Sonnet 4.6)** for Phase 03 / Cycle 1. Read this entry and the Writer-RED §2 list. Re-grep every `<!-- source: ... -->` annotation in `src/content/docs/building/multi-tenancy.md` against `git -C ~/code/fraiseql show d0a4ed4ec1770c70707f68fd9019f2b561d87461:<path>`. Strip the annotations after verification per methodology § 4. If any citation does not resolve, push the page back to the Writer in a new entry.
+2. **Reviewer (Opus 4.7)** for Phase 03 / Cycle 1. Read this entry, the Writer-RED entry, the Bug-Finder entry, and the verified page. Run the 15-point checklist (`methodology.md § 5`). Confirm the docs-test script does NOT silently skip — block (b)'s assertions are real ones with documented expected outcomes, but the Reviewer should still re-read the script and call out anything that smells like a silent pass. Specifically test the migration callout against a reader who only knows the pre-v2.2 page.
+
+The two personas run sequentially in fresh contexts. The Verifier's strip pass should land BEFORE the Reviewer's checklist so the Reviewer reads the same rendered surface the public will see. If the Reviewer surfaces drift after the strip, they push a new entry; the Writer re-opens the cycle.
+
+Handoff to **Source-Citation Verifier (Sonnet 4.6)** for Phase 03 / Cycle 1 next, with **Reviewer (Opus 4.7)** queued behind it.

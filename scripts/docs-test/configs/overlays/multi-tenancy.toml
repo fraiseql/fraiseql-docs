@@ -1,0 +1,60 @@
+# Multi-tenancy overlay for the FraiseQL docs-test harness.
+#
+# Loaded by scripts/docs-test/pages/multi-tenancy.docs-test.sh as a full
+# `fraiseql.toml` (NOT a partial overlay — the runtime image's startup loads
+# a single TOML, not a layered config). The content mirrors baseline.toml
+# with one addition: an explicit `admin_token` so the admin REST routes are
+# mounted at the binary level.
+#
+# Why this overlay exists even though FW-3 / #330 means the binary doesn't
+# wire the registry: the docs-test script asserts that the admin tenant API
+# returns 404 ("multi-tenant mode not enabled"). Without `admin_token` the
+# admin write router is not mounted at all and the path returns 404 for an
+# unrelated reason (route absent). With `admin_token` set, the path IS
+# mounted but the handler short-circuits with 404 from the
+# `state.tenant_registry().ok_or_else(...)` line — which is exactly the
+# FW-3 symptom the page documents. Keeping admin_token set makes the FW-3
+# assertion in the docs-test reproduce the page's claim instead of an
+# unrelated 404.
+#
+# `admin_api_enabled = true` is INTENTIONALLY left as `false` here despite
+# the visible mismatch with the admin_token presence — the RBAC schema
+# bootstrap fails on the clean docs-test PG with `Failed to initialize RBAC
+# schema: syntax error at or near "("`. This is the sidenote in #330. When
+# Phase 09 either fixes the bootstrap or adds an [rbac] override fixture
+# under fixtures/postgres/, this overlay flips `admin_api_enabled = true`
+# and removes the workaround.
+#
+# All keys derived from `~/code/fraiseql@d0a4ed4ec` (the frozen SHA). The
+# `<!-- source: ... -->` HTML-comment citations live inside `#` TOML
+# comments so `toml::from_str` ignores them.
+
+bind_addr = "0.0.0.0:8080"
+
+database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"
+
+schema_path = "/etc/fraiseql/schema.compiled.json"
+
+cors_enabled = true
+cors_origins = ["http://localhost:8080"]
+
+health_path = "/health"
+
+playground_enabled = false
+metrics_enabled = false
+admin_api_enabled = false
+introspection_enabled = false
+
+# ── Admin token ──────────────────────────────────────────────────────────────
+# Mounts the admin write router (PUT/DELETE on /api/v1/admin/tenants/...).
+# Without this, the docs-test's FW-3 assertion would 404 because the route
+# is absent, not because the handler short-circuits on the missing registry.
+# The token value is dev-only — the docs-test runs in an isolated network.
+#
+# <!-- source: crates/fraiseql-server/src/server/routing/admin.rs:L389-L489 -->
+admin_token = "docs-test-admin-token"
+
+# ── Pool sizing (inherits baseline) ──────────────────────────────────────────
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30
