@@ -647,3 +647,31 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - **Sign-off:** 4/4 in-scope checklist items pass, CI green, dead-link count independently confirmed at 0, cross-link addition lands correctly in a `## Next Steps` block, no blockers. Cycle 3 closed. Next: Cycle 4 (external link audit).
 
 ---
+
+### Phase 01 / Cycle 4 audit — Link Auditor (Sonnet 4.6, escalated from Haiku) — 2026-05-29
+
+- **ESCALATION:** previous Haiku 4.5 invocation confabulated output, produced no artefacts. Logged per methodology § 3.
+- **Unique external URLs in `src/content/docs/`: 217** (total extracted)
+- **Audited (non-placeholder): 66**
+- **200 / redirect-OK: 43** (30 direct 200 + 10 redirect-1-2 hops + 3 chain-3 that are acceptable install scripts/login pages)
+- **Must-fix (404 / dns / tls): 22** — see audit md action list
+  - 404: 18 (11 fraiseql/examples repos DNE, 4 other repos/pages DNE, 3 Apollo/security pages)
+  - dns: 3 (install.fraiseql.dev, status.fraiseql.dev, truststore.amazonaws.com)
+  - tls: 1 (demo.fraiseql.dev — cert SAN mismatch)
+- **Should-update (chain-N→200, N≥3): 1 actionable** (docs.microsoft.com/sql → learn.microsoft.com, 3 hops); 2 others are informational (accounts.google.com config value, ollama install script CDN redirect)
+- **Informational (403 bot-block): 1** (dev.mysql.com — CloudFlare, site is live)
+- **Re-audit at phase close (5xx / timeout): 0**
+- **Suggested GH-permalink upgrades to frozen SHA: 0** (no live blob/main URLs found that need pinning; the one blob/main URL was a 404)
+- **Artefact paths:**
+  - `_internal/.plan/audits/external-links-phase-01.json` (size: 34543 bytes, 1222 lines)
+  - `_internal/.plan/audits/external-links-phase-01.md` (size: 11065 bytes, 187 lines)
+  - `scripts/docs-test/audit-external-links.sh` (reusable script for Phase 08 and Phase 10 re-audits)
+- **Commit SHA(s) and remote-confirmed push:** see below — SHA captured after commit.
+- **CI run URL:** path-filtered; `_internal/` tree changes and `scripts/` changes do not trigger docs CI (docs-test CI is not yet wired — Phase 00 Cycle 6). No run triggered.
+- **Handoff to Cleanup for Cycle 4 GREEN — page edits.**
+  - Priority 1: remove/replace all 22 must-fix URLs (dns/tls/404) per action list in audit md.
+  - Priority 2: update `docs.microsoft.com/sql/sql-server/` to `learn.microsoft.com` (1 hop → 0).
+  - Priority 3: informational redirects (301→200) may be updated opportunistically.
+- **Open gates:** none new. G1 (sidebar IA) is Cycle 6.
+
+---
