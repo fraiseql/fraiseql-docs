@@ -2722,7 +2722,7 @@ The Reviewer should especially scrutinise: the `## Quick reference` table (high 
 
 Pushed to `origin/phase-03/critical-rewrites` as a new commit on top of `124fcd3`. PR #14 (draft) automatically picks up the new commit. CI's `page-test (_smoke)` and any `page-test` matrix entry for `multi-tenancy` will run against this commit.
 
-**CI run URL:** appears in the next session once the GitHub Actions workflow picks up the push. The Writer cannot view the actual CI run from this session — the Reviewer or Verifier will record the URL when they confirm CI green.
+**CI run URL:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26649850957 — `docs-test` workflow, `pull_request` event against HEAD `4a26601`, observed `in_progress` at the end of this session. The Reviewer or Verifier records the final pass/fail when they pick up the cycle.
 
 Per methodology § 6.1, the Writer does NOT declare GREEN. The CI run is the gate; the Reviewer in a fresh context reads the CI output, not this entry's claim about it.
 
