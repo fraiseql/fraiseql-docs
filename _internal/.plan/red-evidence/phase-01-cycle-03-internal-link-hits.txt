@@ -1,0 +1,65 @@
+Phase 01 / Cycle 3 — Internal link audit
+Run date: 2026-05-29
+Methodology: two complementary approaches per phase spec.
+
+=== Approach 1: astro build router warnings ===
+
+No [WARN][router] "No route matches" warnings found. See phase-01-cycle-03-build-warnings.txt.
+
+=== Approach 2: targeted grep ===
+
+Command:
+  grep -rh -oE '\[[^\]]*\]\((/[^)#"'"'"' ]+)' src/content/docs/ \
+    --include="*.md" --include="*.mdx" | grep -oP '(?<=\()[^)]+' | sort -u
+
+Unique internal link targets found: 166
+
+Each target was checked against dist/ (built with `bun run build`).
+All 166 targets resolved to existing dist/<slug>/index.html paths.
+
+=== HTML-style links (href="/...") ===
+
+Found: 1
+  /ai/generating-views  — RESOLVES (dist/ai/generating-views/index.html exists)
+
+=== import-style references ===
+
+Found: 0
+
+=== Dead-link hit list ===
+
+NONE. Zero dead internal links found.
+
+Classification summary:
+  (a) typo / wrong slug:    0
+  (b) target moved:         0
+  (c) target doesn't exist yet (forward dep): 0
+  (d) target intentionally absent: 0
+
+=== Inbound cross-link audit ===
+
+New pages present in this PR (per `git status` on the phase-01/triage-and-ia branch):
+  - src/content/docs/concepts/elo-validation.mdx      → inbound links: 4 (index.mdx, observers.mdx, type-system.mdx, concepts/elo-validation cross-link in guides/custom-scalars.mdx)
+  - src/content/docs/guides/custom-scalars.mdx         → inbound links: 3 (index.mdx, elo-validation.mdx, guides/index.mdx)
+  - src/content/docs/guides/federation-configuration.mdx → inbound links: 5 (index.mdx, advanced-federation.mdx, federation-nats-integration.mdx, guides/index.mdx, features/federation.mdx)
+  - src/content/docs/guides/observer-webhook-patterns.mdx → inbound links: 7 (index.mdx, guides/index.mdx, guides/observers.mdx, guides/advanced-nats.mdx, features/subscriptions.mdx, features/webhooks.mdx, use-cases/event-driven-teams.mdx)
+  - src/content/docs/concepts/why-fraiseql.mdx         → inbound links: 0 BEFORE FIX → 1 AFTER FIX
+
+Fix applied:
+  concepts/how-it-works.mdx:452 — added link "[Why FraiseQL](/concepts/why-fraiseql) — The architectural principles behind the design"
+  to the ## Next Steps block.
+
+=== REFACTOR: multi-slug reference check ===
+
+Checked all 166 unique targets. No page is referenced under 5+ different slugs.
+Two related slugs found: /guides/troubleshooting and /troubleshooting — these point to different pages
+(guides/troubleshooting.mdx is a how-to guide, troubleshooting/index.mdx is the troubleshooting hub).
+Not a multi-slug collision — legitimately different pages. No action needed.
+
+=== Forward dependencies (class c) ===
+
+NONE. All internal links in the current docs tree resolve. No links point to planned future pages
+(Studio, Functions, Realtime, LTree, Schema Migrations, REST, MCP, Trusted Documents) that don't
+yet exist.
+
+See phase-01-cycle-03-forward-deps.txt for the (empty) sweep-matrix input file.

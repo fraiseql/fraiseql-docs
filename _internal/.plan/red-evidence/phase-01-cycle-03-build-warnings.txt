@@ -1,0 +1,36 @@
+Phase 01 / Cycle 3 — Build warnings capture
+Run date: 2026-05-29
+Command: bun run build (HEAD: f5e790d / post-fix: includes how-it-works.mdx cross-link)
+
+=== astro build output (warnings only) ===
+
+07:43:27 [WARN] [astro-expressive-code] Error while highlighting code block using language "conf" in
+  document "/home/lionel/code/fraiseql-docs/src/content/docs/guides/federation-nats-integration.mdx".
+  The language could not be found. Using "txt" instead.
+  NOTE: This is a pre-existing Cycle 2 anti-scope item (wrong lang tag, not a structural fence issue).
+  Filed for Writer in Phase 02/03.
+
+07:43:52 [WARN] [build] Could not render `` from route `/[...slug]` as it conflicts with higher
+  priority route `/`.
+  NOTE: Pre-existing Starlight behaviour (index.mdx conflicts with the catch-all slug route). Harmless.
+
+=== Internal-link router warnings ===
+
+NONE. Astro build does not emit [WARN][router] "No route matches" style warnings for dead internal
+markdown links — it renders dead links as ordinary <a> tags without validation. The targeted grep
+approach (approach 2) is the authoritative internal-link audit.
+
+=== astro check output ===
+
+Result (69 files):
+- 1 error   (pre-existing: SiteTitle.astro `virtual:starlight/user-images` ts(2307))
+- 0 warnings
+- 60 hints
+
+No new errors from Cycle 3 edits. Same 1-error baseline as Cycle 2 close.
+
+=== Summary ===
+
+Build: CLEAN (197 pages, exit 0)
+Check: 1 pre-existing error (baseline), 0 new errors
+Internal-link dead-link count: 0 (see phase-01-cycle-03-internal-link-hits.txt)

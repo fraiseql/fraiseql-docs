@@ -595,3 +595,22 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - **Sign-off:** 7/7 in-scope checklist items pass, CI green, all spot-checks pass, no blockers. Cycle 2 closed. Back to Phase 01 / Cycle 3 (internal link audit).
 
 ---
+
+### Phase 01 / Cycle 3 close — Cleanup (Sonnet 4.6) — 2026-05-29
+
+- **Dead internal links found: 0, by class: a=0 b=0 c=0 d=0.**
+- **Links fixed (classes a, b, d): 0.** No dead links required fixing.
+- **Inbound cross-link fix: 1.** `concepts/why-fraiseql` had zero inbound links at cycle start. Added `[Why FraiseQL](/concepts/why-fraiseql)` to the `## Next Steps` block of `concepts/how-it-works.mdx:452`. All other new pages added in this branch (elo-validation, custom-scalars, federation-configuration, observer-webhook-patterns) already had adequate inbound links (3–7 each).
+- **Forward deps logged (class c): 0.** No links in the current docs tree point to pages planned for future phases. See `_internal/.plan/red-evidence/phase-01-cycle-03-forward-deps.txt` (empty).
+- **Items escalated to Writer / future phases: none.** All links resolved mechanically; no Writer-level judgement required.
+- **Multi-slug references found (G1 input): none.** Two related slugs (`/guides/troubleshooting` and `/troubleshooting`) legitimately point to different pages (a how-to guide vs. the troubleshooting hub). Not a G1 concern.
+- **RED approach summary:**
+  - Approach 1 (build warnings): `bun run build` exit 0, no internal-link router warnings.
+  - Approach 2 (targeted grep): 166 unique internal link targets extracted from `src/content/docs/**/*.{md,mdx}`. All 166 resolved against `dist/`. 1 HTML-style `href="/..."` link found — also resolves.
+  - Evidence: `_internal/.plan/red-evidence/phase-01-cycle-03-{build-warnings,internal-link-hits,forward-deps}.txt`.
+- **CLEANUP gate:** `bun run build` clean (197 pages, exit 0). `bun run check` 1 pre-existing error (same `SiteTitle.astro virtual:starlight/user-images ts(2307)` baseline as Cycle 2 — no regressions).
+- **Commit SHA:** pending CI (see below).
+- **CI run URL:** pending (will be captured post-push).
+- **Open gates:** none new. G2 SHA-bump policy continues to hold. G1 (sidebar IA) is Cycle 6.
+
+---
