@@ -3596,3 +3596,182 @@ Zero failures. Posture B leak scan clean.
 Page is cleared for Reviewer pass (15-point checklist) and eventual CLEANUP.
 
 Next persona: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 2 adversarial 15-point review.
+
+---
+
+### Phase 03 / Cycle 2 review — Reviewer (Opus 4.7) — 2026-05-30
+
+Cycle 2 of Phase 03 — `/features/file-storage` adversarial 15-point review. Fresh context per personas.md; did not read Writer-GREEN's claims for "the case". Walked the methodology § 5 checklist + the phase-03 doc's Cycle-2-specific adversarial protocol.
+
+#### 1. CI re-confirmation
+
+Run `26663796251` on commit `48dcaf3` (HEAD of `phase-03/critical-rewrites`):
+
+| Job | Conclusion |
+|---|---|
+| discover pages and frozen SHA | SUCCESS |
+| page-test (_smoke) | SUCCESS |
+| page-test (file-storage) | SUCCESS |
+| page-test (multi-tenancy) | SUCCESS |
+
+Status `completed`. `pre-commit.ci` ERROR is Phase-10 deferred (non-blocking).
+
+#### 2. docs-test re-run from clean Docker state
+
+`cd scripts/docs-test && ./docs-test.sh down --volumes >/dev/null 2>&1 && ./pages/file-storage.docs-test.sh` — exit 0.
+
+| Assertion | Result |
+|---|---|
+| 1. legacy library-API recipe source-true (`Server::with_storage(Arc<dyn StorageBackend>)`, `create_backend(&StorageConfig)`) | PASS |
+| 2. modern library-API recipe source-true (`StorageSubsystem`, `storage_router(StorageState)`, `/storage/v1/object/{bucket}/{*key}`) | PASS |
+| 3. negative findings hold (`validate_key` blocks `..`, no user-content-triggered outbound HTTP in `fraiseql-storage`) | PASS |
+| 4. five security-caveat repros (file-storage.bug-{1..5}.sh) — each exits 1 (BUG REPRODUCED) | 5/5 PASS |
+| 5. FW-7 still reproduces (`/health=200`, `/storage/v1/list/docs_test=404`, `/storage/v1/object/docs_test/sample.txt=404`, `/storage/v1/presign/docs_test/sample.txt=404`) | PASS |
+
+Final stdout line: `file-storage.docs-test: PASS`.
+
+#### 3. Citation re-greps — 11/11 PASS at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`
+
+Selected to spread across the page and avoid duplication with Verifier's 7 spot-checks (presign no-RLS / can_read PublicRead / F050 CHANGELOG / LIKE injection / 1 MiB body limit / validate_key / bucket-dropped):
+
+| # | Citation | Symbol/claim verified | Result |
+|---|---|---|---|
+| 1 | `crates/fraiseql-storage/src/backend/mod.rs:L127-L157` | `StorageBackend` enum: Local + 7 S3-flavoured (aws-s3 feature) + Gcs + Azure | PASS |
+| 2 | `crates/fraiseql-storage/src/transforms/transformer.rs:L10-L100` | `OutputFormat::{Webp,Jpeg,Png,Avif,Bmp}`, `TransformParams { width, height, format, quality }`, `Bmp` returns `None` for `as_image_format` | PASS |
+| 3 | `crates/fraiseql-server/src/server/builder.rs:L578-L590` | `pub fn with_storage(mut self, backend: Arc<dyn crate::storage::StorageBackend>) -> Self` | PASS |
+| 4 | `crates/fraiseql-server/src/routes/storage/mod.rs:L113-L142` | Legacy `file_error_response` 404/413/415/500 mapping + `prefixed_key` helper | PASS |
+| 5 | `crates/fraiseql-storage/src/backend/mod.rs:L375-L420` | `default_s3_endpoint` for hetzner/scaleway/ovh/exoscale/backblaze (r2 returns None) | PASS |
+| 6 | `crates/fraiseql-server/src/server/routing/middleware.rs:L39-L45` | `app = app.layer(DefaultBodyLimit::max(self.config.max_request_body_bytes))` — global, not per-route | PASS |
+| 7 | `crates/fraiseql-storage/src/routes/mod.rs:L237-L283` | `get_handler` sets response `Content-Type` verbatim from stored value, sets `Cache-Control: public, max-age=3600`, NO `nosniff`, NO `Content-Disposition` | PASS |
+| 8 | `crates/fraiseql-storage/src/routes/mod.rs:L42-L52` + `L120-L135` | `StorageState { backend, metadata, rls, buckets }` + `storage_router` routes (object/list/presign) | PASS |
+| 9 | `crates/fraiseql-storage/src/migrations/mod.rs:L36-L57` | `_fraiseql_storage_objects` table (PG-only): no `tenant_id` column, no `CREATE POLICY`, `UNIQUE (bucket, key)` | PASS |
+| 10 | `crates/fraiseql-storage/src/rls/mod.rs:L17-L107` | `StorageRlsEvaluator` — PublicRead always allowed; Private: admin or owner match; can_write: admin or any authenticated | PASS |
+| 11 | `crates/fraiseql-error/src/file.rs:L209-L246` | `status_code()` table — 404 NotFound, 403 PermissionDenied, 400 InvalidKey + 6 others, 500 IoError + 5 others | PASS |
+| 12 | `crates/fraiseql-storage/src/config/mod.rs:L36-L57` | `BucketConfig { name, max_object_bytes, allowed_mime_types: Option<Vec<String>>, access, transform_presets }` | PASS |
+
+#### 4. Security-caveats deep-dive (FW-8..FW-12)
+
+For each, I read the bug repro's `Actual:` block and verified the page's mitigation against the bug-shape:
+
+| FW | Bug-shape verified at frozen SHA | Page mitigation | Reader-actionable? | Symptom-correct? |
+|---|---|---|---|---|
+| FW-8 #335 | `presign_handler` has no `Option<Extension<StorageUser>>`, no `state.rls.can_*`, no `state.metadata.get` | Wrap storage router in auth middleware rejecting unauthenticated `/storage/v1/presign/*`; don't expose to public internet at v2.3.2 | YES (host-binary code action) | YES |
+| FW-9 #336 | All `state.backend.{upload,download,delete,presign_put,presign_get}` calls forward only `&key`; bucket_name discarded | Map each logical bucket to a distinct physical backend bucket; include bucket as leading client-key segment (defence in depth) | YES (deployment + client-side) | YES |
+| FW-10 #337 | `get_handler` sets `Content-Type` verbatim; no `nosniff`, no `Content-Disposition`, no magic-byte check; `allowed_mime_types` default None | Reverse proxy injects `X-Content-Type-Options: nosniff` + `Content-Disposition: attachment` on every `/storage/v1/object/*`; bucket allowlist; serve uploads from a separate origin | YES (OWASP-standard) | YES |
+| FW-11 #338 | `default_max_request_body_bytes()=1_048_576` + `DefaultBodyLimit::max` global; `body: Bytes` full buffering | Raise `max_request_body_bytes` to largest expected upload + overhead; consider separate server instance for storage; prefer presigned PUT (after FW-8 mitigation) | YES (config + deploy) | YES |
+| FW-12 #339 | `metadata::list` interpolates `prefix` into `format!("{pfx}%")` with no ESCAPE; `list_handler` forwards `query.prefix.as_deref()` unchanged | Validate or escape `%`/`_` in prefix before forwarding; treat PublicRead as enumerable | YES (input-validation) | YES |
+
+No hand-waves. No "use HTTPS for stored XSS". FW-10 specifically calls out the OWASP `image/*`-matches-`image/svg+xml` trap (the page warns the operator off `image/*` wildcards because SVG embeds `<script>`). Cross-link from RLS section ("What this does not protect") routes the reader from the RLS framing into the security caveats — reader cannot miss them.
+
+#### 5. 15-point checklist
+
+| # | Item | Result | One-line justification |
+|---|---|---|---|
+| 1 | VERSION DRIFT | PASS | 11/11 random citations re-greped at frozen SHA; v2.3.2 / F050 / 1 MiB body cap / R2 endpoint / OutputFormat enum / Server::with_storage signature all hold |
+| 2 | WRONG-DB PATHS | PASS | Page states `_fraiseql_storage_objects` migration is PostgreSQL only (L21); storage backend layer is DB-agnostic by design |
+| 3 | FEATURE-FLAG OMISSIONS | PASS | `aws-s3`, `gcs`, `azure-blob`, `transforms` Cargo features called out per backend; Quick-reference rows 2–5 enumerate |
+| 4 | SECURITY-DEFAULT REGRESSIONS | PASS | Page is built around the security caveats — FW-8..FW-12 each have prominent mitigation blocks; lead paragraph warns off untrusted exposure |
+| 5 | SDK DIVERGENCE | PASS | No JS/TS SDK code shown. References to `aws-sdk-s3` (Rust crate dep) and "Azure SDK documentation" are not framework-SDK |
+| 6 | DEAD LINKS | PASS | All 4 Next-steps internal links resolve; FW issue URLs (#326, #334–#339) all resolve to fraiseql/fraiseql |
+| 7 | UNDEFINED SYMBOLS | PASS | `StorageBackend`, `StorageState`, `BucketConfig`, `BucketAccess`, `FileError::*`, `validate_key`, `Server::with_storage`, `ServerSubsystemsBuilder::with_storage`, `storage_router`, `presign_handler`, `StorageRlsEvaluator`, `StorageRouteState`, `tenant_prefix` — all grep'able at frozen SHA |
+| 8 | COPY-PASTE FROM PRIOR VERSION | PASS | Migration callout (L339-L348) enumerates ALL 8 hallucinated v2.2 fields (`allowed_types`, `validate_magic_bytes`, `public`, `cache`, `url_expiry`, `scan_malware`, `processing`, `on_upload`) and maps each to its actual v2.3 mapping or "not implemented" |
+| 9 | CONDITIONAL CAVEATS | PASS | "this works only when X" caveats explicit: Cargo feature gating per backend; local backend no presign (L133); modern vs legacy route trees; FW-1 (Azure/GCS endpoint missing); StorageConfig::max_upload_bytes consumed only by legacy tree (L121) |
+| 10 | RLS / SECURITY INTERACTIONS | PASS | RLS section explicitly disclaims "PG RLS" framing (L265); documents application-level evaluator + tenant_prefix + the limits of each; cross-links FW-8/FW-9/FW-12 from "what this does not protect" |
+| 11 | ERROR-PATH COVERAGE | PASS | Worked example shows the exact FW-7 404 response (`# 404` literal at L334); F050 migration callout shows old → new error envelope shift; FileError → HTTP status table at L303-L309 |
+| 12 | ARCHAEOLOGY-FREE | **FAIL** | **L329 contains "Phase 09 needs to unblock the binary-driven happy path"** — leaks docs-overhaul phase plan to readers. Methodology § 5 item 12 prohibits `Phase N` in rendered output. Cycle 1 precedent (multi-tenancy.md) has zero `Phase N` references and was APPROVED 15/15 on this exact item |
+| 13 | SOURCE CITATIONS RESOLVE | PASS | 11 distinct random re-greps (7 to satisfy the methodology bar + 4 dense overlap); 11/11 PASS at `d0a4ed4e` |
+| 14 | NO PERSONA SELF-REFERENCE | PASS | `git grep -niE 'as an AI\|as a documentation'` returns no matches |
+| 15 | DARK MODE | PASS | Rendered HTML has 11 `data-language` code-block attributes; standard Starlight components (`:::caution`, `:::note`, tables) inherit theme contrast |
+
+**Pass count: 14/15. BLOCK on item 12.**
+
+#### 6. Cycle-specific adversarial tests
+
+- **Wrong-config-key (phase-03 doc Cycle 2 § "Adversarial review protocol" item 3):** Temporarily edited the overlay to set `backend = "nonexistent_backend"` in `[storage.docs_test]`. The binary booted cleanly (`/health=200`) with NO error log line about the unknown backend. The binary silently ignores invalid storage TOML — consistent with FW-7 (the binary doesn't consume the `[storage]` block at all). The page documents this exact failure mode: §`The off-the-shelf binary gap` (L95-L100) and the FW-7 row both state "Every `/storage/v1/*` request returns 404 regardless of TOML". Overlay restored from `/tmp/file-storage.toml.orig`; `git diff` clean. **The page's error-path coverage (item 11) holds against this adversarial test.**
+- **Migration callout enumerates all 8 hallucinated v2.2 fields:** verified L340 (lists all 8 by name) + L346 (maps each: `allowed_types` → `BucketConfig::allowed_mime_types`; `validate_magic_bytes` → not implemented; `public` → `BucketConfig::access = "public_read"`; `cache` → hardcoded `Cache-Control: public, max-age=3600`; `url_expiry` → `expires_in_secs` (max 86400); `scan_malware` → not implemented; `processing` → `transforms` Cargo feature + `TransformParams`; `on_upload` → not implemented). All 8 covered. Item 8 PASS.
+
+#### 7. Framework-bug claim sanity-check
+
+Re-verified each `## Known issues` row at the frozen SHA:
+
+| FW | Symptom in page | Frozen-SHA reality | Match |
+|---|---|---|---|
+| FW-1 #326 | `AzureBackend::new` and `GcsBackend::new` don't accept endpoint override | `azure-blob` backend takes only `(account, container)`; `gcs` backend takes only `bucket`; verified via citation 12 + Bug-Finder evidence | PASS |
+| FW-7 #334 | Binary doesn't auto-wire `[storage.<name>]` or compiled-schema `"storage": { "buckets": [...] }` — `ServerConfig` has no `storage` field | Confirmed via docs-test assertion 5 + wrong-config-key adversarial test (binary silently ignores `[storage]` block) | PASS |
+| FW-8 #335 | `POST /storage/v1/presign/*` performs no RLS/metadata check — anonymous 24h presign | Re-greped `presign_handler` at routes/mod.rs:L372-L434; no `StorageUser` param, no `rls.can_*`, no `metadata.get` | PASS |
+| FW-9 #336 | Modern routes don't pass `bucket_name` to backend — cross-bucket key collisions | Every `state.backend.*` call in routes/mod.rs forwards only `&key` (verified during citation re-greps) | PASS |
+| FW-10 #337 | `get_handler` serves verbatim Content-Type, no nosniff, no Content-Disposition, no magic-byte check | Re-greped `get_handler` at routes/mod.rs:L237-L283; confirmed Cache-Control hardcoded; no nosniff/disposition headers | PASS |
+| FW-11 #338 | `default_max_request_body_bytes = 1_048_576` applied globally via `DefaultBodyLimit::max` | Re-greped both server_config/defaults.rs + server/routing/middleware.rs; bug-4.sh exits 1 | PASS |
+| FW-12 #339 | `metadata::list` interpolates `prefix` into LIKE with no ESCAPE | Bug-5.sh exits 1; Verifier's spot-check at metadata/mod.rs:L160-L208 confirms | PASS |
+
+All 7 rows match the framework reality.
+
+#### 8. Posture B leak scan
+
+- `bun run build`: clean (205 pages built, 16.40s + 15.04s on second run).
+- Strip integration log: `strip-source-citations: scanned 281 HTML files, modified 2, stripped 149 source-citation comments.`
+- `grep -rE '<!--\s*source:' dist/` → 0 matches.
+- `grep -c '<!--\s*source:' dist/features/file-storage/index.html` → 0.
+
+**PASS.** Posture B uniformly safe on this page.
+
+#### 9. Anti-scope confirmation
+
+`git diff main..HEAD --name-only` lists only:
+
+- `_internal/.plan/**` (.phases doc, framework-qa-triage, handoff, methodology, red-evidence transcripts)
+- `astro.config.mjs`
+- `scripts/docs-test/**` (bugs, overlays, fixtures, pages)
+- `src/content/docs/building/multi-tenancy.{md,mdx}` (Cycle 1)
+- `src/content/docs/features/file-storage.{md,mdx}` (Cycle 2)
+- `playwright-report/`, `test-results/` (gitignored test artefacts; not part of branch tip)
+
+Excluding `_internal/`, `astro.config.mjs`, `scripts/docs-test/`, `src/content/docs/(building/multi-tenancy|features/file-storage)` → zero remaining files.
+
+**Anti-scope HELD.** No SDK touched. No quickstart touched. No `/reference/*` touched. No framework touched. No `_internal/` outside `.plan/`.
+
+#### 10. Findings
+
+##### Blocking (❌ item 12 — ARCHAEOLOGY-FREE)
+
+**`src/content/docs/features/file-storage.md:329`:**
+
+> *the script's "still broken" assertions flip and the test fails loudly — which is the regression signal **Phase 09** needs to unblock the binary-driven happy path.*
+
+Methodology § 5 item 12 explicitly prohibits `Phase N` in rendered output. The phrase leaks the docs-overhaul phase plan structure to readers of `/features/file-storage` who have no context for "Phase 09". The Cycle 1 multi-tenancy.md page (APPROVED 15/15 at this exact item) contains zero `Phase N` mentions — that is the established precedent.
+
+**Mitigation (Writer-side, single-line):** replace the "Phase 09" reference with framework-process-neutral phrasing. Example: "the regression signal an upstream fix is in flight, unblocking the binary-driven happy path." Per personas.md, the Reviewer does not self-patch.
+
+Posted as PR comment (review id: `4393122417`, state `COMMENTED` since gh refuses self-PR `--request-changes`) and line-level comment (id: `3327125746`) at `pulls/14/comments`.
+
+##### Non-blocking nits (handoff only; not posted as PR comments)
+
+- **NIT-1** — Verifier NOTE-1 (page L23 cites `defaults.rs:L32-L36` but `default_max_request_body_bytes` doc-comment starts at L33; function body L34-L36 within range — confirmed during re-greps). Off by 1 line on the lower bound; non-blocking per methodology § 4.
+- **NIT-2** — Verifier NOTE-2 (page L113 cites `config/mod.rs:L60-L86` for the `backend` field's valid string values; range shows the struct but valid strings live in `backend/mod.rs` `create_backend` match arms — illustrative not exhaustive). Acceptable per methodology § 4.
+- **NIT-3** — Page lead paragraph (L6) is 91 words / 6 sentences; style guide doesn't quantify but recent precedent (Cycle 1) ran 5 sentences. Non-blocking; Style Auditor territory.
+
+#### 11. Verdict: **BLOCK**
+
+14/15 PASS. Item 12 ❌. Per methodology § 5 ("Any page that fails any item goes back to the Writer. The Reviewer does **not** fix it themselves"), this goes back to the Writer for the single-line L329 fix.
+
+The page is otherwise exceptional — the security-caveats deep-dive is the most thorough I've reviewed in this overhaul; FW-8 through FW-12 each have a mitigation that maps cleanly onto OWASP-class operator-side defences. Once L329 is fixed, the page is approvable without further review.
+
+#### 12. Files modified this Reviewer session
+
+- `_internal/.plan/handoff.md` — this entry (append-only).
+- **No** edits to `src/content/docs/` (anti-scope per personas.md).
+- **No** edits to `~/code/fraiseql`.
+- **No** harness edits (overlay temporarily modified for wrong-config-key adversarial test; restored from `/tmp/file-storage.toml.orig`; `git diff` clean).
+- **No** new framework issues filed (no novel FW-N surfaced during this review; the 5 FW-8..FW-12 + FW-1 + FW-7 cover the surface).
+
+#### 13. Commit / push
+
+Commit `[Phase 03, Cycle 2: GREEN, Persona: Reviewer]` per methodology § 8. Push to `origin/phase-03/critical-rewrites`.
+
+#### 14. Open gates
+
+Unchanged. G1 closed. G2 default-hold. G7 resolved. G3 / G4 / G5 downstream. No novel gates.
+
+#### Pointer
+
+Next session: **Writer (Opus 4.7)** to fix `src/content/docs/features/file-storage.md:329` — single-line rephrase to remove the "Phase 09" reference. After Writer's fix, **Reviewer (Opus 4.7)** re-confirms item 12 only (other 14 items already PASS); on PASS, hands off to **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 2 mechanical finalisation (sidebar wiring already in place from Phase 01; cross-links already in place; lint already clean — Cleanup is largely a no-op for this cycle).
