@@ -524,3 +524,36 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
 
 ---
+
+### Phase 01 / Cycle 2 close — Cleanup (Sonnet 4.6) — 2026-05-29
+
+- **What was fixed (8 files, 9 line-level edits):**
+  1. `reference/operators.mdx:101` — added missing closing ` ``` ` after unclosed ` ```sql ` block. Structural fence imbalance: 191 → 192 markers, now balanced. This was the only real code-fence structural break in the repo.
+  2. `getting-started/installation.mdx:117` — added language tag `text` to bare ` ``` ` fence for the `fraiseql 2.3.2` version output block (the Cycle 2 spec's explicitly called-out stray fence).
+  3. 6 frontmatter descriptions truncated to ≤ 155 chars:
+     - `databases/postgresql.mdx` (157 → 153 chars)
+     - `databases/sqlserver-enterprise.mdx` (169 → 149 chars)
+     - `use-cases/dotnet-teams.mdx` (195 → 147 chars)
+     - `use-cases/event-driven-teams.mdx` (170 → 152 chars)
+     - `use-cases/python-teams.mdx` (162 → 153 chars)
+     - `vs/hasura-sqlserver.mdx` (170 → 151 chars)
+- **RED evidence captured:** `_internal/.plan/red-evidence/phase-01-cycle-02-syntax-grep.txt`.
+- **REFACTOR decision: pre-commit hook deferred to Phase 10 finalisation.**
+  Rationale: `bun run check` has a pre-existing failure (`virtual:starlight/user-images ts(2307)` in `SiteTitle.astro`) that would make a bun-check pre-commit hook block all commits immediately. `end-of-file-fixer` + `trailing-whitespace` would dirty 31 unrelated files (16 missing final newlines + 15 trailing whitespace) outside this cycle's scope. Both Option A and Option B require remediation work that expands scope beyond stray-syntax sweep. Documented as Phase 10 candidate.
+- **Commit SHA:** `8f8cdf3` on branch `phase-01/triage-and-ia`.
+- **CI run URL:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26619729936 — **PASSED** (conclusion: success).
+- **Lint/build state at close:** `bun run build` clean (197 pages, no new errors). `bun run check` same pre-existing 1 error + 60 hints baseline — no regressions from this cycle's edits.
+- **Anti-scope held to:**
+  - Did NOT fix 277 additional code blocks missing language tags (pre-existing across 90+ pages; deferred to respective page rewrite phases).
+  - Did NOT fix `federation-nats-integration.mdx` "conf" language tag (wrong lang, not a structural fence issue; Writer territory in Phase 02/03).
+  - Did NOT touch `astro.config.mjs` sidebar (Cycle 6 G1).
+  - Did NOT fix Phase-02 quickstart SQL bugs (Phase 02 IA).
+  - Did NOT fix the three Reviewer-flagged Phase-02 follow-ons (`observability.mdx` /health shape, `examples/index.mdx` /health object form, methodology § 4 JSX-comment amendment).
+  - Did NOT amend pushed commits.
+- **Anything Cycle 3 persona must know:**
+  - `bun run check` pre-existing error (SiteTitle.astro virtual module) is baseline noise — not caused by this cycle or any previous cycle.
+  - The 279 code-block language-tag absences logged in the RED evidence are the scope of future Writer phases; Cycle 3 (internal link audit) does not own them.
+  - Methodology § 4 amendment (accepting `{/* source: ... */}` JSX form) was flagged by the Reviewer but is phase-close work per the Reviewer's own note — not this cycle's responsibility. Whoever writes the Phase 01 close handoff should land it.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
