@@ -2349,3 +2349,36 @@ User asked to ship outstanding improvements before opening Phase 03. Three basel
 - `bun run build`: 205 pages, 1 known-baseline warning remaining (route conflict, irreducible).
 
 **Next:** open Phase 03 against this branch's HEAD after squash-merge of PR #13.
+
+---
+
+### Phase 03 / Cycle 0 open — orchestrator — 2026-05-29
+
+User authorised orchestrator to flip PR #13 ready-for-review and squash-merge.
+
+- **PR #13** `gh pr ready 13` ✅ then `gh pr merge 13 --squash --delete-branch`. Squash commit on main: `9b512aa` — `docs: Phase 02 — release notes and migration guides (#13)`. Merged at 2026-05-29T15:57:06Z. Remote branch `phase-02/migration-and-changelog` deleted.
+- **Phase 03 branch:** `git checkout main && git pull --ff-only && git checkout -b phase-03/critical-rewrites`. Branched off `main@9b512aa`. No commits yet.
+- **Status flips (this Cycle-0 commit):**
+  - `_internal/.plan/.phases/README.md` Phase 03 row: `[ ]` → `[~]`.
+  - `_internal/.plan/.phases/phase-03-critical-rewrites.md` Status block: `Not started [ ]` → `RED in progress [~]`. Owner block named: orchestrator for Cycle 0; Writer Opus 4.7 onwards per cycle.
+- **Frozen FraiseQL SHA:** `d0a4ed4ec1770c70707f68fd9019f2b561d87461` (unchanged). G2 default-hold continues. `scripts/docs-test/FRAISEQL_SHA` byte-identical.
+- **Carry-forwards confirmed from Phase 02 close:**
+  - 4 critical rewrites: `/building/multi-tenancy`, `/features/file-storage`, `/features/observers` (+ triple), `/building/authentication` (+ security cluster).
+  - 3 quickstart SQL bugs at `getting-started/quickstart.mdx` L156 / L167+L179 / L184 — IN scope this phase per sweep matrix.
+  - 4 Cycle-4 deferral classes A/B/C (Class D had 0 hits): `fraiseql/examples`, `velocitybench`, `demo.fraiseql.dev`, `community/support` "coming soon" wording.
+  - Cycle 5 Reviewer follow-on (exact `rustc` error quote in `v2-2-to-v2-3.mdx`) explicitly **DEFERRED to Phase 09**; do NOT pick it up here.
+- **Open framework issues at phase open:** FW-1 (#326) Azure/GCS endpoint override; FW-2 (#327) `fraiseql-server` PG hardcode. Both carry from Phase 00; both are Phase 09 resolution targets. Phase 03 pages cite them where load-bearing (`/features/file-storage` Known Issues, `/getting-started/quickstart` multi-DB caveat) but do NOT block on the fix.
+- **Cycle plan (working set; cycles may split as scope crystallises):**
+  - Cycle 1 — `multi-tenancy.md` rewrite (Writer → Bug-Finder → Writer → CI → Verifier+Reviewer → Cleanup).
+  - Cycle 2 — `file-storage.md` rewrite.
+  - Cycle 3 — `observers.mdx` rewrite + triple consolidation.
+  - Cycle 4 — `authentication.md` rewrite.
+  - Cycle 5 — Quickstart 3 SQL bugs.
+  - Cycle 6 — Cycle-4 deferral classes A/B/C + `community/support` follow-on. Class A is a content decision; orchestrator will surface as novel gate **G6** before guessing.
+  - Cycle 7 — Auth/security cluster + concepts pass + 5× `/community/vs/*`. May split into 7a/7b/7c depending on Reviewer load.
+  - Cycle N — Style audit (Sonnet 4.6) + phase close.
+- **Anti-scope (Phase 03):** no SDK pages (Phase 02 sweep / Phase 04+); no Studio / Functions / Realtime / LTree / Auth Extensions (Phase 04/05); no federation / REST / MCP / trusted docs (Phase 06); no `/reference/*` rebuilds (Phase 07); no framework code edits (Phase 09); no push to `main`; no commit amend.
+- **CI gate posture:** branch protection requires `page-test (_smoke)`. Forward-fix only. Pre-commit.ci will report ERROR on the Phase 03 PR exactly as it did on PR #13 — hook activation is Phase 10; not blocking.
+- **Open gates at Cycle-0 close:** G1 closed (Option A, Phase 01). G2 default-hold. G3/G5 downstream. G4 soft (Phase 00). No novel gates yet — Cycle 6 (Cycle-4 deferral Class A) is the first candidate for a novel G6.
+
+Handoff to **Writer (Opus 4.7)** for Cycle 1 RED next.

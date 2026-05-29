@@ -264,15 +264,17 @@ Each page goes through a fresh-context review:
 ## Status
 
 - [ ] Not started
-- [ ] RED in progress
+- [~] RED in progress
 - [ ] GREEN in progress
 - [ ] REFACTOR in progress
 - [ ] CLEANUP in progress
 - [ ] Complete
 
+Opened 2026-05-29 against `main@9b512aa` (Phase 02 squash). Branch `phase-03/critical-rewrites`.
+
 ## Owner
 
-*(unclaimed)*
+orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle.
 
 ## Pages completed
 
