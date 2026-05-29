@@ -4308,4 +4308,103 @@ No novel gates introduced. The 11 framework bugs (FW-13..FW-23) remain open as P
    - **The Known-Issues table cross-references** — the 11-row table cross-refs into the Security-caveats sub-anchors for the 5 security-class FW-N rows. Verify the anchor IDs resolve in the rendered HTML (the build succeeded, so they do, but the Reviewer should click through three at random to confirm).
 3. **Cleanup (Sonnet 4.6)** — runs after Reviewer APPROVE. Strip the `{/* source: ... */}` citations from the rendered HTML (the build pipeline already does this via `strip-source-citations`); verify `git grep -i 'TODO\|FIXME\|XXX\|Phase '` returns nothing on touched files; add Cycle 3 to the phase doc's `## Pages completed` block.
 
+---
+
+### Phase 03 / Cycle 3 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-30
+
+Subject page: `src/content/docs/features/observers.mdx`. Frozen SHA: `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+#### Citation count
+
+- Total JSX citations (`{/* source: ... */}`): **67** — matches Writer's claimed count.
+- Total HTML-comment citations (`<!-- source: ... -->`): **0** — correct for `.mdx` file.
+- Sibling pages citation count: **0** on all three (building/observers.mdx, building/observer-webhook-patterns.mdx, operations/observer-runbook.mdx) — confirms scope-statement + cross-link only.
+
+#### Verdict: **KICK-BACK**
+
+**1 citation failure.** Page returns to Writer.
+
+**Failing annotation (page line 201):**
+
+```
+{/* source: crates/fraiseql-observers/src/executor/retry.rs:L17-L80 — BackoffStrategy variants */}
+```
+
+**Reason:** `retry.rs:L17-L80` contains the `execute_action_with_retry` implementation (the retry loop body). The `BackoffStrategy` enum variants (`Exponential`, `Linear`, `Fixed`) are NOT defined there — they are defined at:
+
+```
+crates/fraiseql-observers/src/config/runtime.rs:L232-L239
+```
+
+The prose the citation annotates reads: _"Supported strategies: `Exponential` (default), `Linear`, `Fixed`."_ This claim is true but the citation points to the wrong source location. The Writer must update the citation to:
+
+```
+{/* source: crates/fraiseql-observers/src/config/runtime.rs:L232-L239 — BackoffStrategy variants */}
+```
+
+#### Non-blocking notes (2)
+
+1. **Page line 50** — `Cargo.toml — no hmac dep at frozen SHA`: the `hmac` crate is absent (citation accurate), but `sha2 = "0.10"` IS present. The underlying prose claim (no HMAC signing primitives) remains correct because `sha2` alone does not implement HMAC. Imprecise citation description, not a factual error.
+2. **Page line 291** — `Cargo.toml:L57 — enterprise = [...]`: enterprise feature bundle is at L58, not L57 (1-line off-by-one). Content matches exactly. Non-blocking.
+
+#### Spot-checks (7 performed)
+
+1. `builder.rs:L343-L346` — `init_observer_runtime` call confirmed. ✓
+2. `routing/observers.rs:L18-L66` — `add_observer_routes` + `.nest("/api/observers",...)` confirmed. ✓
+3. `config/runtime.rs:L260-L350` — `ActionConfig` tagged union + `#[non_exhaustive]` confirmed. ✓
+4. `server_config/observers.rs:L42-L130` — `ObserverPoolConfig` + `ObserverConfig` fields confirmed. ✓
+5. `runtime.rs:L687-L772` — `InMemoryDlq` impl `DeadLetterQueue` confirmed. ✓
+6. `fraiseql-server/Cargo.toml:L171-L176` — `observers-enterprise` feature flag confirmed. ✓
+7. `observers/Cargo.toml:L57` — enterprise bundle content at L58 confirmed (1-line off, non-blocking). ✓
+
+#### Security-caveats sub-verification
+
+- **FW-20** (`FRAISEQL_OBSERVERS_ALLOW_INSECURE` kill-switch): `validate_outbound_url` + env var bypass confirmed at `actions.rs:L35-L68`. Citation PASS.
+- **FW-21** (anonymous admin API): `observer_routes()` in `routes.rs` uses no auth extractor — handlers take `State<ObserverState>` only. Citation PASS.
+- **FW-18** (no HMAC primitives): `hmac` crate absent from `Cargo.toml`; `sha2` present but not HMAC. Citation PASS (with non-blocking note on description imprecision).
+- **FW-19** (PII logs): Four `info!` lines logging URL, Headers, Body template, Body value at `actions.rs:L258-L281`. Citation PASS.
+- **FW-22** (EmailAction stub): `EmailAction::execute` returns `Ok(EmailResponse { success: true })` stub at `actions.rs:L486-L499`. Citation PASS.
+
+All five security-caveat citations demonstrate the gap. Mitigation claim (that the exploit path exists) is verified.
+
+#### F056 + F014 fix-still-present re-verification
+
+**F056 ArcSwap atomicity** — all five cited locations verified:
+- `runtime.rs:L18` → `use arc_swap::ArcSwap` (at L21). ✓
+- `runtime.rs:L139` → `entity_type_index: Arc<ArcSwap<HashMap<...>>>` (at L144). ✓
+- `runtime.rs:L164` → `ArcSwap::from_pointee(HashMap::new())` (at L164). ✓
+- `runtime.rs:L300` → `.store(Arc::new(entity_type_index))` (at L300). ✓
+- `runtime.rs:L673` → `.store(Arc::new(new_entity_type_index))` (at L676). ✓
+- CHANGELOG L347-L358 batch entry confirmed. ✓
+
+**F014 worker-panic propagation** — both cited locations verified:
+- `executor.rs:L129-L188` → `JoinSet::spawn` + `handle_join_outcome` calls confirmed. ✓
+- `executor.rs:L168-L195` → `je.is_panic()` → `error!` + `metrics.job_failed("unknown","panic")` confirmed. ✓
+- CHANGELOG L226-L228 (actual L228-L230) F014 entry confirmed. ✓
+
+Both fixes HOLD at frozen SHA.
+
+#### Sibling-pages no-citation confirmation
+
+- `src/content/docs/building/observers.mdx` — 0 citations. ✓
+- `src/content/docs/building/observer-webhook-patterns.mdx` — 0 citations. ✓
+- `src/content/docs/operations/observer-runbook.mdx` — 0 citations. ✓
+
+Scope-statement + cross-link only: confirmed.
+
+#### Posture B leak scan
+
+- `bun run build`: 205 pages built. 0 errors. Build log: `strip-source-citations: scanned 281 HTML files, modified 2, stripped 149 source-citation comments.`
+- `grep -rE '<!--\s*source:' dist/`: **0 matches**. ✓
+- `grep -rE '\{/\* source:' dist/`: **0 matches**. ✓
+- Posture B: CLEAN. No leaks of either citation form.
+
+#### Artefact
+
+Per-citation log: `_internal/.plan/red-evidence/phase-03-cycle-03-citation-verification.log`
+
+#### Next persona
+
+**Writer (Opus 4.7)** — fix page line 201 citation: change `retry.rs:L17-L80 — BackoffStrategy variants` to `config/runtime.rs:L232-L239 — BackoffStrategy variants`. Re-submit. Source-Citation Verifier re-runs on the amended page.
+
 **Handoff carries:** 11 framework bugs (FW-13..FW-23) open; FW-20 + FW-21 is the critical security combo; F056 + F014 confirmed HOLD; primary page at 67 citations / 16 sections / 4 478 words; three sibling pages scope-statement-only; A2 docs-test added with 6 assertions covering 8 bug repros + 4 source-grep invariants.
