@@ -496,3 +496,31 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - **Handoff entry path:** `_internal/.plan/handoff.md` (this entry, appended at the bottom).
 
 ---
+
+### Phase 01 / Cycle 1 review — Reviewer (Opus 4.7) — 2026-05-29
+
+- **Verdict: APPROVE.** Cycle proceeds.
+- **15-point checklist:** 8/8 applicable items PASS (1, 6, 7, 8, 12, 13, 14 plus a re-inspection of 5). Items 2/3/4/9/10/11/15 marked N/A per orchestrator's small-diff guidance (no DB-path, security, RLS, error-path, or visual content edited; this is a pure version-string sweep).
+- **CI re-verified:** Writer-cited run https://github.com/fraiseql/fraiseql-docs/actions/runs/26618582360 (head `59ee065`) `conclusion=success`. New auto-triggered run on PR-head `f9aa9b9` (https://github.com/fraiseql/fraiseql-docs/actions/runs/26618944935) also `success`. `pre-commit.ci - pr` red is the pre-existing repo-state issue carried from Phase 00, not a docs-test gate.
+- **Citations sampled (4, not 3, to round out the SagaExecutor symbol check):**
+  - `Cargo.toml:L343` → `version = "2.3.2"` at frozen SHA `d0a4ed4` — ✅ resolves.
+  - `CHANGELOG.md ## [2.3.2] - 2026-05-28` + `## [2.2.0] - 2026-05-02` at frozen SHA — ✅ resolves.
+  - `crates/fraiseql-federation/src/{saga_executor/mod.rs, saga_compensator.rs, saga_store.rs}` — `pub struct SagaExecutor / SagaCompensator / PostgresSagaStore` all present at frozen SHA — ✅ resolves (the CHANGELOG v2.3.0 entry does not enumerate these by symbol name, but the symbols themselves exist in the federation crate; the citation could be tighter — see follow-on).
+  - `src/content/docs/reference/toml-config.mdx:L47` → `| [gateway] | v2.2 | Beta |` — ✅ resolves.
+- **Branch hygiene:** PR head correctly branched from updated `main@6cc8ae5`; no push to `main`; no commit amend; two clean commits (`59ee065` + `f9aa9b9`).
+- **Anti-scope confirmed:** no `astro.config.mjs` edits, no quickstart SQL fixes, no stray-syntax / Homebrew / link-audit work, no SDK page sweeps, no Starlight-global infrastructure.
+- **Findings (non-blocking — recorded for orchestrator):**
+  1. `features/observability.mdx:340 / :530` — two `"version": "2.0.0"` literals deferred to Phase 02/03. Arguable fit for Cycle 1 (pure version anchors), but the wider `/health` shape rewrite case is real. Writer judgement reasonable.
+  2. `examples/index.mdx:359` — the rewritten `/health` example documents `"database": "connected"` (string) but the actual Cycle-2 GREEN transcript shows `"database":{"connected":true,"database_type":"PostgreSQL",...}` (object). Cycle 1 only owned the `version` field; shape drift remains.
+  3. **Methodology nit:** Writer used the MDX JSX-comment form `{/* source: ... */}` rather than methodology § 4's HTML-comment form `<!-- source: ... -->`. Reason documented (MDX 3 / Astro 5 / Starlight 0.37 incompatibility with raw HTML comments in expression position). Build is clean and citations do not leak to rendered HTML. Reviewer concurs the JSX form is the right choice technically; the methodology § 4 anchor needs an amendment so future Writers/Verifiers are not whipsawed.
+- **Follow-ons surfaced (none blocking):**
+  - Phase 02: refresh `features/observability.mdx:340/:530` `/health` example block (shape + version).
+  - Phase 02: refresh `examples/index.mdx:359` `/health` shape to match the Cycle-2 transcript (object form for `database`).
+  - Methodology § 4: accept `{/* source: ... */}` JSX form as equivalent to `<!-- source: ... -->`. Whoever closes Phase 01 should land this amendment so Cycle 2+ Writers and the Source-Citation Verifier persona stop diverging from the doc.
+  - Source-Citation Verifier persona: when sweeping this PR's citations, grep for the literal `source:` token rather than `<!--` delimiters.
+  - Federation-prose partial (Writer's own suggestion): three federation pages now share verbatim `Apollo Federation support is available as a beta feature.` Cycle 6 or Cycle 7 could promote to a shared include.
+- **No PR comments posted** (per persona § Reviewer: post line-level comments on BLOCK; on APPROVE record the verdict in handoff only).
+- **Framework issues filed:** 0.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
