@@ -4509,3 +4509,172 @@ Unchanged. G1 closed, G2 default-hold, G7 resolved.
 #### Pointer
 
 Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 3 — once CI on this commit is green. The Reviewer should re-run the docs-test from a clean Docker state and confirm exit 0 with the assertion log above.
+
+---
+
+### Phase 03 / Cycle 3 review — Reviewer (Opus 4.7) — 2026-05-30
+
+Fresh-context adversarial pass on `/features/observers.mdx` at PR #14 HEAD `e265f57`. Companion docs-test re-run, citation re-greps, security caveats deep-dive, F056 / F014 sanity-check, sibling-pages no-rewrite verification, Posture B leak scan, 15-point adversarial checklist, Cycle-3 adversarial tests, migration-callout sanity-check, FW-13..FW-23 row sanity-check.
+
+#### CI re-confirmation
+
+Run `26667421342` on `e265f57` (gh pr view 14): 5 jobs SUCCESS — `discover pages and frozen SHA`, `page-test (_smoke)`, `page-test (file-storage)`, `page-test (multi-tenancy)`, `page-test (observers)`. `pre-commit.ci` ERROR — Phase-10-deferred carry, non-blocking by precedent.
+
+Independent log re-grep for `observers.docs-test: PASS` at `2026-05-29T23:38:24.5340348Z`. Strip-integration log line in local `bun run build`: `scanned 281 HTML files, modified 2, stripped 149 source-citation comments` — the per-build counter is the integration's greppable signal per methodology § 4 (G7).
+
+#### docs-test re-run from clean Docker state
+
+`./docs-test.sh down --volumes` clean. `./pages/observers.docs-test.sh` — first attempt hit a **local environmental artefact** (Claude Code's shell snapshot aliases `grep` to `ugrep` via `claude` exec; the `set -euo pipefail + printf … | grep -q PATTERN` chain in `assert_f056_holds` SIGPIPE'd under ugrep wrapping). Forced `env -i PATH=/usr/bin:/bin` and re-ran:
+
+- **exit 0**
+- assertion 1: binary auto-wires observer runtime — PASS (`init_observer_runtime` invocation at `builder.rs:L345`; `.nest("/api/observers", …)` at `routing/observers.rs:L42-L46`; `.merge(observer_runtime_routes(…))` at `:L60` — FW-13 layout reproduces).
+- assertion 2: F056 ArcSwap atomicity — PASS (arc_swap import L18; `entity_type_index: Arc<ArcSwap<HashMap<…>>>` field L139; two `entity_type_index.store(Arc::new(…))` sites at L300 / L676).
+- assertion 3: F014 worker panic propagation — PASS (`JoinError::is_panic()` at L177; `job_failed("unknown", "panic")` at L184; CHANGELOG L226-L228).
+- assertion 4: negative findings (SSRF allowlist, retry path) — PASS.
+- assertion 5: 8/8 bug repros still reproduce — PASS for FW-16..FW-23.
+- assertion 6: FW-15 + FW-23 live behaviour reproduces — `/health observers.running == false` (tb_observer missing); `GET /api/observers/runtime/health` returns 404 (FW-13 nested mount missing); `GET /runtime/health` returns 503 (FW-13 routes at root); `GET /api/observers/dlq` returns 200 (FW-21 admin API anonymous).
+
+`observers.docs-test: PASS`.
+
+The shell-snapshot grep alias is **not** a docs-test regression — it does not affect CI (which uses plain `/usr/bin/grep`). Captured for future Reviewer awareness; no fix required on the page or harness.
+
+#### Citation re-greps (10 distinct from Verifier's 7 spot-checks)
+
+All against `git -C ~/code/fraiseql show d0a4ed4ec1770c70707f68fd9019f2b561d87461:<path>`.
+
+| # | Citation | Result | Notes |
+|---|---|---|---|
+| 1 | `builder.rs:L343-L346` (page L10) | PASS | `#[cfg(feature = "observers")]` gating + `Self::init_observer_runtime(&config, db_pool.as_ref()).await` at L345 |
+| 2 | `extensions.rs:L362-L389` (page L11) | PASS | `init_observer_runtime` composition; builds `ObserverRuntimeConfig::new(pool.clone()).with_poll_interval(…).with_batch_size(…).with_channel_capacity(…)` — no transport selector (FW-23 root cause cited correctly) |
+| 3 | `fraiseql-observers/src/lib.rs:L1-L45` (page L13) | PASS | Crate-level architecture rustdoc; 7 named subsystems (`listener`, `matcher`, `executor`, `actions`, `job_queue`, `metrics`, `transport`) all confirmed as `pub mod` declarations |
+| 4 | `server_config/observers.rs:L94-L130` (page L94) | PASS | `ObserverConfig` struct at L94-L127 with exactly the documented fields: `enabled / poll_interval_ms / batch_size / channel_capacity / auto_reload / reload_interval_secs / pool` |
+| 5 | `server_config/mod.rs:L40-L42` (page L95) | PASS | `#[derive(…Serialize, Deserialize)]` + `pub struct ServerConfig {` — no `#[serde(deny_unknown_fields)]` (FW-15 root cause) |
+| 6 | `config/transport.rs:L15-L26` (page L158) | PASS | `TransportKind` enum at L17-L25: exactly 3 variants — `Postgres` (default via `#[default]`), `Nats`, `InMemory` |
+| 7 | `transport/mysql_bridge.rs:L1-L31` (page L160) | PASS | Module rustdoc explicitly states MySQL → NATS bridge; no standalone transport |
+| 8 | `fraiseql-server/Cargo.toml:L171-L176` (page L168) | PASS | `observers = ["fraiseql-observers"]`, `observers-enterprise = ["observers", "fraiseql-observers/enterprise", "fraiseql-observers/nats"]`, `observers-nats = ["observers", "fraiseql-observers/nats"]` |
+| 9 | `config/runtime.rs:L260-L350` (page L179) | PASS | `ActionConfig` enum L268-L349: `#[non_exhaustive]` L265, tagged union (`#[serde(tag = "type", rename_all = "snake_case")]`), variants Webhook / Slack / Email / Sms / Push / Search / Cache — 7 not 4+3 (see nit below) |
+| 10 | `job_queue/executor.rs:L129-L188` (page L282) | PASS | `JoinSet::spawn` L140, `handle_join_outcome` L174, `je.is_panic()` L177, `error!` log L178-L182, `job_failed("unknown", "panic")` L184 — F014 fix exact |
+
+10/10 PASS. Combined with the Verifier's 67 / 67 PASS, the page's citation contract is verified end-to-end.
+
+#### Security caveats LEAD block deep-dive
+
+Read bug repros `scripts/docs-test/bugs/observers.bug-{3,4,5,6,7}.sh` end-to-end. Mapped each `Actual:` block to the page's mitigation text:
+
+- **FW-18 (#345) — no HMAC.** Bug-3 confirms zero `hmac`/`signature`/`X-Webhook-Signature`/`X-FraiseQL-Signature` hits in the observer crate; no `hmac` dep in `Cargo.toml` (`sha2` is for cache-key hashing only). Page mitigation: "terminate webhook subscriptions at an authenticating gateway that injects a bearer token or re-signs the body with a key the destination knows" — **concrete + actionable**. Receiver-side HMAC verification cross-linked as deferred until FW-18 lands (sibling-page caveat on observer-webhook-patterns).
+- **FW-19 (#346) — PII / bearer-token logs.** Bug-4 confirms four `info!` lines at `actions.rs:L256/L257/L258/L276` exposing URL, headers (Debug fmt), body template, rendered body. No redact/mask helper. Page mitigation: `RUST_LOG=fraiseql_server=warn,fraiseql_observers=warn` — **concrete + actionable**. Page also calls out that bearer tokens should never be put in observer header maps; emit at gateway layer.
+- **FW-20 (#347) — SSRF kill-switch.** Bug-5 confirms `FRAISEQL_OBSERVERS_ALLOW_INSECURE=true` returns `Ok(())` early from `validate_outbound_url` (L52-L58) and `dns_resolve_and_check`, plus `ssrf.rs` guards. Page mitigation: "Never set `FRAISEQL_OBSERVERS_ALLOW_INSECURE=true` in any environment with network reachability to RFC 1918 / link-local addresses, including local dev where a stray `export` can leak into a deployment" — **concrete + actionable** (specifies the var, the value, the conditions).
+- **FW-21 (#348) — anonymous admin API.** Bug-6 confirms `OptionalSecurityContext` extractor returns None, `extract_user_id(None) = None`, `extract_customer_org(None) = None`, runtime-control + DLQ handlers take `State<…>` only with no auth extractor. Page mitigation: "Gate `/api/observers/*` and `/runtime/*` behind an authenticating reverse proxy (mTLS, OIDC, or a known-key header check)" — **concrete + actionable** (names both route prefixes, including the FW-13 root-mounted runtime routes).
+- **FW-22 (#349) — EmailAction stub.** Bug-7 confirms `EmailAction::execute` returns `Ok(EmailResponse { success: true, message_id: Some(uuid), duration_ms: 10.0 })` — all parameters prefixed `_` (unused). Metrics counters increment as `success`. Page mitigation: "route email notifications through a webhook handler to a real email gateway (Resend, SendGrid, Postmark, Mailgun, or an internal SMTP relay). Do not configure `action = "email"` in any production observer at v2.3.2" — **concrete + actionable** (names 4 viable providers + 1 fallback).
+
+**FW-20 + FW-21 combined exploitation path** at page L31-L37: three-step concrete attack (anonymous `POST /api/observers` with webhook pointed at `169.254.169.254/latest/meta-data/iam/security-credentials/` → triggered mutation → IAM credentials exfiltrated). Page explicitly enumerates the URL pattern for AWS EC2 metadata and mentions GCP / Azure / DigitalOcean analogues. An operator can audit their own deployment against this exact scenario.
+
+Security caveats LEAD block verdict: **PASS, well-engineered.** Each mitigation maps to the bug-shape; the FW-20 + FW-21 critical combo is spelled out with concrete attack steps.
+
+#### F056 + F014 fix-still-present sanity-check
+
+- **F056 (entity_type_index ArcSwap):** runtime.rs L18 `use arc_swap::ArcSwap;`; L139 field declaration with snapshot-atomicity rustdoc; L164 `Arc::new(ArcSwap::from_pointee(HashMap::new()))` initialiser; L300 `entity_type_index.store(Arc::new(entity_type_index))` on startup; L676 `entity_type_index.store(Arc::new(new_entity_type_index))` on reload. CHANGELOG L357-L359 explicitly confirms F056 as `ArcSwap<HashMap>` for snapshot atomicity. **Fix HOLDS at frozen SHA.** Page citation L265-L270 (six citations covering all five locations + CHANGELOG row) is exhaustive.
+- **F014 (worker panic propagation):** executor.rs L177 `je.is_panic()`, L178-L182 `error!` log with `worker=`/`error=` fields, L184 `self.metrics.job_failed("unknown", "panic")`. CHANGELOG L226-L228 confirms F014 entry. **Fix HOLDS at frozen SHA.** Page citation L282-L284 is exact.
+- **`matcher`/`executor` RwLock generation skew nuance** at page L272-L274 (`:::note[Brief generation skew on reload — page-level guidance, not a bug]`): runtime.rs L128-L129 confirms `matcher: Arc<RwLock<Option<EventMatcher>>>` + `executor: Arc<RwLock<Option<Arc<ObserverExecutor>>>>` fields sit beside the `entity_type_index: Arc<ArcSwap<…>>`. Each component is internally consistent (RwLock-guarded atomic swap of the `Option<…>`); the cross-component pair (matcher new + executor old, or vice versa) is observable for one event during reload. Page-level guidance is accurate and labelled correctly as not-a-bug.
+
+#### Sibling-pages no-content-rewrite verification
+
+`git diff main..HEAD -- src/content/docs/building/observers.mdx`:
+- L7-L14: added `:::note[Page scope]` + `:::caution[Stale until next cycle — full rewrite deferred]` blocks.
+- L555-L561 (See also section): added 3 cross-links.
+- Body L15+ untouched.
+
+`git diff main..HEAD -- src/content/docs/building/observer-webhook-patterns.mdx`:
+- L7-L14: added Page scope + Stale until next cycle blocks.
+- L368-L373: added 3 cross-links to See also.
+- Body L15+ untouched.
+
+`git diff main..HEAD -- src/content/docs/operations/observer-runbook.mdx`:
+- L7-L14: added Page scope + Stale until next cycle blocks.
+- L391-L403 (See Also → See also rename + cross-link refresh): heading sentence-case correction; 3 new cross-links added; 1 stale link to `/concepts/observers` dropped (target page does not exist).
+- Body L15-L389 untouched.
+
+**Verdict: confirmed scope-statement + cross-link only.** No body content rewritten. The runbook's `## See Also` → `## See also` heading rename is a sentence-case style alignment, technically within the "cross-link block" envelope.
+
+#### 15-point adversarial checklist
+
+| # | Item | Result | One-line justification |
+|---|---|---|---|
+| 1 | VERSION DRIFT | ✅ | v2.3.2 cited throughout; 10/10 random citations re-grep clean at frozen SHA |
+| 2 | WRONG-DB PATHS | ✅ | `TransportKind` enum has exactly 3 variants (Postgres / Nats / InMemory); MySQL is a one-way bridge only (`mysql_bridge.rs` rustdoc); SQLite + MSSQL explicitly absent — all documented |
+| 3 | FEATURE-FLAG OMISSIONS | ✅ | `observers`, `observers-nats`, `observers-enterprise` documented; verified in `Cargo.toml:L171-L176`; library-side composition for InMemory called out |
+| 4 | SECURITY-DEFAULT REGRESSIONS | ✅ | Lead `## Security caveats` block; `enabled = true` is the only default-true setting and is annotated explicitly; no insecure CORS / require_auth defaults proposed |
+| 5 | SDK DIVERGENCE | ✅ | N/A — no SDK code on this page |
+| 6 | DEAD LINKS | ✅ | All 5 internal links resolve (building/multi-tenancy, building/observer-webhook-patterns, building/observers, features/nats, operations/observer-runbook); all 4 FW-N anchor fragments resolve in rendered HTML |
+| 7 | UNDEFINED SYMBOLS | ✅ | Every type / fn / config key / env var (`ObserverConfig`, `ObserverRuntimeConfig`, `TransportKind`, `ActionConfig`, `init_observer_runtime`, `validate_outbound_url`, `FRAISEQL_OBSERVERS_ALLOW_INSECURE`, `tb_observer`, `tb_entity_change_log`, `DEFAULT_WEBHOOK_TIMEOUT_SECS`, `EmailAction`, `WebhookAction`, `InMemoryDlq`, `JoinError::is_panic`, `job_failed`) verified verbatim at frozen SHA |
+| 8 | COPY-PASTE FROM PRIOR VERSION | ✅ | `## Migration from the pre-v2.3 page` block (L370-L382) enumerates the gone Python decorator + helper symbols; no stale carryover |
+| 9 | CONDITIONAL CAVEATS | ✅ | "How observers are composed today" section disambiguates binary `[observers]` runtime knobs from CLI `[[observers.handlers]]` validation shape; FW-15 + FW-23 cross-link reads correctly for the operator-confused-why-CLI-config-did-nothing scenario |
+| 10 | RLS / SECURITY INTERACTIONS | ✅ | FW-21 anonymous admin API explicitly called out; tenant_id JWT claim explicitly noted as not-yet-applied to observer admin API; cross-linked from See also |
+| 11 | ERROR-PATH COVERAGE | ✅ | `/health` degraded JSON shape shown with both healthy + degraded examples; boot-time error `relation "tb_observer" does not exist` cited from RED transcript |
+| 12 | ARCHAEOLOGY-FREE | ❌ | **L360 contains "the regression signal Phase 09 needs"** — leaks docs-overhaul Phase 09 marker to readers. Methodology § 5 item 12 prohibits `Phase N` in rendered output. Same blocking pattern as Cycle 2 / file-storage.md (L329 at the time of that BLOCK). |
+| 13 | SOURCE CITATIONS RESOLVE | ✅ | 10/10 random re-greps PASS at frozen SHA; combined with Verifier's 67/67 PASS |
+| 14 | NO PERSONA SELF-REFERENCE | ✅ | grep `as an AI \| as a documentation` returns no matches |
+| 15 | DARK MODE | ✅ | Standard Starlight components inherit theme contrast; rendered HTML uses Starlight default code-block + callout + table classes |
+
+**Pass count: 14/15. BLOCK on item 12.**
+
+#### Cycle-specific adversarial tests
+
+- **Reviewer kills the webhook destination mid-test (per phase-03 § Adversarial review protocol):** rather than spawn a netcat sink and SIGINT it mid-dispatch (the docs-test stack cannot exercise the wired happy path at v2.3.2 per FW-15 + FW-23), I re-read `bug-1.sh` (FW-16 unbounded DLQ) end-to-end. Bug-1 confirms: failed dispatches accumulate in `InMemoryDlq` via `Vec::push` with no cap, no eviction, no warning log, no metric. Page L249 documents this exactly: "Events that exhaust their retries land in the in-process `InMemoryDlq`, exposed at `GET /api/observers/dlq`. **The DLQ is unbounded** (FW-16) and lost on process restart." DLQ description matches actual behaviour: in-process Vec, exposed at the HTTP route, unbounded, ephemeral. **PASS.**
+- **Architecture-vs-stability disambiguation:** page sections "How observers are composed today" (L86-L152) → three subsections covering binary's `[observers]` (runtime knobs only), DB-driven observer rows (POST /api/observers), CLI's `[[observers.handlers]]` (validation-only). An operator who configured `[observers] backend = "redis"` + `[[observers.handlers]]` reads the third subsection and learns the CLI shape never flows through `ServerConfig` (which lacks `deny_unknown_fields`). FW-15 + FW-23 cross-links from the Known Issues table close the loop. **PASS.**
+
+#### Migration callout sanity-check
+
+Page L370-L382 enumerates:
+1. `@fraiseql.observer(...)` decorator → gone; use `POST /api/observers` or write rows to `tb_observer`.
+2. `actions=[slack(...), email(...), webhook(...)]` Python helpers → gone; use JSON `actions` array with `type: "webhook" | "slack" | "email"`; email is a stub (FW-22).
+3. `RetryConfig(max_attempts=…, backoff=…, initial_delay_ms=…)` Python class → gone; use JSON `retry` object with same field names.
+4. TOML keys `[observers] backend = "redis"`, `redis_url`, `nats_url`, `[[observers.handlers]]` → silently ignored by binary (FW-15 + FW-23).
+5. `pg_notify('fraiseql_changes', ...)` LISTEN/NOTIFY framing → mostly correct (poll-based; `poll_interval_ms` default 100).
+
+Every removed symbol has a v2.3.2 mapping (or explicit "not present"). EmailAction stub status (FW-22) is callout-flagged at item 2. **PASS.**
+
+#### Framework-bug claim sanity-check (3-4 random rows)
+
+- **FW-16 (#343) row:** "`InMemoryDlq` grows unbounded; the documented `max_dlq_size` cap is exposed only on the library-side `ObserverRuntimeConfig`, not on the binary's `ObserverConfig`. `mark_retry_failed` silently `items.retain()`-removes the failed item — operators lose audit on retry failures." Bug-1 Actual block: binary's `ObserverConfig` (`server_config/observers.rs:L99-L130`) has no `max_dlq_size` field; `InMemoryDlq::push` does unconditional `Vec::push` with no cap (`runtime.rs:L687-L772`); `mark_retry_failed` does `items.retain(|i| i.id != id)` silently dropping the failed item. **Row matches symptom + framework location. PASS.**
+- **FW-19 (#346) row:** "Webhook URL, headers, and rendered body logged at INFO; PII + bearer-token leak via application logs." Bug-4 Actual block: four `info!` lines at `actions.rs:L254-L290` exposing URL, headers (verbatim Debug fmt), body template, rendered body. No redact/mask helper. **PASS.**
+- **FW-22 (#349) row:** "`EmailAction` is a stub that returns success without sending email; metrics show 100 % delivery." Bug-7 Actual block: `EmailAction::execute` at `actions.rs:L484-L505` returns `Ok(EmailResponse { success: true, message_id: Some(uuid::Uuid::new_v4().to_string()), duration_ms: 10.0 })`; all input params prefixed `_` (unused); no SMTP client field, only `// Placeholder for SMTP client`. Metrics counters increment as `success`. **PASS.**
+- **FW-23 (#350) row:** "Binary ignores `FRAISEQL_OBSERVER_TRANSPORT` and `[observers.transport]`; hard-wired to Postgres LISTEN/NOTIFY even with `observers-nats` feature compiled in." Bug-8 + `extensions.rs:L362-L391` direct read: `init_observer_runtime` builds `ObserverRuntimeConfig` with only `poll_interval / batch_size / channel_capacity`; no transport selector; `TransportKind::from_env()` is never called in the server crate. **PASS.**
+
+All 4 randomly sampled rows match symptom + framework location.
+
+#### Posture B leak-free
+
+`bun run build`: 205 pages built in 14.65s. Strip integration log: `scanned 281 HTML files, modified 2, stripped 149 source-citation comments`. `grep -rE '<!--\s*source:|\{/\* source:' dist/` returns 0 leaks. Posture B holds.
+
+#### Findings
+
+**Blocking ❌:**
+
+- **Item 12 (ARCHAEOLOGY-FREE) — `src/content/docs/features/observers.mdx:L360`:** the phrase `the regression signal Phase 09 needs` leaks the docs-overhaul `Phase 09` project marker to readers. Methodology § 5 item 12 unambiguously prohibits `Phase N` in rendered output. **This is the same blocking pattern Cycle 2 hit on file-storage.md:L329** — a Writer instinct to forward-reference Phase 09 in the worked-example deferral paragraph. Recommend logging this as a Writer-side pattern to watch in Cycle 4 (authentication) and beyond. Fix is mechanical: drop the trailing clause `— the regression signal Phase 09 needs.` and end the sentence at `the test fails loudly.` Alternative: replace with `— the regression signal future docs-test cycles need.` if the temporal forward-reference is load-bearing. Cleanup persona can apply; no Source-Citation Verifier re-round needed.
+
+**Non-blocking nits (handoff, not posted as PR comments):**
+
+- **NIT-1 — page L177:** "Three additional variants exist as stubs: Sms, Push, Search, Cache" — four names follow but the sentence says "Three". Suggested fix: change "Three" → "Four", or restructure to be exhaustive. Apply alongside the Item-12 fix or in Cleanup.
+- **NIT-2 — local environment artefact:** the `assert_f056_holds` assertion's `printf '%s' "$LARGE_VAR" | grep -q PATTERN` pipeline SIGPIPE's under Claude Code's shell snapshot when `grep` is aliased to `ugrep` via `claude -G --ignore-files …`. This is an environmental noise floor, not a script defect — CI uses plain `/usr/bin/grep` and passes cleanly. Future Reviewers running docs-test locally should `env -i PATH=/usr/bin:/bin` or unset the `grep` function before invocation.
+
+#### Anti-scope
+
+`git diff main..HEAD --name-only` (executed): touches only Phase 03 Cycle 0/1/2/3 files — `_internal/.plan/`, `astro.config.mjs`, `scripts/docs-test/{bugs,configs,fixtures,pages}/`, `src/content/docs/building/{multi-tenancy.mdx,observer-webhook-patterns.mdx,observers.mdx}`, `src/content/docs/features/{file-storage.md,file-storage.mdx,observers.mdx}`, `src/content/docs/operations/observer-runbook.mdx`. No SDK, no quickstart, no reference page, no framework code. **Clean.**
+
+#### Verdict: BLOCK
+
+**14/15 PASS, 1 BLOCK on item 12.** PR review posted as a `--comment` (gh refuses self-PR `--request-changes`) — `https://github.com/fraiseql/fraiseql-docs/pull/14#pullrequestreview-PRR_kwDORdtCds8AAAABBd-wvA`.
+
+Once `features/observers.mdx:L360` is fixed (and ideally L177 tidied), the page passes 15/15. No additional Source-Citation Verifier round needed (Verifier already cleared all 67 citations; the proposed fix touches prose only).
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved.
+
+#### Pointer
+
+Next session: **Writer (Opus 4.7) — kick-back** for the Item-12 mechanical fix on `features/observers.mdx:L360` (and optional L177 tidy). Single-commit follow-on. After commit + CI green, the page is approvable without another Reviewer round (Cycle 2's BLOCK→fix→APPROVE sequence is the precedent: see Cycle 2 file-storage `60c3c11` orchestrator follow-on, which applied the L329 fix without re-spawning Writer-Opus). Alternative: **orchestrator follow-on** for the same fix, since it is mechanical and within the L329-precedent envelope.
+
+Cycle 3 close (Cleanup + Style Auditor) blocked on the L360 fix landing. Cycle 5 (Style Audit) at phase close per the phase-03 plan.
+
