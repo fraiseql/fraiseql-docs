@@ -1164,3 +1164,49 @@ Please reply inline below this line with `> human:` your pick (A / B / C) and an
 **Sign-off:** APPROVE for merge. Sidebar shape matches Option A, page-count parity (172/172) holds, 76/76 renames are R100, redirects well-formed and verified, build clean, `_sidebar-decision.md` excluded from build and Pagefind, anti-scope held, CI green on both `728beec` and `9628747`. Cycle 7 (sweep matrix) is unblocked.
 
 ---
+
+### Phase 01 / Cycle 7 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Sweep matrix authored at `src/content/docs/_internal/_sweep-matrix.md` (425 lines, 45 KB).** Sorted by post-Option-A sidebar order; doubly indexed with a "by-phase view" prepended (slug bullets only).
+- **172 page rows + 2 framework-bug rows (FW-1 #326 + FW-2 #327) + 9 cross-phase rows + 4 Cycle 4 deferral-class rows.** Each page row carries State / Owning phase / DB claim / DB actual / Deps / Notes columns per the Cycle 7 spec.
+- **By-phase row counts (Owning phase column):**
+  - Phase 02: 19 rows (1 changelog, 1 quickstart broken-snippet, 4 getting-started adjacents, 12 SDK pages, 1 cli alignment).
+  - Phase 02/03 (shared): 3 rows (`features/observability` /health refresh; `operations/deployment-guide` + `operations/troubleshooting-guide` collision-rename consolidation).
+  - Phase 03: 46 rows (concepts pass, observers triple, examples Cycle-4-A deferrals, perf-benchmarks Cycle-4-B, demo.fraiseql.dev Cycle-4-C, security/auth cluster, comparisons, file-storage).
+  - Phase 04: 3 rows (Realtime / Studio / Functions WASM adjacencies — the missing pages themselves live in the by-phase view, not the matrix proper).
+  - Phase 05: 1 row (databases/postgresql LTree cross-link).
+  - Phase 06: 10 rows (federation consolidation + REST deepening).
+  - Phase 07: 13 rows (all of `/reference/*`).
+  - Phase 08: 83 rows (the catch-all final-polish phase; most `OK`-state rows land here).
+- **Page-state distribution: OK=93, needs-update=12, needs-rewrite=66, broken-snippet=1, wrong-content=0, missing=0, redirected=0.**
+  - `broken-snippet=1` is `/getting-started/quickstart` (3 SQL bugs from Phase 00 / Cycle 5; the Phase 02 priority).
+  - `missing=0` for the matrix proper because the Phase 04-06 net-new pages (Studio, Functions WASM, Realtime, Auth Extensions, LTree, MCP, Trusted Documents) are not yet `src/content/docs/` files; they appear only in the by-phase view's bullets. Consistent with the matrix's "every existing page has a row" rule.
+- **Build state:** `bun run build` exit 0; 197 pages built; 273 HTML files (197 + 76 redirect stubs — unchanged from Cycle 6 close). Same two pre-existing baseline warnings (Cycle 1-6 baseline noise).
+- **Build-exclusion verified:** `find dist -name '*sweep-matrix*'` → 0 hits; `grep -r 'sweep-matrix' dist/` → 0 hits; `grep -rl 'sweep-matrix' dist/pagefind` → 0 hits. The leading-underscore filename + `_internal/` parent both keep Astro/Starlight and Pagefind out (same construction as `_sidebar-decision.md`, validated by the same checks per Cycle 6 Reviewer).
+- **`_sidebar-decision.md` § 6 page-count nit corrected** (172/172, not 173/173) per the Cycle 6 Reviewer follow-on. Optional fix; landed as a small inline edit on the same commit as the matrix.
+- **Three Cycle 6 Reviewer follow-ons addressed in the matrix:**
+  1. Redirect-map regression test — captured as a cross-phase row, owning phase Phase 02 OR Phase 10 (Writer judgement deferred).
+  2. `*-guide` suffix pages (`/operations/deployment-guide` + `/operations/troubleshooting-guide`) — flagged in their matrix rows as Phase 02/03 prose-consolidation candidates.
+  3. `_sidebar-decision.md` page-count off-by-1 — corrected inline (see above).
+- **Five Cycle 1 / 2 / 5 Reviewer follow-ons addressed:**
+  - `features/observability.mdx` /health block (L340 + L530) — `needs-update`, Phase 02/03.
+  - `examples/index.mdx:359` /health shape — `needs-rewrite`, Phase 03.
+  - Methodology §4 JSX-comment amendment — cross-phase row, Phase 01 close OR Phase 10.
+  - `cli.mdx` vs `installation.mdx` cargo command-name mismatch — both rows flagged, Phase 02.
+  - `examples/index.mdx:355` Phase-00-Cycle-2 meta-citation — Phase 03 polish or Phase 10 finalisation.
+- **Pre-existing `SiteTitle.astro` `virtual:starlight/user-images ts(2307)` baseline** — captured as a non-page cross-phase row (Phase 10 cleanup; blocks pre-commit hook activation per Cycle 2 Cleanup REFACTOR deferral).
+- **FW-1 #326 + FW-2 #327** — captured in a dedicated "Framework bugs" section of the matrix with the affected docs-page rows enumerated. Phase 09 reconciliation owns close-out.
+- **Four Cycle 4 deferral classes** captured in a dedicated section:
+  - A: `fraiseql/examples` (11 URLs / 4 pages: `/examples/index`, `/examples/saas-blog`, `/examples/realtime-collaboration`, `/examples/mobile-analytics-backend`) — Phase 03 content decision.
+  - B: `velocitybench` (2 pages: `/operations/performance-benchmarks`, `/community/blog/rest-direct-execution-benchmark`) — Phase 03 prose decision.
+  - C: `demo.fraiseql.dev` (6 pages: `/playground`, `/concepts/how-it-works`, `/features/mutual-exclusivity`, `/getting-started/quickstart`, `/features/automatic-where`, `/features/rich-filters`) — Phase 02/03 + infra fix.
+  - D: `charts.fraiseql.io` — 0 hits at audit; orchestrator-side artefact only; no row needed (per Cycle 4 Reviewer).
+- **Anti-scope held this cycle:** no edits to rendered docs pages beyond the new `_sweep-matrix.md` + the small `_sidebar-decision.md` §6 fix; no `astro.config.mjs` changes; no Phase-02 SQL-bug fixes; no Cycle 4 deferral fixes; no `SiteTitle.astro` fix; no main pushes; no commit amendments.
+- **Surprise findings:**
+  - `Owning-phase counts` do not sum to 172 — Phase 03 and Phase 08 overlap heavily (Phase 03 rewrite → Phase 08 polish-of-the-rewrite). The matrix's `Owning phase` column names the **next substantive change**, not every subsequent touch. Documented at the foot of the matrix.
+  - The two "observers triple-overlap" pages (`/features/observers` from `concepts/observers` + `/building/observers` from `guides/observers`) plus `/operations/observer-runbook` form a 3-page consolidation set under Phase 03; per `_sidebar-decision.md` §5 they stay as three distinct pages (what / how / run) but require careful scope statements + cross-links.
+  - The Phase 04-06 net-new pages (Studio, Functions WASM, Realtime, Auth Extensions, LTree, partial-period, native aggregations, MCP, Trusted Documents) currently have **no** rows in the matrix proper because no `src/content/docs/` file exists yet; they appear as bullets only in the by-phase view. Phase 04-06 Writers create the rows when they create the pages.
+- **Commit SHA + CI URL:** see commit/push entries below.
+- **Open gates:** none new. G1 closed (Cycle 6). G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G4 (branch protection) remains soft per Phase 00 / Cycle 9 close. Phase 01 close cycle next.
+
+---

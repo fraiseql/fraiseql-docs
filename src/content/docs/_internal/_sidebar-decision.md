@@ -166,7 +166,7 @@ If a Phase 02+ Writer believes a page belongs in two homes, they pick one and ad
 
 - `bun run build` exit 0; 197 pages built; 273 HTML files (197 + 76 redirect stubs).
 - Two pre-existing baseline warnings remain (`conf` language in `building/federation-nats-integration.mdx`; `/[...slug]` vs `/` route conflict). Zero new warnings.
-- 173 `.md`/`.mdx` files in `src/content/docs/` before the cycle; 173 after. Zero pages lost.
+- 172 `.md`/`.mdx` files in `src/content/docs/` (excluding `_internal/`) before the cycle; 172 after. Zero pages lost. (Off-by-1 from the original draft corrected here per the Cycle 6 Reviewer's nit; the absolute count is 172, parity itself was always preserved.)
 - Spot-checked redirect: `dist/concepts/observers/index.html` → meta-refresh to `/features/observers`, `<meta name="robots" content="noindex">`, canonical link to `https://fraiseql.dev/features/observers`. SEO-correct.
 - `find dist -path '*_sidebar-decision*'` → 0 hits. This document is excluded from the build.
 
