@@ -701,3 +701,62 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - Phase 08 re-audit reminder: re-run external link audit at Phase 08 close (use `scripts/docs-test/audit-external-links.sh`).
 
 ---
+
+### Phase 01 / Cycle 4 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.**
+
+- **CI gate:** `gh run view 26622253551` — `conclusion=success`, `headSha=eeb4ea6c0d84c2faf2e996893b9ec54ec29a7a81`, `displayTitle=docs: Phase 01 — triage and IA`. Green at the Cycle 4 GREEN commit.
+- **Escalation note:** Cycle 4 RED Link Auditor was escalated from Haiku 4.5 (which confabulated 44/12 counts with fabricated SHAs) to Sonnet 4.6, which produced real artefacts (217 extracted, 66 audited, 22 must-fix). The escalation succeeded — verified via independent spot-checks below.
+- **Independent URL re-extract:**
+  - At audit start SHA `e1f4331`: 216 unique URLs (matches audit's 217 within ±1, regex-tweak delta — well under the 10% material-delta flag).
+  - At GREEN HEAD `eeb4ea6`: 229 unique URLs (post-fix increase reflects new release-page comments + canonical Apollo docs URLs).
+- **Spot-checked classifications (3 × must-fix + 3 × 200-OK, re-curled independently):**
+  - `github.com/fraiseql/specql` → HTTP 404 ✅ (matches audit).
+  - `github.com/fraiseql/examples` → HTTP 404 ✅ (matches audit).
+  - `demo.fraiseql.dev/graphql` → curl(60) SSL SAN mismatch ✅ (matches audit).
+  - `discord.gg/fraiseql` → 200 (redirects to `discord.com/invite/fraiseql`) ✅.
+  - `modelcontextprotocol.io` → 200 (redirects to `/docs/getting-started/intro`) ✅.
+  - `truststore.pki.rds.amazonaws.com/global/global-bundle.pem` → 200 ✅ (post-swap target verified).
+- **Fix-application spot-checks (all 8 swap categories):**
+  - `discussions` → `issues`: 6 sites (`community/{support,contributing}.mdx`, `guides/faq.mdx`) ✅; zero `/discussions` residue in `src/content/docs/`.
+  - `truststore.amazonaws.com` → `truststore.pki.rds.amazonaws.com/.../global-bundle.pem`: 1 site (`troubleshooting/common-issues.mdx:285`) ✅; new URL returns 200.
+  - GH-permalink at frozen SHA: `audit-logging.mdx:164` now points to `blob/d0a4ed4ec1770.../docs/guides/production-security-checklist.md` ✅; re-grep at frozen SHA (`git -C ~/code/fraiseql show d0a4ed4...:docs/guides/production-security-checklist.md`) returns "# Production Security Checklist" — file present.
+  - `docs.microsoft.com/sql/sql-server/` → `learn.microsoft.com/en-us/sql/sql-server/`: 1 site (`troubleshooting/by-database/sqlserver.mdx:818`) ✅; new URL is the chain's final hop.
+  - `install.fraiseql.dev` removals: 5 sites ✅; all 5 replaced with releases-page comment in `bash` code blocks; zero residue.
+  - `status.fraiseql.dev` removal: 1 site ✅; replaced with prose pointing to GitHub Issues.
+  - `specql` hyperlink → plain text: 5 sites ✅; zero residue.
+  - Apollo Sandbox / Apollo Server redirects: 3 sites ✅; new targets resolve.
+- **Prose integrity (3 random spot-checks):**
+  - `community/support.mdx:148-152` — Status and Roadmap block reads cleanly.
+  - `migrations/incremental.mdx:130-135` — install comment in `bash` block doesn't break the surrounding step.
+  - `guides/apollo-sandbox-security.mdx:152, :166` — Q&A and audit-references blocks read cleanly.
+- **Deferrals reviewed (4 / 4 justified):**
+  - `fraiseql/examples` (11 URLs across 4 pages, 16 hits): legitimate defer — content decision needed (create org repos vs. rewrite pages).
+  - `fraiseql/velocitybench` (7 hits across 2 pages): legitimate defer — verified the prose claim "Independent data from VelocityBench" at `guides/performance-benchmarks.mdx` is load-bearing; mechanical removal would orphan an uncited claim.
+  - `demo.fraiseql.dev` (6 hits): legitimate defer — Cleanup's diagnosis confirmed (TLS SAN mismatch on subdomain; `fraiseql.dev/graphql` serves HTML, not API). Infra fix needed.
+  - `charts.fraiseql.io` (task-brief item): N/A — zero hits in `src/content/docs/` and not present in the audit MD/JSON. Task-brief artefact only.
+- **Audit MD applied/deferred markers:** present and complete — 9 `[x] applied`, 4 `[ ] deferred`, 3 `[x] no-op` (16 items annotated). Audit-date metadata (2026-05-29) and audit-MD structure (headline counts → action list grouped by classification → notes for subsequent phases) all present.
+- **15-point checklist (applicable items only):**
+  - **6. DEAD LINKS — ✅** All 22 must-fix targets removed/swapped; new targets re-curled.
+  - **7. UNDEFINED SYMBOLS — N/A** no symbol references introduced.
+  - **8. COPY-PASTE FROM PRIOR VERSION — ✅** all edits are mechanical URL swaps; no prose-block carryover.
+  - **12. ARCHAEOLOGY-FREE — ✅** (strict-letter pass; see finding #1).
+  - **13. SOURCE CITATIONS RESOLVE — N/A** no source-citations added (audit MD's frozen-SHA citation re-verified via `git show` — `production-security-checklist.md` resolves at `d0a4ed4`).
+  - **14. NO PERSONA SELF-REFERENCE — ✅** grep on all 16 touched files returns zero hits for "as an AI", "persona", model-name leakage, or Sonnet/Opus/Haiku artefacts.
+  - **Build verification:** `bun run build` → exit 0, 197 pages built, no new warnings.
+  - Items 1–5, 9–11, 15 — N/A — out of cycle scope (pure link/URL changes).
+- **Findings (non-blocking):**
+  1. (nit) `community/support.mdx:150` reads "status page coming soon — check [GitHub Issues]". The phrase "coming soon" is unparenthesised so it passes methodology § 5 item 12 strict-letter (the ban is on `(coming soon)`), but the spirit of the rule is brushed. The text was prescribed in the audit MD's "Action" line, so the choice is defensible. Phase 02/03 Writer or the Phase 10 finalisation sweep should consider replacing with a definite reference to GitHub-Issues triage rather than a temporal "soon".
+  2. (nit) Task-brief's `charts.fraiseql.io` defer item has no corresponding `src/` reference or audit-MD entry — orchestrator-side artefact only. No reviewer action needed; flagged for future task-brief authoring.
+  3. (informational) Independent URL count at GREEN HEAD is 229 (vs 216 at RED HEAD); the +13 delta is mostly the new comment-form replacements (e.g., `# See https://github.com/fraiseql/fraiseql/releases ...`) which the regex treats as fresh URLs. Not a quality concern.
+- **Branch hygiene:** PR head `eeb4ea6` on `phase-01/triage-and-ia`; no `main` push; commits chain cleanly (`d2a3062` RED → `3ad9235` SHA backfill → `eeb4ea6` GREEN).
+- **Anti-scope confirmed:** no `astro.config.mjs` edits, no quickstart SQL fixes, no Phase 02/03 content rewrites, no SDK page sweeps.
+- **Follow-ons surfaced (none blocking):**
+  - Phase 02/03 Writer: handle the 4 deferrals — `fraiseql/examples` (content decision), `fraiseql/velocitybench` (prose-rewrite or create repo), `demo.fraiseql.dev` (infra fix or prose change), `community/support.mdx:150` (replace "coming soon" with a definite Issues pointer).
+  - Phase 08: re-audit external links (use `scripts/docs-test/audit-external-links.sh`).
+- **Framework issues filed:** 0.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G1 (sidebar IA) is Cycle 6.
+- **Sign-off:** 6/6 in-scope checklist items pass, CI green, all 8 swap categories cleanly applied with zero residue, all 4 deferrals justified, escalation Haiku → Sonnet succeeded. Cycle 4 closed. Next: Cycle 5 (Homebrew claim verification).
+
+---
