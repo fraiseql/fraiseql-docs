@@ -3158,3 +3158,143 @@ Unchanged. G1 closed. G2 default-hold. G7 resolved (build-time strip). G3/G4/G5 
 ### Pointer
 
 Next persona: **Writer (Opus 4.7)** for Phase 03 / Cycle 2 — `/features/file-storage` rewrite. Bug-Finder candidate: cross-tenant blob access, signed-URL replay.
+
+---
+
+### Phase 03 / Cycle 2 RED — Writer (Opus 4.7) — 2026-05-29
+
+Cycle 2 of Phase 03 — `/features/file-storage` rewrite. RED phase only (per the persona invocation: Writer-RED → Bug-Finder → Writer-GREEN in separate sessions).
+
+#### 1. Framework-surface inventory for `fraiseql-storage` at frozen SHA
+
+Confirmed-against-source bullets (vs. the phase-doc Cycle 2 "New" list):
+
+- **Backends present, enum-dispatched in a single `StorageBackend` type:**
+  `Local` + (feature `aws-s3`) `S3` / `Hetzner` / `Scaleway` / `Ovh` / `Exoscale` / `Backblaze` / `R2` + (feature `gcs`) `Gcs` + (feature `azure-blob`) `Azure`. (`crates/fraiseql-storage/src/backend/mod.rs:L127-L157`.) Dispatcher: `create_backend(&StorageConfig)` (`backend/mod.rs:L431-L555`). Cargo features: `default = ["postgres"]`; storage backends behind `aws-s3` / `gcs` / `azure-blob` / `transforms` (`crates/fraiseql-storage/Cargo.toml:L42-L60`).
+- **File transforms ship — resize + format-conversion only.** No watermark, no EXIF strip. (`crates/fraiseql-storage/src/transforms/transformer.rs:L10-L60` — `OutputFormat::{Webp,Jpeg,Png,Avif,Bmp}`, `TransformParams { width, height, format, quality }`.) Gated behind Cargo feature `transforms` (depends on `image` + `kamadak-exif`).
+- **Storage HTTP routes (the modern crate path):** PUT/GET/DELETE `/storage/v1/object/{bucket}/{*key}`, GET `/storage/v1/list/{bucket}`, POST `/storage/v1/presign/{bucket}/{*key}`. (`crates/fraiseql-storage/src/routes/mod.rs:L1-L11` and `L126-L136`.)
+- **Storage HTTP routes (the legacy server path):** POST/GET/DELETE `/storage/v1/object/*key`, GET `/storage/v1/object/sign/*key`. (`crates/fraiseql-server/src/routes/storage/mod.rs:L1-L13`, `L281`.) Two route trees exist; the server's `routes/storage/mod.rs::file_error_response` and the crate's `routes/mod.rs::storage_error_response` map `FileError` differently (server: 404 / 413 / 415 / 500; crate / global `FileError::status_code()`: 404 / 403 / 400 / 500). Page must state which path it documents and which mapping applies.
+- **GraphQL surface auto-generated when buckets configured:** per-bucket `{Name}StorageObject` type (fields `key`, `size`, `content_type`, `created_at`, `updated_at`), `generate{Name}UploadUrl` mutation, `list{Name}Objects` query. (`crates/fraiseql-storage/src/graphql/mod.rs:L20-L200`.) Generated only when `[storage]` buckets exist in the **compiled schema** (see drift item below).
+- **`FileError` enum + HTTP mapping (F050 migration, v2.3):** 16 variants with stable `error_code()` strings and `status_code()` → HTTP. (`crates/fraiseql-error/src/file.rs:L1-L246`; CHANGELOG L277-L316.) Variants `TooLarge / InvalidType / MimeMismatch / Storage / Processing / NotFound / VirusDetected / QuotaExceeded / PermissionDenied / IoError / InvalidKey / NotImplemented / Unsupported / SizeLimitExceeded / MimeTypeNotAllowed / Backend`. Pre-F050 `FraiseQLError::Storage { code, message }` was replaced; downstream callers matching on it must migrate.
+
+Drifted-or-missing bullets (vs. phase-doc Cycle 2 "New" list):
+
+- **DRIFT — `[storage]` TOML section shape.** The phase doc and CHANGELOG L66-L69 imply the binary consumes `[storage.<name>]` directly. **It does not at frozen SHA.** The binary's `main.rs:L25-L33` deserializes `ServerConfig` (`server_config/mod.rs:L41`), a flat-key struct without any `storage` field. The HashMap-shaped `storage: HashMap<String, StorageConfig>` lives on `RuntimeConfig` (`config/mod.rs:L60-L120`, field at L73-L74), which the binary never instantiates. The modern subsystems path expects bucket definitions in the **compiled schema JSON** (`"storage": { "buckets": [...] }` per `schema/loader.rs:L40-L72`), not TOML. **See FW-7 #334.**
+- **DRIFT — RLS-enforced tenant isolation.** The phase doc says "RLS-enforced". The shipped enforcement is **application-level**, not PG RLS: `StorageRlsEvaluator` (`crates/fraiseql-storage/src/rls/mod.rs:L17-L120`) checks `BucketAccess::{Private,PublicRead}` against `owner_id` matching + `admin` role bypass. The `_fraiseql_storage_objects` table (`crates/fraiseql-storage/src/migrations/mod.rs:L36-L60`) has **no `tenant_id` column** and ships **no `CREATE POLICY` statements**. The server's legacy route layer additionally supports a `tenant_prefix: Option<String>` on `StorageRouteState` (`crates/fraiseql-server/src/routes/storage/mod.rs:L36-L80`) that prepends `{prefix}/` to keys. Page must call this out: "tenant isolation" means owner-match + optional key-prefix, not PG row-level security.
+- **DRIFT — "default-deny outbound HTTP" claim.** Phase doc says HTTP allowlist defaults to deny in `fraiseql-functions`. **It does not.** `HttpClientConfig::default()` (`crates/fraiseql-functions/src/host/live/http_validator/mod.rs:L29-L37`) sets `allowed_domains: vec!["*"]`. Default is **allow-all with SSRF guard for private IPs only** (RFC 1918 / loopback / link-local / IPv6 ULA). The functions-side allowlist is cross-referenced by storage only insofar as transforms / on-upload callbacks may make outbound calls; this is not a storage-specific guardrail and shouldn't be framed as one.
+- **MISSING — Cargo-feature mention on the page.** S3 backends require `aws-s3`; GCS requires `gcs`; Azure requires `azure-blob`; transforms require `transforms`. The image built by Cycle 2 of Phase 00 (`docker-compose.docs-test.yml:L225-L226`) carries `CARGO_FEATURES = "arrow,observers,observers-nats,observers-enterprise,rest,redis-pkce,redis-apq,redis-rate-limiting"` — **none of the storage features.** Any docs-test that drives storage end-to-end through the FraiseQL binary must rebuild the image with the corresponding feature appended (the storage overlays already document this in their leading comments).
+
+#### 2. Source-citation candidates for the GREEN Writer
+
+`file:line` ranges at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461` that the GREEN Writer should cite (verified during this RED session):
+
+- TOML `[storage.<name>]` HashMap binding on `RuntimeConfig`: `crates/fraiseql-server/src/config/mod.rs:L73-L74`
+- `StorageConfig` field set (backend / bucket / region / endpoint / project_id / account_name / max_upload_bytes): `crates/fraiseql-server/src/config/mod.rs:L395-L425`
+- `FileConfig` (named upload endpoint) field set — **3 fields only**: `storage`, `max_size`, `path`: `crates/fraiseql-server/src/config/mod.rs:L317-L327`
+- Binary's actual config parser is flat `ServerConfig`, not `RuntimeConfig`: `crates/fraiseql-server/src/main.rs:L25-L33` + `crates/fraiseql-server/src/server_config/mod.rs:L41` (no `storage` field; `storage_token` is the only storage-adjacent key at `:L523-L540`)
+- `Server::with_storage(backend)` — the library-API wiring point: `crates/fraiseql-server/src/server/builder.rs:L583-L588`
+- `Server::new` defaults `storage_backend: None`: `crates/fraiseql-server/src/server/builder.rs:L429`
+- Storage routes mount gate: `crates/fraiseql-server/src/server/routing/extensions.rs:L40` (legacy `storage_backend`) and `:L67` (modern `storage_state`)
+- `StorageRouteState` + `tenant_prefix` + `prefixed_key`: `crates/fraiseql-server/src/routes/storage/mod.rs:L35-L80` and `:L131-L142`
+- Legacy server `file_error_response` HTTP mapping (404 / 413 / 415 / 500): `crates/fraiseql-server/src/routes/storage/mod.rs:L113-L128`
+- `StorageBackend` enum dispatch: `crates/fraiseql-storage/src/backend/mod.rs:L127-L157`
+- `create_backend(&StorageConfig)` per-arm wiring (local / s3 / hetzner / scaleway / ovh / exoscale / backblaze / r2 / gcs / azure / not-feature-enabled errors): `crates/fraiseql-storage/src/backend/mod.rs:L431-L555`
+- `validate_key` (rejects empty / `..` / leading `/` or `\\`): `crates/fraiseql-storage/src/backend/mod.rs:L361-L373`
+- `default_s3_endpoint` defaults for hetzner / scaleway / ovh / exoscale / backblaze (r2 returns None): `crates/fraiseql-storage/src/backend/mod.rs:L375-L420`
+- HTTP storage routes (modern crate): `crates/fraiseql-storage/src/routes/mod.rs:L1-L11` and `:L126-L136`
+- `StorageState` (backend + metadata + rls + buckets): `crates/fraiseql-storage/src/routes/mod.rs:L41-L51`
+- `StorageRlsEvaluator` — application-level (NOT PG RLS), owner_id / admin role checks: `crates/fraiseql-storage/src/rls/mod.rs:L17-L120`
+- `_fraiseql_storage_objects` migration SQL — no tenant_id column, no PG POLICY: `crates/fraiseql-storage/src/migrations/mod.rs:L36-L60`
+- `StorageMetadataRow` fields (incl. `owner_id: Option<String>`): `crates/fraiseql-storage/src/metadata/mod.rs:L15-L40`
+- `BucketConfig` + `BucketAccess { Private, PublicRead }` + `TransformPreset`: `crates/fraiseql-storage/src/config/mod.rs:L1-L60`
+- `ImageTransformer::transform` + `TransformParams` + `OutputFormat::{Webp,Jpeg,Png,Avif,Bmp}` (resize + format conversion only): `crates/fraiseql-storage/src/transforms/transformer.rs:L10-L100`
+- GraphQL surface auto-generation per bucket: `crates/fraiseql-storage/src/graphql/mod.rs:L20-L200`
+- `SchemaStorageConfig` (the compiled-schema JSON shape — `"storage": { "buckets": [...] }`): `crates/fraiseql-server/src/schema/loader.rs:L40-L72`
+- `StorageSubsystem` (modern wiring): `crates/fraiseql-server/src/subsystems/mod.rs:L52-L65`
+- `FileError` enum: `crates/fraiseql-error/src/file.rs:L1-L175`
+- `FileError::status_code()` HTTP mapping: `crates/fraiseql-error/src/file.rs:L200-L246`
+- `FileError::error_code()` stable strings: `crates/fraiseql-error/src/file.rs:L178-L199`
+- CHANGELOG F050 migration table: `CHANGELOG.md:L277-L316`
+- CHANGELOG storage-API entry: `CHANGELOG.md:L66-L69`
+- HTTP allowlist default (`*` allow-all + SSRF private-IP block): `crates/fraiseql-functions/src/host/live/http_validator/mod.rs:L29-L90`
+
+#### 3. RED-evidence transcripts
+
+Both under `_internal/.plan/red-evidence/`:
+
+- `phase-03-cycle-02-stale-files-toml.transcript` — verbatim repro of the existing page's L46-L60 TOML against the binary. Server BOOTS HEALTHY (200 on `/health`), `/files/avatars` POST → 404, `/storage/v1/object/...` → 404, no storage-init log line. Confirms the binary ignores both `[files.<name>]` (with the page's hallucinated fields `allowed_types` / `validate_magic_bytes` / `public`) and `[storage.<name>]` entirely.
+- `phase-03-cycle-02-storage-local.transcript` — proper-shape `[storage.docs_test]` (s3-flavoured, structurally valid against `RuntimeConfig.storage` + `StorageConfig`). Same outcome: 200 on `/health`, 404 on all `/storage/v1/*` paths, no init log line. Confirms the gap is binary-wiring (`Server::with_storage` never called), not TOML shape.
+
+No `scripts/docs-test/bugs/` repros written — that's the Bug-Finder's deliverable per personas.md.
+
+#### 4. Material drift from phase-doc
+
+| Phase-doc claim | Frozen-SHA reality | Action for GREEN Writer |
+|------|------|------|
+| `[storage]` TOML section parsed by binary | Only `RuntimeConfig` has `storage: HashMap<String, StorageConfig>`; binary uses `ServerConfig` (flat) which has no `storage` field. Modern path expects buckets in compiled-schema JSON, not TOML. | Pivot to library-API + compiled-schema framing (Option A — recommended). Link FW-7 #334 in `## Known issues`. |
+| "RLS-enforced tenant isolation" | Application-level evaluator (`StorageRlsEvaluator` — owner_id match + admin role) and key-prefix routing (`tenant_prefix`); no PG `CREATE POLICY`, no `tenant_id` column on `_fraiseql_storage_objects`. | Rename section to "Tenant isolation: owner-id matching + key prefixing". Avoid the phrase "PG RLS" for storage. |
+| Transforms: resize, watermark, format conversion | Resize + format conversion only. No watermark. | Drop the watermark claim. |
+| "Default-deny outbound HTTP in `fraiseql-functions` adjacent" | `HttpClientConfig::default()` is `allowed_domains: ["*"]` (allow-all) with SSRF private-IP block as the only built-in defence. | Reframe: "outbound HTTP is allow-all by default with a private-IP block; tighten via `allowed_domains`". Cross-link to functions page when that exists; do not promise default-deny on this storage page. |
+| FW-1 #326 file-storage relevance | Confirmed: Azure / GCS endpoint override is missing — Azurite and fake-gcs sidecars remain reachable only via direct client tests. | Page's `## Known issues` block links **FW-1 #326** and **FW-7 #334**. Do NOT refile FW-1. |
+
+#### 5. Framework bugs filed during RED
+
+- **FW-7 — https://github.com/fraiseql/fraiseql/issues/334** — `[docs-overhaul] server: fraiseql-server binary does not auto-wire [storage.<name>] / [files.<name>] TOML — storage routes unreachable in off-the-shelf binary`. Severity `regression`. Filed during this RED session. Registered in `framework-qa-triage.md` as **FW-7**.
+- **FW-1 #326** — cross-link only (Azure/GCS endpoint override). Not refiled. Continues to gate Azurite + fake-gcs end-to-end harness use through the binary.
+
+No other framework bugs filed.
+
+#### 6. Harness gaps for the GREEN Writer / Cleanup
+
+- **Compose `--profile storage` still present** with MinIO + Azurite + fake-gcs sidecars and their init-image counterparts (`scripts/docs-test/docker-compose.docs-test.yml` — verified `up --profile fraiseql --profile storage` brings up nine long-running services Healthy in ~7 s warm). Storage overlays at `scripts/docs-test/configs/overlays/storage-{s3,azure,gcs}.toml` are usable structurally but only `storage-s3.toml` can drive the binary end-to-end (after a Cargo-features rebuild) — FW-1 #326 blocks Azure/GCS through the binary; FW-7 #334 blocks all three through TOML.
+- **No `_fraiseql_storage_objects` table in `scripts/docs-test/fixtures/postgres/_smoke.sql`.** GREEN Writer / Cleanup must add `fraiseql_storage::migrations::storage_migration_sql()` output (or its modern path) to the fixture overlay if the docs-test exercises the metadata layer. Alternatively, the page can keep the docs-test minimal (route + auth + bucket-not-found path only, no metadata insert) — note in handoff which path was chosen.
+- **`CARGO_FEATURES` rebuild required** for any backend-touching docs-test step. Cycle 1 followed Cycle 0's image as-built; Cycle 2 will need a documented rebuild step if the docs-test exercises storage at the binary level. The Cycle-1 multi-tenancy docs-test sidestepped this by exercising route-absent-404 + RBAC-bootstrap paths only. Cycle 2 can do the same (RED already covers it) and skip the rebuild, OR add a per-page image variant.
+- **The compiled schema fixture is hand-rolled minimal** — no `"storage": { "buckets": [...] }` block. If the docs-test exercises the modern subsystems path (compiled-schema-driven), a fixture with a `buckets` block is needed. Library-API framing (Option A) sidesteps this.
+
+#### 7. (A) library-API vs (B) feature-request framing recommendation
+
+**Recommendation: (A) library-API framing.** Same precedent as Cycle 1 with FW-3 #330.
+
+Rationale: the framework's library API for storage is complete and well-defined (`Server::with_storage(create_backend(&config))` + `fraiseql_storage::{StorageBackend, StorageState, storage_router}`). The compiled-schema `"storage": { "buckets": [...] }` path is also documented and tested via the modern subsystems builder. The gap is purely the off-the-shelf binary not consuming either surface from TOML. Documenting the library-API path is honest, citable, and lets readers actually run the feature. The page leads with the host-binary wrapper pattern (a few lines of Rust calling `Server::with_storage`), then optionally shows the compiled-schema bucket-declaration approach.
+
+`## Known issues` cross-links: **FW-7 #334** (binary doesn't auto-wire) and **FW-1 #326** (Azure/GCS endpoint override missing).
+
+Drop the marketing-flavoured "Python decorator + Upload scalar + `[files]` TOML" framing entirely. The existing page's two-step (multipart POST → record-via-mutation) pattern remains valid as a recipe, but reframed against the library-mounted `/storage/v1/object/*` routes and an example application's GraphQL mutation against `_fraiseql_storage_objects`.
+
+#### 8. Pointer to Bug-Finder (Opus 4.7) for Phase 03 / Cycle 2
+
+Next session is **Bug-Finder (Opus 4.7)**. Adversarial classes specific to file-storage to focus on:
+
+- **Cross-tenant blob access (the canonical attack):** confirm `tenant_prefix` is actually enforced on the legacy server routes (`crates/fraiseql-server/src/routes/storage/mod.rs:L131-L142`). Race two requests with different prefixes against the same underlying backend key. Try `..` / encoded `..` / URL-double-encoded path-traversal in keys (verify `validate_key` rejects).
+- **Signed-URL replay across tenants / users:** generate a presigned URL for tenant A, replay it from tenant B's session. Confirm whether the URL is bound to anything beyond the bucket + key + expiry.
+- **Oversized upload (memory exhaustion):** confirm `max_upload_bytes` (default `100 MiB` per `routes/storage/mod.rs:L31`) is actually enforced before the body is fully buffered. Try a chunked-transfer body that exceeds the limit and confirm the 413 short-circuits.
+- **MIME confusion:** upload a file whose declared `Content-Type` differs from its magic bytes; confirm the backend's behaviour. The legacy server route forwards the `Content-Type` header verbatim without magic-byte validation (`routes/storage/mod.rs:L177-L184`) — the existing page's `validate_magic_bytes` claim is hallucinated. Verify.
+- **HTTP allowlist bypass via DNS rebinding:** `validate_outbound_url` (`crates/fraiseql-functions/src/host/live/http_validator/mod.rs:L62-L90`) checks the URL host string at call time, then resolves. If the host resolves to a private IP after the allowlist check, the SSRF guard depends on `validate_ip` running. Confirm the path.
+- **Transform DoS via decode amplification:** the `image` crate decodes input before resizing. Upload a malformed or zip-bomb-style image and observe memory / CPU behaviour. Cap behaviour is whatever `image` provides; document the unguarded path.
+- **RLS check bypass via raw SQL:** `StorageRlsEvaluator` runs in Rust against `StorageMetadataRow`. Any code path that reads `_fraiseql_storage_objects` outside the evaluator (e.g. a custom GraphQL query against the auto-generated `list{Bucket}Objects`) bypasses the check. Confirm whether the auto-generated list query goes through the evaluator or directly to SQL.
+
+The Bug-Finder should also exercise the `[storage]` TOML / compiled-schema cross-path: FW-7 #334 documents the gap in the binary, but the library API path may have its own surprises. Any new bug becomes a `scripts/docs-test/bugs/file-storage.bug-N.sh` and a fresh `gh issue create` (do NOT refile FW-7 #334).
+
+#### 9. Files added / modified this RED
+
+- `_internal/.plan/red-evidence/phase-03-cycle-02-stale-files-toml.transcript` — added (74 lines).
+- `_internal/.plan/red-evidence/phase-03-cycle-02-storage-local.transcript` — added (60 lines).
+- `_internal/.plan/framework-qa-triage.md` — added FW-7 row.
+- `_internal/.plan/handoff.md` — this entry (append-only).
+- **No** edits to `src/content/docs/` (anti-scope held).
+- **No** page draft (Writer-GREEN session).
+- **No** `scripts/docs-test/bugs/` repros (Bug-Finder).
+- **No** edits to `~/code/fraiseql` (Writer-RED anti-scope held).
+- **No** harness edits (baseline.toml restored from git after experiments).
+
+#### 10. Commit / push
+
+Commit `[Phase 03, Cycle 2: RED, Persona: Writer]` per methodology § 8. Push to `origin/phase-03/critical-rewrites`.
+
+#### 11. Open gates
+
+Unchanged. G1 closed. G2 default-hold. G7 resolved (build-time strip integration live). G3 / G4 / G5 downstream. No novel gates surfaced during this RED.
+
+#### Pointer
+
+Next session: **Bug-Finder (Opus 4.7)** for Phase 03 / Cycle 2. Read this entry + the two transcripts in `_internal/.plan/red-evidence/`. Adversarial classes per § 8 above. After Bug-Finder, a fresh Writer session does GREEN.

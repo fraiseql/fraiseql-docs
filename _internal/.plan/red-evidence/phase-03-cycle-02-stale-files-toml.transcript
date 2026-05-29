@@ -1,0 +1,74 @@
+=================================================================
+ Phase 03 / Cycle 2 RED — stale /features/file-storage TOML repro
+ Date: 2026-05-29T20:44:45Z
+ Frozen FraiseQL SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+ Image: fraiseql-docs-test-fraiseql:latest built with default CARGO_FEATURES
+=================================================================
+
+## Overlay applied (verbatim from existing /features/file-storage.mdx L46-L60)
+# Reproduces the existing /features/file-storage page's leading TOML example
+# (`[storage.default]` + `[files.avatars]` with allowed_types / validate_magic_bytes / public)
+# verbatim against the binary's ServerConfig parser.
+
+bind_addr = "0.0.0.0:8080"
+database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"
+schema_path = "/etc/fraiseql/schema.compiled.json"
+cors_enabled = true
+cors_origins = ["http://localhost:8080"]
+health_path = "/health"
+playground_enabled = false
+metrics_enabled = false
+admin_api_enabled = false
+introspection_enabled = false
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30
+
+# === verbatim from /features/file-storage.mdx (lines 47-60) ===
+[storage.default]
+backend = "local"
+base_path = "./uploads"
+serve_path = "/files"
+
+[files.avatars]
+storage = "default"
+max_size = "5MB"
+allowed_types = ["image/jpeg", "image/png", "image/webp"]
+validate_magic_bytes = true
+public = true
+
+## Observation 1 — server BOOTED HEALTHY despite [files.*] containing
+## allowed_types / validate_magic_bytes / public — none of which exist
+## in ServerConfig at frozen SHA. Server-side ServerConfig parser used
+## by main.rs L25-L33 is a flat-key struct; the [storage.*] + [files.*]
+## HashMap shape only exists on RuntimeConfig (crates/fraiseql-server/
+## src/config/mod.rs:L60-L120) which the binary never instantiates.
+
+## /health probe (server healthy)
+HTTP 200
+{"status":"healthy","database":{"connected":true,"database_type":"PostgreSQL","active_connections":0,"idle_connections":4},"version":"2.3.2","schema_hash":"316c9100f7a872c8c411033ac2a00066"}
+
+## /files/avatars POST (documented endpoint per existing page L398-L406)
+HTTP 404 — route does not exist
+
+## /storage/v1/object/myfile.txt POST (framework's actual storage route)
+HTTP 404 — route NOT MOUNTED because Server::with_storage was never called
+by main.rs; storage_backend defaults to None at builder.rs:L429.
+
+## /storage/v1/list/default GET
+HTTP 404 — same root cause
+
+## Container log excerpt (no storage routes initialized; no storage warning;
+## no validation error against the unknown [files] / [storage] sections)
+  - no 'Storage API mounted' line (would come from
+    server/routing/extensions.rs:L194-L209 if storage_backend.is_some())
+  - request log shows POST /files/avatars → 404 status 0ms
+  - request log shows POST /storage/v1/object/myfile.txt → 404 status 0ms
+
+## Conclusion — RED for the existing page:
+ (1) The existing page documents [files.<name>] with fields that do not exist.
+ (2) Even the structurally-correct [storage.<name>] HashMap is parsed by
+     RuntimeConfig — a struct the binary does not load.
+ (3) Storage routes are gated on .with_storage(backend) at
+     server/builder.rs:L583-L588 and the binary never calls it.
+     This is the same library-API gap as FW-3 #330 (TenantRegistry wiring).
