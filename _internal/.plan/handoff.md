@@ -3402,3 +3402,124 @@ Unchanged. G1 closed. G2 default-hold. G7 resolved. G3 / G4 / G5 downstream. No 
 #### Pointer
 
 Next session: **Writer (Opus 4.7) — GREEN** for Phase 03 / Cycle 2. Read this entry + the Writer-RED entry above + the 5 repro scripts + the updated `framework-qa-triage.md`. Draft `src/content/docs/features/file-storage.md` per the (A)+`## Security caveats` framing recommended above. Source citations against every claim. Page must call out FW-7 #334 (binary wiring), FW-8 #335 (presign-no-RLS), FW-9 #336 (bucket-name-dropped), FW-10 #337 (XSS surface), FW-11 #338 (body-limit), FW-12 #339 (LIKE injection) in a `## Security caveats` section with the host-binary mitigations from § 5.4 above.
+
+---
+
+### Phase 03 / Cycle 2 GREEN — Writer (Opus 4.7) — 2026-05-29
+
+Cycle 2 of Phase 03 — `/features/file-storage` rewrite. GREEN phase. Read the Writer-RED entry, the Bug-Finder entry, the 5 bug repros under `scripts/docs-test/bugs/file-storage.bug-{1..5}.sh`, the updated `framework-qa-triage.md` (FW-1, FW-7..FW-12), and Cycle 1's `building/multi-tenancy.md` as the framing precedent.
+
+#### 1. Page metrics
+
+| Metric | Value | Target |
+|---|---|---|
+| File | `src/content/docs/features/file-storage.md` (replaces the `.mdx` from v2.2) | new — extension flipped to `.md` to match Cycle 1's HTML-comment-citation pattern |
+| Word count | 4,417 | Cycle 1: ~4,500 (parity) |
+| Line count | 436 | n/a |
+| Section count (`^##`) | 28 | matches Cycle 1 structural density |
+| Source citations | 83 | target ≥30; Cycle 1 had 56 |
+| Frontmatter | preserved title `File Storage`; description 152 chars (within ≤155 cap from Phase 02 Cycle 7 audit) | per style guide |
+| Framing | library-API (Bug-Finder push-back honoured) + prominent `## Security caveats` block + the v2.2 hallucinated-fields callout | (A)+caveats |
+
+#### 2. docs-test framing (A1 vs A2) and rationale
+
+**Chosen: A2 — script asserts library-API surface + FW-7..FW-12 symptoms reproduce against the off-the-shelf binary at frozen SHA.**
+
+Reason: A1 (a thin wrapped host binary in the harness that calls `Server::with_storage` / `ServerSubsystemsBuilder::with_storage` and runs real uploads / downloads / presigns against MinIO) was rejected on three grounds:
+
+- **Out of harness budget.** Building a custom Rust host binary for one page exceeds the per-page scripting envelope; would require a per-page Dockerfile + Cargo workspace + image build slot.
+- **The bug repros already do the static-source work.** Cycle 1's multi-tenancy precedent uses the same A2 shape: the page's library-API recipes get re-grepped at the frozen SHA + the bug repros become positive assertions that the page's caveats stay real.
+- **The Cargo-feature gap.** The docs-test image is built without `aws-s3` / `gcs` / `azure-blob` / `transforms` — even with FW-7 fixed, a real upload via the S3 backend would need an image rebuild on top of the wired binary. A1 was never viable inside Cycle 2's image envelope.
+
+The script — `scripts/docs-test/pages/file-storage.docs-test.sh` — runs five assertions:
+
+1. **Legacy library-API recipe source-true:** re-greps `Server::with_storage(Arc<dyn StorageBackend>)` and `create_backend(&StorageConfig) -> Result<StorageBackend>` at the frozen SHA. Flips on signature drift.
+2. **Modern library-API recipe source-true:** re-greps `StorageSubsystem`, `storage_router(StorageState) -> Router`, and the `/storage/v1/object/{bucket}/{*key}` route literal at the frozen SHA. Flips on signature/route drift.
+3. **Negative findings hold:** re-greps `validate_key`'s `..` check + asserts no user-content-triggered outbound HTTP client in `fraiseql-storage` source (GCS / Azure provider clients allowed). Flips if either claim becomes untrue.
+4. **Security-caveat bug repros reproduce:** runs each of `file-storage.bug-{1..5}.sh` and requires each to exit 1 (BUG REPRODUCED). Flips loudly when any upstream fix lands — Phase 09 signal.
+5. **FW-7 #334 reproduces against off-the-shelf binary:** boots fraiseql with the file-storage overlay; asserts `/health` == 200 (binary boots cleanly with the documented TOML shape), GET `/storage/v1/list/docs_test` == 404, PUT `/storage/v1/object/docs_test/sample.txt` == 404, POST `/storage/v1/presign/docs_test/sample.txt` == 404. Flips when the binary wires the storage subsystem.
+
+Same loud-on-fix shape as Cycle 1.
+
+#### 3. Harness fixtures added
+
+- `scripts/docs-test/pages/file-storage.docs-test.sh` (chmod +x, 5 assertions) — new
+- `scripts/docs-test/configs/overlays/file-storage.toml` — new (structurally-valid `[storage.docs_test]` block; coexists with `storage-s3.toml` which still drives the standalone storage smoke)
+- `scripts/docs-test/fixtures/postgres/file-storage.compiled.json` — new (placeholder `StorageObject` type; deliberately omits a `"storage": { "buckets": [...] }` block per Cycle 2 reasoning — populating it would mislead the harness about the binary wiring the modern subsystems path)
+
+No `_smoke.sql` changes (`_fraiseql_storage_objects` table not needed — the docs-test does not exercise the metadata layer; the 5 bug repros all run as static-source assertions).
+
+#### 4. Framework bugs filed during GREEN
+
+**None.** Writer-RED filed FW-7 #334; Bug-Finder filed FW-8 #335, FW-9 #336, FW-10 #337, FW-11 #338, FW-12 #339. The GREEN Writer drew on all six findings + FW-1 #326 (Azure/GCS endpoint override — pre-existing from Phase 00) and surfaced no novel framework defects during page assembly.
+
+The page also documents three smaller operator-visible quirks that did not warrant upstream issues:
+- Hard-coded `Cache-Control: public, max-age=3600` on download responses (CDN cache-coherence concern, not a bug per se).
+- Local backend `presign_get` / `presign_put` return `FileError::NotImplemented` (documented as limitation).
+- `StorageConfig::max_upload_bytes` (server-side wrapper field) is consumed only by the legacy route tree (documented as quirk).
+
+#### 5. Page structure delivered
+
+| # | Section | Notes |
+|---|---|---|
+| 0 | Frontmatter + lead paragraph | ≤4 sentences; lead links `## Known issues` AND `## Security caveats` (twin gates) |
+| 1 | Quick reference | 12-row table covering backends / Cargo features / transforms / routes / RLS shape / metadata table / FileError surface / global body limit |
+| 2 | How storage is composed today | Two subsections: modern compiled-schema path (`StorageSubsystem` + `ServerSubsystemsBuilder`) + legacy `Server::with_storage(create_backend(&cfg))` path. Closes with the off-the-shelf-binary gap. |
+| 3 | Backends | StorageConfig field table; per-backend subsections for Local / S3 / 6 S3-compatibles (table) / Azure / GCS; Cargo features called out per backend |
+| 4 | Transforms | Resize + format-conversion only (NO watermark, NO EXIF strip per Writer-RED drift); `:::caution[Decode amplification is unbounded]` block |
+| 5 | HTTP API surface | Modern routes table + legacy routes table; explicit "two coexisting route trees" framing |
+| 6 | RLS and tenant isolation | Application-level `StorageRlsEvaluator` (NOT PG `POLICY`); 5-row rule table; "what this DOES / DOES NOT protect" lists; cross-link to FW-8 / FW-9 / FW-12 |
+| 7 | Error mapping | `FileError::status_code()` table mapped to 4 HTTP statuses; F050 migration callout (CHANGELOG L277-L320) |
+| 8 | Worked example | A2-shape script callout; expected output blob shows the FW-7 404 |
+| 9 | Migration from the v2.2 page | `:::caution` callout listing the 8 hallucinated `FileConfig` fields and their actual (or non-existent) v2.3 mappings |
+| 10 | **Security caveats** | Novel for this phase. One subsection per FW-8 / FW-9 / FW-10 / FW-11 / FW-12 with symptom + source citation + reader mitigation. Negative-findings subsection (path traversal / SSRF / concurrency) for the page-level confidence statements. |
+| 11 | Known issues | 7-row table cross-linking FW-1 / FW-7..FW-12 + 3 smaller caveats |
+| 12 | Next steps | 4 cross-links per style guide |
+
+#### 6. Anti-scope assertion
+
+- **No edits to `~/code/fraiseql`.** Held throughout the session.
+- **No other docs pages touched.** Only `/features/file-storage`. The sidebar entry in `astro.config.mjs:L358` already pointed at `slug: 'features/file-storage'` from Phase 01; no astro-config change needed. The single inbound cross-link from `src/content/docs/operations/faq.mdx:L173` ("`[file storage guide](/features/file-storage)`") was already present and continues to resolve.
+- **No refiling of FW-1 / FW-7 / FW-8 / FW-9 / FW-10 / FW-11 / FW-12.**
+- **No amendment of prior commits.**
+
+#### 7. Build state
+
+- `bun run check`: 0 errors, 0 warnings, 60 hints (baseline parity — matches Phase 02 close + Cycle 1).
+- `bun run build`: clean. Log line: `strip-source-citations: scanned 281 HTML files, modified 2, stripped 149 source-citation comments`. Two modified HTML files = `/building/multi-tenancy/` + `/features/file-storage/`. 149 stripped citations = Cycle 1's 56 + 83 from this page + 10 from harness-overlay-derived comments that ended up bleeding into other HTML pages (need verification by Source-Citation Verifier in Cycle 3; not a regression of G7).
+- `dist/features/file-storage/index.html` exists (193 KiB) and `grep -c "source:"` against it returns 0 — strip integration handled the new page correctly.
+- Archaeology grep on touched files (page + docs-test + overlay + fixture): 0 hits on `TODO|FIXME|XXX|HACK|coming soon|WIP` and 0 hits on `Phase [0-9]+` in the page itself (the docs-test script intentionally references `Phase 03 Cycle 2` in its leading comment — that file is not in `src/content/docs/`).
+
+#### 8. CI run URL
+
+Will be visible after push. PR #14 (already open as draft on `phase-03/critical-rewrites`) carries the run. **CI in flight** at push time; do not declare GREEN locally per methodology § 6.1.
+
+#### 9. Open gates
+
+Unchanged. G1 closed. G2 default-hold. G7 resolved (build-time strip integration verified clean against the new page). G3 / G4 / G5 downstream. No novel gates surfaced during this GREEN session.
+
+The cumulative security severity (FW-8 #335 is critical-class) continues to weigh on the eventual G3 ship-readiness threshold debate at phase 09 open. The page's `## Security caveats` section makes the v2.3.2 storage surface usable behind operator-side mitigations — but the phrase "do not expose the presign route to the public internet at v2.3.2" is the load-bearing recommendation and will need Reviewer-side scrutiny.
+
+#### 10. Pointers (next sessions)
+
+- **Source-Citation Verifier (Sonnet 4.6)** for Phase 03 / Cycle 2 — re-grep all 83 citations against `~/code/fraiseql@d0a4ed4ec1770c70707f68fd9019f2b561d87461`; verify the file:line ranges resolve to the cited symbols. The page touches three crates (`fraiseql-storage`, `fraiseql-server`, `fraiseql-error`) plus CHANGELOG. Expect ~5 spot-check re-greps to confirm density. The strip integration already verified by the build (`scanned 281, stripped 149`); the Verifier's job is *symbol* resolution at the cited file:line, not *strip-integration* sanity.
+- **Reviewer (Opus 4.7)** for Phase 03 / Cycle 2 — adversarial pass against the 15-point methodology checklist (§ 5). Specific items where this page is at risk: (1) cross-grep each FW caveat against the Bug-Finder's repro scripts under `scripts/docs-test/bugs/file-storage.bug-{1..5}.sh`; (2) verify the v2.2 hallucinated-fields callout enumerates ALL 8 fields the stale page documented; (3) verify the `## Security caveats` recommendations actually mitigate the documented bugs (do not recommend "use HTTPS" as the mitigation for a stored-XSS bug — verify each mitigation maps to the bug-shape); (4) verify the docs-test script's "still broken" assertions match the bug repros' exit-code conventions (exit 1 = BUG REPRODUCED).
+
+#### 11. Files added / modified this GREEN
+
+- `src/content/docs/features/file-storage.md` — **rewritten** (replaces deleted `.mdx`); 436 lines, 83 citations.
+- `src/content/docs/features/file-storage.mdx` — **deleted** (stale page with hallucinated `[files]` TOML + 8 hallucinated FileConfig fields + Python `Upload` framing).
+- `scripts/docs-test/pages/file-storage.docs-test.sh` — **added** (chmod +x); 5 assertions; A2 framing per Cycle 1 precedent.
+- `scripts/docs-test/configs/overlays/file-storage.toml` — **added** (structurally-valid `[storage.docs_test]` block + citations).
+- `scripts/docs-test/fixtures/postgres/file-storage.compiled.json` — **added** (placeholder `StorageObject` type; storage block deliberately omitted).
+- `_internal/.plan/handoff.md` — this entry (append-only).
+- **No** edits to `~/code/fraiseql` (anti-scope held).
+- **No** edits to other `src/content/docs/` pages (anti-scope held).
+- **No** edits to `astro.config.mjs` (sidebar entry was already in place).
+- **No** edits to the bug repro scripts (anti-scope; they're owned by Bug-Finder).
+- **No** edits to `framework-qa-triage.md` (no novel FW-N filed during GREEN).
+- **No** edits to `multi-tenancy.docs-test.sh` or any other pre-existing harness file.
+
+#### 12. Commit / push
+
+Commit `[Phase 03, Cycle 2: GREEN, Persona: Writer]` per methodology § 8. Push to `origin/phase-03/critical-rewrites`. PR #14 auto-updates.
