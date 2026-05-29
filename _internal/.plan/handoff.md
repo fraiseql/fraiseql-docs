@@ -478,10 +478,10 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
   - `bun run check` — pre-existing 1 error (`SiteTitle.astro` `virtual:starlight/user-images`, unrelated to this cycle) + pre-existing TS hints in `src/lib/validators/**`. No new errors from this cycle's edits.
   - `bun run lint` — no `lint` script defined in `package.json`. The repo has `lint:sql` and `check` only. Running `check` and `build` is the strongest gate available.
   - Re-run of the narrow Cycle-1 grep: zero unintentional STALE hits remaining. The only narrow-grep hits outside the citation lines or HISTORICAL/SDK files is `examples/saas-federation-nats.mdx:588` (`federation_version: =2.0.0`, Apollo Federation directive pin — intentional, classified EXAMPLE in the RED evidence).
-- **CI evidence:** *(to be filled after push)* — will edit this entry with the CI run URL post-push.
-- **Commit:** *(to be filled in below)*
-- **Branch / push:** `phase-01/triage-and-ia` → push to `origin`.
-- **PR:** to be opened as a draft after the push lands (per the persona prompt — first cycle of Phase 01 opens the phase PR).
+- **CI evidence:** https://github.com/fraiseql/fraiseql-docs/actions/runs/26618582360 — **PASSED**. `discover pages and frozen SHA` (5 s) + `page-test (_smoke)` (full smoke). The unrelated `pre-commit.ci - pr` external check failure is the same pre-existing repo-state issue documented at Phase 00 / Cycle 6 close (no `.pre-commit-config.yaml`); does not gate the docs-test workflow.
+- **Commit:** `59ee065` on branch `phase-01/triage-and-ia`.
+- **Branch / push:** `phase-01/triage-and-ia` pushed to `origin` (new branch on remote).
+- **PR:** https://github.com/fraiseql/fraiseql-docs/pull/12 — draft, base `main`, head `phase-01/triage-and-ia`. Title: "docs: Phase 01 — triage and IA".
 - **Docs-test suite:** the `_smoke.docs-test.sh` is the only page test today; this cycle's changes do not touch the smoke's fixtures or page targets. Expect: 1/1 page tests PASS, 0 skipped. CI run URL will be captured post-push.
 - **Framework issues filed:** 0. Cycle 1 surfaced no new framework bugs (the `changelog.mdx` "Unreleased" framing is a docs-side rewrite, not a framework regression; the three quickstart SQL bugs from Phase 00 / Cycle 5 are already on the Phase 02 backlog).
 - **Open gates surfaced:** none new. G2 (SHA bump) policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G1 (sidebar IA) is Cycle 6's responsibility; not surfaced this cycle.
