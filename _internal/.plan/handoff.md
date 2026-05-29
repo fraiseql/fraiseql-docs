@@ -1652,3 +1652,11 @@ All five are real CHANGELOG entries; none is fabricated; the adjacency selection
 - G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
 
 **Sign-off: BLOCK — back to Writer (Opus 4.7).** Single mechanical fix: rewrite L246-L248 of `src/content/docs/release-notes/v2-2.mdx` to drop the markdown link to `/migrations/upgrading/v2-1-to-v2-2/`, replacing it with prose-only reference matching the v2-1.mdx precedent. No other changes required; Verifier re-run can be skipped if the Writer attestation is "L246-L248 prose change only, no citations touched". Reviewer (Opus 4.7) re-runs after the fix.
+
+### Phase 02 / Cycle 2 BLOCK-fix — orchestrator — 2026-05-29
+
+- Reviewer flagged `v2-2.mdx:247` as a dead markdown link to `/migrations/upgrading/v2-1-to-v2-2/` (Cycle 5 owns target).
+- Mechanical fix: rewrote L246-L248 as prose-only (`/migrations/upgrading/v2-1-to-v2-2/` in code-span, no MD link), matching v2-1.mdx upgrade-section precedent.
+- `bun run build`: clean. No new internal-link warnings.
+- Commit + push follow. CI gate-runs on `src/content/docs/` touch.
+- Handoff to **Reviewer (Opus 4.7)** re-pass (or accept this as the fix per orchestrator-fix precedent from Cycle 1).
