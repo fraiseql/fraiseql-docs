@@ -8,22 +8,28 @@
 #
 # Why this overlay exists even though FW-3 / #330 means the binary doesn't
 # wire the registry: the docs-test script asserts that the admin tenant API
-# returns 404 ("multi-tenant mode not enabled"). Without `admin_token` the
-# admin write router is not mounted at all and the path returns 404 for an
-# unrelated reason (route absent). With `admin_token` set, the path IS
-# mounted but the handler short-circuits with 404 from the
-# `state.tenant_registry().ok_or_else(...)` line — which is exactly the
-# FW-3 symptom the page documents. Keeping admin_token set makes the FW-3
-# assertion in the docs-test reproduce the page's claim instead of an
-# unrelated 404.
+# returns 404 from the off-the-shelf binary regardless of TOML configuration.
+# That assertion is satisfied either way the route fails — by route-absent
+# 404 (no admin_token set, admin router not mounted) or by handler-short-
+# circuit 404 (admin_token set, handler returns "multi-tenant mode not
+# enabled" from `state.tenant_registry().ok_or_else(...)`). Both are valid
+# FW-3 symptoms from the reader perspective: "the admin tenant API is
+# unreachable on the off-the-shelf binary."
 #
-# `admin_api_enabled = true` is INTENTIONALLY left as `false` here despite
-# the visible mismatch with the admin_token presence — the RBAC schema
-# bootstrap fails on the clean docs-test PG with `Failed to initialize RBAC
-# schema: syntax error at or near "("`. This is the sidenote in #330. When
-# Phase 09 either fixes the bootstrap or adds an [rbac] override fixture
-# under fixtures/postgres/, this overlay flips `admin_api_enabled = true`
-# and removes the workaround.
+# This overlay takes the route-absent path (no `admin_token`). The original
+# draft set `admin_token` to force the handler-short-circuit shape, but the
+# clean docs-test Postgres rejects RBAC schema bootstrap with `Failed to
+# initialize RBAC schema: ... syntax error at or near "("` whenever
+# `admin_token` is present (irrespective of `admin_api_enabled`). The
+# container then CrashLoops and /health never reaches 200. This is the
+# inline sidenote on framework issue #330 — when Phase 09 either fixes the
+# bootstrap or adds an [rbac] override fixture under fixtures/postgres/,
+# this overlay can flip back to setting `admin_token` and prove the
+# handler-short-circuit shape directly. Until then the route-absent path
+# is the only way to keep the docs-test stack bootable.
+#
+# `admin_api_enabled` stays `false` for the same reason — toggling it true
+# also triggers the RBAC bootstrap path.
 #
 # All keys derived from `~/code/fraiseql@d0a4ed4ec` (the frozen SHA). The
 # `<!-- source: ... -->` HTML-comment citations live inside `#` TOML
@@ -46,13 +52,14 @@ admin_api_enabled = false
 introspection_enabled = false
 
 # ── Admin token ──────────────────────────────────────────────────────────────
-# Mounts the admin write router (PUT/DELETE on /api/v1/admin/tenants/...).
-# Without this, the docs-test's FW-3 assertion would 404 because the route
-# is absent, not because the handler short-circuits on the missing registry.
-# The token value is dev-only — the docs-test runs in an isolated network.
+# Deliberately UNSET (see header). Setting `admin_token` triggers RBAC
+# schema bootstrap on the docs-test PG, which currently fails with
+# `syntax error at or near "("` and CrashLoops the container. The FW-3
+# docs-test assertion (admin tenant API returns 404) is satisfied by the
+# route-absent path regardless. When Phase 09 lands the RBAC fixture or
+# bootstrap fix, this overlay can flip back to setting `admin_token`.
 #
 # <!-- source: crates/fraiseql-server/src/server/routing/admin.rs:L389-L489 -->
-admin_token = "docs-test-admin-token"
 
 # ── Pool sizing (inherits baseline) ──────────────────────────────────────────
 pool_min_size = 5

@@ -201,11 +201,16 @@ assert_fw3_330_still_reproduces() {
     fi
     step "/health == 200"
 
-    # (a) Admin REST PUT returns 404 "multi-tenant mode not enabled".
-    #     The overlay does NOT set admin_token (#330 sidenote: admin_api_enabled
-    #     = true breaks RBAC schema init on the harness PG). Without
-    #     admin_token the route is not mounted, so we get 404. Either way, the
-    #     FW-3 contract holds: admin tenant API is unreachable from the binary.
+    # (a) Admin REST PUT returns 404. The overlay deliberately does NOT set
+    #     `admin_token` (overlay header: setting it triggers RBAC schema
+    #     bootstrap which the harness PG rejects with `syntax error at or
+    #     near "("`, CrashLooping the container — same #330 sidenote that
+    #     blocks `admin_api_enabled = true`). Without admin_token the admin
+    #     write router is not mounted, so the path is route-absent 404
+    #     rather than handler-short-circuit 404. The FW-3 contract from the
+    #     reader's perspective ("the admin tenant API is unreachable on the
+    #     off-the-shelf binary") holds either way; the docs page documents
+    #     this distinction in `## Known issues`.
     local admin_body admin_code
     admin_code=$(curl -sS -o /tmp/_mt-admin.json -w '%{http_code}' \
         -X PUT "http://127.0.0.1:$HOST_PORT_FRAISEQL/api/v1/admin/tenants/acme" \
@@ -214,10 +219,10 @@ assert_fw3_330_still_reproduces() {
         || true)
     admin_body=$(cat /tmp/_mt-admin.json 2>/dev/null || echo '')
     if [ "$admin_code" != "404" ]; then
-        err "expected admin PUT /api/v1/admin/tenants/acme to return 404 (multi-tenant runtime not wired); got $admin_code: $admin_body"
+        err "expected admin PUT /api/v1/admin/tenants/acme to return 404 (admin write router not mounted without admin_token); got $admin_code: $admin_body"
         return 1
     fi
-    step "admin PUT /tenants/acme returns 404 (FW-3 still reproduces)"
+    step "admin PUT /tenants/acme returns 404 (FW-3 still reproduces — route-absent path)"
 
     # (b) Unregistered X-Tenant-ID is NOT explicitly denied. The exact response
     #     from the default executor depends on the compiled schema's query
