@@ -4069,3 +4069,108 @@ No novel gates. FW-13 / FW-14 / FW-15 are framework bugs (filed); they are not h
 8. The companion `scripts/docs-test/pages/observers.docs-test.sh` should bootstrap `tb_observer` + DLQ + checkpoint tables (Cycle-2-style fixture overlay) and verify (a) `/health` flips from `degraded` to `healthy` once tables exist, (b) `POST /api/observers` creates an observer, (c) a mutation triggers the webhook (against a netcat sink or a `curl --fail` against a known-bad URL → DLQ accumulates).
 
 Handoff to **Bug-Finder (Opus 4.7)** for Phase 03 / Cycle 3 next, with **Writer (Opus 4.7) — GREEN** queued behind it.
+
+---
+
+### Phase 03 / Cycle 3 RED — Bug-Finder (Opus 4.7) — 2026-05-30
+
+Adversarial pass against `fraiseql-observers` + the binary's observer subsystem at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. No page draft (Writer-GREEN owns that). No edits to `~/code/fraiseql` (Framework Bug-Fixer's Phase 09 surface).
+
+#### 1. Adversarial-class coverage matrix
+
+| # | Class (per §9 above + Bug-Finder prompt) | Outcome | Notes |
+|---|------------------------------------------|---------|-------|
+| 1 | Webhook destination killed mid-dispatch (retry storm vs DLQ) | **mixed** — retry/backoff path is sound; pivoted attack to *insecure default* (FW-20 below) | `executor/retry.rs:L80-L120` applies exponential / linear / fixed backoff with ±25 % jitter, bounded by `max_attempts` (default 3); permanent vs transient classification is correct (`actions.rs:L185-L205`); 4xx (except 429) → permanent → DLQ, 5xx/429 → transient → retry. Real bug surfaced one level up: SSRF allowlist has a kill-switch (FW-20 = #347). |
+| 2 | DLQ race / double-replay | **POSITIVE — FW-17 #344** | Two concurrent `POST /api/observers/dlq/{id}/retry` calls both succeed at `dlq.get(id)`, both call `executor.process_event(...)`, both attempt `dlq.remove(id)`. The downstream webhook fires twice. At-least-once contract slips to at-least-twice in the retry race case. Repro: `observers.bug-2.sh`. |
+| 3 | F056 reload during routing (`entity_type_index` ArcSwap atomicity) | **negative — F056 HOLDS** | `entity_type_index: Arc<ArcSwap<HashMap<...>>>` is published with a single `self.entity_type_index.store(Arc::new(new_entity_type_index))` in both `start()` (`runtime.rs:L300`) and `reload_observers()` (`L673`). Readers do `.load().get((entity, event_type))` — they observe either the pre-reload or post-reload generation atomically. **Nuance (NOT filed):** the sibling `matcher: Arc<RwLock<Option<EventMatcher>>>` and `executor: Arc<RwLock<Option<Arc<ObserverExecutor>>>>` are written sequentially during reload (matcher first, then executor, then ArcSwap). An in-flight dispatch can observe (new matcher, old executor) for a brief window — but each component is internally consistent and the dispatch path doesn't cross-validate the two against each other. Filed as a documentation caveat for the GREEN Writer (not as a framework bug). |
+| 4 | F014 worker-panic propagation | **negative — F014 HOLDS** | `job_queue/executor.rs:L100-L195` confirmed: `JoinSet::spawn` + `handle_join_outcome` catches `JoinError::is_panic()`, logs at `error!` with `worker=` / `error=` fields, increments `job_failed("unknown", "panic")` Prometheus counter; the executor loop continues — runtime is not deadlocked. CHANGELOG L226-L228 entry is honoured. |
+| 5 | Feature-flag boot — `observers-nats` disabled, `FRAISEQL_OBSERVER_TRANSPORT=nats` set | **POSITIVE — FW-23 #350** (re-classified) | The binary doesn't surface a transport selector AT ALL — even when `observers-nats` IS compiled in, the binary's `ObserverConfig` has no `transport` field; `init_observer_runtime` constructs a server-local `ObserverRuntimeConfig` (NOT the library type) and unconditionally builds a `ChangeLogListener` (PG LISTEN/NOTIFY). `FRAISEQL_OBSERVER_TRANSPORT` is read only in `crates/fraiseql-observers/` and never consumed by the server crate. So the env-var graceful-vs-explosive question is moot: the env var is silently ignored regardless of feature flag. Repro: `observers.bug-8.sh`. |
+| 6 | Unbounded DLQ growth | **POSITIVE — FW-16 #343** | Library's `ObserverRuntimeConfig.max_dlq_size` doc-comment promises a "drop newest + warn" cap; the binary's `ObserverConfig` doesn't expose it; the binary's `InMemoryDlq::push` does `Vec::push()` with no cap. Bonus finding: `InMemoryDlq::mark_retry_failed` silently `items.retain()`-removes the failed item — operators lose audit on retry failures. Repro: `observers.bug-1.sh`. |
+| 7 | HMAC signing of webhook payloads | **POSITIVE — FW-18 #345** | `WebhookAction::execute` sends unsigned POSTs. Zero hits for `hmac`, `signature`, `X-Webhook-Signature`, `X-FraiseQL-Signature` in the entire `crates/fraiseql-observers/src/` tree. The crate has no `hmac` crate dependency (the `sha2 = "0.10"` dep is for cache-key hashing only — see `cache/mod.rs:L46`). Receivers cannot verify webhook origin. The `/building/observer-webhook-patterns` page's receiver-side HMAC pattern is unimplementable today. Repro: `observers.bug-3.sh`. |
+| 8 | Payload PII leak via webhook URL + logs | **POSITIVE — FW-19 #346** | Four `info!` log lines on every webhook dispatch (`actions.rs:L254-L290`) expose the full webhook URL, the entire headers HashMap (verbatim Debug fmt — including `Authorization: Bearer ...` / `X-API-Key: ...`), the raw body template, AND the rendered JSON body. No redact/mask helper; no env-var or feature-flag toggle. Centralised log aggregators ingest every event payload at the default INFO level. Repro: `observers.bug-4.sh`. |
+| 9 | Worker-pool starvation / overflow policy | **negative — surfaces a different positive (FW-23)** | The library's `OverflowPolicy::Drop` (default) and `backlog_alert_threshold = 500` are real features on `ObserverRuntimeConfig` — but they are NOT consumed by the binary. The binary uses `channel_capacity` from its own `ObserverConfig`. Worker starvation under slow-handler attack against the binary: `process_event` is called sequentially within a single batch (`runtime.rs:L451-L515`), no per-handler timeout beyond the 30-s webhook timeout (`actions.rs:L20-L23`). Captured in FW-23 (library-vs-binary class) — not refiled as a separate issue. |
+| 10 | Multi-DB event coverage | **negative — confirms FW-23 framing** | Phase-doc Cycle 3 "New" list listed five backends (in-memory / NATS / Redis / Postgres / MySQL). Actual `TransportKind`: `Postgres` (default), `Nats`, `InMemory`. The binary uses only `ChangeLogListener` (PG LISTEN/NOTIFY) regardless of how it was compiled. MySQL exists ONLY as a `transport/mysql_bridge.rs` library-side BRIDGE (MySQL → NATS), not a standalone transport. SQLite / MSSQL: no observer transport implementations exist. So claim "events fire on MySQL / SQLite / MSSQL mutations" is FALSE for the binary; library-API would need MySQL bridge + NATS subscription. Already captured under FW-23 (same library-vs-binary class). |
+
+**Tally:** 7 net new framework bugs filed (FW-16..FW-23 — wait, that's 8). Confirming: FW-16, FW-17, FW-18, FW-19, FW-20, FW-21, FW-22, FW-23 — **8 new issues filed.**
+
+#### 2. Bug scripts produced
+
+All under `scripts/docs-test/bugs/`, `chmod +x`, `set -euo pipefail`, `Expected:` / `Actual:` header, exit 1 when bug reproduces.
+
+| # | Path | FW | Issue | Re-run exit |
+|---|------|-----|-------|-------------|
+| 1 | `scripts/docs-test/bugs/observers.bug-1.sh` | FW-16 | #343 | 1 (reproduced) |
+| 2 | `scripts/docs-test/bugs/observers.bug-2.sh` | FW-17 | #344 | 1 (reproduced) |
+| 3 | `scripts/docs-test/bugs/observers.bug-3.sh` | FW-18 | #345 | 1 (reproduced) |
+| 4 | `scripts/docs-test/bugs/observers.bug-4.sh` | FW-19 | #346 | 1 (reproduced) |
+| 5 | `scripts/docs-test/bugs/observers.bug-5.sh` | FW-20 | #347 | 1 (reproduced) |
+| 6 | `scripts/docs-test/bugs/observers.bug-6.sh` | FW-21 | #348 | 1 (reproduced) |
+| 7 | `scripts/docs-test/bugs/observers.bug-7.sh` | FW-22 | #349 | 1 (reproduced) |
+| 8 | `scripts/docs-test/bugs/observers.bug-8.sh` | FW-23 | #350 | 1 (reproduced) |
+
+#### 3. Framework issues filed
+
+- **FW-16 #343** — `InMemoryDlq` unbounded; the documented `max_dlq_size` cap is silently ignored by the binary. https://github.com/fraiseql/fraiseql/issues/343
+- **FW-17 #344** — DLQ retry handlers race; concurrent retries on the same item double-fire the action. https://github.com/fraiseql/fraiseql/issues/344
+- **FW-18 #345** — Webhook payloads are not signed (no HMAC); receivers cannot verify origin. https://github.com/fraiseql/fraiseql/issues/345
+- **FW-19 #346** — Webhook URL, headers, and rendered body logged at INFO; PII + bearer-token leak via application logs. https://github.com/fraiseql/fraiseql/issues/346
+- **FW-20 #347** — `FRAISEQL_OBSERVERS_ALLOW_INSECURE=true` disables every SSRF guard; no production-mode safeguard. **security (critical)**. https://github.com/fraiseql/fraiseql/issues/347
+- **FW-21 #348** — Observer admin API (`POST /api/observers`, `/runtime/reload`, `/dlq/*`) accepts anonymous requests; no auth gate. **security (critical)**. https://github.com/fraiseql/fraiseql/issues/348
+- **FW-22 #349** — `EmailAction` is a stub; reports success without sending; observability cannot detect silent failure. https://github.com/fraiseql/fraiseql/issues/349
+- **FW-23 #350** — Binary ignores `FRAISEQL_OBSERVER_TRANSPORT` and `[observers.transport]`; hard-wired to Postgres LISTEN/NOTIFY even with `observers-nats` feature. https://github.com/fraiseql/fraiseql/issues/350
+
+Triage register (`_internal/.plan/framework-qa-triage.md`) updated with FW-13..FW-23 rows. FW-3 / FW-7 / FW-15 cross-linked from FW-23 body. FW-13 / FW-14 / FW-15 also rolled into the register from the Writer-RED handoff (rows were absent before this entry).
+
+#### 4. (A) library-API vs (B) feature-request framing — recommendation
+
+**CONFIRM the Writer-RED's mixed recommendation, with the security-critical FW-20 / FW-21 elevated to a SEPARATE "## Security caveats" lead block on `/features/observers`.**
+
+Reasoning:
+
+- Writer-RED proposed (A) for `/features/observers` + `/building/observers` (TOML divergence — FW-15) and (B-light) for `/operations/observer-runbook` (CLI missing). That framing still fits the FW-16..FW-19 / FW-22 / FW-23 findings — they are all "binary does X, library promises Y, document the gap and use library framing where the binary lies."
+- BUT FW-20 (SSRF-bypass env var) and FW-21 (anonymous admin API) are NOT library-vs-binary issues — they are production-blocking security regressions. Documenting them under "library framing" risks burying them. They warrant a dedicated `## Security caveats` block at the TOP of `/features/observers` (before the action catalogue), with a one-line "DO NOT EXPOSE TO PUBLIC INTERNET" warning and links to FW-20 / FW-21 issue bodies.
+- The combination FW-20 + FW-21 (anonymous observer creation + SSRF-bypass = one-step IAM credential exfil) is the single most dangerous finding in the cycle. The page should call out this combination explicitly so operators cannot miss it.
+
+**Recommendation to GREEN Writer:**
+
+1. `/features/observers` — lead with scope statement (per Writer-RED §2), then a `## Security caveats` block listing FW-20, FW-21, FW-18, FW-19 with one-line summaries + issue links. Then the architecture / action-catalogue prose. Then a `## Known issues` block at the end covering FW-13 / FW-14 / FW-15 / FW-16 / FW-17 / FW-22 / FW-23 (the operational regressions). Library-API framing where the binary's TOML shape contradicts.
+2. `/building/observers` — scope statement + library-API framing on the TOML shape (`tb_observer` migration step + `POST /api/observers`); cross-link `/features/observers#security-caveats` from any worked example involving `webhook` or `email` actions.
+3. `/building/observer-webhook-patterns` — scope statement + receiver-side patterns. MUST NOT lean on HMAC verification (FW-18). MUST recommend operator-side bearer secrets via `headers` map with explicit warning about FW-19 (logs leak) and FW-18 (no signature).
+4. `/operations/observer-runbook` — scope statement + (B-light) framing on the CLI gap (FW-14). MUST document `RUST_LOG=fraiseql_observers::actions=warn` (FW-19), `dlq_count` external monitoring (FW-16), reload-DoS mitigation (FW-21), refuse-to-boot guard on `FRAISEQL_OBSERVERS_ALLOW_INSECURE` (FW-20).
+
+#### 5. F056 + F014 regression sanity-check
+
+- **F056 ArcSwap atomicity for `entity_type_index`** — **HOLDS at frozen SHA.** Static-source inspection of `runtime.rs:L139` (`Arc<ArcSwap<HashMap<...>>>` field), `:L164` (initial `from_pointee(HashMap::new())`), `:L300` (`self.entity_type_index.store(Arc::new(entity_type_index))` after build), `:L673` (`self.entity_type_index.store(Arc::new(new_entity_type_index))` after build during reload). Readers do `.load().get(...)` on a snapshot Arc — they observe either pre-reload or post-reload generation, never a partial state. CHANGELOG L347-L358 references the F006/F007/F008/F013/F048/F056/F057 batch.
+- **F014 worker-panic propagation** — **HOLDS at frozen SHA.** `job_queue/executor.rs:L168-L195` confirmed: `handle_join_outcome` matches `JoinError::is_panic()` → `error!` log + `metrics.job_failed("unknown", "panic")` increment; outer loop continues. CHANGELOG L226-L228 entry is honoured.
+
+**Nuance worth surfacing in GREEN page prose (not a bug):** the matcher/executor RwLocks beside the entity_type_index ArcSwap are written sequentially during reload — an in-flight dispatch in the brief window between matcher-write and executor-write may match against the new matcher and dispatch against the old executor (or vice versa). Each component is internally consistent; the page should mention this is a "lock-free reload" only for the index, not for the matcher/executor pair, so reload-during-dispatch is at worst a one-event "generation skew" and never a panic / lost event.
+
+#### 6. Negative findings — for the GREEN Writer's confident limit-statements
+
+- **Retry / backoff path is sound.** `executor/retry.rs:L80-L120` applies the documented exponential/linear/fixed strategies with ±25 % jitter and saturating arithmetic; `max_attempts` is honoured; permanent vs transient classification is correct. The GREEN Writer can confidently claim "retries with jitter; DLQ after `max_attempts` failures" without caveat.
+- **F056 + F014 fixes hold.** Page can claim atomic hot-reload of the entity-type index + worker-panic isolation as present-day truths (with the F056 nuance above).
+- **SSRF allowlist is real (when not bypassed by FW-20).** `validate_outbound_url` + `dns_resolve_and_check` cover loopback, RFC 1918, link-local, CGNAT, ULA, AND DNS-rebinding. Page can confidently document the allowlist as the default — gated by the FW-20 caveat.
+- **F056 sibling-component reload sequence is brief.** matcher/executor RwLock acquisitions are short and the swap is in-process. No documented production reports of reload-related event-loss.
+- **The webhook 30-s default timeout is enforced.** `actions.rs:L20-L23` `DEFAULT_WEBHOOK_TIMEOUT_SECS = 30`, applied to the `reqwest::Client` builder. Slow handlers won't block the worker indefinitely.
+
+#### 7. Pointer to next persona — GREEN Writer scope
+
+Per `_sweep-matrix.md § Adjacencies` and the Writer-RED proposal (§12), the four observer pages stay distinct. **The GREEN Writer in this cycle produces ONE main page rewrite (`/features/observers`) + scope statements added to the other three.** Full rewrites of `/building/observers`, `/building/observer-webhook-patterns`, and `/operations/observer-runbook` are deferred to subsequent Phase 03 cycles (the runbook in particular needs Phase 09 framework-fix context to know which of FW-13..FW-23 will land before docs ship; the webhook-patterns page needs FW-18 to be filed-or-fixed before its receiver-side HMAC story can be written). The GREEN Writer should:
+
+1. Rewrite `/features/observers` per §4 above (scope, security caveats lead, architecture, action catalogue, known issues).
+2. Insert scope statements (per Writer-RED §2) at the top of the three other pages — but DO NOT rewrite their bodies in this cycle.
+3. Append a "Stale until next cycle" callout to each of the three pages with the appropriate phase-cycle pointer.
+4. Companion `scripts/docs-test/pages/observers.docs-test.sh` per Writer-RED §7 + §12.8.
+5. Add a `## Known issues` block on `/features/observers` cross-linking FW-13 / FW-14 / FW-15 / FW-16 / FW-17 / FW-22 / FW-23, and a `## Security caveats` block at the top cross-linking FW-18 / FW-19 / FW-20 / FW-21.
+
+#### 8. Anti-scope held
+
+- ✅ No edits to `~/code/fraiseql` (verified: `git -C ~/code/fraiseql status` shows the same `feat/deps-sha1-hmac-joint-bump` working state noted in Cycle 2 close; no observer-area changes).
+- ✅ No edits under `src/content/docs/`.
+- ✅ No page draft written.
+- ✅ No refile of FW-13 / FW-14 / FW-15 (cross-linked from FW-16..FW-23 bodies as appropriate; FW-15 / FW-23 both reference the library-vs-binary class).
+- ✅ All eight bug scripts under `scripts/docs-test/bugs/`, `chmod +x`, re-runnable, return exit 1 when bug reproduces.
+- ✅ Framework-qa-triage register updated with FW-13..FW-23 rows.
+- ✅ Handoff entry written. Commit per methodology § 8 follows.
+
+**Next persona: Writer (Opus 4.7) — GREEN** for `/features/observers` rewrite. The Writer should read this entry + the Writer-RED entry (above) + the Bug-Finder repros under `scripts/docs-test/bugs/observers.bug-*.sh` before drafting.
