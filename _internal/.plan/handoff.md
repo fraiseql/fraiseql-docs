@@ -1713,3 +1713,19 @@ All five are real CHANGELOG entries; none is fabricated; the adjacency selection
 - **Commit SHA, branch push, PR, CI:** captured in a follow-on entry post-commit (this entry pre-commit per anti-amend rule from Cycle 1 / Cycle 2 precedent).
 - **Open gates:** none new. G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d87461` continues.
 
+---
+
+### Phase 02 / Cycle 3 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-29
+
+- **Total citations:** 57.
+- **Verified:** 45 (8 headline — 100%, 16 breaking changes — 100%, ~21 sampled from remaining 33).
+- **Failures:** 0. All prose claims confirmed against CHANGELOG.md at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+- **Minor drift (non-blocking):** 2 citations have line numbers off by ~30 lines (mdx:254 cites L495-L496; actual CHANGELOG position is L526-L527; mdx:260 cites L489-L490; actual is L520-L521). Both cite the correct commit SHAs (ccd25ee97, 500859a48) which exist in framework history and whose commit messages confirm the claimed changes. This is line-number bookkeeping imprecision only — not a content fabrication. Recorded in log, not a BLOCK.
+- **Commit SHA verification:** 22 SHAs spot-checked. All 22 exist in framework history with commit messages that match the prose claims.
+- **Dist build-exclusion:** `bun run build` → exit 0, 202 pages. Zero `{/* source:` hits in `dist/release-notes/v2-3/index.html`. Plain `source:` occurrences confirmed as verbatim Rust symbol `ParsedQuery.source: String` in the breaking-changes table cell (row 11) — expected symbol noise, not citation leak. PASS.
+- **Posture:** option B (citations left in source).
+- **Log path:** `_internal/.plan/red-evidence/phase-02-cycle-03-citation-verification.log`.
+- **Commit SHA:** TBD (path-filtered `_internal/` only — no CI trigger expected).
+- **Handoff to Reviewer (Opus 4.7) next.**
+- **Open gates:** none new.
+
