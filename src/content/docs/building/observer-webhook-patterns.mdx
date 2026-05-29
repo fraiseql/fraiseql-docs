@@ -5,6 +5,14 @@ description: Event-driven architecture with FraiseQL observers and outbound webh
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
+:::note[Page scope]
+This page is the **subscriber-side** leg of the four-page observers cluster. It covers receiver patterns on downstream services that consume FraiseQL's outbound webhooks — request validation, deduplication via the event ID, retries, and idempotent handlers. For the **what-it-is** (FraiseQL-side architecture, action types, security caveats), see [Observers (Features)](/features/observers). For the **how-to-install** the FraiseQL-side runtime, see [Observers (Building)](/building/observers). For the **operating-in-production** runbook, see [Observer operations runbook](/operations/observer-runbook).
+:::
+
+:::caution[Stale until next cycle — full rewrite deferred]
+This page's body documents `[observers] backend = "nats" | "redis" | "postgres"` TOML and an HMAC-verification receiver pattern. At v2.3.2 the `backend` key is silently dropped by the server runtime (FW-15 [#342](https://github.com/fraiseql/fraiseql/issues/342) + FW-23 [#350](https://github.com/fraiseql/fraiseql/issues/350)), and **the framework ships no HMAC signing primitives** — webhooks are POSTed unsigned (FW-18 [#345](https://github.com/fraiseql/fraiseql/issues/345)). Receiver-side HMAC verification is unimplementable until FW-18 lands. The full rewrite is deferred to a later cycle; treat the body as aspirational and use [Observers (Features) § Security caveats](/features/observers#security-caveats) as the source of truth at v2.3.2.
+:::
+
 FraiseQL supports event-driven architectures through its observer system. When a mutation succeeds, the Rust runtime can publish events to a message bus (NATS, Redis, or PostgreSQL LISTEN/NOTIFY). From there, other services can subscribe to those events and deliver outbound webhooks. This guide explains the mental model and how to configure it correctly.
 
 ## The Mental Model
@@ -359,3 +367,9 @@ FraiseQL handles the left side of this table. Your subscriber services own the r
     [Writing Mutations](/concepts/mutations) — How to define mutations and SQL functions
   </Card>
 </CardGrid>
+
+## See also
+
+- [Observers (Features)](/features/observers) — what observers are, action types, security caveats (FW-18 / FW-19 / FW-20 / FW-21 / FW-22), and the F056 atomicity guarantee.
+- [Observers (Building)](/building/observers) — bootstrapping `tb_observer` and registering observers at runtime.
+- [Observer operations runbook (Operations)](/operations/observer-runbook) — running observers in production; alert rules, sizing, recovery.

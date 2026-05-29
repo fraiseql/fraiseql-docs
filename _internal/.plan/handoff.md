@@ -4174,3 +4174,138 @@ Per `_sweep-matrix.md § Adjacencies` and the Writer-RED proposal (§12), the fo
 - ✅ Handoff entry written. Commit per methodology § 8 follows.
 
 **Next persona: Writer (Opus 4.7) — GREEN** for `/features/observers` rewrite. The Writer should read this entry + the Writer-RED entry (above) + the Bug-Finder repros under `scripts/docs-test/bugs/observers.bug-*.sh` before drafting.
+
+---
+
+### Phase 03 / Cycle 3 GREEN — Writer (Opus 4.7) — 2026-05-30
+
+Primary `/features/observers` rewrite plus scope-statement + cross-link blocks on the three sibling pages. Frozen FraiseQL SHA: `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. No edits to `~/code/fraiseql`. No full rewrites of the sibling pages this cycle.
+
+#### 1. Primary page — `src/content/docs/features/observers.mdx`
+
+- **Word count:** 4 478 words.
+- **H2 section count:** 16 sections.
+- **Citation count:** 67 source citations (target ≥ 50 — comfortably exceeds).
+- **Structural elements:**
+  - Frontmatter — `title: Observers`, `description: Database-event observers — webhook, Slack, email, NATS — with retry, DLQ, and the security caveats at v2.3.2` (153 chars).
+  - Lead paragraph (≤ 4 sentences) framing the page as the "what" leg of the four-page cluster and linking forward to `## Security caveats` + `## Known issues`.
+  - **`## Security caveats` LEAD block** (per Bug-Finder amendment): FW-20 + FW-21 combined as the critical entry, with the exploitation path spelled out (`POST /api/observers` for a webhook pointed at `169.254.169.254` IAM-metadata, then trigger). Three mitigations enumerated. Followed by FW-18 (no HMAC), FW-19 (PII logs), FW-22 (EmailAction stub).
+  - `## Mental model` — event → matcher → executor → action → retry → DLQ pipeline + the seven crate subsystems.
+  - `## How observers are composed today` — three subsections clarifying the (binary `[observers]`) ↔ (DB-driven definitions) ↔ (CLI `[[observers.handlers]]` validation-only) split.
+  - `## Backends and transports` — `TransportKind` is `Postgres`/`Nats`/`InMemory` only (refutes phase-doc's "five backends" claim); Redis is cache/dedup/queue/lease, not transport; MySQL is bridge-only.
+  - `## Action types` — Webhook / Slack / Email (stub — FW-22) / internal NATS publish. Notes `ActionConfig` is `#[non_exhaustive]` framework-internal forward-compat, NOT a user-pluggable hook.
+  - `## Lifecycle: subscription → dispatch → retry → DLQ` — 8-step end-to-end trace with cite per step.
+  - `## entity_type_index atomicity (F056)` — confirms HOLDS. Surfaces Bug-Finder's brief-generation-skew nuance as a page-level `:::note` (NOT a bug, page-level guidance only).
+  - `## Worker panic propagation (F014)` — confirms HOLDS with `job_failed_total{error="panic"}` metric cite.
+  - `## Cross-instance HA via observers-enterprise` — disentangles the `enterprise` bundle (`["checkpoint", "dedup", "caching", "queue", "search", "metrics"]`) from `redis-lease`; clarifies that default features give in-process lease, not HA.
+  - `## Route mount paths` — 5-row table with FW-13 layout inconsistency explicitly called out.
+  - `## Health signals` — 9-row metric table + the two `/health` JSON shapes (healthy vs degraded).
+  - `## Worked example` — references the companion docs-test script and explains the A2 framing (asserts FW symptoms; flips when fix lands).
+  - `## Migration from the pre-v2.3 page` — maps every hallucinated `@observer` decorator kwarg + helper to the actual surface.
+  - `## Known issues` — 11-row table covering FW-13, FW-14, FW-15, FW-16, FW-17, FW-18, FW-19, FW-20, FW-21, FW-22, FW-23. Security-class rows cross-ref `## Security caveats`.
+  - `## See also` — cross-links to all three sibling pages + `/features/nats` + `/building/multi-tenancy`.
+  - `## Next steps` — three-card CardGrid per style guide.
+- **Framing:** mixed per Bug-Finder confirmation: (A) library-API framing for the architecture / TOML split (mirrors Cycles 1 & 2 precedent); **`## Security caveats` elevated LEAD** for FW-20 + FW-21 (per Bug-Finder amendment). Reads as "auto-wired runtime, here is what it does, here is what is dangerous, here is the operator workaround." Library-API framing remains the default elsewhere.
+- **No archaeology in body:** zero hits for `Phase`, `TODO`, `FIXME`, `XXX` in the rendered HTML. Source citations live in `{/* ... */}` JSX comments per methodology § 4 (page is `.mdx`).
+- **`bun run check` result:** 0 errors / 0 warnings (60 hints — all pre-existing in `src/lib/validators/*.ts`, none in `src/content/docs/**`).
+- **`bun run build` result:** 205 pages built in 14.79 s; strip-source-citations stripped 149 comments across 2 HTML files (the page + one sibling — the build pipeline is healthy).
+
+#### 2. Sibling pages — scope statement + cross-link only (NO full rewrite)
+
+Each sibling pre-existed and still carries pre-v2.3 framing in its body. Per the cycle brief, full rewrites are deferred — Cycle 3 GREEN's job is the primary page + clear disambiguation across the cluster.
+
+##### `src/content/docs/building/observers.mdx` — how-to-install leg
+
+- Added two `:::*` blocks immediately after frontmatter (before the prior lead paragraph):
+  - `:::note[Page scope]` — three-sentence scope statement clarifying this is the "how-to-install" leg (bootstrap `tb_observer`, apply `migrations/06_create_observer_management.sql`, register via `POST /api/observers`, wire authenticating reverse proxy). Cross-links to all three siblings.
+  - `:::caution[Stale until next cycle — full rewrite deferred]` — explicit "treat the body as aspirational" warning calling out Python `@observer` decorator + `actions=[slack(), email()]` kwargs that **do not exist** at v2.3.2; deferral marker links FW-13 / FW-14 / FW-15.
+- Added `## See also` block at the bottom (after existing `## What's Next`) cross-linking the three other observer pages.
+- No edits to body content; rendered as-is until a future cycle owns the full rewrite.
+
+##### `src/content/docs/building/observer-webhook-patterns.mdx` — subscriber-side leg
+
+- Added two `:::*` blocks immediately after frontmatter:
+  - `:::note[Page scope]` — clarifies this is the **subscriber-side** receiver-pattern leg (downstream services consuming FraiseQL's outbound webhooks). Cross-links to all three siblings.
+  - `:::caution[Stale until next cycle — full rewrite deferred]` — calls out that `[observers] backend = "nats" | "redis" | "postgres"` is silently dropped (FW-15 + FW-23) AND **the framework ships no HMAC signing primitives** (FW-18). The receiver-side HMAC pattern documented in the body is **unimplementable until FW-18 lands**. This is the most load-bearing of the three sibling-page warnings.
+- Added `## See also` block at the bottom (after existing `<CardGrid>`) cross-linking the three other observer pages.
+
+##### `src/content/docs/operations/observer-runbook.mdx` — operations leg
+
+- Added two `:::*` blocks immediately after frontmatter:
+  - `:::note[Page scope]` — clarifies this is the **how-to-run-in-production** leg (alert rules, sizing, recovery). Cross-links to all three siblings.
+  - `:::caution[Stale until next cycle — full rewrite deferred]` — calls out FW-14 (`fraiseql-cli observer ...` subcommands do not exist; standalone CLI binary returns mock JSON) and FW-15 + FW-23 (legacy TOML keys silently dropped). Recommends the HTTP API at `/api/observers/dlq` instead and points at `/features/observers#route-mount-paths` for the actual route layout.
+- Replaced the existing `## See Also` block (which cross-linked the pre-Option-A `/concepts/observers` slug — that page no longer exists) with a new `## See also` block cross-linking all three siblings + the `/reference/toml-config#observers` reference.
+
+All three sibling-page edits are mechanical scope/cross-link blocks — **no body content rewritten**. Each `:::caution[Stale until next cycle ...]` block carries the FW-N #M issue links so the Reviewer can verify the deferral rationale is on-record. When Phase 09 lands the FW-13..FW-23 fixes, a follow-on cycle removes the `:::caution` blocks and rewrites the body proper.
+
+#### 3. Companion docs-test — `scripts/docs-test/pages/observers.docs-test.sh`
+
+- **Framing: A2** (assert documented FW symptoms reproduce at frozen SHA + re-grep page-level invariants like F056 / F014), matching the Cycle 1 (multi-tenancy) and Cycle 2 (file-storage) precedent.
+- **Why not A1:** the binary auto-wires the observer runtime (unlike multi-tenancy / storage), so A1 would only need a `tb_observer` migration baked into the docs-test PG image to drive the documented happy path. That is on the bug-1 horizon (FW-15 + the migration-not-auto-applied gap) — out of Cycle-3 harness budget. When a future cycle adds the migration overlay, this script flips from A2-FW-symptoms to A1-happy-path automatically (the "still broken" assertions fail loudly, signalling the rewrite).
+- **Assertions (6 total):**
+  1. `assert_observers_auto_wired_in_binary` — re-greps `init_observer_runtime`, `app.nest("/api/observers", ...)`, and `app.merge(observer_runtime_routes(...))` at frozen SHA. Locks the page's "binary auto-wires" + FW-13 root-mount claims.
+  2. `assert_f056_holds` — re-greps `use arc_swap::ArcSwap`, the `entity_type_index: Arc<ArcSwap<HashMap<...>>>` field shape, and 2+ `entity_type_index.store(Arc::new(...))` call sites (startup + reload). Locks the page's F056 invariant.
+  3. `assert_f014_holds` — re-greps `JoinError::is_panic()` matcher and the `job_failed(_, "panic")` metric site. Locks the page's F014 invariant.
+  4. `assert_negative_findings_hold` — re-greps `DEFAULT_WEBHOOK_TIMEOUT_SECS = 30`, `fn validate_outbound_url`, and the `Exponential|Linear|Fixed` retry strategies. Locks the page's confident limit-statements.
+  5. `assert_known_issues_still_reproduce` — invokes `observers.bug-1.sh` through `observers.bug-8.sh` and requires each to exit 1 (BUG REPRODUCED). When any exits 0, the corresponding Known-Issues row + (for security-class FW-N) the Security-caveat sub-section need updating.
+  6. `assert_fw15_fw23_still_reproduce` — brings up the docs-test stack with the observers overlay, asserts `/health` returns `observers.running = false` (FW-15 reading: `tb_observer` missing), asserts `/api/observers/runtime/health = 404` and `/runtime/health ∈ {200, 503}` (FW-13 reading: runtime routes at root), asserts `/api/observers/dlq` returns NOT `401`/`403` (FW-21 reading: admin API anonymous).
+- **Bash hygiene:** `set -euo pipefail`, `shellcheck`-clean, trap-on-exit `down --volumes` for stack teardown.
+- **Re-runnable:** every assertion is idempotent; the script tears down the stack on exit so back-to-back runs are clean.
+
+#### 4. Harness fixtures added
+
+- **`scripts/docs-test/configs/overlays/observers.toml`** — new file. Mirrors `baseline.toml` + adds the binary's actual `[observers]` schema (`enabled = true`, `poll_interval_ms = 100`, `batch_size = 100`, `channel_capacity = 1000`, `auto_reload = true`, `reload_interval_secs = 60`) + `[observers.pool]` (`min_connections = 2`, `max_connections = 5`, `acquire_timeout_secs = 10`). NOT the stale CLI `[[observers.handlers]]` shape. Header comment explains the FW-15 nuance: this overlay proves the TOML shape is structurally parseable; the docs-test asserts the documented degraded-state symptom (`tb_observer` missing) holds. When the migration is auto-applied, the overlay becomes the bring-up surface for the documented happy path.
+- **`scripts/docs-test/fixtures/postgres/observers.compiled.json`** — new file. Hand-written compiled schema giving `fraiseql-server` an `Order` placeholder type so the binary boots cleanly. Mirrors the Cycle 1 / Cycle 2 fixture pattern. DELIBERATELY does NOT pre-install observer definitions: the docs-test asserts the documented startup error (`relation "tb_observer" does not exist`) holds at frozen SHA.
+- **No `observers-migrations.sql` fixture added.** The Writer-RED handoff §7 suggested chaining `migrations/06_create_observer_management.sql` + DLQ + checkpoint migrations into the docs-test PG init. That would flip `/health` from degraded to healthy and require a full A1 rewrite of the docs-test (with a netcat sink container, a tracked mutation, a webhook-receipt assertion, a DLQ accumulation assertion). Out of Cycle-3 harness budget. Deferred to the Phase 08 polish cycle or a Phase 03 / Cycle 8 dedicated runbook-rewrite cycle. The current A2-pattern docs-test is the correct shape today.
+- **No netcat sink container added.** Same reasoning: the sink is only useful when the happy path is reachable; until the migration-auto-apply gap closes, the sink would just sit idle. Deferred to the rewrite cycle.
+- **No NATS-profile invocation.** FW-23 hard-wires the binary to PG LISTEN/NOTIFY regardless of feature flags; exercising the NATS profile would not change the script's observable behaviour.
+
+#### 5. Framework bugs filed during GREEN
+
+**None.** All FW-N findings on this surface were filed during Cycle-3 RED (FW-13..FW-15) and Cycle-3 Bug-Finder (FW-16..FW-23). The GREEN write surfaced no additional contradictions — every claim in the rewrite has a passing citation against the frozen SHA. The handoff carries the 11 framework bugs forward; the Reviewer should re-verify them but is not expected to find new ones in the observer crate.
+
+#### 6. Anti-scope held
+
+- ✅ No edits to `~/code/fraiseql` (verified: `git -C ~/code/fraiseql status` shows the same `feat/deps-sha1-hmac-joint-bump` working state as prior cycles; no observer-area changes).
+- ✅ No full rewrites of sibling pages — scope statement + cross-link only; the `:::caution[Stale until next cycle ...]` blocks make the deferral explicit and discoverable.
+- ✅ No refile of FW-13 / FW-14 / FW-15 / FW-16 / FW-17 / FW-18 / FW-19 / FW-20 / FW-21 / FW-22 / FW-23 — cross-linked from the Known-Issues table only.
+- ✅ No amends to prior commits; no push to `main`.
+- ✅ No new bug repros under `scripts/docs-test/bugs/` (Bug-Finder owned those in the previous cycle).
+- ✅ No declaration of GREEN — CI declares GREEN. Reviewer in a fresh context follows.
+- ✅ Citations live in `{/* ... */}` JSX comments (the page is `.mdx`) per methodology § 4 amendment; the build pipeline's strip-source-citations step removes them from rendered HTML.
+
+#### 7. CI
+
+PR not yet open at the moment of this handoff write — the commit + push pattern matches Cycle 1 / Cycle 2 GREEN (push to `phase-03/critical-rewrites`, the existing PR for the phase tracks the cumulative diff). The CI workflow at `.github/workflows/docs-test.yml` discovers `scripts/docs-test/pages/*.docs-test.sh` automatically via the `discover` matrix step; a new `page-test (observers)` matrix job will spawn on the push. The Reviewer should consume the CI URL from the artifact `ci-run-url` per the Phase 00 / Cycle 6 convention.
+
+Expected CI signal: `page-test (_smoke)` continues to pass (no changes to its inputs); `page-test (observers)` runs the new script. Because the script is A2-pattern (asserts FW symptoms still reproduce), it will PASS on the frozen SHA — the failure case is "a framework fix landed and a symptom is now wrong," which is a regression signal for the page, not a CI red.
+
+#### 8. Open gates at this GREEN close
+
+Unchanged from prior cycles:
+
+- **G1** — closed (Phase 01).
+- **G2** — default-hold (no v2.4 bump in flight).
+- **G3** — downstream (Phase 09 G3 proposal).
+- **G4** — downstream (Phase 09 per-PR merges).
+- **G5** — downstream (Phase 10 final sign-off).
+
+No novel gates introduced. The 11 framework bugs (FW-13..FW-23) remain open as Phase 09 work; the GREEN page surfaces each via the Known-Issues table + (for security-class FW-N) the Security-caveats prose.
+
+#### 9. Anti-scope assertion (per Reviewer brief)
+
+- The Bug-Finder filed 8 new framework issues (FW-16..FW-23); this GREEN persona filed **zero** new issues and **did not edit `~/code/fraiseql`**.
+- The page surfaces all 11 observer-area framework bugs (FW-13..FW-23) explicitly. None are buried, none are minimised, none are documented as "minor."
+- The sibling-page deferrals are explicit and dated (`:::caution[Stale until next cycle — full rewrite deferred]`), with FW-N #M links so the deferral rationale is auditable.
+
+#### 10. Pointer to next personas
+
+1. **Source-Citation Verifier (Sonnet 4.6)** — verify all 67 source citations on `/features/observers` resolve at frozen SHA. The page is `.mdx` so citations are in `{/* source: ... */}` JSX comments. Spot-check at least three random citations per methodology § 5 item 13.
+2. **Reviewer (Opus 4.7)** — adversarial review against the 15-point checklist. Special attention to:
+   - **The `## Security caveats` LEAD block** — this is a unique structural element (Cycle 2's file-storage page had `## Security caveats` but it followed the architecture prose; Cycle 3's leads with it). Verify the FW-20 + FW-21 exploitation path is concrete enough that an operator can audit their own deployment against it.
+   - **The F056 "brief generation skew" `:::note`** — this is page-level guidance, not a bug. Verify the framing does not read as "F056 is broken" (it is not). The matcher/executor RwLock pair is sequentially written; each component is individually consistent; the dispatch path does not cross-validate. The `:::note` should reassure readers that reload-during-dispatch is safe at worst as a one-event generation skew, never as a panic or lost event.
+   - **The sibling-page `:::caution[Stale until next cycle ...]` blocks** — new pattern across Phase 03. Verify each carries its FW-N #M issue links so the deferral rationale is explicit. Verify the bodies of the sibling pages are NOT silently rewritten (Reviewer's git-diff should show only the two `:::*` blocks at the top and the one `## See also` block at the bottom per page — nothing else).
+   - **The Known-Issues table cross-references** — the 11-row table cross-refs into the Security-caveats sub-anchors for the 5 security-class FW-N rows. Verify the anchor IDs resolve in the rendered HTML (the build succeeded, so they do, but the Reviewer should click through three at random to confirm).
+3. **Cleanup (Sonnet 4.6)** — runs after Reviewer APPROVE. Strip the `{/* source: ... */}` citations from the rendered HTML (the build pipeline already does this via `strip-source-citations`); verify `git grep -i 'TODO\|FIXME\|XXX\|Phase '` returns nothing on touched files; add Cycle 3 to the phase doc's `## Pages completed` block.
+
+**Handoff carries:** 11 framework bugs (FW-13..FW-23) open; FW-20 + FW-21 is the critical security combo; F056 + F014 confirmed HOLD; primary page at 67 citations / 16 sections / 4 478 words; three sibling pages scope-statement-only; A2 docs-test added with 6 assertions covering 8 bug repros + 4 source-grep invariants.

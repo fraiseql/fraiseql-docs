@@ -1,0 +1,74 @@
+# Observers overlay for the FraiseQL docs-test harness.
+#
+# Loaded by scripts/docs-test/pages/observers.docs-test.sh as a full
+# `fraiseql.toml` (NOT a partial overlay — the runtime image's startup loads
+# a single TOML, not a layered config). The content mirrors baseline.toml
+# with one addition: an `[observers]` block that uses the binary's actual
+# `ObserverConfig` schema (NOT the stale `[[observers.handlers]]` shape from
+# the pre-v2.3 docs).
+#
+# Why this overlay exists:
+#   The off-the-shelf binary auto-instantiates the observer runtime when the
+#   `observers` Cargo feature is built in. The runtime then attempts to read
+#   observer definitions from the `tb_observer` PostgreSQL table at boot —
+#   which the docs-test PG fixture does NOT create. The result is a documented
+#   degraded-/health response. This overlay proves the binary's actual
+#   `[observers]` TOML SHAPE is parseable, and asserts the documented
+#   degraded-state symptom (FW-15 reading) holds.
+#
+# When Phase 09 lands the `tb_observer` migration auto-application or the
+# docs-test PG fixture is extended with the observer migrations (FW-15 #342),
+# the script's expected /health shape flips from "degraded" to "healthy" and
+# the script must be updated to drive the documented happy path (POST
+# /api/observers + mutation + webhook-sink assertion).
+#
+# All keys derived from `~/code/fraiseql@d0a4ed4ec` (the frozen SHA). The
+# `<!-- source: ... -->` HTML-comment citations live inside `#` TOML
+# comments so `toml::from_str` ignores them.
+
+bind_addr = "0.0.0.0:8080"
+
+database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"
+
+schema_path = "/etc/fraiseql/schema.compiled.json"
+
+cors_enabled = true
+cors_origins = ["http://localhost:8080"]
+
+health_path = "/health"
+
+playground_enabled = false
+metrics_enabled = false
+admin_api_enabled = false
+introspection_enabled = false
+
+# ── Observer runtime (binary's ObserverConfig — NOT the CLI validation shape) ─
+# Maps to `ServerConfig.observers: Option<ObserverConfig>` at
+# `crates/fraiseql-server/src/server_config/observers.rs:L94-L130`. The
+# binary parses these keys; the legacy `backend = "redis"` /
+# `[[observers.handlers]]` shape from the pre-v2.3 docs is silently dropped
+# (FW-15 #342). Observers are installed via POST /api/observers, not TOML.
+#
+# Cargo-feature dependency: requires `observers` (default in docs-test image
+# per scripts/docs-test/Dockerfile.fraiseql).
+#
+# <!-- source: crates/fraiseql-server/src/server_config/observers.rs:L94-L130 -->
+# <!-- source: crates/fraiseql-server/src/server_config/observers.rs:L42-L83 -->
+
+[observers]
+enabled              = true     # default true; runtime auto-instantiates
+poll_interval_ms     = 100      # default 100 ms; tb_entity_change_log poll cadence
+batch_size           = 100      # default 100; events per poll iteration
+channel_capacity     = 1000     # default 1000; in-process channel size
+auto_reload          = true     # default true; reload observer set on schedule
+reload_interval_secs = 60       # default 60 sec; reload schedule
+
+[observers.pool]
+min_connections      = 2        # default 2; min PG connections in observer pool
+max_connections      = 5        # default 5; max PG connections in observer pool
+acquire_timeout_secs = 10       # default 10; pool checkout timeout
+
+# ── Pool sizing (inherits baseline) ──────────────────────────────────────────
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30

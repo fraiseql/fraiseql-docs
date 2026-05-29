@@ -1,0 +1,33 @@
+{
+  "_comment": "Compiled schema for `pages/observers.docs-test.sh` PostgreSQL iteration.",
+  "_comment_2": "Hand-written to give fraiseql-server a non-empty schema so it boots cleanly under the observers overlay. The docs-test only exercises /health, /runtime/health, /api/observers/dlq, and the framework-symptom FW-* assertions — no real data reads required. We DELIBERATELY do NOT pre-install observer definitions in this fixture: at frozen SHA the docs-test PG fixture has no tb_observer table (FW-15 #342), so observer-runtime startup errors with `relation \"tb_observer\" does not exist`. The docs-test asserts THAT symptom remains present. When Phase 09 lands the tb_observer migration auto-application, this fixture must be paired with `observers-migrations.sql` (which applies migrations/06_create_observer_management.sql + DLQ + checkpoint migrations).",
+  "_source": "src/content/docs/features/observers.mdx — Order type used as a placeholder observable-row shape.",
+  "_format_source": "crates/fraiseql-core/src/schema/compiled/schema.rs:L67-L150 (CompiledSchema struct).",
+  "_query_format_source": "crates/fraiseql-core/src/schema/compiled/query.rs:L46-L120 (QueryDefinition struct).",
+  "_type_format_source": "crates/fraiseql-core/src/schema/graphql_type_defs.rs:L42-L102 (TypeDefinition struct).",
+  "_baseline_example": "scripts/docs-test/fixtures/postgres/_smoke.compiled.json — used as the shape reference (Cycle 5 smoke).",
+  "_note_on_observers_section": "There is no `observers` section on the compiled schema — observer definitions live in the `tb_observer` PostgreSQL table, not in compiled schema JSON. The binary's observer runtime reads `tb_observer` at startup; the compiled schema only carries GraphQL type / query / mutation declarations.",
+
+  "types": [
+    {
+      "name": "Order",
+      "sql_source": "v_order_placeholder",
+      "jsonb_column": "data",
+      "fields": [
+        {"name": "id",             "field_type": "ID",     "nullable": false},
+        {"name": "customer_email", "field_type": "String", "nullable": false},
+        {"name": "status",         "field_type": "String", "nullable": false},
+        {"name": "total",          "field_type": "Float",  "nullable": false}
+      ],
+      "description": "An order record (placeholder; the docs-test does not read from this view)."
+    }
+  ],
+  "queries": [],
+  "mutations": [],
+  "subscriptions": [],
+  "enums": [],
+  "input_types": [],
+  "interfaces": [],
+  "unions": [],
+  "directives": []
+}
