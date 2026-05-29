@@ -2501,3 +2501,134 @@ Every Bug-Finder finding becomes a `scripts/docs-test/bugs/multi-tenancy.bug-N.s
 **Open gates at this RED close:** unchanged from Cycle 0. G1 closed. G2 default-hold. G3/G4/G5 downstream. No novel gates surfaced this pass — the binary-vs-library gap (#330) is a framework bug, not a human gate.
 
 Handoff to **Bug-Finder (Opus 4.7)** for Phase 03 / Cycle 1 next.
+
+---
+
+### Phase 03 / Cycle 1 RED — Bug-Finder (Opus 4.7) — 2026-05-29
+
+**Frozen FraiseQL SHA verified:** `d0a4ed4ec1770c70707f68fd9019f2b561d87461` (v2.3.2). `scripts/docs-test/FRAISEQL_SHA` byte-identical.
+
+**Anti-scope held:** no edits to `src/content/docs/`; no edits to `~/code/fraiseql`; no page draft; no GREEN declaration. Only added `scripts/docs-test/bugs/multi-tenancy.bug-{1,2,3}.sh`, appended three rows (FW-3 retro-row + FW-4/5/6) to `framework-qa-triage.md`, and this handoff entry.
+
+#### 1. Adversarial-class coverage matrix
+
+| Class (per `personas.md § Bug-Finder` and Writer-RED §7) | What I tested | Outcome | Artifact |
+|---|---|---|---|
+| **Wrong-database** — row-mode `@tenant_id` on MySQL/SQLite/MSSQL; schema-mode on MySQL | Static source: row-mode validator (`crates/fraiseql-cli/src/schema/converter/tenancy.rs:L73-L135`) only edits `inject.<field> = "jwt:tenant_id"` — adapter-agnostic at compile time. Schema-mode (`crates/fraiseql-server/src/tenancy/schema_isolation.rs:L1-L120`) emits `SET search_path` and `CREATE SCHEMA` — PG-only by construction; no non-PG branch exists. | NEGATIVE (documented limit, not a bug). Row-mode is portable at the compile-time level; schema-mode is PG-only by design. Page must state both explicitly. | n/a |
+| **Missing feature flag** — registry/factory under `arrow` / `observers-*` / `redis-rate-limiting` | The multi-tenant types (`TenantExecutorRegistry`, `TenantKeyResolver`, `DomainRegistry`, `tenant_admin` handlers, `TenantAuditLog`) are not behind any `#[cfg(feature = ...)]` gate. They ship in every build that links `fraiseql-server`. The Dockerfile builds with `arrow,observers,observers-nats,observers-enterprise,rest,redis-pkce,redis-apq,redis-rate-limiting`, so the harness already covers the maximal positive case. A build with `--no-default-features` was not exercised because the harness does not surface that mode — and toggling features off does not gate any tenancy symbol per source grep. | NEGATIVE. Tenancy surface is feature-flag-clean. | n/a |
+| **Insecure-default exploitation** — registry not wired (already #330); legacy `X-Org-ID` middleware leaking tenant context to default-executor queries | The legacy `crates/fraiseql-server/src/middleware/tenant.rs` is `pub` and exported from `middleware/mod.rs:L25` but `grep` against `crates/fraiseql-server/src/server/**`, `src/main.rs`, and `src/routes/**` at the frozen SHA finds zero callers. The middleware is dead code in the binary. The Writer-RED hypothesis that it "leaks tenant context to default-executor queries" does not reproduce: there is no router that invokes it, no path that reads `TenantContext` from request extensions, and no executor branch that consults `org_id`. | NEGATIVE. Dead-code legacy middleware, not an attacker-reachable surface. Page should either omit it entirely or footnote it as deprecated dead code. | n/a |
+| **Conditional-caveat violation — sub-class 1** (subscription path drops JWT + disables strict mode) | Static source: `crates/fraiseql-server/src/routes/subscriptions.rs:L183` calls `TenantKeyResolver::resolve(None, &headers, None, false)` regardless of (a) the OIDC auth middleware having populated `AuthUser`, (b) the schema having RLS configured, (c) a `DomainRegistry` being installed. Compare `routes/graphql/handler.rs:L506-L515` which passes the real security context, the installed domain registry, and `strict = schema.has_rls_configured()`. | POSITIVE. Filed FW-4 / #331. | `scripts/docs-test/bugs/multi-tenancy.bug-1.sh` (exit 1 = bug reproduced) |
+| **Conditional-caveat violation — sub-class 2** (suspended tenant 403/503 mapping drift) | `routes/graphql/handler.rs:L577-L583` maps every `executor_for_tenant` error to `ErrorCode::Forbidden`. The registry layer (`tenant_registry.rs:L99,L167-L182`) returns `FraiseQLError::ServiceUnavailable { retry_after: Some(60), .. }` for suspended tenants per the CHANGELOG and doc comment, but the HTTP edge discards the variant and the retry_after payload. No `Retry-After: 60` header is emitted. | POSITIVE. Filed FW-5 / #332. | `scripts/docs-test/bugs/multi-tenancy.bug-2.sh` (exit 1 = bug reproduced) |
+| **Conditional-caveat violation — sub-class 3** (hot-reload race; `ArcSwap` guard semantics) | `tenant_registry.rs:L77-L92` stores the executor as `Arc<ArcSwap<Executor<A>>>` and `upsert` calls `ArcSwap::store(new)`. Reads (`executor_for`) load the current `ArcSwap` guard which holds an `Arc<Executor<A>>` — once a request takes the guard, an upsert during execution swaps the pointer without dropping the held `Arc`. In-flight requests complete on the old executor; new requests pick up the new one. This is exactly what `ArcSwap` is designed for; the implementation matches the CHANGELOG promise ("ArcSwap-based hot-reload: in-flight requests complete on the old executor while new requests use the updated schema"). | NEGATIVE — implementation matches the spec. | n/a |
+| **Concurrency** — race PUT/DELETE on the same tenant key; race suspend + in-flight query; race domain register + DELETE tenant | All admin write paths are gated by `DashMap` entry-level locking (`tenant_registry.rs:L181-L260`). `upsert` and `upsert_with_quota` use insert-or-update; `remove`, `suspend`, `resume` use single-key `DashMap` ops. No deadlock potential is visible across these because no path locks more than one tenant entry at a time. `DomainRegistry` and `TenantExecutorRegistry` are separate `DashMap`s with independent lock domains. The "race domain register + DELETE tenant the domain points at" path is a dangling pointer in design (the domain registry maps to a tenant key, not an `Arc`), but the dispatch path validates the tenant key against the executor registry on every request (`executor_for(Some(key))`) so a dangling domain mapping resolves to a 403 `Authorization`, not a use-after-free. | NEGATIVE — DashMap semantics + per-request key revalidation correctly compose. The dangling-domain case warrants a page note (admin should `DELETE /domains/{d}` before `DELETE /tenants/{key}`), but it is not a framework bug. | n/a |
+| **RLS / tenant boundary** — sub-class 1 (X-Tenant-ID header + RLS; does set_config(app.tenant_id) actually reach the query?) | `crates/fraiseql-core/src/runtime/executor/support/security.rs` (`resolve_session_variables`) only resolves session variables from a `SecurityContext`. There is no path for the `X-Tenant-ID` header alone (no JWT) to set `app.tenant_id`. An operator who configures `[[security.session_variables.variables]]` with `source = { Jwt = { claim = "tenant_id" } }` and relies on RLS `current_setting('app.tenant_id')` MUST have the tenant_id supplied via JWT. If the operator instead configures `source = { Header = { header = "X-Tenant-ID" } }`, the header DOES route — but only when JWT auth is present (because the header value is forwarded into `SecurityContext.attributes` by the auth middleware, not by a bare HTTP handler). | DOCUMENTED CAVEAT — not a framework bug, but a page-level conditional caveat the GREEN Writer must call out. The CHANGELOG sells "dispatched via X-Tenant-ID header" as a tenant-isolation mechanism; the page must clarify that this dispatches the *executor* (registry routing), not the *RLS session variable*, and that the RLS path requires either JWT-derived `tenant_id` or an explicit `SessionVariableSource::Header` mapping. Cross-link to #329 (session vars don't reach mutation SQL even when configured). | n/a |
+| **RLS / tenant boundary** — sub-class 2 (tenant-key alphabet drift between header validator and schema-mode validator) | `tenant_key.rs:L108-L122` allows `[a-zA-Z0-9_-]`, length ≤ 128. `schema_isolation.rs:L31-L40` allows `[a-zA-Z0-9_]` (no hyphen), length ≤ 63 minus the 7-char `tenant_` prefix = 56 usable chars. A tenant registered with key `acme-corp` is silently broken under schema mode at provisioning time, NOT at admission. | POSITIVE. Filed FW-6 / #333. | `scripts/docs-test/bugs/multi-tenancy.bug-3.sh` (exit 1 = bug reproduced) |
+| **RLS / tenant boundary** — sub-class 3 (DomainRegistry case-sensitivity) | `routes/graphql/tenant_key.rs:L160-L165` (`DomainRegistry::lookup`) calls `DashMap::get(domain)` after `host.split(':').next()`. The lookup is case-sensitive. Browsers send `Host:` in lowercase per RFC 7230 § 5.4, but operators registering domains via `PUT /api/v1/admin/domains/{domain}` may use mixed case. Mismatch yields `None` and the request falls through to the default executor (single-tenant binary) or to "unregistered tenant" (multi-tenant binary). | DOCUMENTED CAVEAT — page must state domain registration is case-sensitive and recommend canonicalising to lowercase at admission. Not a bug per se (DashMap semantics are well-known); not severe enough to file. | n/a |
+
+#### 2. Bug scripts produced
+
+All under `scripts/docs-test/bugs/`, all `chmod +x`, all `set -euo pipefail`, all exit 1 when the bug reproduces against the frozen SHA (so they become real regression tests once the fixes land).
+
+- `multi-tenancy.bug-1.sh` — FW-4 / #331 — WebSocket subscription drops JWT, DomainRegistry, strict mode.
+- `multi-tenancy.bug-2.sh` — FW-5 / #332 — Suspended tenant collapses 503 to 403; `Retry-After: 60` discarded.
+- `multi-tenancy.bug-3.sh` — FW-6 / #333 — Tenant-key alphabet / length drift between header and schema-mode validators.
+
+All three scripts are static-source reproductions because the runtime tenant registry is not wired into the off-the-shelf binary (per #330); a runtime curl reproduction would require either (a) #330 landing, or (b) a host-binary recipe per the integration test in `crates/fraiseql-server/tests/multitenancy_test.rs`. Static-source is the most reliable signal until #330 lands. Each script re-greps the frozen SHA on every run so a future fix automatically flips it to exit 0.
+
+#### 3. Framework issues filed
+
+- **FW-4** — https://github.com/fraiseql/fraiseql/issues/331 — `[docs-overhaul] server: WebSocket subscription endpoint drops JWT tenant_id and disables strict cross-source validation`. Severity: regression.
+- **FW-5** — https://github.com/fraiseql/fraiseql/issues/332 — `[docs-overhaul] server: suspended tenant returns HTTP 403, never HTTP 503 + Retry-After: 60`. Severity: regression.
+- **FW-6** — https://github.com/fraiseql/fraiseql/issues/333 — `[docs-overhaul] tenancy: header validator and schema-mode validator disagree on tenant-key alphabet and length cap`. Severity: quality-of-life.
+
+#330 (FW-3) was not refiled. The RBAC startup error split (`admin_api_enabled = true` ⇒ `Failed to initialize RBAC schema: syntax error at or near "("` on a clean PG) was reproduced again here and decided to **leave as inline note in #330** rather than split into a new issue: it is the symptom that proves the binary cannot reach the admin REST surface even when the operator opts in, so it belongs with the parent runtime-wiring issue. If Phase 09 framework bug-fixer wires the runtime in #330 and the RBAC bootstrap is still failing, they can split it then with full repro.
+
+#### 4. Bug-Finder's read on library-API (A) vs feature-request (B) framing — the Writer-RED gate
+
+The Writer's RED handoff left this open: should the GREEN Writer (A) document the multi-tenant runtime as a library API and show a host-binary recipe, or (B) document the surface as the CHANGELOG describes it but block on #330 with a `## Known issues` lead?
+
+**Bug-Finder's recommendation: (A) library-API framing.** Evidence:
+
+1. **#330 is not the only gap.** FW-4, FW-5, FW-6 are all reachable independently of #330, and at least two of them (FW-4 subscription bypass and FW-6 alphabet drift) are *not* fixable purely by wiring `build_app_state()` — they require source edits in `routes/subscriptions.rs` and a validator-unification decision. Framing (B) ("the surface works as documented, modulo #330") understates the gap.
+2. **The library API is the actual production surface today.** `crates/fraiseql-server/tests/multitenancy_test.rs:L107-L130` shows the host-binary recipe, and the recipe is small (10 lines + the deps). The page can show it honestly without speculating about a future binary mode.
+3. **Framing (B) creates documentation that ages poorly.** When #330 lands but FW-4/5/6 don't, the page will be subtly wrong in ways the next maintainer must hunt. Framing (A) ages by addition (new sections describing the binary mode when it lands) rather than by silent contradiction.
+4. **Framing (A) lets the page ship today.** Framing (B) requires either blocking on #330 (Phase 09) or shipping a known-broken page now.
+
+If the Writer disagrees and picks (B), the page MUST lead with a `## Known issues` block linking #330 + #331 + #332 + #333 and the `## Suspend / resume lifecycle` section MUST drop the `503 + Retry-After` promise.
+
+#### 5. Which findings are blocking GREEN vs `## Known issues` candidates
+
+For the GREEN Writer:
+
+**Blocking** (page cannot ship without addressing these in prose):
+
+- **#330 (FW-3)** — runtime not wired. Page must either show library-API recipe (recommendation A) OR lead with `## Known issues`.
+- **#331 (FW-4)** — subscription bypass. If the page documents WebSocket subscriptions at all (even a sentence), it MUST state the JWT precedence does NOT apply on the subscription path and strict mode is forced off. Cannot silently inherit the GraphQL handler's promise.
+- **#332 (FW-5)** — 403/503 mapping. The page's "Suspend / resume lifecycle" section CANNOT show "expect HTTP 503 with `Retry-After: 60`" against the off-the-shelf binary. Either omit the suspend HTTP-semantics promise entirely, scope it to library-API host binaries, or both.
+
+**`## Known issues` candidates** (page can ship with these documented but un-fixed):
+
+- **#333 (FW-6)** — tenant-key alphabet drift. Recommend the tightest intersection in prose (`[a-zA-Z0-9_]`, ≤56 chars when schema-mode is enabled), warn on hyphens, link the issue.
+- **#329** — session variables don't reach mutation SQL functions. Already filed; page's RLS section must cross-link it and note the workaround (mutation-level `inject` params via `jwt:tenant_id`).
+- **DomainRegistry case-sensitivity** — not severe enough to file. Page recommends lowercase canonicalisation, recommends operators write a slugify step into their admin tooling.
+
+**Non-blocking page notes** (pure prose guidance, no upstream issue):
+
+- Row-mode `@tenant_id` is adapter-agnostic at compile time; schema-mode is PG-only by construction.
+- Dangling-domain ordering: `DELETE /api/v1/admin/domains/{domain}` before `DELETE /api/v1/admin/tenants/{key}`.
+- Legacy `X-Org-ID` middleware (`middleware/tenant.rs`) is dead code in the binary; omit from the page or footnote as deprecated. Do NOT document `X-Org-ID` as a working dispatch source.
+
+#### 6. Harness gaps surfaced this pass
+
+- All three bug scripts are static-source. The harness intentionally has no `fraiseql` CLI container, no host-binary fixture, and no compiled schema with `security.tenancy.mode = "schema" | "row"`. Cycle 5 / GREEN Writer will need to either (a) add a sidecar CLI container to compile a richer schema, (b) hand-write a compiled schema with `security.tenancy` populated for the docs-test PG image, or (c) reframe the page tests as library-API integration tests run via `cargo run` against a tiny `examples/multi-tenancy-host.rs` shape. Option (b) is the lowest-cost path for the GREEN cycle.
+- `admin_api_enabled = true` still fails RBAC schema init against the clean docs-test PG (see Writer-RED §3). Not split from #330 this pass per the decision above. If GREEN Writer needs an `admin_api_enabled = true` overlay for any docs-test assertion, they will need an `[rbac]` bootstrap fixture in `scripts/docs-test/fixtures/postgres/`.
+
+#### 7. Pointer to next persona
+
+Next session: **Writer-GREEN (Opus 4.7)** for Phase 03 / Cycle 1.
+
+Read in this order:
+1. The Writer-RED handoff entry above (`### Phase 03 / Cycle 1 RED — Writer ...`).
+2. This Bug-Finder entry.
+3. `_internal/.plan/red-evidence/phase-03-cycle-01-unregistered-tenant.transcript` and `phase-03-cycle-01-two-tenant.transcript`.
+4. `scripts/docs-test/bugs/multi-tenancy.bug-{1,2,3}.sh` — read the script comment headers; they double as bug-prose source material the GREEN page can cite verbatim.
+5. The four open issues: #330 (FW-3, regression), #331 (FW-4, regression), #332 (FW-5, regression), #333 (FW-6, qol). Cross-link to #329 for the RLS / session variables interaction.
+
+Bug-Finder's recommended page shape for GREEN (non-binding):
+
+```
+## What this page covers
+## Picking a tenancy mode (row / schema / none)
+## Dispatch sources (X-Tenant-ID / JWT tenant_id / Host)
+   → Caveat callout: WebSocket subscriptions bypass JWT precedence and
+     strict mode at this SHA. Cross-link #331.
+## Wiring the runtime
+   → Library-API host-binary recipe (10 lines), based on
+     crates/fraiseql-server/tests/multitenancy_test.rs:L107-L130
+   → `## Known issues` callout: the off-the-shelf binary does not wire
+     the runtime. Cross-link #330.
+## Lifecycle management
+   → upsert / suspend / resume / delete
+   → Caveat: suspended tenants reach the HTTP client as 403, not 503 + Retry-After
+     at this SHA. Cross-link #332.
+## Tenant-key naming
+   → Recommended alphabet [a-zA-Z0-9_], length ≤56 chars when schema-mode
+     is enabled. Cross-link #333.
+## RLS and session variables
+   → set_config('app.tenant_id', ...) only reaches queries; mutation
+     functions need `inject` params. Cross-link #329.
+## Schema mode
+   → PG-only by construction. Cross-link to schema_isolation.rs prose.
+## Row mode
+   → Adapter-agnostic at compile time. Annotate fields with @tenant_id.
+## Audit trail
+## Quotas and rate limiting
+## Known issues
+   → #330 #331 #332 #333 #329
+```
+
+**Anti-scope reminder for GREEN:** no edits to `~/code/fraiseql`; no refile of existing issues; no Phase 03 row flips beyond Cycle 0; the page MUST have source citations against every non-trivial claim per methodology § 4; MDX-3 JSX-comment citation form per the methodology § 4 amendment.
+
+**Open gates at this RED close:** unchanged. G1 closed. G2 default-hold. G3/G4/G5 downstream. No novel gates surfaced this pass.
+
+Handoff to **Writer-GREEN (Opus 4.7)** for Phase 03 / Cycle 1 next.
