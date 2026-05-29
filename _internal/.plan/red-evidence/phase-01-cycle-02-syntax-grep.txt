@@ -1,0 +1,95 @@
+# Phase 01 / Cycle 2 — Stray-syntax sweep — RED evidence
+# Captured: 2026-05-29
+# Persona: Cleanup (Sonnet 4.6)
+
+## 1. bun run check (astro check) output
+
+Result: 1 error, 0 warnings, 60 hints
+
+The single error is PRE-EXISTING baseline (present in Phase 00 / Cycle 6 and subsequent CI runs):
+
+  src/components/SiteTitle.astro:6:23 - error ts(2307):
+    Cannot find module 'virtual:starlight/user-images' or its corresponding type declarations.
+
+The 60 hints are pre-existing TypeScript unused-variable hints in src/lib/validators/ — not actionable in this cycle.
+
+## 2. bun run build output
+
+Result: EXIT 0 — 197 pages built in ~22s.
+
+One pre-existing warning:
+  [WARN] [astro-expressive-code] Error while highlighting code block using language "conf"
+  in document src/content/docs/guides/federation-nats-integration.mdx.
+  The language could not be found. Using "txt" instead.
+
+This is a pre-existing issue — language "conf" is not in the bundle. Not actionable this cycle
+(Cycle 2 covers code-fence imbalance; wrong language tags on existing pages are Writer territory
+in their respective rewrite phases).
+
+## 3. bun run lint
+
+No "lint" script defined in package.json. Available: check, lint:sql, build, test.
+Per Cycle 1 Writer's note: "bun run check and bun run build is the strongest gate available."
+
+## 4. Code-fence audit (automated scan)
+
+### 4a. Unclosed code fences (structural breakage — actionable this cycle)
+
+CRITICAL:
+  src/content/docs/reference/operators.mdx:101 — ```sql block opened, no closing ``` before next heading.
+  Content: single SQL SELECT statement on line 102; fence never closed.
+  Total fence markers in file: 191 (odd = imbalanced). One extra lang-open, 96 lang-opens vs 95 bare-closes.
+
+### 4b. Code blocks without language tags
+
+279 code blocks across ~90 files are missing language tags.
+This is pre-existing repo-wide state.
+
+Key files (highest counts):
+  reference/operators.mdx          — ~70 instances (GraphQL/SQL examples)
+  features/rest-transport.mdx      — ~16 instances
+  deployment/scaling.mdx           — ~10 instances
+  reference/rest-api.mdx           — ~12 instances
+
+Specifically mentioned in phase spec (actionable this cycle):
+  getting-started/installation.mdx:117 — bare ``` fence for version output "fraiseql 2.3.2"
+    (the phase spec cited installation.md:38 but the file is installation.mdx; the
+    stray-fence issue per Cycle 1 Writer exists at line 117, not 38.)
+
+SCOPE DECISION: 279 files is beyond single-cycle mechanical scope. This cycle fixes:
+  (a) The one structural break (operators.mdx:101 — unclosed fence).
+  (b) The specifically called-out installation.mdx:117 bare fence.
+  The remaining 277 language-tag absences are deferred to respective page rewrite phases
+  (per methodology: "Cycle 2 CLEANUP scope — mechanical fixes in this cycle's spirit").
+
+### 4c. Imports in .md files
+
+None found. All import statements are in .mdx files as expected.
+
+## 5. Frontmatter description length check
+
+6 pages with description > 155 chars:
+  databases/postgresql.mdx:3        — 157 chars
+  databases/sqlserver-enterprise.mdx:3 — 169 chars
+  use-cases/dotnet-teams.mdx:3      — 195 chars
+  use-cases/event-driven-teams.mdx:3 — 170 chars
+  use-cases/python-teams.mdx:3      — 162 chars
+  vs/hasura-sqlserver.mdx:3         — 170 chars
+
+## 6. TODO/FIXME/Phase marker grep
+
+src/content/docs/ contains "Phase" in:
+  - concepts/how-it-works.mdx: "Phase 1/2/3" (compilation pipeline — content, not markers)
+  - deployment/scaling.mdx: "Phase 1-5" (scaling architecture — content, not markers)
+  - examples/index.mdx:355: {/* source: Phase 00 / Cycle 2 ... */} (Cycle 1 source citation — leave for Verifier)
+  - migrations/incremental.mdx: "[Phase 0-5]" (migration stages — content, not markers)
+
+No TODO, FIXME, or XXX markers found in src/content/docs/.
+No methodology artifacts in rendered output.
+
+## 7. Pre-existing issues NOT fixed this cycle (out of scope)
+
+  - SiteTitle.astro ts(2307) error: pre-existing, not a docs content issue.
+  - 277 code blocks without language tags beyond the two specifically addressed.
+  - federation-nats-integration.mdx "conf" language: wrong lang tag, not a fence imbalance.
+  - 6 over-length descriptions: see GREEN section for which 2 were fixed vs 4 deferred.
