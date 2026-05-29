@@ -760,3 +760,25 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - **Sign-off:** 6/6 in-scope checklist items pass, CI green, all 8 swap categories cleanly applied with zero residue, all 4 deferrals justified, escalation Haiku → Sonnet succeeded. Cycle 4 closed. Next: Cycle 5 (Homebrew claim verification).
 
 ---
+
+### Phase 01 / Cycle 5 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Homebrew classification: (c) NO TAP EXISTS.** Three independent lines of evidence: `formulae.brew.sh/formula/fraiseql.json` → 404 (homebrew-core has no formula); `github.com/fraiseql/homebrew-tap` (and `homebrew-fraiseql`, `homebrew-core`) → 404 (no GitHub-hosted tap under the `fraiseql` org); `releasing.md` at frozen SHA d0a4ed4 lines 625–645 explicitly lists "Homebrew formula publishing" as a Phase 4 "Later" roadmap item that has not yet shipped, and `release.yml` (767 lines) publishes only to crates.io / PyPI / npm / GitHub Releases.
+- **Page action: removed Homebrew tab from `installation.mdx` and aligned all cross-page references.** Five Homebrew mentions resolved across four files:
+  1. `getting-started/installation.mdx:27-33` — `<TabItem label="Homebrew (macOS)">` block removed (and the surrounding `<Tabs>` container converted to a decision table — see install-matrix decision below).
+  2. `getting-started/quickstart.mdx:28-29` — `# Homebrew (macOS)\nbrew install fraiseql\n` comment + command removed from the inline install snippet.
+  3. `examples/index.mdx:16` — `brew install fraiseql / ` removed from the inline `# or:` comment; comment now reads `# or: cargo install fraiseql`.
+  4. `reference/cli.mdx:18-22` — `<TabItem label="Homebrew">` block (with `brew install fraiseql/tap/fraiseql`) removed; remaining tabs Cargo + Binary still form a valid 2-tab matrix.
+  5. Three new JSX-comment citations added pointing to `releasing.md` and `.github/workflows/release.yml` at frozen SHA, explaining *why* Homebrew is absent. These are intentional Verifier-targeted citations, not user-facing claims.
+- **Cross-page Homebrew mentions: 5 found, 5 removed (or repurposed as Verifier citations).** Post-edit `grep -rn -E "brew install|brew tap|Homebrew" src/content/docs/` returns 3 hits, all of them JSX citations.
+- **Install-matrix refactor: decision table created** (replaces the prior 3-method `<Tabs>` block in `installation.mdx`). Per methodology § 9 "Tables for matrices": the table has columns Method | When to choose | macOS | Linux | Windows, with three rows (Install script / Pre-built binary / Cargo). Docker remains its own dedicated section further down the page (separate concern: containerised deployment vs. host install). Rationale: a scannable decision rubric is more methodology-aligned than tabbed prose for a small fixed matrix; readers don't need to click to see all options.
+- **RED evidence:** `_internal/.plan/red-evidence/phase-01-cycle-05-homebrew-investigation.txt` (6223 bytes). Captures the verbatim docs claims, four HTTP probes (with status codes and response excerpts), three framework-repo greps at the frozen SHA, the classification, and the action plan.
+- **Framework issue filed: N/A.** Classification (c) is "no tap exists" — the phase spec explicitly says no framework-side action is needed in that branch. The framework's own `releasing.md` already lists Homebrew formula publishing as a future-roadmap item, so the framework maintainers are already on notice. No regression to file.
+- **Citations added: 3** JSX-comment citations across 3 files (`installation.mdx`, `quickstart.mdx`, `reference/cli.mdx`) — all targeting `releasing.md:L625-L645` and/or `.github/workflows/release.yml` at frozen SHA d0a4ed4. Plus 1 extra Verifier-targeted citation on the pre-built-binary table in `installation.mdx` against `release.yml`. Total: 4 new citations. Pending Verifier strip.
+- **Build state:** `bun run build` exit 0, 197 pages built, 2 pre-existing baseline warnings (the `astro-expressive-code language conf` warning in `guides/federation-nats-integration.mdx` and the Starlight `/[...slug]` vs `/` route conflict — both identified in Cycle 3 reviewer as baseline noise, neither caused by touched files).
+- **Surprise:** the brief said "the Homebrew Tab block lives at lines 27-30." Actual scope was 4 files (5 mentions), not 1 file. Two distinct claim forms in use: bare `brew install fraiseql` (implying homebrew-core) and `brew install fraiseql/tap/fraiseql` (implying a tap) — both broken, both removed.
+- **Anti-scope respected:** no `astro.config.mjs` sidebar changes (G1 reserved for Cycle 6); no Phase-02 quickstart bug fixes (the quickstart.mdx edit was scoped strictly to the Homebrew comment removal); no Cycle 1/2/3/4 rework; no audit MD deferral-list edits.
+- **Commit SHA + CI URL:** see commit/push entries below.
+- **Open gates:** none new. G1 (sidebar IA) is Cycle 6. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---

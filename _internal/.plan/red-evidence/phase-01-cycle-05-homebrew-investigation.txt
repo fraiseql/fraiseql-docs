@@ -1,0 +1,152 @@
+Phase 01 / Cycle 5 RED evidence — Homebrew claim verification
+Date: 2026-05-29
+Persona: Writer (Opus 4.7)
+Frozen FraiseQL SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+
+================================================================================
+1. Current docs claims (verbatim, before edit)
+================================================================================
+
+# src/content/docs/getting-started/installation.mdx:27-31
+  <TabItem label="Homebrew (macOS)">
+
+```bash
+brew install fraiseql
+```
+
+# src/content/docs/getting-started/quickstart.mdx:28-29
+  # Homebrew (macOS)
+  brew install fraiseql
+
+# src/content/docs/examples/index.mdx:16
+  # or: brew install fraiseql / cargo install fraiseql
+
+# src/content/docs/reference/cli.mdx:18-21
+  <TabItem label="Homebrew">
+    ```bash
+    brew install fraiseql/tap/fraiseql
+    ```
+  </TabItem>
+
+Five mentions across four files. Two implied installation methods:
+- `brew install fraiseql`               (implies homebrew-core formula or auto-tap)
+- `brew install fraiseql/tap/fraiseql`  (implies a `fraiseql/homebrew-tap` tap)
+
+================================================================================
+2. Live Homebrew registry checks (2026-05-29)
+================================================================================
+
+A. brew CLI on host
+   $ which brew
+   brew not found
+
+   Cannot run `brew search fraiseql` directly. Falling back to HTTP probes.
+
+B. homebrew-core formula JSON endpoint
+   $ curl -s --max-time 10 -w "HTTP=%{http_code}\n" -o /tmp/brew-fraiseql.json \
+       https://formulae.brew.sh/formula/fraiseql.json
+   HTTP=404
+
+   Response body is the GitHub Pages "Page not found" page (9379 bytes).
+   Conclusion: NO `fraiseql` formula in `Homebrew/homebrew-core`.
+
+C. homebrew-core raw formula file
+   $ curl -s --max-time 10 -w "HTTP=%{http_code}\n" -o /dev/null \
+       https://raw.githubusercontent.com/Homebrew/homebrew-core/HEAD/Formula/f/fraiseql.rb
+   HTTP=404
+
+   Confirms (B): the file Formula/f/fraiseql.rb does not exist on HEAD of homebrew-core.
+
+D. Candidate tap repositories
+   $ curl -s --max-time 10 -w "HTTP=%{http_code}\n" -o /dev/null \
+       https://github.com/fraiseql/homebrew-tap
+   HTTP=404
+
+   $ curl -s --max-time 10 -w "HTTP=%{http_code}\n" -o /dev/null \
+       https://github.com/fraiseql/homebrew-fraiseql
+   HTTP=404
+
+   $ curl -s --max-time 10 -w "HTTP=%{http_code}\n" -o /dev/null \
+       https://github.com/fraiseql/homebrew-core
+   HTTP=404
+
+   Conclusion: the `fraiseql/tap` tap implied by `brew install fraiseql/tap/fraiseql`
+   in reference/cli.mdx:20 DOES NOT EXIST. There is no Homebrew tap of any
+   recognisable shape under the `fraiseql` GitHub org.
+
+================================================================================
+3. Framework repo cross-check at frozen SHA d0a4ed4
+================================================================================
+
+A. releasing.md mentions of Homebrew
+   $ git -C ~/code/fraiseql show d0a4ed4ec1770c70707f68fd9019f2b561d87461:releasing.md \
+       | grep -n -i -E "homebrew|brew install|brew tap|formula"
+   639:- [ ] Homebrew formula publishing
+
+   Context (releasing.md L625-L645 at frozen SHA):
+       ### Phase 4 (Later)
+       - [ ] Docker image publishing
+       - [ ] Homebrew formula publishing
+       - [ ] Windows installer (.msi)
+       - [ ] Debian/RPM packages
+       - [ ] Release metrics dashboard
+
+   Conclusion: Homebrew formula publishing is explicitly an UNFINISHED Phase-4
+   "Later" item in the framework's own release roadmap. The framework
+   maintainers themselves do not claim a Homebrew distribution exists.
+
+B. Framework-tree search for brew/tap/formula
+   $ git -C ~/code/fraiseql ls-tree -r d0a4ed4ec1770... \
+       | grep -iE 'brew|tap|formula'
+   (no matches)
+
+   $ git -C ~/code/fraiseql ls-tree -r d0a4ed4ec1770... .github/workflows/ \
+       | grep -iE "brew|tap|formula"
+   (no matches)
+
+   Conclusion: no Homebrew publishing workflow, no formula file, no
+   tap-related build script anywhere in the FraiseQL framework tree at the
+   frozen SHA.
+
+C. release.yml does not publish to Homebrew
+   $ git -C ~/code/fraiseql show d0a4ed4...:.github/workflows/release.yml \
+       | grep -n -i -E "homebrew|brew install|brew tap|formula"
+   (no matches)
+
+   release.yml has 767 lines; it publishes to crates.io (15 crates), PyPI
+   (fraiseql Python package), npm (TypeScript package), and GitHub Releases
+   (5-platform binaries). It does not touch Homebrew.
+
+================================================================================
+4. Classification
+================================================================================
+
+(c) NO TAP EXISTS.
+
+Three lines of independent evidence converge:
+  - formulae.brew.sh/formula/fraiseql.json → 404
+  - github.com/fraiseql/homebrew-tap → 404 (and homebrew-fraiseql, homebrew-core too)
+  - releasing.md at frozen SHA lists Homebrew formula publishing as a Phase 4
+    "Later" item that has not yet shipped
+
+`brew install fraiseql` and `brew install fraiseql/tap/fraiseql` are both
+broken commands as of the frozen SHA and the audit date (2026-05-29). A
+reader who runs them today gets `Error: No available formula with the name
+"fraiseql"` (or the equivalent tap-not-found error).
+
+Per phase spec § Cycle 5 GREEN: "if no tap exists, remove the Homebrew section."
+
+================================================================================
+5. Action plan (GREEN)
+================================================================================
+
+- Remove `<TabItem label="Homebrew (macOS)">` block from installation.mdx:27-33.
+  Remaining tabs: curl, Cargo, Binary Download — still a valid 3-tab matrix.
+- Remove "# Homebrew (macOS)\nbrew install fraiseql\n" lines from
+  quickstart.mdx:28-30, including the surrounding blank line.
+- Remove "brew install fraiseql /" from the inline `# or:` comment in
+  examples/index.mdx:16 so the comment reads "# or: cargo install fraiseql".
+- Remove `<TabItem label="Homebrew">` block from reference/cli.mdx:18-22.
+  Remaining tabs: Cargo, Binary — still a valid 2-tab matrix.
+- Add a brief decision rubric or convert install-method Tabs in
+  installation.mdx to a decision table per REFACTOR step.

@@ -14,8 +14,17 @@ FraiseQL is distributed as a **pre-compiled Rust binary** — no runtime, no dep
 
 ## Install FraiseQL
 
-<Tabs>
-  <TabItem label="curl (macOS / Linux)">
+Pick the method that matches your environment:
+
+{/* source: releasing.md:L625-L645 at frozen SHA d0a4ed4 — Homebrew formula publishing is a Phase 4 "Later" roadmap item, not yet shipped; formulae.brew.sh/formula/fraiseql.json returned 404 on 2026-05-29. Cargo + binary publishing are confirmed via .github/workflows/release.yml at frozen SHA. */}
+
+| Method | When to choose | macOS | Linux | Windows |
+|--------|----------------|:-----:|:-----:|:-------:|
+| Install script | Single-line install for a workstation or container | yes | yes | no |
+| Pre-built binary | Air-gapped hosts, deterministic provisioning, Windows | yes | yes | yes |
+| Cargo | You already have a Rust toolchain and want to track `crates.io` | yes | yes | yes |
+
+### Install script (macOS / Linux)
 
 ```bash
 curl -fsSL https://fraiseql.dev/install.sh | sh
@@ -23,26 +32,11 @@ curl -fsSL https://fraiseql.dev/install.sh | sh
 
 This installs the latest binary to `/usr/local/bin` (or `~/.local/bin` if that is not writable).
 
-  </TabItem>
-  <TabItem label="Homebrew (macOS)">
-
-```bash
-brew install fraiseql
-```
-
-  </TabItem>
-  <TabItem label="Cargo (Rust)">
-
-```bash
-cargo install fraiseql
-```
-
-Requires a Rust toolchain (`rustup` recommended).
-
-  </TabItem>
-  <TabItem label="Binary Download">
+### Pre-built binary
 
 Download from [GitHub Releases](https://github.com/fraiseql/fraiseql/releases):
+
+{/* source: .github/workflows/release.yml at frozen SHA d0a4ed4 — the release pipeline publishes 5-platform binaries to GitHub Releases. */}
 
 | Platform | File |
 |----------|------|
@@ -51,8 +45,15 @@ Download from [GitHub Releases](https://github.com/fraiseql/fraiseql/releases):
 | Linux x86\_64 | `fraiseql-x86_64-unknown-linux-gnu.tar.gz` |
 | Windows | `fraiseql-x86_64-pc-windows-msvc.zip` |
 
-  </TabItem>
-</Tabs>
+### Cargo (Rust)
+
+```bash
+cargo install fraiseql
+```
+
+{/* source: .github/workflows/release.yml:L525-L532 at frozen SHA d0a4ed4 — root `fraiseql` crate is published to crates.io as part of the release pipeline. */}
+
+Requires a Rust toolchain (`rustup` recommended).
 
 ## Install the Schema SDK
 
