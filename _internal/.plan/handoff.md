@@ -1738,3 +1738,99 @@ All five are real CHANGELOG entries; none is fabricated; the adjacency selection
 - Commit SHAs in prose (`ccd25ee97`, `500859a48`) were already correct per Verifier; only the CHANGELOG line ranges drifted.
 - `bun run build`: clean (202 pages).
 - Handoff to **Reviewer (Opus 4.7)** next.
+
+---
+
+### Phase 02 / Cycle 3 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.** v2.3 release-notes page is the largest single page of Phase 02 and lands clean against the 15-point checklist + Phase 02 adversarial protocol. All 8 headline subsystems present in CHANGELOG; all 10 random breaking-changes SHAs resolve and commit subjects match prose; both Verifier-flagged line-range drifts (L526-L527 LazyLock + L520-L521 federation retry) correctly fixed by orchestrator at `c787fca`; CI green; anti-scope tight; archaeology scrub clean (zero `Phase N` codename hits, despite CHANGELOG itself carrying "Phase 13/14/15/18" parentheticals on Auth / Schema-migrations / Tenancy / Studio added lines — Writer correctly stripped them); zero dead internal markdown links (Cycle 2 BLOCK precedent honoured).
+
+#### CI
+- ✅ Run `26637531955` on HEAD `c787fca` — `conclusion: success`, workflow `docs-test`. Prior `dd67bcb` cancelled by concurrency; prior `0954b86` (Cycle 2 fix) success. Re-verified via `gh run view`.
+
+#### CHANGELOG cross-check (v2.3.x sections at `d0a4ed4ec1770c70707f68fd9019f2b561d87461:CHANGELOG.md` L8-L580)
+**Section boundaries:** `## [Unreleased]` L8 → `## [2.3.2]` L10 → `## [2.3.1]` L26 → `## [2.3.0]` L40 → `## [2.2.0]` L581. Verified.
+
+**8/8 headline subsystems present:**
+- Studio admin dashboard → L103-L108 + Studio metrics endpoint L109-L110. ✅
+- Functions → L71-L77 (`fraiseql-functions` crate, WASM trigger system). ✅
+- Storage → L66-L69 (`fraiseql-storage`, S3/local/Azure/GCS + RLS tenant isolation + transforms). ✅
+- Realtime → L79-L84 (WebSocket + RLS event delivery + CronScheduler + presence + CDC). ✅
+- Auth extensions → L89-L92 (multi-provider social, magic links, TOTP MFA, phone SMS OTP). ✅
+- Schema migrations CLI → L100-L101 (`fraiseql-cli`). ✅
+- Hierarchies → L46-L52 (LTree `descendantOfId`/`ancestorOfId`, PG-only). ✅
+- REST transport → L125-L129 (`[rest]` TOML, `rest` feature flag named in page prose). ✅
+
+**Phase-doc drifts confirmed (informational, non-blocking):**
+- TCP_NODELAY + gated compression default change: `grep -niE 'TCP_NODELAY|nodelay|compression default'` on L8-L580 → 0 hits. Phase-doc says it's a v2.3 perf bullet; CHANGELOG at frozen SHA has no such entry. Writer correctly omitted; flagged in RED evidence. ✅
+- Line-count claim: `wc -l` on L8-L580 → 573 lines. Writer said "~570"; phase-doc estimated "~700". Reality is ~573. ✅
+
+**Phase-marker scrub:** `grep -E 'Phase [0-9]+' src/content/docs/release-notes/v2-3.mdx` → 0 hits. CHANGELOG L89 / L100 / L103 carry "(Phase 13)" / "(Phase 14)" / "(Phase 18)" framework-internal codenames; page strips them. ✅
+
+#### Breaking-changes SHA spot-check (10 random rows)
+- Row 1 `ffd3124e9` → "refactor(error)!: delete RuntimeError and 5 shadow domain enums" ✅
+- Row 2 `4c86d2e0d` → "feat(error): extend FileError with typed storage-backend variants [F050 prep]" ✅
+- Row 3 `65491c2a9` → "refactor(server)!: rename ServerError::RuntimeError to ServerError::Engine" ✅
+- Row 5 `83725aed8` → "refactor(db)!: consolidate execute_with_projection_arc params into ProjectionRequest struct [F043]" ✅
+- Row 6 `3dca6bd67` → "refactor(auth)!: make KeyedRateLimiter generic over a Clock trait [F018]" ✅
+- Row 8 `c5c946fb3` → "refactor(auth)!: switch KeyedRateLimiter from Mutex<HashMap> to DashMap [F006]" ✅
+- Row 9 `bb95ef8e9` → "perf!: replace tokio::Mutex with parking_lot::Mutex for sync critical sections [F019]" ✅
+- Row 10 `f5ddaa59e` → "perf(server)!: drop redundant Arc<AtomicU64> wrappers in MetricsCollector [F009]" ✅
+- Row 11 `bab30d351` → "perf(graphql)!: store ParsedQuery.source as Arc<str> [F042]" ✅
+- Row 12 `dd4393d06` → "perf(validation)!: pre-compile pattern regex at ValidationRule construction [F003]" ✅
+- **10/10 SHAs resolve and commit subjects match prose. ✅**
+
+**Writer's 11/16 tally re-counted:** rows 1-13 + 15 carry SHAs verbatim from CHANGELOG (14 rows); row 14 names `a27d8f1c5` derived from the schema-integrity Added entry (not breaking-change entry) and explicitly notes the CHANGELOG omission; row 16 has no SHA. The "11/16" handoff claim undercounts; the page itself is correct and explicit about the gaps. Non-blocking nit.
+
+#### Forward-dep dead-link check
+- `grep -E '\]\(/' src/content/docs/release-notes/v2-3.mdx` → **0 hits**. Cycle 2 BLOCK precedent (no MD links to non-existent slugs) honoured. All forthcoming forward-deps render as code-span (`` `/path/` ``). ✅
+
+#### Citation re-grep (5 random + 2 fixes)
+- ✅ **Fix v2-3.mdx:254 → L526-L527** — `git show d0a4ed4...:CHANGELOG.md | sed -n '526,527p'` returns "**`OnceLock<Regex>` replaced with `LazyLock<Regex>`** in `cache/uuid_extractor.rs`. [F027] (`ccd25ee97`)". Exact prose match.
+- ✅ **Fix v2-3.mdx:260 → L520-L521** — returns "**Federation HTTP retry preserves the source chain** on the final error rather than stringifying it. [F025] (`500859a48`)". Exact prose match.
+- ✅ Random 1 — v2-3.mdx:79 → L103-L108 (Studio admin dashboard `/studio` + admin API endpoints). Prose at L70-L77 matches.
+- ✅ Random 2 — v2-3.mdx:102 → L66-L69 (Storage API S3/local/Azure/GCS + RLS tenant isolation + transforms). Prose at L97-L100 matches.
+- ✅ Random 3 — v2-3.mdx:147 → L46-L52 (LTree ID-based operators `descendantOfId` / `ancestorOfId`, PG-only). Prose at L137-L145 matches including the PG-only / `Unsupported` callout.
+- ✅ Random 4 — v2-3.mdx:299 (table row 8) → L347-L367 (lock-free reads 5 maps, `DashMap` × 4 + `ArcSwap<HashMap>` × 1, `TrustedDocumentStore::resolve` drops `async`). All five named maps verbatim.
+- ✅ Random 5 — v2-3.mdx:304 (table row 13) → L439-L455 (workspace clippy denies `panic|unreachable|print_stdout|print_stderr|dbg_macro|todo|unimplemented|...`, nursery+cargo promoted from warn to deny, 3 pilot crates with `indexing_slicing`). All 12 named lints + 3 pilot crates verbatim.
+
+#### 15-point checklist
+1. **VERSION DRIFT** — ✅ v2.3.0 = 2026-05-25 / v2.3.1 = 2026-05-27 / v2.3.2 = 2026-05-28 match CHANGELOG L40 / L26 / L10. `[rest]` feature flag, `[hierarchies]` TOML section, `/studio` mount path, `GET /admin/v1/metrics/summary` — all verbatim from L46-L129.
+2. **WRONG-DB PATHS** — ✅ Hierarchies headline explicitly enumerates "PostgreSQL only; MySQL, SQLite, and SQL Server return `Unsupported`" sourced at L46-L52.
+3. **FEATURE-FLAG OMISSIONS** — ✅ `rest` flag named in REST headline (L153). `functions = []` server-crate feature gates the HTTP edge endpoint `POST /functions/v1/{name}` but the page describes the WASM trigger system (unconditional in `fraiseql-functions` crate), so omission is contextually correct. CHANGELOG itself does not name a Functions feature flag. No regression versus source-of-truth.
+4. **SECURITY-DEFAULT REGRESSIONS** — ✅ S33-S48 itemised in full 13-row table sourced at L175-L192 with verbatim commit SHAs; HTTP allowlist default ("denies by default; hosts must be explicitly allowlisted") and Vault hardening called out as positives. No softening.
+5. **SDK DIVERGENCE** — N/A — page shows no SDK code.
+6. **DEAD LINKS** — ✅ Zero `]\(/` hits. External CHANGELOG GitHub URL is the only MD link and resolves.
+7. **UNDEFINED SYMBOLS** — ✅ Spot-checked 3 named symbols at frozen SHA: `ProjectionRequest` (hits `crates/fraiseql-core/src/cache/adapter/mod.rs`, `runtime/executor/runners/query_regular.rs`, `query_relay.rs`), `FraiseQLError` (hits `crates/fraiseql-auth/src/error.rs`, `fraiseql-cli/src/schema/database_validator.rs`, `fraiseql-codegen/src/client/mod.rs`), `MetricsCollector` (hits `crates/fraiseql-core/tests/federation_observability_*`, `fraiseql-server/benches/performance_benchmarks.rs`). All grep clean.
+8. **COPY-PASTE FROM PRIOR VERSION** — ✅ Net-new page; no carryover possible.
+9. **CONDITIONAL CAVEATS** — ✅ Hierarchies PG-only caveat (L143-L144); MeEnrichmentConfig removal + TOML-driven path called out (L121-L122); v2.3.0 / v2.3.1 `cargo install` caveat in Aside (L420-L426).
+10. **RLS / SECURITY INTERACTIONS** — ✅ Cache RLS isolation guard, subscription tenant isolation, RLS on aggregate/window paths each cited and explained in security-hardening section.
+11. **ERROR-PATH COVERAGE** — ✅ Two HTTP-status refinements called out in row 2 (`File(NotFound)` 400→404, `File(InvalidKey)` 500→400); axum 0.8 startup panic in bug-fix #1 with exact route literal (`/checkpoint/:listener_id` → `{listener_id}`) and panic site explained.
+12. **ARCHAEOLOGY-FREE** — ✅ `grep -niE 'TODO|FIXME|XXX|easily|simply|^just |WIP|coming soon|^!|Phase [0-9]'` → 1 hit (clippy lint name `` `todo` `` in code span on row 13, verbatim API surface; same precedent as v2-2.mdx's `tracing::info!`). Zero `Phase N` archaeology; zero docs-overhaul persona / cycle / orchestrator references.
+13. **SOURCE CITATIONS RESOLVE** — ✅ 5/5 random re-greps + 2/2 orchestrator-fix re-greps PASS. Verifier's 45/57 + 22/22 SHAs validated; the 2 line-range drifts fixed at `c787fca`; no further drift.
+14. **NO PERSONA SELF-REFERENCE** — ✅ `grep -niE '\b(persona|opus|sonnet|haiku|orchestrator|as an AI)\b'` → 0 hits.
+15. **DARK MODE** — N/A this cycle (visual review deferred per Phase 01 precedent).
+
+**Score: 14/15 applicable PASS. 0/15 FAIL.**
+
+#### Anti-scope
+- ✅ `git diff main..HEAD --name-only`: 5 release-notes files (index + v2-0 + v2-1 + v2-2 + v2-3) + `astro.config.mjs` sidebar entry + 9 plan-tree artefacts (handoff + phase doc + phase README + 6 RED-evidence / verification logs). Tightly scoped.
+- ✅ Cycle 3 specific diff (`0954b86..c787fca`): v2-3.mdx + index.mdx + astro.config.mjs + phase doc + handoff + 2 RED-evidence files. No migration-guide content. No `index.mdx` Enterprise Features card-grid. No quickstart / install / CLI / SDK / changelog.mdx / framework code edits. No push to `main`; no amend.
+
+#### Findings
+1. **(nit, non-blocking)** Writer's handoff "11/16 rows name SHAs verbatim" is undercount — actual is 14/16 verbatim + 1 SHA-derived-from-different-entry (row 14) + 1 with no SHA (row 16). Page itself is correct and explicit about the gaps. Flag for hand-off hygiene; do not re-open.
+2. **(informational, non-blocking)** CHANGELOG L89 / L100 / L83 (Tenancy) / L103 carry framework-internal codenames "(Phase 13)" / "(Phase 14)" / "(Phase 15)" / "(Phase 18)" on Added bullets. Writer correctly scrubbed all four from the page prose during CLEANUP — this is the exact archaeology-removal contract from methodology § 5 item 12. Recorded as a Phase 02 precedent for Cycle 4-5 migration-guide Writers (the same codenames may recur in CHANGELOG context they pull from).
+3. **(informational, non-blocking)** Functions HTTP edge endpoint (`POST /functions/v1/{name}`) is gated on the server-crate `functions = []` feature flag. The page describes the WASM trigger system (which is unconditional in the `fraiseql-functions` runtime crate), not the HTTP edge endpoint, so the omission is in-scope-correct. If Cycle 4's migration guide or Phase 04+ feature page documents the HTTP edge endpoint, it must name the flag.
+4. **(follow-on, informational)** The Cycle 3 page (445 lines, 57 citations) demonstrates the JSX-comment citation posture (option B) scales cleanly to large pages: zero `{/* source:` leakage in `dist/`, single plain `source:` occurrence (`ParsedQuery.source: String` API surface in row 11) parallels v2-2.mdx's `tracing::info!` precedent. Methodology § 4 amendment is operating as designed.
+
+#### Framework issues filed
+**0.** CHANGELOG v2.3.x sourcing was clean across all sampled ranges; every line citation resolves at the frozen SHA. The two rows-without-SHA gaps (rows 14 / 16) are CHANGELOG omissions, not contradictions — the page is explicit about the missing SHA in those rows.
+
+#### Branch hygiene
+- Branch `phase-02/migration-and-changelog` at `c787fca`. Cycle 3 chain: `0954b86` (Cycle 2 BLOCK-fix close) → `dd67bcb` (Writer Cycle 3 page + sidebar + index + RED) → `9873ebb` (Verifier log) → `c787fca` (orchestrator citation fix). Clean. PR #13 draft, `MERGEABLE`, state OPEN.
+
+#### Open gates
+- No new gates surfaced.
+- G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+**Sign-off: APPROVE — Cycle 3 closes. Cycle 4 (v2.2 → v2.3 migration guide) opens.** Reviewer (Opus 4.7) hands off to Writer (Opus 4.7) for Cycle 4. Note for Cycle 4 Writer: re-read v2-3.mdx breaking-changes rows 1-16 before drafting the migration guide; the 16-row TL;DR table is deliberately row-ordered to make migration-guide cross-referencing trivial.
