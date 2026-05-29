@@ -3492,7 +3492,11 @@ The page also documents three smaller operator-visible quirks that did not warra
 
 #### 8. CI run URL
 
-Will be visible after push. PR #14 (already open as draft on `phase-03/critical-rewrites`) carries the run. **CI in flight** at push time; do not declare GREEN locally per methodology § 6.1.
+PR: https://github.com/fraiseql/fraiseql-docs/pull/14
+
+CI run (in_progress at handoff): https://github.com/fraiseql/fraiseql-docs/actions/runs/26663468475
+
+**CI in flight** at push time; do not declare GREEN locally per methodology § 6.1. Reviewer reads CI output from a fresh checkout, not from this Writer's claim about it.
 
 #### 9. Open gates
 
