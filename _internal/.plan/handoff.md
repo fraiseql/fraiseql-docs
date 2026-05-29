@@ -2013,3 +2013,52 @@ Independently re-fetched at frozen SHA `d0a4ed4ec`:
 **APPROVE — Cycle 4 closes. Cycle 5 (v2.1 → v2.2 migration guide) opens.** Reviewer (Opus 4.7) hands off to Writer (Opus 4.7) for Cycle 5.
 
 Note for Cycle 5 Writer: (a) produce a section-map artefact mirroring Cycle 4's; (b) the v2.1→v2.2 migration is materially smaller in scope (no error-taxonomy rewrite) — confirm against the v2.2 release notes' breaking-changes table; (c) cross-link both new pages from `migrations/upgrading/index.mdx` (the hub already exists with a single v2.2→v2.3 entry — add the v2.1→v2.2 entry above it in chronological-back order); (d) the v2-2.mdx release notes page has its own upgrade-hint references — repeat the Cycle 4 code-span → MD-link conversion for the v2.1→v2.2 slug.
+
+---
+
+### Phase 02 / Cycle 5 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Page created:** `src/content/docs/migrations/upgrading/v2-1-to-v2-2.mdx` (518 lines, 36 JSX-comment-form citations). Sized within phase-doc target (400-600 lines, smaller than Cycle 4's 1205 because v2.1→v2.2 has one true breaking change vs Cycle 4's sixteen).
+- **Section-map artefact:** `_internal/.plan/red-evidence/phase-02-cycle-05-section-map.txt` (per Cycle 4 Reviewer follow-on #1). Maps each page section to CHANGELOG ranges + framework-source spot-checks; 207 lines.
+- **CHANGELOG extract:** `_internal/.plan/red-evidence/phase-02-cycle-05-v2-2-changelog.txt` (133 lines, CHANGELOG.md L581-L713 at frozen SHA).
+- **Section structure delivered:**
+  - Lead + TL;DR (3 rows).
+  - "No migration needed?" Aside up front (REFACTOR step done up-front per phase doc).
+  - Before-you-start preamble (MSRV note — no bump recorded; backup branch; one-section-at-a-time; SDKs out of scope).
+  - § 1 Mutation response format consolidated — three subsections (§ 1.1 schema_version dispatch removal; § 1.2 the canonical app.mutation_response composite with DDL + semantics table + invariants; § 1.3 typed MutationErrorClass replacing the v1 string-status parser, with optional status_detail sub-section).
+  - § 2 Apollo Federation 2 directive additions (additive; 7 directives + 4 infrastructure pieces).
+  - § 3 Everything else that shipped in v2.2.0 (10 additive feature blurbs: multi-tenancy, three-state CRUD, computed=True, session vars on reads, schema metadata endpoint + CLI, mutation audit tracing + usage aggregation, structured CLI JSON, native columns in aggregations + inject_params fix, vendored graphql-parser removal, Python SDK sql_source fix, three CVEs trivyignore cleanup).
+  - See also.
+- **index.mdx updated:** v2.1 → v2.2 row added ABOVE the v2.2 → v2.3 row (per Cycle 4 Reviewer follow-on #3). **Ordering choice: oldest-first** — the v2.1 → v2.2 guide (older) lists above v2.2 → v2.3 (newer). Reader sees the older guide first when scanning top-to-bottom, mirroring CHANGELOG convention. Same ordering applied to the `Upgrading` sidebar group in `astro.config.mjs`.
+- **v2-2.mdx code-span → MD link conversion:** L246-L247 — `` `/migrations/upgrading/v2-1-to-v2-2/` `` (code-span) + "(forthcoming under this docs phase)" trailing parenthetical → `[/migrations/upgrading/v2-1-to-v2-2/](/migrations/upgrading/v2-1-to-v2-2/)` (MD link), parenthetical removed (now lands). Final form on L246-L247 of the modified file. No other code-span references to the slug elsewhere.
+- **Phase-N codename strip (Cycle 4 follow-on #2):** **0 hits stripped from prose.** The CHANGELOG v2.2.0 range (L581-L713) has zero "Phase N" codenames — confirmed via grep. Commit `d78611a94` subject ("feat(federation): Phase 19 — Federation Maturity (Cycles 1-10)") and `ad60c4789` ("Phase 01") carry codenames in their commit subjects only; both SHAs cited verbatim in red-evidence but neither is named in the rendered page prose, so no stripping needed. Standard archaeology grep on the new page: 0 hits.
+- **Framework source for mutation-response shape (CLEANUP step):** **VERIFIED.** Three independent spot-checks against frozen SHA `d0a4ed4ec`:
+  - `crates/fraiseql-core/src/runtime/cascade.rs:L21-L42` — `MutationErrorClass` enum carries the 10 variants enumerated in the page's § 1.3 Rust code block (Validation, Conflict, NotFound, Unauthorized, Forbidden, Internal, TransactionFailed, Timeout, RateLimited, ServiceUnavailable). Variant order and spelling identical.
+  - `crates/fraiseql-core/src/runtime/mutation_result.rs:L41-L49` — `MutationOutcome::Error` carries exactly three fields: `error_class: MutationErrorClass`, `message: String`, `metadata: JsonValue`. **No `status: String` field present** — confirms the v2.2 removal claim made on the page (§ 1 intro and § 1.3 lead). The framework source-of-truth has no status field; the page's claim that it was removed is correct.
+  - `docs/architecture/mutation-response.md@d0a4ed4ec:L31-L48` — the DDL block carries `succeeded`, `state_changed`, `error_class`, `status_detail`, `http_status`, `message`, `entity_id`, `entity_type`, `entity`, `updated_fields`, `cascade`, `error_detail`, `metadata`. **Zero `schema_version` column** — confirms § 1.1's dispatch-removal claim. Note: the page reproduces the DDL block verbatim from this architecture doc.
+  - Phase-doc CLEANUP step is satisfied. The page's mutation-response shape claims are verified against `crates/fraiseql-core/src/runtime/mutation_result.rs` and `crates/fraiseql-core/src/runtime/cascade.rs` at frozen SHA (the phase-doc's reference to `crates/fraiseql-core/src/runtime/mutation/...` is approximate — the actual path is `runtime/mutation_result.rs` + `runtime/cascade.rs` at the v2.3-frozen tree, since v2.2.0's `mutation_result_v2.rs` was deleted in `082cd3e37` and merged into `mutation_result.rs`).
+- **Citations:** **36, posture B (left in source).** Citation provenance breakdown:
+  - 17 CHANGELOG citations (L581 header through L710 trivyignore cleanup; each per-section anchor cites its relevant CHANGELOG range).
+  - 6 framework source citations (mutation_result.rs L22-L50, L41-L49, L133-L179; cascade.rs L21-L42; architecture/mutation-response.md L31-L48 + L75-L86 + L95-L102).
+  - All citations carry the frozen SHA `d0a4ed4ec` literally.
+- **Build state:** `bun run build` exit 0. **205 pages built** (was 204 at Cycle 4 close), **281 HTML files** (was 280). Only the two pre-existing baseline warnings (`conf` lang in `building/federation-nats-integration.mdx`; `/[...slug]` vs `/` route conflict). Zero new warnings. `dist/migrations/upgrading/v2-1-to-v2-2/index.html` at 157,561 bytes. Posture-B citation-leak scan on `dist/migrations/upgrading/v2-1-to-v2-2/`: **0 JSX-comment-form `{/* source:` occurrences; 0 plain `source:` occurrences** (no Rust-API-surface `source:` references on this page — unlike v2-2.mdx and v2-2-to-v2-3.mdx which name `tracing::info!` / `ParsedQuery.source`). Cleaner posture than the two precedent pages.
+- **Forbidden words scan on the new page:** 0 hits across `TODO|FIXME|XXX|easily|simply|^just |WIP|coming soon|Phase [0-9]|orchestrator|persona|opus|sonnet|haiku|as an AI`. 0 archaeology markers.
+- **Forward-dep dead-link check:** the page's MD links all target live slugs:
+  - `/release-notes/v2-2/` (Cycle 2, live).
+  - `/migrations/upgrading/v2-2-to-v2-3/` (Cycle 4, live).
+  - `/migrations/upgrading/` (Cycle 4, live).
+  - `/building/multi-tenancy/` (existing page; informational link in § 3).
+  - `/features/federation/`, `/features/audit-logging/`, `/reference/admin-api/` (existing pages — confirmed via prior cycles).
+  - External GitHub CHANGELOG link.
+- **PR #13 state:** `OPEN`, `MERGEABLE`, draft. Branch `phase-02/migration-and-changelog`.
+- **Anti-scope held:**
+  - No edits to v2.2 → v2.3 migration guide (Cycle 4 closed).
+  - No `index.mdx` Enterprise Features card grid (Cycle 6).
+  - No quickstart / install / CLI / SDK / `changelog.mdx` / framework code edits.
+  - No push to `main`; no commit amend.
+  - Did NOT edit `~/code/fraiseql`.
+- **Framework issues filed:** 0. v2.2.0 CHANGELOG sourcing is internally consistent against the framework source tree at frozen SHA; every cited line range resolves; every spot-checked symbol exists. No bugs surfaced.
+- **Commit SHA, push, CI URL:** captured in a follow-on entry post-commit per anti-amend rule.
+- **Open gates:** none new. G2 SHA-bump policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+Handoff to **Source-Citation Verifier (Sonnet 4.6)** next.

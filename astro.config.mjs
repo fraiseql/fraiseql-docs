@@ -351,6 +351,7 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Overview', slug: 'migrations/upgrading' },
+                { label: 'v2.1 → v2.2', slug: 'migrations/upgrading/v2-1-to-v2-2' },
                 { label: 'v2.2 → v2.3', slug: 'migrations/upgrading/v2-2-to-v2-3' },
               ],
             },
