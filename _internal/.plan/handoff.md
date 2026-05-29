@@ -3113,3 +3113,48 @@ The Writer for Cycle 2 (`file-storage.md`) should treat the Cycle 1 framing play
 - Explicit `## Known issues` block per framework drift.
 - docs-test option A2 (script asserts library-API surface + binary symptom) is acceptable when A1 (a wired host binary in the harness) is uneconomical.
 - Posture B is now uniformly safe — citations can be placed in tables / directives without leak risk; the strip integration handles them at build time.
+
+---
+
+## Phase 03 / Cycle 1 close — Cleanup (Sonnet 4.6) — 2026-05-29
+
+### Nit outcomes
+
+- **NIT-1 (L67 phrasing):** Applied. "Use the multi-tenant runtime APIs at all when you have a single-tenant deployment if..." → "Use the multi-tenant runtime APIs even in a single-tenant deployment if...". Page line 67, before: `at all when`, after: `even in a single-tenant deployment if`.
+- **NIT-2 (`#known-issues` cross-link density):** No action taken. Reviewer noted this was optional ("not a defect"). The FW-6 anchor at L247 already carries the explicit FW-6/[#333] reference; the five generic `#known-issues` links in the body are harmless. Deferred to phase-close Style Auditor (Cycle 5) if thinning is desired.
+- **NIT-3 (in-table citations forward-looking concern):** No action taken. Defended by G7 (strip integration). Forward-looking only per Reviewer.
+- **NIT-4 (FW-3 sidenote prose density):** Applied. The dense single-sentence "(Either `admin_api_enabled = true` or any non-empty `admin_token` against a clean PostgreSQL database fails startup with `Failed to initialize RBAC schema: syntax error at or near "("`. Both paths trigger the RBAC bootstrap routine...)" was split into: two-trigger enumeration sentence → both-paths consequence sentence → crash-message sentence. Page line 297 (in Known Issues table, FW-3 sidenote row). Prose now reads: "Two independent triggers cause the same startup crash against a clean PostgreSQL database: (1) `admin_api_enabled = true`; (2) any non-empty `admin_token`. Either path triggers the RBAC bootstrap routine; the container CrashLoops and `/health` never returns 200. The crash message is `Failed to initialize RBAC schema: syntax error at or near "("`.".
+
+### Build state
+
+- `bun run check`: 3 errors (pre-existing in `astro.config.mjs` TypeScript implicit-any — identical to baseline before any Cleanup edits, verified by stash-pop test); 0 new errors introduced. 60 hints (e2e scripts only — matches Phase 02 close baseline).
+- `bun run build`: **clean**. Log line: `strip-source-citations: scanned 281 HTML files, modified 1, stripped 56 source-citation comments`.
+- `dist/` leak scan: `grep -rE '<!--\s*source:' dist/` → **0 hits**.
+
+### Archaeology grep
+
+`git grep -nE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" src/content/docs/building/multi-tenancy.md` → **0 hits**.
+
+### Cross-link inventory (inbound to /building/multi-tenancy)
+
+- `src/content/docs/migrations/upgrading/v2-1-to-v2-2.mdx:384` — "Documented in [Multi-tenancy](/building/multi-tenancy/)."
+- `src/content/docs/release-notes/v2-2.mdx:57` — "Documented in [Multi-tenancy](/building/multi-tenancy/) (rewrite forthcoming)."
+- Two additional `_internal/` planning files reference the slug (not production pages).
+- Requirement of ≥1 inbound cross-link: **SATISFIED** (2 production pages link in).
+
+### Phase 03 doc updates
+
+- `_internal/.plan/.phases/phase-03-critical-rewrites.md` — `/building/multi-tenancy` appended to `## Pages completed`.
+- `_internal/.plan/.phases/phase-03-critical-rewrites.md` — Four framework bugs appended to `## Framework bugs filed`: FW-3 #330, FW-4 #331, FW-5 #332, FW-6 #333 with one-line descriptions.
+
+### Open gates
+
+Unchanged. G1 closed. G2 default-hold. G7 resolved (build-time strip). G3/G4/G5 downstream. No novel gates.
+
+### Commit SHA + push status
+
+*(filled after commit)*
+
+### Pointer
+
+Next persona: **Writer (Opus 4.7)** for Phase 03 / Cycle 2 — `/features/file-storage` rewrite. Bug-Finder candidate: cross-tenant blob access, signed-URL replay.

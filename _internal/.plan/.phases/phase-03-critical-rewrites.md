@@ -278,8 +278,11 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 
 ## Pages completed
 
-*(append slugs as cycles close)*
+- `/building/multi-tenancy` (Cycle 1 — closed 2026-05-29)
 
 ## Framework bugs filed
 
-*(this phase is the most likely source of framework bugs — RLS edge cases, observer DLQ corner cases, auth misconfiguration that the framework should refuse to start with)*
+- FW-3 [#330](https://github.com/fraiseql/fraiseql/issues/330) — off-the-shelf binary does not wire `TenantExecutorRegistry`/`TenantExecutorFactory`/`DomainRegistry`/`TenantAuditLog`; RBAC bootstrap crash when `admin_api_enabled = true` or non-empty `admin_token`
+- FW-4 [#331](https://github.com/fraiseql/fraiseql/issues/331) — WebSocket subscription endpoint drops JWT `tenant_id` claim and disables strict cross-source validation
+- FW-5 [#332](https://github.com/fraiseql/fraiseql/issues/332) — GraphQL handler collapses `ServiceUnavailable { retry_after }` into `ErrorCode::Forbidden` (HTTP 403), losing `Retry-After` header for suspended tenants
+- FW-6 [#333](https://github.com/fraiseql/fraiseql/issues/333) — `X-Tenant-ID` validator allows `-` (hyphen) but schema-isolation validator rejects it; keys with `-` silently fail schema provisioning in `schema` mode
