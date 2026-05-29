@@ -121,7 +121,7 @@ Without this phase, every other phase ships content that assumes a hypothetical 
   - The `app.mutation_response` canonical format.
   - Typed `MutationErrorClass` replacing the v1 string-status parser.
 - **REFACTOR:** include a "no migration needed if you never used v1" callout up top; most adopters didn't.
-- **CLEANUP:** verify the mutation-response shape claim against the actual `crates/fraiseql-core/src/runtime/mutation/...` source.
+- **CLEANUP:** verify the mutation-response shape claim against the actual source. **At frozen SHA `d0a4ed4ec`, the canonical paths are `crates/fraiseql-core/src/runtime/mutation_result.rs` (for `MutationOutcome`) and `crates/fraiseql-core/src/runtime/cascade.rs` (for `MutationErrorClass`). The `runtime/mutation/...` subdirectory referenced earlier was consolidated in commit `082cd3e37`.**
 
 ### Cycle 6: Cross-link integration
 

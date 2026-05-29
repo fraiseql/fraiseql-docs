@@ -2315,3 +2315,37 @@ Phase 03 scope: multi-tenancy page rewrite, file-storage page, observers, authen
 3. **4 Phase 01 external-link deferrals** still open: `fraiseql/examples` (content decision), `fraiseql/velocitybench` (prose rewrite or create repo), `demo.fraiseql.dev` (TLS infra fix), `community/support.mdx:150` "coming soon" wording. Phase 03/08 Writer.
 4. **G2 default-hold** continues. If v2.4 lands during Phase 03–08, surface a G2 SHA-bump proposal per methodology.
 
+
+### Phase 02 / pre-Phase-03 polish — orchestrator — 2026-05-29
+
+User asked to ship outstanding improvements before opening Phase 03. Three baseline issues addressed mechanically:
+
+1. **`SiteTitle.astro` `virtual:starlight/user-images ts(2307)` baseline — RESOLVED.**
+   - Created `src/env.d.ts` with `/// <reference path="../node_modules/@astrojs/starlight/virtual-internal.d.ts" />`.
+   - `bun run check` now reports **0 errors, 0 warnings, 60 hints** (was 1 error, baseline since Phase 00).
+   - This unblocks Pre-commit hook activation (still Phase 10 work, but the blocker is gone).
+   - Sweep matrix updated: row L388 marked DONE.
+
+2. **`building/federation-nats-integration.mdx:372` `conf` language warning — RESOLVED.**
+   - `conf` → `ini` (NATS server config files are ini-shaped; the highlighter accepts `ini` cleanly).
+   - One `astro-expressive-code` warning eliminated.
+   - Sweep matrix updated: new DONE row appended.
+
+3. **Phase-02 spec § Cycle 5 CLEANUP path text — corrected.**
+   - Cycle 6 Reviewer follow-on: phase doc said `crates/fraiseql-core/src/runtime/mutation/...` but at frozen SHA `d0a4ed4ec` the canonical paths are `mutation_result.rs` + `cascade.rs` (consolidated in commit `082cd3e37`).
+   - Spec corrected with the actual paths + consolidation note.
+
+4. **Sweep matrix follow-on rows reconciled** to reflect:
+   - Methodology § 4 amendment DONE (Phase 01 close).
+   - Sidebar-decision off-by-1 DONE (Phase 01 / Cycle 7).
+   - Pre-commit blocker DONE (this polish pass).
+
+**Remaining Phase-02-adjacent items deliberately NOT shipped this pass:**
+- Cycle 5 Reviewer follow-on: exact `rustc` error quote in `v2-2-to-v2-3.mdx`. Out of mechanical scope (requires per-section judgement on which failure-mode to surface); Cycle 7 Cleanup deferred to Phase 09 — that call stands.
+- Starlight `/[...slug]` vs `/` route warning. Known Starlight splash-route behaviour; build is correct (splash takes priority). Not actionable without restructuring the homepage; out of scope.
+
+**Build / lint state at polish-pass close:**
+- `bun run check`: 0 errors, 0 warnings, 60 hints (e2e test scripts only).
+- `bun run build`: 205 pages, 1 known-baseline warning remaining (route conflict, irreducible).
+
+**Next:** open Phase 03 against this branch's HEAD after squash-merge of PR #13.
