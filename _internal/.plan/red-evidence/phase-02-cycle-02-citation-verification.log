@@ -1,0 +1,97 @@
+# Phase 02 / Cycle 2 — Citation Verification Log
+
+Persona: Source-Citation Verifier (Sonnet 4.6)
+Date: 2026-05-29
+Working dir: ~/code/fraiseql-docs
+Branch: phase-02/migration-and-changelog @ 10ecb98
+Frozen SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+Page verified: src/content/docs/release-notes/v2-2.mdx (24 citations)
+Posture: Option B — JSX comments remain in source; rendered output clean by construction.
+
+Format: <page>:<line> | <cited-path>:<Lrange> | PASS/FAIL | <note>
+
+---
+
+## v2-2.mdx citations (24 total)
+
+v2-2.mdx:16  | CHANGELOG.md@frozen-SHA:L581        | PASS | L581 = "## [2.2.0] - 2026-05-02". Prose "FraiseQL v2.2.0 shipped on 2026-05-02" confirmed.
+
+v2-2.mdx:59  | CHANGELOG.md@frozen-SHA:L609-L618   | PASS | L609-L618 = multi-tenancy bullet. Prose claims confirmed: per-tenant executor isolation, X-Tenant-ID/JWT/Host-domain dispatch, ArcSwap hot-reload, all admin API endpoints listed (PUT/DELETE /api/v1/admin/tenants/{key}, GET /api/v1/admin/tenants, GET /api/v1/admin/tenants/{key}/health, PUT/DELETE /api/v1/admin/domains/{domain}, GET /api/v1/admin/domains), zero overhead for single-tenant, 403 for unregistered key, no default-tenant data leak.
+
+v2-2.mdx:71  | CHANGELOG.md@frozen-SHA:L620-L624   | PASS | L620-L624 = three-state update semantics bullet. Prose claims confirmed: absent/explicit-null/value via variable-omission convention, CRUD naming in fraiseql.toml, issue #221.
+
+v2-2.mdx:98  | CHANGELOG.md@frozen-SHA:L643-L648   | PASS | L643-L648 = Apollo Federation 2 directive set bullet. Prose claims confirmed: all 7 directives named (@external, @requires, @provides, @shareable, @inaccessible, @override, @extends), extend type syntax for is_extends:true, @link import list complete, Python/TS FieldConfig params with validation.
+
+v2-2.mdx:99  | CHANGELOG.md@frozen-SHA:L650-L653   | PASS | L650-L653 = federation constraint validation bullet. Prose claims confirmed: fraiseql federation check, @key field existence, @override(from:) non-empty subgraph name, @requires target field existence, @provides consistency, --against flag for unknown-subgraph errors.
+
+v2-2.mdx:100 | CHANGELOG.md@frozen-SHA:L655-L658   | PASS | L655-L658 = federated subscription passthrough bullet. Prose claims confirmed: graphql-transport-ws protocol, SSRF protection on remote URLs.
+
+v2-2.mdx:101 | CHANGELOG.md@frozen-SHA:L660-L661   | PASS | L660-L661 = federation plan visualization bullet. L660: "GET /admin/v1/federation/plan?query=..." — prose uses "GET /admin/v1/federation/plan?query=…" (ellipsis substitution only, semantically identical). Confirmed.
+
+v2-2.mdx:102 | CHANGELOG.md@frozen-SHA:L663-L665   | PASS | L663-L665 = Prometheus federation metrics bullet. Prose names exact metric names: fraiseql_federation_subgraph_latency_seconds (histogram), fraiseql_federation_entity_resolution_total (counter). Both confirmed verbatim in L663-L665.
+
+v2-2.mdx:115 | CHANGELOG.md@frozen-SHA:L676-L679   | PASS | L676-L679 = schema metadata endpoint bullet. Prose claims confirmed: GET /api/v1/schema/metadata, returns version/entity count/query count/mutation count/field-level security metadata (required scopes, deny policy, deprecated status), stable JSON envelope.
+
+v2-2.mdx:116 | CHANGELOG.md@frozen-SHA:L681-L683   | PASS | L681-L683 = fraiseql schema metadata CLI subcommand bullet. Prose claims confirmed: prints or JSON-outputs schema metadata, fraiseql federation check --json emits structured JSON errors for CI.
+
+v2-2.mdx:128 | CHANGELOG.md@frozen-SHA:L667-L670   | PASS | L667-L670 = mutation audit tracing bullet. Prose claims confirmed: tracing::info! on fraiseql::mutation_audit target, after every successful mutation, fields: tenant_id/entity_type/operation/duration_us, consumed by in-process MutationAuditLayer (no external sink).
+
+v2-2.mdx:139 | CHANGELOG.md@frozen-SHA:L672-L674   | PASS | L672-L674 = usage aggregation store bullet. Prose claims confirmed: MutationAuditLayer subscribes to audit events, per-tenant/per-period/per-entity-type counters, lock-free DashMap, GET /api/v1/admin/usage?tenant_id=…&period=….
+
+v2-2.mdx:160 | CHANGELOG.md@frozen-SHA:L585-L590   | PASS | L585-L590 = native columns in aggregations (Fixed section). Prose claims confirmed: native columns "col" vs JSONB data->>'col' extraction, enables btree index, PostgreSQL error "column v_foo.data must appear in GROUP BY", fraiseql-python#337, all four database dialects.
+
+v2-2.mdx:161 | CHANGELOG.md@frozen-SHA:L691-L696   | PASS | L691-L696 = inject_params native_columns fix (second Fixed section). Prose claims confirmed: inject_params respects native_columns, inject: { tenant_id: "jwt:org_id" } example, emits col = $N::type instead of data->>'col' = $N, issue #219.
+
+v2-2.mdx:169 | CHANGELOG.md@frozen-SHA:L626-L630   | PASS | L626-L630 = computed=True field marker bullet. Prose SDK list (Python, TypeScript, Java, C#, Dart, Elixir, F#, PHP, Ruby) matches L626-L630 verbatim. Issue #222 confirmed.
+
+v2-2.mdx:174 | CHANGELOG.md@frozen-SHA:L632-L634   | PASS | L632-L634 = not_found error status bullet. Prose matches exactly: not_found status distinct from generic failure, clients distinguish "entity does not exist" from other error conditions.
+
+v2-2.mdx:181 | CHANGELOG.md@frozen-SHA:L636-L638   | PASS | L636-L638 = session vars on read queries bullet. Prose claims confirmed: set_config() propagation now applies to read queries (not only mutations), RLS on SELECT can reference current_setting(), issue #218.
+
+v2-2.mdx:185 | CHANGELOG.md@frozen-SHA:L640-L641   | PASS | L640-L641 = cross-SDK parity CI bullet. SDK list in prose (Java, Ruby, Dart, C#, F#, Rust, PHP, Elixir) matches L640-L641 verbatim.
+
+v2-2.mdx:190 | CHANGELOG.md@frozen-SHA:L685-L687   | PASS | L685-L687 = structured CLI error output bullet. Prose claims confirmed: non-zero-exit errors emit JSON envelope {"error":"…","code":"…","details":{…}} when --json is passed, machine-readable CI integration.
+
+v2-2.mdx:198 | CHANGELOG.md@frozen-SHA:L594-L605   | PASS | L594-L605 = mutation response format consolidation (Changed breaking section). Prose claims confirmed: versioned schema_version dispatch removed, single canonical format with typed column-per-concern fields (succeeded, state_changed, error_class, entity, cascade), v1 string-status parser removed, v2 version-dispatch shim removed, MutationOutcome::Error.status removed, MutationOutcome::Error carries typed error_class: MutationErrorClass. Aside claim ("no external consumers used the v1 format or cascade field in production") confirmed by L602-L604: "FraiseQL has no external consumers yet — we are the sole users. Neither v1 nor cascade were ever used in production."
+
+v2-2.mdx:215 | CHANGELOG.md@frozen-SHA:L708-L710   | PASS | L708-L710 = trivyignore cleanup (Changed section). Prose CVE list confirmed verbatim: CVE-2025-14104 (util-linux), CVE-2025-6141 (ncurses), CVE-2024-56433 (shadow-utils). Prose characterises them as operational/maintenance, not FraiseQL-shipped security fixes — consistent with CHANGELOG placement in ### Changed (not ### Security).
+
+v2-2.mdx:224 | CHANGELOG.md@frozen-SHA:L1206-L1211 | PASS | L1206-L1211 = v2.1.0 ### Deprecated subsection. L1210-L1211: "observers-full feature flag (fraiseql-observers) → list specific sub-features (nats, tracing, in-memory, etc.); removal target: v2.2". Prose claim "deprecated in v2.1.0 with removal target v2.2" confirmed. Section confirmed within v2.1.0 block (section header ## [2.1.0] at L999; next section ## [2.1.6] begins at L714 — wait, that is ABOVE 1000. Clarification: ## [2.1.0] is at L999 and runs forward; L1206-L1211 falls within that section before the next ## header). No line-range drift — exact hit.
+
+v2-2.mdx:231 | CHANGELOG.md@frozen-SHA:L704-L706   | PASS | L704-L706 = vendored graphql-parser removed (Changed section). Prose claims confirmed: in-tree vendored copy removed, drift-detection tooling gone, workspace depends on upstream crates.io release, no adopter impact.
+
+v2-2.mdx:235 | CHANGELOG.md@frozen-SHA:L698-L700   | PASS | L698-L700 = Python SDK CRUD sql_source fix (second Fixed section). Prose claims confirmed: auto-generated sql_source from crud=True mutations no longer prepends spurious fn_ prefix.
+
+---
+
+## index.mdx citations (5 total — 1 new this cycle)
+
+index.mdx:12 | CHANGELOG.md:L1-L7 (non-frozen, format declaration) | NOT VERIFIED THIS CYCLE — pre-existing citation from Cycle 1; not in scope.
+index.mdx:27 | CHANGELOG.md@frozen-SHA:L40 — v2.3.0 release date    | NOT VERIFIED THIS CYCLE — pre-existing citation from Cycle 1; not in scope.
+index.mdx:28 | CHANGELOG.md@frozen-SHA:L581 — v2.2.0 release date   | PASS | L581 = "## [2.2.0] - 2026-05-02". New citation added this cycle. Date in index.mdx v2.2 row confirmed.
+index.mdx:29 | CHANGELOG.md@frozen-SHA:L999 — v2.1.0 release date   | NOT VERIFIED THIS CYCLE — pre-existing citation from Cycle 1; not in scope.
+index.mdx:30 | CHANGELOG.md@v2.0.0:L10 — v2.0.0 release date        | NOT VERIFIED THIS CYCLE — pre-existing citation from Cycle 1; not in scope.
+
+---
+
+## Summary
+
+Total citations on v2-2.mdx: 24
+Verified PASS: 24
+Verified FAIL: 0
+Line-range drifts: 0
+Prose-vs-source contradictions: 0
+
+index.mdx new citation this cycle: 1 (line 28), PASS.
+
+## Dist build-exclusion check
+
+bun run build → exit 0, 201 pages built, 277 HTML files.
+find dist -name '*.html' -exec grep -l '{/* source:' {} \; → 0 hits.
+grep -r 'source:' dist/release-notes/ → 0 hits.
+JSX-comment posture (option B) confirmed: zero source: leakage in rendered output.
+
+## Verdict
+
+APPROVE — all 24 citations resolve correctly at frozen SHA d0a4ed4ec1770c70707f68fd9019f2b561d87461.
+No failures, no drifts, no prose contradictions. Page ready for Reviewer (Opus 4.7).

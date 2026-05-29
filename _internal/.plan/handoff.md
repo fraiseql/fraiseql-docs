@@ -1534,3 +1534,16 @@ End-to-end reading of all three pages against `~/code/fraiseql@d0a4ed4` (and `@v
 - **Framework issues filed:** 0. CHANGELOG v2.2.0 sourcing was clean — every prose claim resolves against the cited line range.
 - **Commit SHA, branch push, PR, CI:** captured in a follow-on entry post-commit (this entry pre-commit per anti-amend rule; the orchestrator-style URL backfill from Cycle 1 sets the precedent — appending the CI URL on the next push when CI completes).
 - **Open gates:** none new. G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d87461` continues.
+
+---
+
+### Phase 02 / Cycle 2 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-29
+
+- Total citations: 24, all on v2-2.mdx. index.mdx acquired 1 new citation this cycle (line 28: L581 v2.2.0 release date) — verified PASS.
+- Verified: 24/24. Failures: 0. Line-range drifts: 0. Prose-vs-source contradictions: 0.
+- Dist build-exclusion: confirmed — `bun run build` exit 0 (201 pages, 277 HTML), zero `source:` hits in `dist/release-notes/` or any HTML file.
+- Posture: option B (JSX citations remain in source; rendered output clean by construction).
+- Log: `_internal/.plan/red-evidence/phase-02-cycle-02-citation-verification.log`.
+- Commit SHA: see next entry (path-filtered commit to `_internal/` only — no CI trigger expected).
+- Handoff to Reviewer (Opus 4.7) next.
+- Open gates: none new.
