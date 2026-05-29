@@ -1486,3 +1486,51 @@ End-to-end reading of all three pages against `~/code/fraiseql@d0a4ed4` (and `@v
 - G1 closed at Phase 01. No G1-equivalent surfaced this cycle (Writer's sidebar placement is incremental, not a top-level IA reshape).
 
 **Sign-off: APPROVE for the Cycle 1 close.** Cleanup persona may proceed when convened. Next: Cycle 2 (v2.2 release notes).
+
+---
+
+### Phase 02 / Cycle 2 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Page created:** `src/content/docs/release-notes/v2-2.mdx` (248 lines, 24 source citations, JSX-comment form per methodology § 4 amendment).
+- **`index.mdx` updated:** v2.2 row promoted from `Forthcoming — lands in an upcoming docs cycle.` to `[v2.2 release notes](/release-notes/v2-2/)`. The Aside callout updated from `v2.2 and v2.3` to `v2.3` only.
+- **Sidebar wired:** `astro.config.mjs:L344` adds explicit `{ label: 'v2.2', slug: 'release-notes/v2-2' }` entry between Overview and v2.1 (newest-first ordering preserved). Single-line addition; no sidebar shape change.
+- **Headline features authored (7 phase-doc-listed + 4 adjacencies in the "Additional surfaces" subsection):**
+  - Multi-tenancy (executor isolation + admin API + ArcSwap hot-reload + 403 security note).
+  - Three-state CRUD update semantics (absent / explicit null / value).
+  - Full Apollo Federation 2 directive set (7 directives + validation + subscription passthrough + plan visualization + Prometheus metrics).
+  - Schema metadata endpoint (`GET /api/v1/schema/metadata` + `fraiseql schema metadata` CLI).
+  - Mutation audit tracing (`tracing::info!` event + `MutationAuditLayer`).
+  - Usage aggregation (per-tenant DashMap + `GET /api/v1/admin/usage`).
+  - Native column support in aggregations (folded with `inject_params` read-path fix).
+  - Adjacencies in "Additional surfaces": `computed=True` field marker, `not_found` mutation status, session vars on read queries, cross-SDK parity CI, structured CLI error output.
+- **Breaking changes:** 1 row in table — mutation response format consolidation (covers `schema_version` dispatch removal, v1 string-status parser removal, `MutationOutcome::Error.status` removal, typed `error_class: MutationErrorClass`). Sourced at CHANGELOG L594-L605.
+- **Security fixes:** none new in v2.2.0. Page records the 3 `.trivyignore` CVE cleanups as operational, not as FraiseQL-shipped security fixes (CVE-2025-14104, CVE-2025-6141, CVE-2024-56433).
+- **Deprecations:** none new. Page references v2.1.0's `observers-full` removal-target-v2.2 deprecation for forward continuity.
+- **Forward-dep links (Cycle 6 walks these):**
+  - `/building/multi-tenancy/` → Phase 03 rewrite (live slug; rewrite forthcoming).
+  - `/features/mutations/three-state-update/` → Phase 05 (forthcoming, caveated in prose).
+  - `/features/federation/` → live (Phase 06 extends with mTLS).
+  - `/features/federation/mtls/` → Phase 06 (forthcoming, caveated in prose).
+  - `/features/aggregates/native-columns/` → Phase 05 (forthcoming, caveated in prose).
+  - `/reference/admin-api/` → live (Phase 07 rebuild).
+  - `/features/audit-logging/` → live.
+  - `/migrations/upgrading/v2-1-to-v2-2/` → Phase 02 Cycle 5 (forthcoming, caveated in prose).
+- **Forthcoming-page references** use the explicit phrase "forthcoming" in prose with the slug shown as code-span, NOT as dead markdown links. Cycle 6 walks the list.
+- **Build state:** clean. `bun run build` → exit 0, **201 pages built** (was 200), **277 HTML files** (was 276). Only the two pre-existing baseline warnings (`conf` language in `building/federation-nats-integration.mdx`; `/[...slug]` vs `/` route conflict). No new warnings. `dist/release-notes/v2-2/index.html` exists at 109,813 bytes.
+- **Citation leakage:** zero `source:` hits in `dist/release-notes/v2-2/index.html` — JSX-comment form invisible in rendered output as designed.
+- **Style scan:** `grep -niE 'TODO|FIXME|XXX|easily|simply|^just |WIP|coming soon|^!'` against the two release-notes files → 0 hits. Only `!` occurrence in the v2.2 page is `tracing::info!` (Rust macro syntax inside a code span), parallel to v2-1.mdx:88. No persona self-references (`grep -niE '\b(persona|opus|sonnet|haiku|orchestrator|as an AI)\b'` → 0 hits).
+- **Description length:** 120 chars (under the 155-char target landed Phase 01 Cycle 2).
+- **RED evidence:** `_internal/.plan/red-evidence/phase-02-cycle-02-changelog-v2-2.txt` (291 lines) — captures the 404 verification, v2.2.0 section line-range table (22 sub-ranges mapped from extract-relative to CHANGELOG-absolute), phase-doc headline checklist (7/7 confirmed + 11 adjacencies), breaking-change inventory (1), security-fix inventory (0 CVE-classed), deprecation inventory (0 new), v2.2 patch-release inventory (0), forward-dep slug plan, anti-scope confirmation, and the raw CHANGELOG extract.
+- **Anti-scope held:**
+  - No v2.0 / v2.1 / v2.3 release-notes edits (Cycle 1 / Cycle 3 own).
+  - No migration guides (Cycles 4-5 own).
+  - No `index.mdx` Enterprise Features card-grid integration (Cycle 6 owns).
+  - No quickstart SQL bug fixes.
+  - No SDK page edits.
+  - No install / CLI alignment edits.
+  - No existing `changelog.mdx` edits.
+  - No `~/code/fraiseql` framework code changes.
+  - No push to `main`; no commit amend.
+- **Framework issues filed:** 0. CHANGELOG v2.2.0 sourcing was clean — every prose claim resolves against the cited line range.
+- **Commit SHA, branch push, PR, CI:** captured in a follow-on entry post-commit (this entry pre-commit per anti-amend rule; the orchestrator-style URL backfill from Cycle 1 sets the precedent — appending the CI URL on the next push when CI completes).
+- **Open gates:** none new. G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d87461` continues.

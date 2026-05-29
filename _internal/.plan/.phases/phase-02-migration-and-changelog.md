@@ -186,7 +186,8 @@ Opened 2026-05-29 against `main@f6d9e1c` (Phase 01 squash). Phase 02 worklist is
 
 ## Pages completed
 
-*(append as cycles close)*
+- Cycle 1 (2026-05-29): `release-notes/index.mdx`, `release-notes/v2-0.mdx`, `release-notes/v2-1.mdx`. Reviewer-approved at commit `4280c3c`.
+- Cycle 2 (2026-05-29): `release-notes/v2-2.mdx` (new); `release-notes/index.mdx` v2.2 row promoted from forthcoming to released; `astro.config.mjs` v2.2 sidebar entry added.
 
 ## Framework bugs filed
 

@@ -1,0 +1,248 @@
+---
+title: v2.2
+description: FraiseQL v2.2 — multi-tenancy, three-state CRUD updates, full Apollo Federation 2 directive set, mutation audit tracing.
+slug: release-notes/v2-2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+FraiseQL v2.2.0 shipped on 2026-05-02. It is a feature release: per-tenant
+executor isolation, three-state CRUD update semantics, the complete Apollo
+Federation 2 field-level directive set, mutation audit tracing with usage
+aggregation, a schema metadata endpoint, native column support in
+aggregation `WHERE` / `GROUP BY` / `ORDER BY`, and one breaking change to
+the mutation response format. No v2.2 patch releases were published.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L581 — v2.2.0 release header */}
+
+## Summary
+
+v2.2.0 is the multi-tenancy release. The runtime now isolates per-tenant
+compiled schemas and database connections behind a dispatcher driven by the
+`X-Tenant-ID` header, JWT `tenant_id` claim, or Host-domain registry, with
+hot-reload via `ArcSwap` so in-flight requests complete on the old executor
+while new requests use the updated schema. Single-tenant mode is
+unaffected.
+
+Alongside multi-tenancy, the mutation surface gained three-state update
+semantics (absent / explicit null / value), a typed `not_found` error
+status, and a structured audit-trace event consumed by an in-process usage
+aggregator. The federation crate completed the Apollo Federation 2
+field-level directive set with full validation, subscription passthrough,
+plan visualization, and Prometheus metrics. The aggregation engine now
+references native SQL columns directly when present, enabling btree index
+usage.
+
+The single breaking change is the consolidation of the mutation response
+format: the versioned `schema_version` dispatch, the v1 string-status
+parser, and `MutationOutcome::Error.status` have all been removed.
+
+## Headline features
+
+### Multi-tenancy
+
+Per-tenant executor isolation with lock-free reads. Each tenant gets its
+own compiled schema and database connection, dispatched via the
+`X-Tenant-ID` header, JWT `tenant_id` claim, or Host-header domain
+registry. Hot-reload via `ArcSwap`: in-flight requests complete on the old
+executor while new requests use the updated schema. The admin surface
+exposes `PUT/DELETE /api/v1/admin/tenants/{key}`,
+`GET /api/v1/admin/tenants`,
+`GET /api/v1/admin/tenants/{key}/health`,
+`PUT/DELETE /api/v1/admin/domains/{domain}`, and
+`GET /api/v1/admin/domains`. Single-tenant deployments incur zero
+overhead. An explicit-but-unregistered tenant key returns 403 Forbidden;
+the default tenant's data is never returned for an unregistered key.
+
+Documented in [Multi-tenancy](/building/multi-tenancy/) (rewrite forthcoming).
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L609-L618 — multi-tenancy added */}
+
+### Three-state CRUD update semantics
+
+Update mutations now distinguish between **absent** (field not mentioned),
+**explicit null** (set to `NULL`), and **value** (set to a new value) via
+the GraphQL variable-omission convention. CRUD naming configuration is now
+accepted in `fraiseql.toml`. Tracked under issue #221.
+
+Documented in a forthcoming page at
+`/features/mutations/three-state-update/` (lands in a later docs cycle).
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L620-L624 — three-state CRUD added */}
+
+### Full Apollo Federation 2 directive set
+
+`service_sdl.rs` now emits all seven Federation 2 field-level directives
+(`@external`, `@requires`, `@provides`, `@shareable`, `@inaccessible`,
+`@override`, `@extends`) with correct `extend type` syntax for
+`is_extends: true` types, and the `@link` import list is complete. The
+Python and TypeScript SDKs expose `FieldConfig(external=, requires=,
+provides=, shareable=, inaccessible=, override_from=)` with validation
+matching the spec rules. The `fraiseql federation check` CLI subcommand
+validates `@key` field existence, `@override(from:)` non-empty subgraph
+name, `@requires` target field existence, and `@provides` consistency.
+Unknown-subgraph overrides are reported as errors when `--against` is
+supplied.
+
+The release also adds federated subscription passthrough via the
+`graphql-transport-ws` protocol (with SSRF protection on remote URLs), a
+plan-visualization endpoint at `GET /admin/v1/federation/plan?query=…`,
+and two Prometheus metrics:
+`fraiseql_federation_subgraph_latency_seconds` (histogram) and
+`fraiseql_federation_entity_resolution_total` (counter).
+
+Documented in [Federation](/features/federation/). The federation mTLS
+surface lands separately in a forthcoming page at
+`/features/federation/mtls/`.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L643-L648 — Federation 2 directive set */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L650-L653 — federation constraint validation */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L655-L658 — federated subscription passthrough */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L660-L661 — federation plan visualization */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L663-L665 — Prometheus federation metrics */}
+
+### Schema metadata endpoint
+
+`GET /api/v1/schema/metadata` returns the compiled schema's version,
+entity count, query count, mutation count, and field-level security
+metadata (required scopes, deny policy, deprecated status) in a stable
+JSON envelope. A companion `fraiseql schema metadata` CLI subcommand
+prints or JSON-outputs the same content, and `fraiseql federation check
+--json` emits structured JSON errors for CI pipelines.
+
+Documented in [Admin API](/reference/admin-api/).
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L676-L679 — schema metadata endpoint */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L681-L683 — fraiseql schema metadata CLI */}
+
+### Mutation audit tracing
+
+The runtime emits a structured `tracing::info!` event on the
+`fraiseql::mutation_audit` target after every successful mutation,
+carrying `tenant_id`, `entity_type`, `operation`, and `duration_us`. The
+event is consumed by the in-process `MutationAuditLayer` (no external
+sink required).
+
+Documented in [Audit Logging](/features/audit-logging/).
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L667-L670 — mutation audit tracing */}
+
+### Usage aggregation
+
+`MutationAuditLayer` subscribes to the audit-trace stream and maintains
+per-tenant, per-period, per-entity-type counters in a lock-free
+`DashMap`. The aggregate is exposed at
+`GET /api/v1/admin/usage?tenant_id=…&period=…`.
+
+Documented in [Admin API](/reference/admin-api/).
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L672-L674 — usage aggregation store */}
+
+### Native column support in aggregations
+
+Aggregation queries on views that expose both native SQL columns and a
+JSONB `data` column now reference native columns directly (`"col"`)
+instead of via JSONB extraction (`data->>'col'`) in `WHERE`, `GROUP BY`,
+and `ORDER BY` clauses. This enables btree index usage and resolves the
+PostgreSQL error `column "v_foo.data" must appear in the GROUP BY
+clause` (`fraiseql/fraiseql-python#337`). All four database dialects
+(PostgreSQL, MySQL, SQLite, SQL Server) are covered.
+
+A related fix on the read path: `inject_params` (e.g. tenant isolation
+via `inject: { tenant_id: "jwt:org_id" }`) now respects `native_columns`
+and emits `col = $N::type` directly when the column exists as a native
+column on the backing view, rather than the previous
+`data->>'col' = $N` (#219).
+
+Documented in a forthcoming page at
+`/features/aggregates/native-columns/` (lands in a later docs cycle).
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L585-L590 — native columns in aggregations */}
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L691-L696 — inject_params native columns */}
+
+### Additional surfaces
+
+- **`computed=True` field marker for CRUD input exclusion** (#222). Python,
+  TypeScript, Java, C#, Dart, Elixir, F#, PHP, and Ruby SDKs all support
+  `computed` fields excluded from generated CRUD input types (e.g.
+  `created_at`, `updated_at`).
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L626-L630 — computed=True field marker */}
+
+- **`not_found` mutation error status.** Mutation responses can now return
+  a typed `not_found` status distinct from generic failure, so clients can
+  distinguish "entity does not exist" from other error conditions.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L632-L634 — not_found error status */}
+
+- **Session variables injected before read queries** (#218). The
+  `set_config()` session-variable propagation introduced for mutations in
+  v2.1.6 now applies to read queries as well, so RLS policies on `SELECT`
+  can reference `current_setting('fraiseql.user_id')` (etc.) without an
+  extra round-trip.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L636-L638 — session vars on read queries */}
+
+- **Cross-SDK parity CI** for Java, Ruby, Dart, C#, F#, Rust, PHP, and
+  Elixir SDKs.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L640-L641 — cross-SDK parity CI */}
+
+- **Structured CLI error output.** Non-zero-exit CLI errors emit a JSON
+  envelope `{"error": "…", "code": "…", "details": {…}}` when `--json` is
+  passed.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L685-L687 — structured CLI error output */}
+
+## Breaking changes
+
+| Change | Effort | Mechanical? |
+|--------|--------|-------------|
+| **Mutation response format consolidated.** The versioned `schema_version` dispatch is removed. `app.mutation_response` is now a single canonical format with typed, column-per-concern fields (`succeeded`, `state_changed`, `error_class`, `entity`, `cascade`, etc.). The v1 string-status parser, the v2 version-dispatch shim, and `MutationOutcome::Error.status` are gone. `MutationOutcome::Error` carries a typed `error_class: MutationErrorClass` directly. | Update any code that parses the v1 string-status field or matches on `MutationOutcome::Error.status`. Switch to pattern-matching on `error_class: MutationErrorClass`. | Mostly — pattern-match changes. Custom version-dispatch logic in adopter code is removed outright. |
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L594-L605 — mutation response format consolidation */}
+
+<Aside type="note" title="Why the consolidation is non-disruptive in practice">
+The CHANGELOG records that no external consumers used the v1 format or the
+`cascade` field in production at the time of removal. Adopters who only
+ever read the v2 canonical fields (`succeeded`, `state_changed`,
+`error_class`, `entity`) are unaffected.
+</Aside>
+
+## Security fixes
+
+No CVE-classed security fixes shipped in v2.2.0. The release does clean
+up three patched CVEs from `.trivyignore`
+(`CVE-2025-14104` util-linux, `CVE-2025-6141` ncurses, `CVE-2024-56433`
+shadow-utils) — Debian fixes are available upstream and the next image
+rebuild picks them up.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L708-L710 — trivyignore cleanup */}
+
+## Deprecations
+
+No new deprecations in v2.2.0. The `observers-full` feature flag
+(deprecated in v2.1.0 with removal target v2.2) was scheduled for removal
+in this release; consult the CHANGELOG for its final disposition before
+upgrading observer configurations.
+
+{/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L1206-L1211 — v2.1.0 deprecation list (observers-full removal target v2.2) */}
+
+## Other changes
+
+- **Vendored `graphql-parser` removed.** The in-tree vendored copy and the
+  associated drift-detection tooling are gone; the workspace now depends
+  on the upstream crates.io release. No adopter impact.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L704-L706 — vendored graphql-parser removed */}
+
+- **Python SDK CRUD `sql_source` fix.** Auto-generated `sql_source` from
+  `crud=True` mutations no longer prepends a spurious `fn_` prefix.
+  {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L698-L700 — Python SDK sql_source fix */}
+
+## Upgrade
+
+The v2.1 → v2.2 upgrade is dominated by the mutation response format
+consolidation. Adopters who only read the v2 canonical fields are
+unaffected; adopters who still parse the v1 string-status field, depend
+on the version-dispatch shim, or match on
+`MutationOutcome::Error.status` must migrate to the typed
+`error_class: MutationErrorClass`.
+
+The step-by-step guide is in
+[Upgrading: v2.1 → v2.2](/migrations/upgrading/v2-1-to-v2-2/)
+(forthcoming under this docs phase).

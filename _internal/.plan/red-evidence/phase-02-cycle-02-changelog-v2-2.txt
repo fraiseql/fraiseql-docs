@@ -1,0 +1,291 @@
+# Phase 02 / Cycle 2 — RED evidence: v2.2 release notes sourcing
+
+Persona: Writer (Opus 4.7)
+Date: 2026-05-29
+Working dir: ~/code/fraiseql-docs
+Frozen SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+Branch: phase-02/migration-and-changelog @ ab8420e (start)
+
+## 1. /release-notes/v2-2 404 verification
+
+Pre-cycle the `/release-notes/v2-2` slug returns 404:
+
+    $ ls src/content/docs/release-notes/
+    index.mdx
+    v2-0.mdx
+    v2-1.mdx
+    $ test -f src/content/docs/release-notes/v2-2.mdx && echo "EXISTS" || echo "MISSING"
+    MISSING
+
+No Astro route is mounted for `/release-notes/v2-2`. The sidebar entry under
+Reference → Release Notes (astro.config.mjs:L338-L346) currently lists only
+Overview, v2.1, v2.0. The index.mdx Versions table at L23 records v2.2 as
+"Forthcoming — lands in an upcoming docs cycle."
+
+## 2. v2.2.0 CHANGELOG section enumeration
+
+`git -C ~/code/fraiseql show d0a4ed4ec1770c70707f68fd9019f2b561d87461:CHANGELOG.md`
+returns 1262 lines. The v2.2.0 section runs from L581 (header `## [2.2.0] -
+2026-05-02`) to L713 (trailing `---` separator before `## [2.1.6]` at L714).
+
+Full raw extract retained below this header for citation cross-reference.
+
+## 3. Headline-feature line-range table
+
+Sub-ranges within the v2.2.0 section, mapped from the local extract (where
+extract-L1 = CHANGELOG-L581):
+
+| Headline                                  | Extract lines | CHANGELOG @ frozen SHA |
+|-------------------------------------------|---------------|------------------------|
+| Native columns in aggregations (Fixed)    | L5-L10        | L585-L590              |
+| Mutation response consolidated (breaking) | L14-L25       | L594-L605              |
+| Multi-tenancy                             | L29-L38       | L609-L618              |
+| Three-state CRUD update semantics         | L40-L44       | L620-L624              |
+| `computed=True` field marker              | L46-L50       | L626-L630              |
+| `not_found` mutation error status         | L52-L54       | L632-L634              |
+| Session vars on read queries              | L56-L58       | L636-L638              |
+| Cross-SDK parity CI                       | L60-L61       | L640-L641              |
+| Apollo Federation 2 directive set         | L63-L68       | L643-L648              |
+| Federation constraint validation          | L70-L73       | L650-L653              |
+| Federated subscription passthrough        | L75-L78       | L655-L658              |
+| Federation plan visualization             | L80-L81       | L660-L661              |
+| Prometheus federation metrics             | L83-L85       | L663-L665              |
+| Mutation audit tracing                    | L87-L90       | L667-L670              |
+| Usage aggregation store                   | L92-L94       | L672-L674              |
+| Schema metadata endpoint                  | L96-L99       | L676-L679              |
+| `fraiseql schema metadata` CLI            | L101-L103     | L681-L683              |
+| Structured CLI error output               | L105-L107     | L685-L687              |
+| `inject_params` native_columns fix        | L111-L116     | L691-L696              |
+| Python SDK CRUD `sql_source` fix          | L118-L120     | L698-L700              |
+| Vendored `graphql-parser` removed         | L124-L126     | L704-L706              |
+| 3 patched CVEs trivyignore cleanup        | L128-L130     | L708-L710              |
+
+## 4. Phase-doc headline-feature checklist
+
+The phase doc § Cycle 2 RED enumerates:
+- Multi-tenancy                                  ✅ present (L609-L618)
+- Three-state CRUD updates                       ✅ present (L620-L624)
+- Full Apollo Federation 2 directive set         ✅ present (L643-L648)
+- Schema metadata endpoint                       ✅ present (L676-L679)
+- Mutation audit tracing                         ✅ present (L667-L670)
+- Usage aggregation                              ✅ present (L672-L674)
+- Native column support in aggregations          ✅ present (L585-L590)
+
+All seven are confirmed against the CHANGELOG. Additional adjacencies found
+at the same prominence (each as `### Added` or `### Fixed` top-level
+bullet):
+- Federation constraint validation (`fraiseql federation check`).
+- Federated subscription passthrough.
+- Federation plan visualization endpoint.
+- Prometheus federation metrics.
+- `computed=True` field marker.
+- `not_found` mutation error status.
+- Session variables injected before read queries.
+- Cross-SDK parity CI.
+- `fraiseql schema metadata` CLI subcommand.
+- Structured CLI error output.
+- `inject_params` `native_columns` fix (read-path complement of the
+  aggregation fix; folded into the same headline).
+
+## 5. Breaking-change inventory
+
+One row only. The `### Changed (breaking)` block at L594-L605 contains a
+single entry: mutation response format consolidated. No other breaking
+changes appear in the v2.2.0 section.
+
+## 6. Security fix inventory
+
+Zero CVE-classed entries in v2.2.0. The `.trivyignore` cleanup at L708-L710
+removes three previously-patched CVEs (CVE-2025-14104, CVE-2025-6141,
+CVE-2024-56433) — these are operational/maintenance lines, not security
+fixes shipped by FraiseQL.
+
+## 7. Deprecation inventory
+
+Zero new deprecations in v2.2.0 (no `### Deprecated` subsection in the
+v2.2.0 block). v2.1.0's deprecation list (CHANGELOG L1206-L1211) marked
+`observers-full` for removal at v2.2, so the v2.2 release-notes page
+references that previously-scheduled deprecation rather than naming a new
+one.
+
+## 8. v2.2 patch-release inventory
+
+Zero. CHANGELOG header enumeration confirms `## [2.2.0]` at L581 is the
+sole v2.2 entry; the next header is `## [2.1.6]` at L714. The v2.2 series
+shipped only the .0 release at the frozen SHA. (Note: v2.3.0 ships
+2026-05-25 per Cycle 0 enumeration; the lack of v2.2.x patches reflects
+the rapid follow-on into v2.3, not stability concerns.)
+
+## 9. Forward-dependency slug plan (Cycle 6 walks)
+
+The page links forward to these slugs (live, planned, or forthcoming):
+
+| Slug                                              | State        | Owning phase |
+|---------------------------------------------------|--------------|--------------|
+| `/building/multi-tenancy/`                        | live (rewrite forthcoming) | Phase 03 |
+| `/features/mutations/three-state-update/`         | forthcoming  | Phase 05     |
+| `/features/federation/`                           | live         | Phase 06 (mTLS extension) |
+| `/features/federation/mtls/`                      | forthcoming  | Phase 06     |
+| `/features/aggregates/native-columns/`            | forthcoming  | Phase 05     |
+| `/reference/admin-api/`                           | live         | Phase 07 (rebuild) |
+| `/features/audit-logging/`                        | live         | (none) |
+| `/migrations/upgrading/v2-1-to-v2-2/`             | forthcoming  | Phase 02 Cycle 5 |
+
+Forthcoming-page references use the explicit phrase "forthcoming" in prose
+(e.g. "Documented in a forthcoming page at …") rather than rendering as
+dead Markdown links. The slug is shown as a code span. Cycle 6 (cross-link
+integration) walks this list to confirm or update each link.
+
+## 10. Anti-scope confirmation
+
+This cycle authors:
+- `src/content/docs/release-notes/v2-2.mdx` (new).
+- `src/content/docs/release-notes/index.mdx` (v2.2 row link + Aside).
+- `astro.config.mjs` (single explicit v2.2 sidebar entry).
+
+This cycle does NOT touch:
+- v2.0 / v2.1 / v2.3 release notes.
+- Migration guides (Cycles 4-5 own).
+- `index.mdx` Enterprise Features card grid (Cycle 6).
+- Quickstart SQL bugs (separate sweep-matrix row).
+- SDK pages, install/CLI alignment, existing `changelog.mdx`.
+- `~/code/fraiseql` framework code.
+
+## 11. Raw CHANGELOG extract (v2.2.0 section, frozen SHA)
+
+(file content L1-L133 below; representation of CHANGELOG L581-L713)
+
+---
+## [2.2.0] - 2026-05-02
+
+### Fixed
+
+- **Native column support in aggregation `WHERE`, `GROUP BY`, and `ORDER BY`**.
+  Aggregation queries on views with both native SQL columns and a JSONB `data` column
+  now correctly reference native columns directly (`"col"`) instead of using JSONB
+  extraction (`data->>'col'`). This enables btree index usage and fixes the PostgreSQL
+  error `column "v_foo.data" must appear in the GROUP BY clause`
+  (fraiseql/fraiseql-python#337). All four database dialects are covered.
+
+### Changed (breaking)
+
+- **Mutation response format consolidated** — the versioned `schema_version`
+  dispatch has been removed. `app.mutation_response` is now a single canonical
+  format with typed, column-per-concern fields (`succeeded`, `state_changed`,
+  `error_class`, `entity`, `cascade`, etc.). The old v1 string-status parser,
+  the v2 version-dispatch shim, and the `MutationOutcome::Error.status` string
+  field are all gone. `MutationOutcome::Error` carries a typed
+  `error_class: MutationErrorClass` directly.
+
+  **Why:** FraiseQL has no external consumers yet — we are the sole users.
+  Neither v1 nor cascade were ever used in production. Collapsing to a single
+  greenfield format removes ~300 lines of dead-weight parsing and version
+  negotiation, giving future users a clean starting point with no migration debt.
+
+### Added
+
+- **Multi-tenancy support** — per-tenant executor isolation with lock-free reads.
+  Each tenant gets its own compiled schema and database connection, dispatched via
+  `X-Tenant-ID` header, JWT `tenant_id` claim, or Host-header domain registry.
+  Management API: `PUT/DELETE /api/v1/admin/tenants/{key}` (upsert/remove),
+  `GET /api/v1/admin/tenants` (list), `GET /api/v1/admin/tenants/{key}/health`,
+  `PUT/DELETE /api/v1/admin/domains/{domain}`, `GET /api/v1/admin/domains`.
+  ArcSwap-based hot-reload: in-flight requests complete on the old executor while
+  new requests use the updated schema. Single-tenant mode is unaffected (zero overhead
+  when multi-tenancy is not configured). Security: explicit-but-unregistered tenant
+  keys return 403 Forbidden, never the default tenant's data.
+
+- **Three-state update semantics for CRUD mutations** (#221, `29a2c4da8`).
+  Update mutations now distinguish between absent (field not mentioned),
+  explicit null (set to NULL), and value (set to new value) via the GraphQL
+  variable-omission convention. CRUD naming configuration added to
+  `fraiseql.toml`.
+
+- **`computed=True` field marker for CRUD input exclusion** (#222). Python SDK
+  (`e6dab114e`), TypeScript (`0ebc702f2`), Java (`e62cf9b86`), C#, Dart,
+  Elixir, F#, PHP, Ruby (`ccb9607a4`) SDKs all support `computed` fields that
+  are excluded from generated CRUD input types (e.g. `created_at`,
+  `updated_at`).
+
+- **`not_found` error status for mutations** (`d6392732d`). Mutation responses
+  can now return a `not_found` status distinct from generic failure, enabling
+  clients to distinguish "entity does not exist" from other error conditions.
+
+- **Session variables injected before read queries** (#218, `45be17e34`).
+  `set_config()` session variable propagation now applies to read queries, not
+  only mutations, so RLS policies on SELECT can reference `current_setting()`.
+
+- **Cross-SDK parity CI** (`118bf496d`, `2660603bd`). Cross-SDK generators and
+  CI jobs added for Java, Ruby, Dart, C#, F#, Rust, PHP, and Elixir SDKs.
+
+- **Apollo Federation 2 — full directive set** (`d78611a94`). `service_sdl.rs`
+  now emits all 7 field-level directives (`@external`, `@requires`, `@provides`,
+  `@shareable`, `@inaccessible`, `@override`, `@extends`) with correct `extend type`
+  syntax for `is_extends: true` types. `@link` import list is complete. Python and
+  TypeScript SDKs expose `FieldConfig(external=, requires=, provides=, shareable=,
+  inaccessible=, override_from=)` with validation matching spec rules.
+
+- **Federation constraint validation** — `fraiseql federation check` validates
+  `@key` field existence, `@override(from:)` non-empty subgraph name, `@requires`
+  target field existence, and `@provides` consistency. Unknown-subgraph overrides
+  are reported as errors when `--against` is supplied.
+
+- **Federated subscription passthrough** — `SubscriptionForwarder` proxies
+  subscriptions to the owning subgraph via the `graphql-transport-ws` WebSocket
+  protocol. SSRF protection applied on all remote URLs. Remote subscription field
+  ownership tracked via `remote_subscription_fields` on `FederationMetadata`.
+
+- **Federation plan visualization** — `GET /admin/v1/federation/plan?query=...`
+  returns the cached query plan as JSON, enabling gateway debuggability.
+
+- **Prometheus federation metrics** — `fraiseql_federation_subgraph_latency_seconds`
+  histogram and `fraiseql_federation_entity_resolution_total` counter wired in
+  `fraiseql-federation/src/observability.rs`.
+
+- **Mutation audit tracing** — the runtime emits a structured
+  `tracing::info!(target: "fraiseql::mutation_audit", ...)` event after every
+  successful mutation, carrying `tenant_id`, `entity_type`, `operation`, and
+  `duration_us`. Consumed by the in-process `MutationAuditLayer`.
+
+- **Usage aggregation store** — `MutationAuditLayer` subscribes to audit events
+  and maintains per-tenant, per-period, per-entity-type counters in a lock-free
+  `DashMap`. Exposed via `GET /api/v1/admin/usage?tenant_id=…&period=…`.
+
+- **Schema metadata endpoint** — `GET /api/v1/schema/metadata` returns the
+  compiled schema's version, entity count, query count, mutation count, and
+  field-level security metadata (required scopes, deny policy, deprecated status)
+  in a stable JSON envelope.
+
+- **`fraiseql schema metadata` CLI subcommand** — prints or JSON-outputs the
+  compiled schema's security metadata; `fraiseql federation check --json` flag
+  emits structured JSON errors for CI pipelines.
+
+- **Structured CLI error output** — non-zero-exit CLI errors now emit a JSON
+  envelope `{"error": "…", "code": "…", "details": {…}}` when `--json` is passed,
+  enabling machine-readable CI integration.
+
+### Fixed
+
+- **`inject_params` now respects `native_columns`** (#219, `bdc00905f`).
+  Injected parameters (e.g. tenant isolation via `inject: { tenant_id:
+  "jwt:org_id" }`) previously always used JSONB extraction
+  (`data->>'col' = $N`). When the column exists as a native column on the
+  backing view, the query now emits `col = $N::type` instead, enabling
+  B-tree index usage.
+
+- **Python SDK CRUD `sql_source` no longer adds spurious `fn_` prefix**
+  (`c07e12875`). Auto-generated `sql_source` from `crud=True` mutations
+  dropped the `fn_` prefix that was incorrectly prepended.
+
+### Changed
+
+- **Vendored `graphql-parser` removed** (`a9221463c`, `36615f6e1`). The
+  in-tree vendored copy and drift tooling have been removed; the workspace
+  now depends on the upstream crates.io release.
+
+- **3 patched CVEs removed from `.trivyignore`** (`d85a3822b`).
+  CVE-2025-14104 (util-linux), CVE-2025-6141 (ncurses), and CVE-2024-56433
+  (shadow-utils) now have Debian fixes; next image rebuild picks them up.
+
+---
+
