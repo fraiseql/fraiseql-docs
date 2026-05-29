@@ -1,11 +1,11 @@
 ---
 title: v2.2 → v2.3
-description: Step-by-step upgrade from FraiseQL v2.2.x to v2.3.0 — error taxonomy consolidation, Storage→File migration, ViewName newtype, ProjectionRequest struct, and 12 other breaking changes.
+description: Step-by-step upgrade from FraiseQL v2.2.x to v2.3.0 — error taxonomy, Storage→File migration, ViewName newtype, and 13 other breaking changes.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-This is the per-section migration guide for v2.2.x → v2.3.0. The
+This is the per-section upgrade guide for v2.2.x → v2.3.0. The
 sixteen breaking changes are numbered to match the
 [v2.3 release notes](/release-notes/v2-3/) breaking-changes table row
 ordering — row N in the release notes is § N here.
@@ -670,7 +670,7 @@ migration have been **restored** in v2.3.0:
 1. `KeyedRateLimiter` capacity cap is strict. New-key inserts run under
    a `parking_lot::Mutex<()>` insert guard so the cap-check → evict →
    insert sequence is atomic. `len() <= max_entries` holds at every
-   observable instant, not just after the burst settles. Updates to
+   observable instant, not after the burst settles. Updates to
    keys already present take the lock-free fast path. (F057)
 2. Observer `entity_type_index` reload is snapshot-atomic. The reload
    path rebuilds the new `HashMap` off-line and atomically swaps via
@@ -765,7 +765,7 @@ listener.update_heartbeat();
 
 2. Drop the `.await`. If you propagated `?` through the result type:
    the function now returns `()` rather than a future-of-result. The
-   previous result was already infallible, so this is just removing the
+   the previous result was already infallible; this removes the
    wrapper.
 
 {/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L716-L723 — § 10 migration */}
@@ -1192,11 +1192,12 @@ under ten minutes each.
 
 {/* source: ~/code/fraiseql/docs/migration/v2.2-to-v2.3.md@d0a4ed4ec:L1141-L1154 — estimated effort table */}
 
-## See also
+## Next steps
 
 - [v2.3 release notes](/release-notes/v2-3/) — what shipped, plus the
   full security-hardening, performance, and bug-fix inventory.
 - [Release notes overview](/release-notes/) — every shipped release.
+- [Upgrading FraiseQL](/migrations/upgrading/) — index of upgrade guides.
 - Framework
   [CHANGELOG.md](https://github.com/fraiseql/fraiseql/blob/main/CHANGELOG.md)
   — the authoritative per-release change log.

@@ -1,6 +1,6 @@
 ---
 title: v2.3
-description: FraiseQL v2.3 — Studio, Functions, Storage, Realtime, Auth Extensions, Schema Migrations CLI, Hierarchies, REST transport; ~16 breaking changes in the Rust core.
+description: FraiseQL v2.3 — Studio, Functions, Storage, Realtime, Auth Extensions, Hierarchies, REST transport; ~16 breaking changes in the Rust core.
 slug: release-notes/v2-3
 ---
 
@@ -55,7 +55,7 @@ a reused scratch buffer in `compute_response_cache_key`, an
 `impl Iterator` return on `extract_root_field_names`, and a
 `LazyLock<Regex>` swap in the UUID extractor.
 
-The breaking-change surface is dominated by error-taxonomy consolidation:
+The breaking changes are dominated by error-taxonomy consolidation:
 the parallel HTTP-shaped `RuntimeError` and five shadow domain enums are
 deleted; `FraiseQLError` is the single workspace root, with subsystem
 errors composing via owned `From<X>` impls. `FraiseQLError::Storage` is
@@ -379,8 +379,8 @@ data-integrity, and multi-tenant correctness.
 
 10. **`cargo publish` for the workspace** (v2.3.2). `build.rs` no longer
     populates `studio/node_modules/` (~45 MB) during the verify step;
-    Studio assets are staged into `$OUT_DIR/studio/`. This is the first
-    v2.3.x release where `cargo install fraiseql-server` actually works.
+    Studio assets are staged into `$OUT_DIR/studio/`. The first
+    v2.3.x release where `cargo install fraiseql-server` succeeds.
     {/* source: ~/code/fraiseql/CHANGELOG.md@frozen-SHA:L14 — cargo publish unblock */}
 
 ## Patches
@@ -445,3 +445,9 @@ The framework
 [CHANGELOG.md](https://github.com/fraiseql/fraiseql/blob/main/CHANGELOG.md)
 and the upstream `docs/migration/v2.2-to-v2.3.md` adopter guide remain
 the authoritative source records.
+
+## Next steps
+
+- [v2.2 → v2.3 upgrade guide](/migrations/upgrading/v2-2-to-v2-3/) — step-by-step for all 16 breaking changes.
+- [Release notes overview](/release-notes/) — every shipped release.
+- [Upgrading FraiseQL](/migrations/upgrading/) — index of upgrade guides.
