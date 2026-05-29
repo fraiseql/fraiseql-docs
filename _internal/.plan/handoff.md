@@ -2090,3 +2090,76 @@ Handoff to **Source-Citation Verifier (Sonnet 4.6)** next.
 - **Artefact:** `_internal/.plan/red-evidence/phase-02-cycle-05-citation-verification.log` (36-entry log, PASS column per citation).
 - **Commit SHA:** see below (path-filtered commit, `_internal/` only).
 - **Handoff to Reviewer (Opus 4.7) next.**
+
+---
+
+### Phase 02 / Cycle 5 review — Reviewer (Opus 4.7) — 2026-05-29
+
+**Verdict: APPROVE.** Cycle 5 closes. Cycle 6 (cross-link integration) opens.
+
+#### CI
+- ✅ run `26641639317` on HEAD `333314f` (Verifier commit) — `conclusion: success`.
+- ✅ run `26640744018` on `f8c0ba8` (Writer content commit) — `conclusion: success`.
+- Run `26641313567` on `41bcdd5` was cancelled by concurrency (Writer handoff URL backfill) — does not gate review per methodology § 6.1 (subsequent green-on-HEAD supersedes a concurrency-cancelled mid-branch run).
+
+#### Page structure (per phase doc § Cycle 5)
+- ✅ Lead paragraph (L8-L13).
+- ✅ TL;DR with mutation response + federation directives (additive) + "other" rows (L23-L33).
+- ✅ "No migration needed?" `<Aside type="tip">` callout up top (L35-L47).
+- ✅ "Before you start" preamble (L49-L86): MSRV note, backup branch, `cargo update --precise` per-section workflow, SDKs out of scope.
+- ✅ § 1 Mutation response consolidation with 1.1 / 1.2 / 1.3 subsections (L91-L298): schema_version dispatch removal, canonical DDL + semantics table + invariants, typed `MutationErrorClass` with optional `status_detail` sub-section.
+- ✅ § 2 Apollo Federation 2 directive additions (L302-L354) — 7 directives + 4 infrastructure pieces.
+- ✅ § 3 "Everything else" — 10 additive blurbs (L358-L506).
+- ✅ See also (L510-L518).
+
+#### Framework-source path adjustment (CLEANUP step)
+- ✅ Independent re-check at frozen SHA `d0a4ed4ec`:
+  - `git ls-tree d0a4ed4ec crates/fraiseql-core/src/runtime/ | grep mutation` → returns single entry `mutation_result.rs`. **No `mutation/` subdir exists.**
+  - Writer's path adjustment (phase-doc said `runtime/mutation/...`; actual at frozen SHA is `runtime/mutation_result.rs` + `runtime/cascade.rs`) is **correct expected drift** from the phase-doc — the consolidation commit `082cd3e37` removed `mutation_result_v2.rs` and the subdir was never created in this tree. Logged as expected drift.
+
+#### Cycle 4 follow-ons (all 4 addressed)
+1. ✅ Section-map artefact exists: `_internal/.plan/red-evidence/phase-02-cycle-05-section-map.txt` (219 lines, mirrors Cycle 4 precedent).
+2. ✅ Phase-N codename strip: `grep -E 'Phase [0-9]+' src/content/docs/migrations/upgrading/v2-1-to-v2-2.mdx` → **0 hits** (exit 1). The CHANGELOG v2.2.0 range has zero `Phase N` codenames upstream; `d78611a94` ("Phase 19") and `ad60c4789` ("Phase 01") carry codenames in commit subjects only, and the page cites the SHA without quoting the subject text.
+3. ✅ Hub `index.mdx` row order: v2.1→v2.2 at L18-L24 ABOVE v2.2→v2.3 at L26-L34. Oldest-first ordering chosen (matches CHANGELOG convention).
+4. ✅ `release-notes/v2-2.mdx` code-span → MD link: `git show f8c0ba8 -- src/content/docs/release-notes/v2-2.mdx` confirms the L246-L247 conversion: `` `/migrations/upgrading/v2-1-to-v2-2/` (forthcoming under this docs phase). `` → `[/migrations/upgrading/v2-1-to-v2-2/](/migrations/upgrading/v2-1-to-v2-2/).` — exactly the pattern set in Cycle 4.
+
+#### Citation re-grep (5 random, fewer sed patterns this cycle)
+- ✅ Citation 32 (L477, native columns) → `CHANGELOG.md@d0a4ed4ec:L585-L590` — exact match including PG error quote.
+- ✅ Citation 24 (L395, three-state CRUD) → `CHANGELOG.md@d0a4ed4ec:L620-L624` — issue #221 + `29a2c4da8` commit confirmed.
+- ✅ Citation 16 (L284, not_found status) → `CHANGELOG.md@d0a4ed4ec:L632-L634` — `d6392732d` commit confirmed.
+- ✅ Citation 26 (L413, session vars) → `CHANGELOG.md@d0a4ed4ec:L636-L638` — `45be17e34` + issue #218 confirmed. (Verifier's NOTE about illustrative `current_setting('fraiseql.user_id')` expansion stands; non-blocking.)
+- ✅ Citation 31 (L453, structured CLI JSON) → `CHANGELOG.md@d0a4ed4ec:L685-L687` — exact JSON-envelope shape confirmed.
+- Plus framework-source independent spot-checks: ✅ `cascade.rs:L18-L42` (10 variants in order, `#[non_exhaustive]`, `snake_case`) — confirmed independently. ✅ `mutation_result.rs:L42-L49` (`Error { error_class, message, metadata }`, no `status` field) — confirmed independently. ✅ `mutation_result.rs:L133-L179` (`to_outcome` invariant checks: `state_changed=true` rejection at L157-L163; missing `error_class` rejection at L165-L169) — confirmed independently.
+
+#### 15-point checklist
+1. **VERSION DRIFT** — ✅ `v2.2.0` matches CHANGELOG header `## [2.2.0] - 2026-05-02` at L581. Page never names a non-released version.
+2. **WRONG-DB PATHS** — ✅ N/A for breaking change (Rust-side). Native-columns blurb in § 3 explicitly lists "All four database dialects (PostgreSQL, MySQL, SQLite, SQL Server)" matching CHANGELOG L590.
+3. **FEATURE-FLAG OMISSIONS** — ✅ N/A. Mutation-response and Federation 2 directives are not behind Cargo feature flags.
+4. **SECURITY-DEFAULT REGRESSIONS** — ✅ Multi-tenancy blurb (L379-L382) explicitly calls out `403 Forbidden` for unregistered keys + "default tenant's data is never returned" — secure-by-default framing preserved from CHANGELOG L618.
+5. **SDK DIVERGENCE** — ✅ SDKs are explicitly marked out of scope at L82-L85 ("SDKs are out of scope ... Consult each SDK's CHANGELOG").
+6. **DEAD LINKS** — ✅ All MD links target live slugs: `/release-notes/v2-2/` (Cycle 2), `/migrations/upgrading/v2-2-to-v2-3/` (Cycle 4), `/migrations/upgrading/` (Cycle 4), `/building/multi-tenancy/`, `/features/federation/`, `/features/audit-logging/`, `/reference/admin-api/`. CI `bun run build` exit 0 at HEAD with no link warnings.
+7. **UNDEFINED SYMBOLS** — ✅ Every symbol cited (`MutationOutcome`, `MutationErrorClass`, `MutationResponse`, `app.mutation_response`, `parse_mutation_row`, `to_outcome`, `service_sdl.rs`, `SubscriptionForwarder`, `MutationAuditLayer`, `FieldConfig`, `ArcSwap`, `FederationMetadata`, `inject_params`, `native_columns`) confirmed verbatim at frozen SHA via independent grep of `crates/fraiseql-core/src/runtime/mutation_result.rs`, `cascade.rs`, and CHANGELOG ranges.
+8. **COPY-PASTE FROM PRIOR VERSION** — ✅ New page; no prior-version carryover risk. v2-2.mdx code-span→MD link conversion is the only edit to a prior-version page and it is in-scope per Cycle 4 precedent.
+9. **CONDITIONAL CAVEATS** — ✅ "No migration needed?" `<Aside>` at L35-L47 enumerates four "if your service never X" preconditions for the 5-minute upgrade path; "If your service code matched on the v1 string status" framing at L242-L243.
+10. **RLS / SECURITY INTERACTIONS** — ✅ § 3 session-variables blurb (L407-L411) explicitly calls out RLS policies on `SELECT` referencing `current_setting()`; multi-tenancy blurb names per-tenant DB-connection isolation.
+11. **ERROR-PATH COVERAGE** — ✅ Failure-mode framing present where it matters most: L63-L65 "compile-time-loud break — the `status` field disappears and the v1 dispatcher is gone, so any surviving usage fails to type-check"; L77-L80 "Read the first `cargo check` error"; L268-L274 explicit `_ => {}` non-exhaustive arm guidance ("The `MutationOutcome` enum itself is also `#[non_exhaustive]`, so any `match` on it needs a fallthrough arm. The compiler will tell you exactly where."). Same precedent as Cycle 4 § 5 / § 15 (both passed Item 11). One follow-on for Cycle 6 polish: an exact `rustc error[E0026]` quote (variant `MutationOutcome::Error` does not have a field named `status`) would tighten it further — not blocking.
+12. **ARCHAEOLOGY-FREE** — ✅ `grep -nE 'Phase [0-9]+|TODO|FIXME|XXX|easily|simply| just |WIP|coming soon|orchestrator|persona|opus|sonnet|haiku|as an AI'` against page → 0 hits. Page itself is clean.
+13. **SOURCE CITATIONS RESOLVE** — ✅ 5/5 random re-greps (above) + 3/3 framework spot-checks (above) PASS. Verifier's 36/36 at `333314f` re-confirmed independently.
+14. **NO PERSONA SELF-REFERENCE** — ✅ `grep -niE '\b(persona|opus|sonnet|haiku|orchestrator|as an AI|reviewer-claude|writer-claude)\b'` → 0 hits.
+15. **DARK MODE** — ✅ N/A for content review — page uses only standard Starlight markdown constructs (tables, code blocks, `<Aside>`), all of which the framework renders consistently in both themes; CI build green.
+
+#### Anti-scope
+- ✅ `git diff 720eda2..HEAD --name-only` shows only Cycle 5 in-scope files: `astro.config.mjs` (sidebar entry), `migrations/upgrading/index.mdx` (hub row), `migrations/upgrading/v2-1-to-v2-2.mdx` (new), `release-notes/v2-2.mdx` (code-span fix), plus the 3 plan-tree artefacts + handoff entry. **NO** touch to v2.2→v2.3 migration content, `index.mdx` Enterprise Features card grid, SDK / quickstart / install-cli / `changelog.mdx`, or `~/code/fraiseql`.
+
+#### Findings
+1. **(nit, follow-on for Cycle 6 or Cycle 7 polish)** Item 11 could be tightened with an exact `rustc error[E0026]` / `error[E0027]` quote showing what a v1 string-status `match` arm fails with under v2.2 (e.g., `error[E0026]: variant `MutationOutcome::Error` does not have a field named `status``). The current "compile-time-loud" framing + `cargo check` instruction is sufficient per Cycle 4 precedent (Cycle 4 Reviewer accepted equivalent framing); but a copy-pasted compiler error from a one-line repro would convert "sufficient" to "ideal". Non-blocking.
+2. **(informational)** The Verifier's 4 non-blocking NOTEs (citations 12, 14, 22, 26) are all 1-2 line range nudges or illustrative-vs-bare expansions; none invalidate prose. Three of them are stylistic Writer choices (illustrative expansion at citation 26; "no opt-in flag" editorial paraphrase at citation 22; minor range short-by-2 at citations 12 / 14). No action.
+3. **(informational)** Posture-B citation leak scan re-confirmed: 0 JSX-comment-form `{/* source:` occurrences in `dist/migrations/upgrading/v2-1-to-v2-2/index.html` (cleaner than v2-2.mdx and v2-2-to-v2-3.mdx, which carry verbatim API-surface `source:` tokens for `tracing::info!` etc.).
+4. **(informational)** The phase-doc CLEANUP step asks for verification against `crates/fraiseql-core/src/runtime/mutation/...`; actual frozen-SHA layout is `runtime/mutation_result.rs` + `runtime/cascade.rs` (the subdir was consolidated in `082cd3e37`). Writer's path adjustment is **expected drift** — the phase-doc was written ahead of the consolidation commit; the actual code paths at frozen SHA confirm the claim. The phase-doc text could be updated in Phase 02 Cycle 7 close to reflect the actual layout, but this is documentation hygiene, not a content gap.
+
+#### Open gates
+- None new. G2 (SHA-bump policy) continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+**APPROVE — Cycle 5 closes. Cycle 6 (cross-link integration) opens.** Reviewer (Opus 4.7) hands off to Writer (Opus 4.7) for Cycle 6.
+
+Note for Cycle 6 Writer: the cross-link integration cycle should (a) audit inbound links into the two migration guides from related pages (release notes already covered; check feature pages — federation, multi-tenancy, audit-logging — for any "see migration guide" call-outs that need wiring); (b) verify the v2-2.mdx code-span→MD link conversion is the only inbound-link adjustment needed in the release-notes group; (c) the Item 11 follow-on noted above (exact `rustc` error quote) is a candidate for Cycle 6 prose polish if scope allows.
