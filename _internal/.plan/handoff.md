@@ -438,3 +438,61 @@ The smoke's per-DB fixtures contain the corrected SQL inline (annotated with `<!
 - No other gates open at phase close.
 
 ---
+
+### Phase 01 / Cycle 1 close — Writer (Opus 4.7) — 2026-05-29
+
+- **Scope:** audit-driven version-string sweep across `src/content/docs/`. RED grep (narrow + wide) inventoried 74 hits; triage classified them into STALE (must-fix), HISTORICAL (`Available since vX` markers verified against the frozen-SHA CHANGELOG, keep), SDK (SDK-release cadence, Phase 02 rewrite owns), EXAMPLE (SemVer constraint strings, Apollo Federation directive pins, etc.), and OUT-OF-SCOPE (`changelog.mdx` needs a deep rewrite, deferred to Phase 02).
+- **Files edited (13 files, 14 line-level edits, 14 source citations):**
+  - `src/content/docs/index.mdx` — Enterprise Features anchor (`v2.1.0 → v2.3.2`)
+  - `src/content/docs/getting-started/installation.mdx` — `--version` transcript
+  - `src/content/docs/getting-started/five-minute-quickstart.mdx` — server startup log
+  - `src/content/docs/community/contributing.mdx` — bug-report template placeholder
+  - `src/content/docs/reference/cli.mdx` — three `--version` output blocks
+  - `src/content/docs/features/federation.mdx` — drop `v2.0.1` anchor; replace "planned for v2.2.0 (Q1 2027)" wording (v2.2.0 shipped 2026-05-02)
+  - `src/content/docs/guides/federation-nats-integration.mdx` — analogous federation anchors
+  - `src/content/docs/guides/advanced-federation.mdx` — analogous federation anchors
+  - `src/content/docs/troubleshooting/common-issues.mdx` — `v2.0.1+ → v2.3.0+` REST default anchor
+  - `src/content/docs/vs/hasura-sqlserver.mdx` — two `v2.0.2+ → v2.1+` SQL Server Relay cursor anchors
+  - `src/content/docs/examples/index.mdx` — server startup log + /health response (`2.1.0 / 2.1 → 2.3.2`, matches Phase 00 / Cycle 2 GREEN transcript)
+  - `src/content/docs/examples/saas-federation-nats.mdx` — federation auth-service startup log
+  - `src/content/docs/deployment/kubernetes.mdx` — kubectl set-image example tag (`fraiseql:2.0.0 → fraiseql:2.3.2`)
+- **REFACTOR decision — Option A (no central source):**
+  Cycles 1's REFACTOR brief asked to pick A / B / C for the "current version" anchor consolidation. **I picked A** (no single source; hard-code at the anchor with source citations).
+  Rationale: only one true "current FraiseQL version" anchor exists in the rendered corpus (`index.mdx:269`). The other prominent literals are either (i) runtime captures the style guide already classes as literals (`--version` transcripts, server startup logs, `/health` bodies), (ii) example image tags / placeholder values, or (iii) SDK release pins on a separate cadence. A Starlight global / Astro env constant would require every consumer to be `.mdx`, would not help in fenced code blocks (the `--version` transcripts are inside ```` ``` ```` fences where MDX expression substitution does not run), and would not help in `.md` files (the `community/contributing.mdx` template is fenced too). Investing in a single-source pattern for a single rendered anchor expands cycle scope beyond version strings. The cheap closure is to hard-code `v2.3.2` at the anchor with a source citation to `Cargo.toml:L343` + the CHANGELOG `## [2.3.2]` heading; future drift gets caught by the same grep this cycle uses (Phase 09 or a G2-bump cycle can re-sweep mechanically).
+  Documented in the RED-evidence file's § F.
+- **RED evidence:** `_internal/.plan/red-evidence/phase-01-cycle-01-version-grep.txt` — narrow grep (70 hits), wide grep (74 hits), CHANGELOG cross-reference at frozen SHA, per-file classification of every hit, list of files NOT edited with rationale, REFACTOR decision rationale.
+- **Source citations added:** 14 — all in `{/* source: ... */}` MDX JSX-comment form (HTML `<!-- -->` comments are not supported in MDX 2+ which Astro 5 / Starlight 0.37 use; the verifier should grep for the `source:` token regardless of comment delimiter). Locations:
+  - `index.mdx:269`, `getting-started/installation.mdx:116`, `getting-started/five-minute-quickstart.mdx:33`, `community/contributing.mdx:65`, `reference/cli.mdx:91 / :148 / :804`, `features/federation.mdx:8`, `guides/federation-nats-integration.mdx:8`, `guides/advanced-federation.mdx:8`, `troubleshooting/common-issues.mdx:1456`, `vs/hasura-sqlserver.mdx:17`, `examples/index.mdx:23 / :355`, `examples/saas-federation-nats.mdx:645`, `deployment/kubernetes.mdx:561`.
+  - Citations are **left in place** for the Source-Citation Verifier persona to strip after validation.
+- **Pages NOT edited this cycle — rationale (the audit kept the cycle narrow):**
+  - `getting-started/quickstart.mdx` — phase spec listed it but the actual file has zero in-scope version anchors. The three SQL bugs noted at Phase 00 / Cycle 5 close are Phase 02 IA work and explicitly out of scope here.
+  - `getting-started/installation.md` (per spec) — the file is `installation.mdx`, not `.md`; only the `# fraiseql 2.0.0` (actually `fraiseql 2.1.0`) `--version` output mentioned in the phase spec is in scope and is the one edit applied. The "stray ```` ```python ```` fence after Homebrew block" mentioned in the phase scope is **Cycle 2 (stray-syntax sweep)** work, not Cycle 1 — left for the next cycle.
+  - The phase spec also listed an `index.mdx` "v2.0.0-alpha is production-ready" claim — the file currently reads `v2.1.0` (someone partially fixed it pre-overhaul); my edit advances it to `v2.3.2` and adds the missing source citation.
+  - `changelog.mdx` — header reads "v2.1 (Unreleased)" but v2.1.0 / v2.2.0 / v2.3.x have all shipped. A version-string edit will not fix the page; needs a deep rewrite. Deferred to Phase 02 (per cycle anti-scope: "Any content rewrite beyond version strings and stray syntax. Real rewrites are phase 03.").
+  - `features/observability.mdx` — the two `"version": "2.0.0"` literals are inside illustrative `/health` JSON example blobs that the wider Phase 02/03 sweep should refresh holistically (the JSON shape itself is also outdated vs. the actual `/health` body captured at Phase 00 / Cycle 2).
+  - `sdk/*.mdx`, `use-cases/python-teams.mdx`, `blog/*.mdx` — every SDK page declares its release pinned at `v2.1.0` (the SDK release cadence is independent of the framework workspace version per the SDK pages' "ships with FraiseQL v2.1" framing). Phase 02 owns the SDK page rewrites and version alignment.
+  - `features/security.mdx` (6 hits), `features/audit-logging.mdx`, `concepts/configuration.mdx`, `reference/toml-config.mdx`, `reference/decorators.mdx`, `reference/rest-api.mdx`, `migrations/from-postgrest.mdx`, `guides/rest-vs-graphql.mdx`, `guides/federation-gateway.mdx`, `_internal/_style-guide.md`, `features/nats.mdx` (NATS server version, not FraiseQL) — all HISTORICAL / "Added in" markers verified against the frozen-SHA CHANGELOG (v2.1.x + v2.2 entries). Keep.
+  - `reference/operators.mdx:1238`, `reference/scalars.mdx:840`, `examples/saas-federation-nats.mdx:588` — EXAMPLE strings (SemVer constraints, Apollo Federation directive pin). Not FraiseQL version anchors.
+- **CLEANUP gate:**
+  - `bun run build` — exit 0; 197 pages built in 14.39 s (per dist build log). Citations do NOT appear in rendered HTML (`grep -r 'Cargo.toml' dist/` returns only Cargo.toml content **inside** SDK Rust code-block titles, no citation leakage).
+  - `bun run check` — pre-existing 1 error (`SiteTitle.astro` `virtual:starlight/user-images`, unrelated to this cycle) + pre-existing TS hints in `src/lib/validators/**`. No new errors from this cycle's edits.
+  - `bun run lint` — no `lint` script defined in `package.json`. The repo has `lint:sql` and `check` only. Running `check` and `build` is the strongest gate available.
+  - Re-run of the narrow Cycle-1 grep: zero unintentional STALE hits remaining. The only narrow-grep hits outside the citation lines or HISTORICAL/SDK files is `examples/saas-federation-nats.mdx:588` (`federation_version: =2.0.0`, Apollo Federation directive pin — intentional, classified EXAMPLE in the RED evidence).
+- **CI evidence:** *(to be filled after push)* — will edit this entry with the CI run URL post-push.
+- **Commit:** *(to be filled in below)*
+- **Branch / push:** `phase-01/triage-and-ia` → push to `origin`.
+- **PR:** to be opened as a draft after the push lands (per the persona prompt — first cycle of Phase 01 opens the phase PR).
+- **Docs-test suite:** the `_smoke.docs-test.sh` is the only page test today; this cycle's changes do not touch the smoke's fixtures or page targets. Expect: 1/1 page tests PASS, 0 skipped. CI run URL will be captured post-push.
+- **Framework issues filed:** 0. Cycle 1 surfaced no new framework bugs (the `changelog.mdx` "Unreleased" framing is a docs-side rewrite, not a framework regression; the three quickstart SQL bugs from Phase 00 / Cycle 5 are already on the Phase 02 backlog).
+- **Open gates surfaced:** none new. G2 (SHA bump) policy continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G1 (sidebar IA) is Cycle 6's responsibility; not surfaced this cycle.
+- **Anti-scope held to:** no quickstart SQL bug fixes (Phase 02), no `astro.config.mjs` sidebar edits (Cycle 6), no stray-syntax / Homebrew / link-audit / sweep-matrix work (other Phase 01 cycles), no rewrites beyond version strings, no `changelog.mdx` content rewrite, no SDK page sweeps, no Astro env-constant / Starlight-global infrastructure (REFACTOR went with Option A).
+- **Source-citation form note for the Verifier:** all 14 citations use the MDX JSX-comment form `{/* source: ... */}` rather than the HTML-comment form `<!-- source: ... -->` named in `methodology.md § 4`. Reason: Astro 5 + Starlight 0.37 use MDX 3 internally, which does not treat raw `<!-- -->` comments as a comment construct (they pass through to the HTML output or break parsing depending on placement). The JSX-comment form is the idiomatic MDX equivalent — equally invisible in rendered output (verified via `grep -r 'Cargo.toml' dist/` above) and equally greppable via the `source:` token. Verifier persona: grep for `source:` to enumerate, not the comment delimiters.
+- **Anything the Reviewer / Cycle-2 persona must know:**
+  - The `astro check` 1-error / N-hints are pre-existing baseline (verified by diffing against `main@6cc8ae5` is not required since Cycle 0 closed at that SHA with the same warnings present — see Phase 00 / Cycle 6 / 9 CI runs which were all GREEN). Cycle 2 should pick up the `getting-started/installation.mdx` Homebrew-fence stray-syntax bug and the wider `astro check` audit per the phase spec.
+  - The "Available in v2.1.0" anchors I deliberately preserved on `features/security.mdx` (6 hits) and similar pages are HISTORICAL "added in" markers per the cycle's RED evidence § D. The Reviewer should confirm each survives the 15-point checklist's VERSION DRIFT item — they do, because the wording is "Available **in** v2.1.0" (a fact about when the feature shipped, not a claim about the **current** version).
+  - The `changelog.mdx` "v2.1 (Unreleased)" framing is a Phase 02 deep-rewrite candidate; the Reviewer may want to flag it explicitly in the sweep-matrix (Cycle 7).
+  - There is no published 2.0.0 Docker tag — the Kubernetes example previously used `:2.0.0` which would 404 on any registry. Fixed to `:2.3.2`.
+  - The federation pages (3 of them) now share consistent wording on the "Apollo Federation support is available as a beta feature" sentence — Cycle 6 / Cycle 7 may want to consider whether these three pages should share a partial.
+- **Handoff entry path:** `_internal/.plan/handoff.md` (this entry, appended at the bottom).
+
+---

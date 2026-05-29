@@ -5,10 +5,11 @@ description: Use FraiseQL as an Apollo Federation v2 subgraph to compose multipl
 
 import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
+{/* source: CHANGELOG.md (v2.3.0 entry — SagaExecutor / SagaCompensator / PostgresSagaStore landed in v2.3.0; federation gateway sub-command was added in the v2.1 line and the `[gateway]` TOML section is documented as Beta in v2.2 — see `src/content/docs/reference/toml-config.mdx:L47`). The v2.0.1 anchor predated the v2.1.0 release baseline. */}
 :::caution[Beta feature]
-Apollo Federation support is available in v2.0.1 as a beta feature.
+Apollo Federation support is available as a beta feature.
 Core federation queries (`_service`, `_entities`) work in production today.
-The built-in federation gateway and full compatibility with Apollo Router are planned for v2.2.0 (Q1 2027). Saga execution across services is production-ready with crash recovery, health checks, and monitoring (SagaExecutor, SagaCompensator, PostgresSagaStore).
+The built-in federation gateway is available as a beta sub-command; full compatibility with Apollo Router is in progress. Saga execution across services is production-ready with crash recovery, health checks, and monitoring (SagaExecutor, SagaCompensator, PostgresSagaStore).
 :::
 
 FraiseQL supports **Apollo Federation v2**. Each FraiseQL service operates as a standalone GraphQL subgraph — its own Python schema, its own compiled Rust runtime, and its own PostgreSQL database. A gateway composes the subgraphs into a single entry point for clients.
