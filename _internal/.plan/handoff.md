@@ -5223,3 +5223,54 @@ Per-citation log: `_internal/.plan/red-evidence/phase-03-cycle-04-citation-verif
 
 **PASS.** All 72 citations verified at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. Zero failures. Posture B confirmed. Page may proceed to Reviewer and Cleanup.
 
+
+---
+
+### Phase 03 / Cycle 4 GREEN — orchestrator follow-on (authentication docs-test fixes) — 2026-05-30
+
+CI on `5800c7b` came back with `page-test (authentication)` FAILURE. Local repro confirmed three root causes, all mechanical, all within orchestrator scope.
+
+#### Root cause 1: cookie ingest regex looks for the wrong shape
+
+- Script L400: `grep -qE 'trim_matches\(.\\"`. After shell collapse this targets `trim_matches(.\"`. Framework actual at `crates/fraiseql-server/src/middleware/oidc_auth.rs:L53` is `.trim_matches('"')` — a single-quoted char literal containing the double-quote. The regex never matches.
+- Fix: switch to `grep -qF "trim_matches('\"')"` (fixed-string match for the literal source token). Added an inline comment so future writers don't reintroduce the shell-collapse trap.
+
+#### Root cause 2: host vs container python3
+
+- Original `mint_hs256` did `docker compose exec -T fraiseql python3 -c "..."`, but the slim `fraiseql-docs-test-fraiseql:latest` image (Debian-slim from `Dockerfile.fraiseql`) does NOT bundle python3.
+- Fix: move the mint to the HOST. The HS256 secret is already a top-level shell var (`HS256_SECRET`), so the function exports it + the four payload parameters (iss/aud/sub/exp) and runs `python3 -c "..."` directly. Added a preflight check (`command -v python3 >/dev/null || die ...`).
+
+#### Root cause 3: `grep -c '\.'` counts MATCHING LINES, not dot occurrences
+
+- After moving the mint to the host, the token assignment succeeded but the assertion still kicked back with "mint_hs256 produced no token". The condition was `[ "$(printf '%s' "$token" | grep -c '\.')" -lt 2 ]`. For a single-line JWT, `grep -c` returns 1 (one matching line), not 2 (two dots) — so the test ALWAYS rejected valid tokens.
+- Fix: `tr -cd '.' | wc -c` to count dot characters. Two for a valid JWT. Updated the error message to reflect the host-side mint reality.
+
+#### Local verification after all three fixes
+
+```
+=== authentication: HS256 direct-TOML happy path ===
+  · stack up with authentication overlay
+  · /health returns 200 (binary booted under HS256 overlay)
+  · minted HS256 token (iss=fraiseql-docs-test aud=docs-test-api)
+  · POST /graphql with valid HS256 token returned 200 (token reached the handler)
+  · POST /graphql with tampered HS256 token returned 401 (signature rejection works)
+  · stack down clean
+
+authentication.docs-test: PASS
+```
+
+Exit 0. All assertions hold including the new HS256 end-to-end happy path.
+
+#### Anti-scope
+
+- No re-spawn of Writer-Opus for three mechanical regex/shell-quoting bugs.
+- No edits to the page, framework, harness fixtures, or other docs-test scripts.
+- No amend; new commit only.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved.
+
+#### Pointer
+
+Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 4 — once CI on this commit is green. Reviewer should re-run the docs-test from a clean Docker state and confirm exit 0 with the assertion log above (including the HS256 happy-path block that wasn't reaching the handler before this fix).

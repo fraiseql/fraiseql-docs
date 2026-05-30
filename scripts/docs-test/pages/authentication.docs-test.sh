@@ -148,8 +148,9 @@ die() {
 # Preflight.
 # ---------------------------------------------------------------------------
 preflight() {
-    command -v docker >/dev/null || die "docker not on PATH"
-    command -v jq     >/dev/null || die "jq not on PATH (assert_json_shape requires it)"
+    command -v docker  >/dev/null || die "docker not on PATH"
+    command -v jq      >/dev/null || die "jq not on PATH (assert_json_shape requires it)"
+    command -v python3 >/dev/null || die "python3 not on PATH (mint_hs256 runs on the host because the fraiseql runtime image is slim)"
     [ -x "$OPERATOR_CLI" ]       || die "operator CLI missing: $OPERATOR_CLI"
     [ -r "$COMPOSE_FILE" ]       || die "compose file missing: $COMPOSE_FILE"
     [ -r "$OVERLAY" ]            || die "overlay missing: $OVERLAY"
@@ -197,23 +198,28 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
-# Mint an HS256 JWT inside the fraiseql container using its bundled Python.
+# Mint an HS256 JWT on the HOST (fraiseql runtime image is slim and does not
+# bundle python3 or jq). The host's python3 is a preflight requirement.
 # Returns the token on stdout. Args: <iss> <aud> <sub> <exp_seconds_from_now>
 # ---------------------------------------------------------------------------
 mint_hs256() {
     local iss="$1" aud="$2" sub="$3" exp_secs="$4"
-    docker compose -f "$COMPOSE_FILE" -f "$OVERLAY_OVERRIDE" \
-        exec -T fraiseql python3 -c "
+    FRAISEQL_HS256_SECRET="$HS256_SECRET" \
+    FRAISEQL_MINT_ISS="$iss" \
+    FRAISEQL_MINT_AUD="$aud" \
+    FRAISEQL_MINT_SUB="$sub" \
+    FRAISEQL_MINT_EXP="$exp_secs" \
+    python3 -c "
 import base64, hmac, hashlib, json, time, os, sys
 secret = os.environ['FRAISEQL_HS256_SECRET'].encode()
 header = {'alg': 'HS256', 'typ': 'JWT'}
 now = int(time.time())
 payload = {
-    'iss': '$iss',
-    'aud': '$aud',
-    'sub': '$sub',
+    'iss': os.environ['FRAISEQL_MINT_ISS'],
+    'aud': os.environ['FRAISEQL_MINT_AUD'],
+    'sub': os.environ['FRAISEQL_MINT_SUB'],
     'iat': now,
-    'exp': now + $exp_secs,
+    'exp': now + int(os.environ['FRAISEQL_MINT_EXP']),
     'jti': 'docs-test-' + str(now),
 }
 def b64(d):
@@ -271,8 +277,12 @@ assert_hs256_direct_toml_happy_path() {
     # Mint a valid token for the configured iss/aud.
     local token
     token=$(mint_hs256 fraiseql-docs-test docs-test-api docs-test-user 600 || true)
-    if [ -z "$token" ] || [ "$(printf '%s' "$token" | grep -c '\.')" -lt 2 ]; then
-        err "mint_hs256 produced no token; container python3 may be missing"
+    # Shape check: a HS256 JWT is base64url segments separated by 2 dots
+    # (header.payload.signature). `grep -c '\.'` counts MATCHING LINES, not
+    # dot occurrences — a single-line token always returns 1, so the original
+    # `< 2` test mis-rejected every valid token. Use `tr` to count chars.
+    if [ -z "$token" ] || [ "$(printf '%s' "$token" | tr -cd '.' | wc -c)" -lt 2 ]; then
+        err "mint_hs256 produced no token (or token shape is malformed). Host python3 required: mint runs on the host because the fraiseql runtime image is slim."
         return 1
     fi
     step "minted HS256 token (iss=fraiseql-docs-test aud=docs-test-api)"
@@ -390,8 +400,13 @@ assert_cookie_format_holds() {
     local middleware
     middleware=$(git -C "$FRAISEQL_REPO" show \
         "${FRAISEQL_SHA}:crates/fraiseql-server/src/middleware/oidc_auth.rs")
+    # Framework code at frozen SHA is `.trim_matches('"')` — a single-quoted
+    # char literal containing the double-quote. The earlier regex required
+    # `trim_matches\(.\\"`, which never matches because shell collapses `\\"`
+    # to `\"` and the actual source has `'"'` (no backslash). Look for
+    # `trim_matches\(.'.\)` with `'"'` substring.
     if printf '%s' "$middleware" | grep -qE 'fn extract_access_token_cookie' \
-        && printf '%s' "$middleware" | grep -qE 'trim_matches\(.\\"'; then
+        && printf '%s' "$middleware" | grep -qF "trim_matches('\"')"; then
         step "extract_access_token_cookie strips quotes at frozen SHA"
     else
         err "cookie ingest helper changed — page's cookie-fallback claim drifts"
