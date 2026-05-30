@@ -5274,3 +5274,190 @@ Unchanged. G1 closed, G2 default-hold, G7 resolved.
 #### Pointer
 
 Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 4 — once CI on this commit is green. Reviewer should re-run the docs-test from a clean Docker state and confirm exit 0 with the assertion log above (including the HS256 happy-path block that wasn't reaching the handler before this fix).
+
+---
+
+### Phase 03 / Cycle 4 review — Reviewer (Opus 4.7) — 2026-05-30
+
+**Persona:** Reviewer (Opus 4.7) — adversarial 15-point review on `/building/authentication.md`.
+**Branch:** `phase-03/critical-rewrites` HEAD `0ee6812a00d61ab796dc7c3f6cba3c903b604282`.
+**PR:** #14 (draft).
+**Frozen FraiseQL SHA:** `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+#### Verdict: BLOCK on Item 6 (one dead anchor link)
+
+14/15 PASS, 1 ❌ on Item 6 (DEAD LINKS) — line 196 body link `[/auth/me](#auth-me-session-identity-endpoint)` does not resolve in rendered HTML (id is `#authme-session-identity-endpoint` — Starlight strips slashes without replacement char). Fix is one-character.
+
+#### CI re-confirmation
+
+- Run: https://github.com/fraiseql/fraiseql-docs/actions/runs/26670280417 on `0ee6812`.
+- Jobs (all SUCCESS): `discover pages and frozen SHA`, `page-test (_smoke)`, `page-test (authentication)`, `page-test (multi-tenancy)`, `page-test (file-storage)`, `page-test (observers)`.
+- `pre-commit.ci` ERROR (Phase-10 deferred — pre-existing).
+
+#### docs-test re-run from clean Docker state
+
+`./docs-test.sh down --volumes` then `./pages/authentication.docs-test.sh`. Exit 0. All 8 assertions PASS in order:
+
+1. `assert_algorithm_allowlist_enforced` — `default_algorithms()` returns `["RS256"]`; `get_algorithm` enforces with `InvalidTokenAlgorithm`.
+2. `assert_cookie_format_holds` — `__Host-access_token="..."` format string at frozen SHA; RFC 6265 escape applied; `trim_matches('"')` ingest helper present.
+3. `assert_api_key_constant_time_compare` — `subtle::ConstantTimeEq` import; `ct_eq(...)` comparison; `sha256_hash` impl on `Sha256::new`.
+4. `assert_oidc_audience_mandatory_at_boot` — `OidcConfig::validate()` carries "OIDC audience is REQUIRED".
+5. `assert_malformed_jwk_handling_graceful` — `jwk_to_decoding_key` returns `InvalidToken`.
+6. `assert_known_issues_still_reproduce` — bugs 1..4 each exit 1 (FW-26..FW-29 still real).
+7. `assert_fw24_fw25_still_reproduce` — `RateLimitConfig` has no `failed_login_*`; `token_revocation.rs` has no `"postgres" =>` arm; `"Unknown revocation backend"` fallback intact.
+8. `assert_hs256_direct_toml_happy_path` — A1 slice: stack up; `/health` 200; mint HS256 token; `POST /graphql {__typename}` with Bearer → 200; tamper byte → 401; stack down clean.
+
+The HS256 happy-path block (assertion 8) is the only A1 slice. It drives the off-the-shelf `fraiseql-server` binary against the authentication overlay's `[auth_hs256]` (auto-wired from `ServerConfig`) end-to-end. Token reaches the handler with valid signature (200) and is rejected on signature tampering (401). The orchestrator's three docs-test fixes (cookie-regex / host-mint python3 / dot-count) hold.
+
+#### Citation re-greps (8+ distinct from Verifier's 7)
+
+All re-greped at frozen SHA, all VERIFIED:
+
+1. `routes/auth.rs:L432-L460` — `auth_me` handler always inserts `email`/`display_name`; iterates `state.expose_claims` against `user.extra_claims`.
+2. `middleware/oidc_auth.rs:L48-L62` — `extract_access_token_cookie` strips quotes via `.trim_matches('"')`.
+3. `server_config/hs256.rs:L24-L39` — `Hs256Config { secret_env: String, #[serde(default)] issuer: Option<String>, #[serde(default)] audience: Option<String> }`; no `validate()`.
+4. `routes/auth.rs:L220-L246` — cookie format hard-coded `__Host-access_token="..."; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={expires_in or 300}`; RFC 6265 escape `.replace('\\', r"\\").replace('"', r#"\""#)`.
+5. `api_key.rs:L186-L196` — `key_hash.ct_eq(&static_key.hash)`; `sha256_hash` impl on `Sha256::new`.
+6. `middleware/rate_limit/config.rs:L7-L52` — server-side `RateLimitingSecurityConfig` confirmed has NO `failed_login_*` fields (FW-24 silent-drop reproduces).
+7. `security_context.rs:L115-L127` — `email`/`display_name` fields, doc comments name `jwt:email`/`jwt:name`/`jwt:display_name` mappings.
+8. `server/routing/auth.rs:L26-L46` — PKCE routes mount when `(pkce_store, oidc_server_client)` both `Some`; no `state_encryption` check at mount-condition (FW-28 root cause).
+9. `server/initialization.rs:L205-L213` — exact `"Rate limiter: trust_proxy_headers = true but trusted_proxy_cidrs is not set..."` warn matches caveat 11 prose.
+10. `cli/config/toml_schema/security.rs:L181-L249` — CLI `RateLimitingSecurityConfig` HAS `failed_login_max_attempts` (u32) and `failed_login_lockout_secs` (u64); confirms FW-24 silent-drop story (CLI accepts; server runtime mirror drops).
+
+Total Reviewer re-greps: 10. Total Verifier + Reviewer re-greps now: 17 of 72 citations independently re-checked.
+
+#### Security caveats LEAD block deep-dive (11 items)
+
+| # | Caveat | FW-N | Position | Mitigation actionable? | Maps to bug-shape? |
+|---|---|---|---|---|---|
+| 1 | Anonymous baseline | — | 1 | ✅ "always configure `[auth]` or `[auth_hs256]`" | Page-content, no FW. |
+| 2 | `/auth/revoke{,-all}` unauthenticated (CRITICAL) | FW-26 #358 | **2 (top 3 ✅)** | ✅ "gate behind authenticating reverse proxy" + "omit `[security.token_revocation]`" | Bug-1 narrative verified vs `mount_auth_routes` merging revocation routes with no `route_layer`. |
+| 3 | HS256 audience not enforced | FW-27 #359 | 3 (top 3 ✅) | ✅ `audience = "<api-id>"` in `[auth_hs256]` | Bug-2 narrative verified vs `build_hs256_auth` only calling `with_audience` when `hs.audience.is_some()`. |
+| 4 | PKCE warns + continues w/o state encryption | FW-28 #360 | 4 | ✅ `[security.state_encryption]` + `STATE_ENCRYPTION_KEY` before `pkce.enabled = true` | Bug-3 narrative verified vs `pkce_store_from_schema` warn-then-continue path. |
+| 5 | JWKS hot-rotate replay window | FW-29 #361 | 5 | ✅ restart replicas + tighten `jwks_cache_ttl_secs` | Bug-4 narrative verified vs `get_decoding_key` returning cached key without upstream consult. |
+| 6 | Brute-force protection silently dropped | FW-24 #356 | 6 | ✅ rate-limit at reverse proxy / CDN | CLI accepts `failed_login_*`; server runtime mirror lacks both fields (static-grep verified). |
+| 7 | `backend = "postgres"` revocation silent downgrade | FW-25 #357 | 7 | ✅ use `backend = "redis"` | CLI accepts "postgres"; server `revocation_manager_from_schema` has no `"postgres" =>` arm; falls into `"Unknown revocation backend"` warn (static-grep verified). |
+| 8 | Compiled-schema indirection | — | 8 | Page-content guidance, not a defense | n/a. |
+| 9 | OIDC audience mandatory (POSITIVE) | — | 9 | Positive defense; `OidcConfig::validate()` refuses boot | Verified: error string `"OIDC audience is REQUIRED for security..."` present. |
+| 10 | Algorithm allowlist `["RS256"]` (POSITIVE) | — | 10 | Positive defense + warning "do not widen to include HS256 from JWKS-only OIDC" | `default_algorithms()` confirmed; `get_algorithm` allowlist check confirmed. |
+| 11 | `trust_proxy_headers` requires `trusted_proxy_cidrs` | — | 11 | Implicit (don't enable without cidrs); framework warns at boot but does not refuse | Warn-line at L205-L213 confirmed. |
+
+**LEAD block verdict: PASS.** FW-26 critical placed at position 2 (within top 3 per Bug-Finder brief). Every FW-N mitigation is concrete and reader-actionable (proxy directive, env var, TOML key, restart action — no hand-waves). Each FW row maps to its bug-shape via static-source verification.
+
+Minor non-blocking: caveat 11 lacks a `**Mitigation:**` paragraph; the implicit "set `trusted_proxy_cidrs` or don't enable `trust_proxy_headers`" reads from the section text but doesn't follow the explicit pattern caveats 2-7 establish. Style-Auditor scope at Cycle 5.
+
+#### HYBRID architecture sanity-check
+
+- `## How auth is composed today` (L123) opens "Two configuration shapes coexist and the difference matters more on this page than anywhere else in the docs."
+- `### Direct-TOML (auto-wired) — [auth], [auth_hs256], [auth.me]` (L127) — `ServerConfig.auth`, `ServerConfig.auth_hs256` direct fields; constructor instantiates validators at startup; no compile step.
+- `### Compile-step indirection — [security.*]` (L161) — explicit "A raw `[security.api_keys]` block in `fraiseql.toml` without a recompile is silently ignored — `ServerConfig` has no `security` field for the server to see."
+- `## Quick reference` table (L106-L121) prefixes each row with the wiring type — e.g. `[security.api_keys] (compile-step; consumed from schema.security.additional["api_keys"])` vs `[auth_hs256] (direct-TOML on ServerConfig.auth_hs256: Option<Hs256Config>)`.
+- The compile-step subsection at L170-L175 names the two-command sequence: `fraiseql-cli compile --output schema.compiled.json` + `fraiseql-server --config fraiseql.toml`.
+
+An operator confused why their `[security.api_keys]` TOML did nothing reads the quick-reference table (sees compile-step), then the compile-step subsection (sees the silent-ignore caveat), then the bash block (sees the missing `fraiseql-cli compile` step). The path through the page resolves the confusion.
+
+**HYBRID verdict: PASS** — disambiguation is unambiguous.
+
+#### Cycle-specific adversarial test (algorithm-confusion)
+
+Per phase-03 Cycle 4 § "wrong algorithm" attack (JWT signed with HS256 against an RS256-configured server):
+
+- Source-level: `get_algorithm` (token.rs:L355-L368) checks `if !self.config.allowed_algorithms.contains(&alg_str) { return Err(SecurityError::InvalidTokenAlgorithm) }`. With default `allowed_algorithms = ["RS256"]` (providers.rs:L152-L154), an HS256-tagged token (`alg: "HS256"` in the JWT header) cannot pass the allowlist check.
+- An HS256 token presented to an RS256-configured server returns 401 before signature verification (validator does not load the JWKS public key as HMAC secret).
+- Page caveat 10 accurately documents this defense AND explicitly warns NOT to widen the allowlist to include `HS256` from a JWKS-only OIDC setup — the classic algorithm-confusion attack where the JWKS public key is treated as the HMAC shared secret.
+- Full end-to-end probe (mint HS256 token via host, present to RS256-configured OIDC server) requires an OIDC stub container the harness does not ship. The static-source assertion is unambiguous and the page's caveat 10 prose maps exactly to the source behaviour.
+
+**Adversarial test verdict: PASS** — algorithm-confusion fails closed at v2.3.2 with default `allowed_algorithms`.
+
+#### Item 12 archaeology grep
+
+`grep -nE "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP" src/content/docs/building/authentication.md` → exit 1 (0 matches). Rendered HTML `grep -rE "Phase [0-9]+..." dist/building/authentication/` → exit 1 (0 matches). **Item 12 PASS** — Cycle 4 closed the recurring item-12 BLOCK that took Cycles 2 and 3 down.
+
+#### Posture B leak scan
+
+- `bun run build` → exit 0; 205 pages built in 14.70s.
+- Strip integration log: `strip-source-citations: scanned 281 HTML files, modified 3, stripped 223 source-citation comments.`
+- `grep -rE '<!--\s*source:' dist/` → 0 matches.
+- **Posture B leak-free confirmed.**
+
+#### Migration callout sanity-check
+
+L425-L439 enumerates the stale `building/authentication.mdx` artifacts:
+- Python `@authenticated` / `@fraiseql.requires_scope(...)` decorators → mapped to `fraiseql.field(requires_scope=...)` inside `@fraiseql.type`, baked into compiled schema.
+- `OIDC_*` env-var-only config → mapped to `[auth]` TOML block via `ServerConfig.auth: Option<OidcConfig>`.
+- `[auth_hs256]` block named as new at v2.3 (no v2.2 equivalent).
+- `[security.enterprise]` → not a v2.3.2 top-level block; audit-related controls live under `[security.*]` subsystems via compiled-schema.
+- Three FW callbacks: FW-24 (`failed_login_*` silent drop), FW-25 (`backend = "postgres"` silent downgrade), FW-26 (`/auth/revoke` anonymous).
+
+Migration callout is complete and accurate. **PASS.**
+
+#### Framework-bug rows sanity-check (3-4 random)
+
+Cross-referenced 4 of 6 known-issues table rows against bug-script Actual narratives + frozen-SHA source:
+
+- **FW-26 #358 (CRITICAL anonymous revoke)** — bug-1 actual block names `mount_auth_routes` (server/routing/auth.rs:L103-L114) merging revocation routes with no `route_layer`. Source confirmed: `app = app.merge(rev_router);` with no `route_layer` between merge and the sibling `/auth/me` block which DOES carry `route_layer(middleware::from_fn_with_state(... oidc_auth_middleware))`. Page row + caveat 2 verified.
+- **FW-27 #359 (HS256 audience)** — bug-2 actual block names `build_hs256_auth` (builder.rs:L19-L39). Source confirmed: `if let Some(ref aud) = hs.audience { auth_config = auth_config.with_audience(aud); }`. Page row + caveat 3 verified.
+- **FW-28 #360 (PKCE state encryption warn-continue)** — bug-3 actual block names `pkce_store_from_schema` (initialization.rs:L80-L97). Source confirmed: `if state_encryption.is_none() { warn!(...) }` and then continues to build the store; no `return None`. Page row + caveat 4 verified.
+- **FW-29 #361 (JWKS rotate)** — bug-4 actual block names `get_decoding_key` (jwks.rs:L113-L161). Source confirmed: cache hit returns key without upstream check; `detect_key_rotation` emits `tracing::warn!` only. Page row + caveat 5 verified.
+
+All 4 sampled FW rows: mitigation maps to bug-shape; bug-shape maps to frozen-SHA source. **PASS.**
+
+#### 15-point checklist
+
+| # | Item | Verdict | One-line justification |
+|---|------|---------|------------------------|
+| 1 | VERSION DRIFT | ✅ | `["RS256"]` default, `jwks_cache_ttl = 300`, `audience: Option<String>` all match frozen SHA. |
+| 2 | WRONG-DB PATHS | ✅ | FW-25 postgres downgrade explicitly flagged; PG-only RLS variables noted. |
+| 3 | FEATURE-FLAG OMISSIONS | ✅ | `redis-pkce` + `redis-rate-limiting` in Quick Reference row. |
+| 4 | SECURITY-DEFAULT REGRESSIONS | ✅ | Caveats 3, 4, 11 explicitly warn on insecure defaults; 9, 10 confirm positive defaults. |
+| 5 | SDK DIVERGENCE | ✅ | No SDK code on page. |
+| 6 | DEAD LINKS | ❌ | L196 `[/auth/me](#auth-me-session-identity-endpoint)` — rendered id is `#authme-...` (Starlight strips slash without replacement char); body link uses a hyphen. |
+| 7 | UNDEFINED SYMBOLS | ✅ | Sample greps (`ServerConfig.auth`, `Hs256Config.audience`, `subtle::ConstantTimeEq`, `__Host-access_token`, `OidcConfig::validate()`, `revocation_manager_from_schema`, `pkce_store_from_schema`) all hit at frozen SHA. |
+| 8 | COPY-PASTE FROM PRIOR VERSION | ✅ | Stale Python `@authenticated` decorator content excised; `.mdx` deleted; migration callout enumerates removed items. |
+| 9 | CONDITIONAL CAVEATS | ✅ | Mutex `[auth]`/`[auth_hs256]`, `[auth.me]` requires OIDC, `[security.*]` requires compile each explicitly stated. |
+| 10 | RLS / SECURITY | ✅ | `jwt:email`/`jwt:name`/`jwt:display_name` + `inject={"sql_param": "jwt:<claim>"}` flow. |
+| 11 | ERROR-PATH COVERAGE | ✅ | Exact strings: `"OIDC audience is REQUIRED"`, `"Unknown revocation backend"`, `"Rate limiter: trust_proxy_headers = true..."`; `jsonwebtoken::dangerous::insecure_decode` named. |
+| 12 | ARCHAEOLOGY-FREE | ✅ | grep returns 0; Cycle 4 closed the recurring item-12 BLOCK. |
+| 13 | SOURCE CITATIONS RESOLVE | ✅ | 10 random re-greped at frozen SHA, all verified. |
+| 14 | NO PERSONA SELF-REFERENCE | ✅ | None present. |
+| 15 | DARK MODE | ✅ | Starlight default components only; no custom colors. |
+
+**Score: 14/15 PASS, 1 ❌ on Item 6 (DEAD LINKS).**
+
+#### Findings
+
+**Blocking (item 6):**
+
+- `src/content/docs/building/authentication.md:L196` — `[/auth/me](#auth-me-session-identity-endpoint)`. Rendered HTML id is `#authme-session-identity-endpoint` (Starlight collapses `/auth/me` heading to `authme`, no hyphen between `auth` and `me`). Three TOC-auto-generated href occurrences use the correct slug; only this body link drifts. Fix: change anchor to `#authme-session-identity-endpoint`. PR review comment posted at line-level via `gh api repos/.../pulls/14/comments` (comment id 3327764711).
+
+**Non-blocking nits (Style Auditor scope, Cycle 5):**
+
+- L398: bare ` ``` ` open fence around the cookie format string display. Methodology § 9: code-block language tags mandatory. Suggest ` ```text ` for the prose display block.
+- Caveat 11 (`trust_proxy_headers`) lacks an explicit `**Mitigation:**` paragraph; the implicit mitigation (set `trusted_proxy_cidrs` or don't enable `trust_proxy_headers`) reads from the section text but breaks the pattern caveats 2-7 establish.
+
+#### Anti-scope
+
+`git diff main..HEAD --name-only`:
+- `_internal/.plan/*` (plan tracking artefacts; on-plan).
+- `astro.config.mjs` (G7 strip-source-citations integration from Cycle 1).
+- `scripts/docs-test/{bugs,configs/overlays,fixtures/postgres,pages}/*` (Cycle 1+2+3+4 harness fixtures + bug repros + page scripts).
+- `src/content/docs/building/{authentication.md,multi-tenancy.md}` (Cycles 1+4 page rewrites).
+- `src/content/docs/building/{authentication.mdx,multi-tenancy.mdx,observers.mdx,observer-webhook-patterns.mdx}` (deletions of stale `.mdx` siblings + Cycle 3 scope statements).
+- `src/content/docs/features/{file-storage.md,file-storage.mdx,observers.mdx}` (Cycles 2+3).
+- `src/content/docs/operations/observer-runbook.mdx` (Cycle 3 sibling scope statement).
+
+No `~/code/fraiseql` edits. No edits outside Phase 03 scope. No amend of prior commits.
+
+#### Framework bugs filed during this review
+
+None. The Reviewer persona's brief is to find new framework bugs the Writer missed; Cycle 4 RED's Bug-Finder + Writer-RED already filed FW-24..FW-29 covering this surface. No additional contradictions surfaced during the 10 citation re-greps or the LEAD block deep-dive.
+
+#### Pointer to next persona
+
+**Writer (Opus 4.7)** — apply the one-character fix at `src/content/docs/building/authentication.md:L196` (`#auth-me-session-identity-endpoint` → `#authme-session-identity-endpoint`). Re-push, wait for CI green, hand back to Reviewer for re-verification of item 6.
+
+Once item 6 flips ✅, the path to phase-03/cycle-4 close is:
+1. Reviewer signs off (15/15 PASS).
+2. Source-Citation Verifier: nothing new to do — Verifier's PASS-72/72 already shipped.
+3. Cleanup (Sonnet 4.6): apply Style Auditor nits at Cycle 5 phase close (the L398 bare-fence and the caveat-11 mitigation-paragraph gap); update phase doc `## Pages completed`; append FW-24..FW-29 to phase doc `## Framework bugs filed`.
+
