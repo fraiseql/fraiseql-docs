@@ -5845,3 +5845,91 @@ After Cleanup, the path is straight to **Cycle 6 (Phase-01 Cycle-4 deferral clas
 - **Next persona: Writer (Opus 4.7)** for Phase 03 / Cycle 6 — Phase-01 Cycle-4 deferral classes A/B/C/D. Per orchestrator brief: **Class A (`fraiseql/examples` 11 URLs across 4 pages) is a CONTENT DECISION worth surfacing as a novel gate G6** — the question is "do the docs promise example code at all?" Cycle 6 RED should propose the gate framing, not pick the answer. Classes B (`velocitybench`, 2 pages), C (`demo.fraiseql.dev`, 6 pages), and D (`charts.fraiseql.io`, 0 hits) are infra/prose decisions also worth surfacing as sub-gates before committing to a fix path.
 
 ---
+
+### Phase 03 / Cycle 6 RED — Writer (Opus 4.7) — 2026-05-30
+
+**Verdict:** inventory complete; G8 gate proposal drafted; phase status flipped to `[?]` (awaiting human gate G8 resolution).
+
+Per orchestrator brief, Cycle 6's deliverable is a **gate proposal**, not a page rewrite. This RED pass inventories the four Cycle-4 deferral classes plus the `community/support.mdx` follow-on, documents the decision space per class, and proposes a single novel gate **G8** with four sub-decisions (G8a–G8d). The previous Cleanup handoff (Cycle 5 close) referenced "G6" — the orchestrator brief for Cycle 6 clarifies the canonical number is **G8** (next available after G7 / build-time strip integration). The brief's number is canonical; this entry adopts it.
+
+#### Inventory document
+
+`_internal/.plan/.phases/cycle-06-deferral-classes-inventory.md` (new, internal — does not ship; deleted in Phase 10).
+
+Structure: per-class URL inventory with file:line table, decision options A1/A2/A3 etc. with one-paragraph trade-off, A3 prerequisite check, recommended-default rationale, G8 sub-gate matrix.
+
+#### Per-class summary
+
+| Class | Pages | URLs | A3-style prerequisite | Default option | Rationale |
+|-------|-------|------|----------------------|----------------|-----------|
+| **A** — `fraiseql/examples` | 4 (`/examples/index`, `/examples/saas-blog`, `/examples/realtime-collaboration`, `/examples/mobile-analytics-backend`) | **16** (brief said 11; re-grep counted 16: 10 in index, 2 each in 3 sub-pages — includes `**Repository**:` links, `git clone` blocks, Fork CTA) | A3: `fraiseql/fraiseql/examples/` exists at frozen SHA `d0a4ed4` (23 entries: README + 22 sub-dirs) — but **none** of the framework slugs match the docs slugs verbatim, so A3 implies curated mapping + per-page rework, not URL-swap | **A2** (page-side rewrite, drop GitHub framing) | A1 = perpetual maintenance debt across 8+ repos; A3 = hidden slug-mismatch cost comparable to A2 with worse durability; A2 is smallest-scope and net-honest |
+| **B** — `velocitybench` | 2 (`operations/performance-benchmarks.mdx`, `community/blog/rest-direct-execution-benchmark.mdx` — brief said `.md`; actual is `.mdx`) | **16 mentions** (URL-form: 5; brand-name in prose / captions / frontmatter: 11) | n/a | **B2** (page-side rewrite, drop VelocityBench framing; first-party numbers + `hey` reproduction recipe) | Same logic as A2; "Independent data" framing is technically dishonest if the harness lives under `fraiseql/` |
+| **C** — `demo.fraiseql.dev` | 6 (`/playground`, `/concepts/how-it-works`, `/getting-started/quickstart`, `/features/mutual-exclusivity`, `/features/automatic-where`, `/features/rich-filters`) | 6 (one `<EmbeddedSandbox endpoint="..." />` per page) | n/a | **C1** (infra-fix the TLS SAN), surfaced as parallel infra ticket | The **only** class where page-side path loses meaningful reader value — `playground.mdx` *is* the demo. Fallback to C2 if infra owner declines |
+| **D** — `charts.fraiseql.io` | 0 | 0 (re-grep confirmed) | n/a | n/a | No action |
+| **Follow-on** — `community/support.mdx` | 1 (L150) | n/a | n/a | **Accept proposed text** (one-line edit; drops "coming soon", reframes around GitHub Issues directly) | Cycle-4 Reviewer flag; current text is self-contradicting |
+
+#### A3 prerequisite check — `fraiseql/fraiseql/examples/` at frozen SHA
+
+`git -C ~/code/fraiseql ls-tree d0a4ed4ec1770c70707f68fd9019f2b561d87461 | grep examples`:
+
+```
+040000 tree 88899860ee45fa521a9fc64765ad69127edb96dc	examples
+```
+
+<!-- source: ~/code/fraiseql examples/ tree at d0a4ed4ec1770c70707f68fd9019f2b561d87461 — 23 entries (README + 22 sub-dirs: _TEMPLATE, analytics_dashboard, basic, blog_api, cascade-create-post, ci, clickhouse, ecommerce_api, federation, ltree-hierarchical-data, migrations, multitenant, mutation-patterns, native-auth-app, observability, r, real_time_chat, rust, saas, sql, streaming, todo_xs) -->
+
+**Result: YES, exists.** But slug-mismatch makes A3 cost comparable to A2 (per inventory § Class A).
+
+#### G8 gate framing — 4 sub-decisions, orchestrator-default per sub-decision
+
+**G8 (novel — Cycle 6)** — Phase-01 Cycle-4 deferral resolution. Folded as a single gate with four sub-decisions for one human round-trip; supports partial resolution if any sub-decision needs more time.
+
+- **G8a** Class A: A1 / **A2 (default)** / A3
+- **G8b** Class B: B1 / **B2 (default)**
+- **G8c** Class C: **C1 (default — infra ticket)** / C2 (fallback if infra declines)
+- **G8d** `community/support.mdx`: **Accept proposed replacement text (default)**
+
+Proposed `community/support.mdx:150` replacement text:
+
+```
+- **Service announcements**: [GitHub Issues](https://github.com/fraiseql/fraiseql/issues) — file an issue with the `service` label, or check existing issues for outage / regression notices.
+```
+
+#### Anti-scope confirmed
+
+- No page edits (inventory only, per RED-only mandate).
+- No `fraiseql/examples` or `fraiseql/velocitybench` repo creation (infra-side, user decides).
+- No `~/code/fraiseql` edits.
+- No framework bugs filed (deferral classes are docs-side content/infra decisions, not framework bugs per orchestrator brief).
+- No amend.
+- No push to `main`.
+
+#### Citations posture
+
+Inventory document is internal (`_internal/.plan/.phases/cycle-06-deferral-classes-inventory.md`) — no Posture B citations required. The single `~/code/fraiseql` reference in this handoff entry (the A3 prerequisite `git ls-tree` result) uses HTML-comment form per methodology § 4.
+
+#### Posture B leak scan
+
+n/a for this cycle — no `src/content/docs/` edits. Phase 03 Cycle 5 close (commit `5d9f6a2`) established Posture B clean state; nothing in this cycle touches the rendered surface.
+
+#### Open gates after this entry
+
+- **G2** — default-hold at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461` (unchanged).
+- **G8** (novel — surfaced by this entry) — 4 sub-decisions awaiting user resolution via orchestrator `AskUserQuestion`.
+- **G3/G4/G5** — downstream (unchanged).
+
+#### Phase status
+
+Flipping Phase 03 status to **`[?]`** (awaiting human gate G8) per methodology § 2. The Phase 03 plan file (`.phases/phase-03-critical-rewrites.md § Status`) is not edited by this RED pass — Writer-GREEN flips it back to `[~]` once G8 resolves and the resolved-path edits begin.
+
+#### Pointer to next persona
+
+**Orchestrator** surfaces G8 (4 sub-decisions, defaults proposed) to the user via `AskUserQuestion`. After the user resolves G8 (in whole or in part), **Writer-GREEN (Opus 4.7)** runs a follow-on cycle that applies the chosen path per class:
+
+- If A2 chosen: rewrite 4 example pages to drop the catalog-of-external-repos framing (structural rework, not just URL removal).
+- If B2 chosen: rewrite 2 benchmark pages with first-party numbers + reproduction recipe.
+- If C1 chosen: no page edits; orchestrator opens a parallel infra ticket. If C2 chosen: replace 6 `<EmbeddedSandbox/>` embeds.
+- G8d (default text accepted): one-line edit to `community/support.mdx:150`.
+
+Writer-GREEN re-grounds against this inventory document plus the user's G8 resolution; no further RED work required.
+
