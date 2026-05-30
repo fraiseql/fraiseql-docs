@@ -280,6 +280,7 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 
 - `/building/multi-tenancy` (Cycle 1 — closed 2026-05-29)
 - `/features/file-storage` (Cycle 2 — closed 2026-05-30)
+- `/features/observers` (Cycle 3 — closed 2026-05-30; + scope statements on `/building/observers`, `/building/observer-webhook-patterns`, `/operations/observer-runbook` — no body rewrite, full rewrites deferred to Phase 08 polish)
 
 ## Framework bugs filed
 
@@ -293,3 +294,14 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - FW-10 [#337](https://github.com/fraiseql/fraiseql/issues/337) — MIME confusion / stored XSS: `get_handler` serves verbatim `Content-Type`, no `nosniff`, no `Content-Disposition`, no magic-byte check
 - FW-11 [#338](https://github.com/fraiseql/fraiseql/issues/338) — unbounded upload body: `default_max_request_body_bytes = 1_048_576` applied globally; full buffering before rejection
 - FW-12 [#339](https://github.com/fraiseql/fraiseql/issues/339) — LIKE injection in list: `metadata::list` interpolates `prefix` into `LIKE` with no ESCAPE clause
+- FW-13 [#340](https://github.com/fraiseql/fraiseql/issues/340) — `/runtime/health` mounted at root instead of `/api/observers/runtime/*`
+- FW-14 [#341](https://github.com/fraiseql/fraiseql/issues/341) — observers CLI DLQ subcommands return hard-coded mock JSON
+- FW-15 [#342](https://github.com/fraiseql/fraiseql/issues/342) — TOML schema split (CLI validation vs server runtime); runtime silently swallows the CLI shape
+- FW-16 [#343](https://github.com/fraiseql/fraiseql/issues/343) — unbounded DLQ growth (`InMemoryDlq` Vec)
+- FW-17 [#344](https://github.com/fraiseql/fraiseql/issues/344) — DLQ double-replay race
+- FW-18 [#345](https://github.com/fraiseql/fraiseql/issues/345) — no HMAC signing primitives in observer crate
+- FW-19 [#346](https://github.com/fraiseql/fraiseql/issues/346) — payload PII leak via webhook URL/headers/body logged at INFO
+- FW-20 [#347](https://github.com/fraiseql/fraiseql/issues/347) — (CRITICAL) `FRAISEQL_OBSERVERS_ALLOW_INSECURE=true` disables all SSRF guards
+- FW-21 [#348](https://github.com/fraiseql/fraiseql/issues/348) — (CRITICAL) anonymous observer admin API
+- FW-22 [#349](https://github.com/fraiseql/fraiseql/issues/349) — EmailAction stub — returns success without sending
+- FW-23 [#350](https://github.com/fraiseql/fraiseql/issues/350) — transport silently ignored regardless of feature flag

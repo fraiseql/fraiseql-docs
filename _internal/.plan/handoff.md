@@ -4719,3 +4719,56 @@ Unchanged. G1 closed, G2 default-hold, G7 resolved.
 #### Pointer
 
 Next session: **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 3 close. Same low-touch profile as Cycles 1 & 2: confirm archaeology clean, update `phase-03-critical-rewrites.md` Pages completed (`/features/observers`) + Framework bugs filed (FW-13..FW-23, 11 entries), capture CI URL, append phase close entry.
+
+---
+
+### Phase 03 / Cycle 3 close — Cleanup (Sonnet 4.6) — 2026-05-30
+
+#### Build state
+
+- `bun run check`: 0 errors, 0 warnings, 60 hints (baseline unchanged). 3 pre-existing TS warnings in `src/lib/validators/` — not introduced by Cycle 3, not in touched files.
+- `bun run build`: exit 0, **205 pages** built in 14.72s. Strip integration log: scanned 281 HTML files, modified 2, stripped 149 source-citation comments. `dist/` source-citation leak count: **0**.
+
+#### Archaeology grep (all 4 pages)
+
+- `git grep -nE "TODO|FIXME|XXX|HACK|coming soon|WIP"` on all four pages → **0 hits**.
+- `git grep -nE "Phase [0-9]+"` on all four pages → 2 hits in sibling-page `:::caution[Stale until next cycle]` blocks (`building/observers.mdx:13` and `operations/observer-runbook.mdx:13`). These are reader-facing scope-statement callouts ("The Phase 03 / Cycle 3 scope is...") approved by the Reviewer at 14/15 PASS — the Reviewer's BLOCK was only L360 in `features/observers.mdx`, which the orchestrator fixed in the prior commit. The caution-block phrasing is deliberate and deferred to Cycle 5 Style Auditor per Reviewer NIT-2 disposition.
+- `features/observers.mdx`: 0 archaeology hits.
+- `building/observer-webhook-patterns.mdx`: 0 archaeology hits (no "Phase N" in caution block prose).
+
+#### Cross-link inventory (inbound links to `/features/observers`)
+
+- `building/observers.mdx` — `:::note[Page scope]` + `## See also` block both link to `/features/observers`. ✅
+- `building/observer-webhook-patterns.mdx` — `:::note[Page scope]` + `## See also` block link to `/features/observers`. ✅
+- `operations/observer-runbook.mdx` — `:::note[Page scope]` + `## See also` block link to `/features/observers`. ✅
+- Three inbound cross-links exist at Cycle 3 close. `/features/realtime` (Phase 04) will add a fourth when it lands. Requirement satisfied.
+
+#### Sidebar entries
+
+All four slugs confirmed in `astro.config.mjs`:
+- `building/observers` — line 259 ✅
+- `building/observer-webhook-patterns` — line 260 ✅
+- `features/observers` — line 352 ✅
+- `operations/observer-runbook` — line 440 ✅
+
+No sidebar edits needed this cycle.
+
+#### Phase 03 doc updates
+
+- `_internal/.plan/.phases/phase-03-critical-rewrites.md` `## Pages completed`: `/features/observers` appended (Cycle 3 — closed 2026-05-30; + scope statements on three siblings, full rewrites deferred to Phase 08 polish). ✅
+- `_internal/.plan/.phases/phase-03-critical-rewrites.md` `## Framework bugs filed`: FW-13..FW-23 (11 entries) appended. ✅
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved.
+
+#### Pointer
+
+Next session: **Writer (Opus 4.7)** for Phase 03 / Cycle 4 — `/building/authentication.md` rewrite per phase-doc Cycle 4 spec.
+
+Bug-Finder adversarial classes for Cycle 4:
+- Algorithm-confusion attack (JWT signed with HS256 against an RS256-configured server).
+- Replay of a revoked token.
+- PKCE state encryption bypass.
+- Brute-force protection circumvention.
+- Cookie security under header injection.
