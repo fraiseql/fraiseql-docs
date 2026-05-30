@@ -6354,3 +6354,57 @@ Unchanged. **G8 → RESOLVED** (all 4 sub-decisions applied + Reviewer-flagged r
 #### Pointer
 
 Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 6 — re-run item 8 + item 11 only; the other 13 items already PASS per `1b19bd9`. On PASS, hand off to **Cleanup (Sonnet 4.6)** for Cycle 6 close.
+
+---
+
+### Phase 03 / Cycle 6 close — Cleanup (Sonnet 4.6) — 2026-05-30
+
+#### Build state
+
+- `bun run check` — 0 errors, 0 warnings, 60 hints (same pre-existing baseline; no regressions).
+- `bun run build` — exit 0; **205 pages** built in 14.98 s. Strip integration log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`. Dist leak: **0 hits**.
+- Archaeology grep (`git grep -nE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP"` across all 8 touched pages) — **0 hits**.
+
+#### Sidebar
+
+No changes needed. All 8 Cycle-6 touched pages were already present in `astro.config.mjs`:
+- `operations/performance-benchmarks` at sidebar line 433.
+- `examples/index`, `examples/saas-blog`, `examples/realtime-collaboration`, `examples/mobile-analytics-backend` at sidebar lines 508-513.
+- `community/support` at sidebar line 525.
+- `community/blog/why-grpc-skips-json` and `community/blog/rest-direct-execution-benchmark` at sidebar lines 566, 570.
+
+#### Cross-link verification
+
+All 8 pages had pre-existing inbound cross-links from Phase 01 IA wiring. No new inbound links required.
+
+#### Phase 03 doc updates
+
+`_internal/.plan/.phases/phase-03-critical-rewrites.md` updated:
+
+1. **`## Pages completed` appended** with 8 Cycle-6 entries:
+   - `/examples/index` (Cycle 6 — closed 2026-05-30; G8a A2 rewrite)
+   - `/examples/saas-blog` (Cycle 6 — G8a A2)
+   - `/examples/realtime-collaboration` (Cycle 6 — G8a A2)
+   - `/examples/mobile-analytics-backend` (Cycle 6 — G8a A2)
+   - `/operations/performance-benchmarks` (Cycle 6 — G8b B2 + schema-substrate pivot)
+   - `/community/blog/rest-direct-execution-benchmark` (Cycle 6 — G8b B2 + rest_path annotation)
+   - `/community/blog/why-grpc-skips-json` (Cycle 6 — VelocityBench leftover cleanup)
+   - `/community/support` (Cycle 6 — G8d 1-line)
+
+2. **`## Carry-forwards` section added** (new) — INFRA-1 tracked there:
+   - **INFRA-1** — `demo.fraiseql.dev` TLS SAN mismatch. SSL cert does not cover this subdomain; `fraiseql.dev/graphql` serves HTML not API. Phase 10 finalisation item (infra fix). Pages already de-linked in Phase 01 Cycle 4. Do not re-introduce links to this domain until resolved.
+
+3. No framework bugs to append for Cycle 6 (page-side only work).
+
+#### Open gates
+
+- **G8 — RESOLVED** (all 4 sub-decisions applied; Reviewer's 2 ❌ fixed by orchestrator; Cleanup confirms archaeology clean and build green).
+- G1 closed. G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G7 resolved. G3/G4/G5 downstream (unchanged).
+
+#### Commit SHA + push status
+
+See commit below — will be captured after push.
+
+#### Pointer
+
+**Writer (Opus 4.7)** for Phase 03 / Cycle 7 — auth/security cluster + concepts pass + comparisons (~22 sweep-matrix rows; the largest remaining cycle). Reads this handoff and the phase-03 doc before proceeding.

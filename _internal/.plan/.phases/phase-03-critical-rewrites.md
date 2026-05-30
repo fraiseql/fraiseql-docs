@@ -283,6 +283,14 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - `/features/observers` (Cycle 3 — closed 2026-05-30; + scope statements on `/building/observers`, `/building/observer-webhook-patterns`, `/operations/observer-runbook` — no body rewrite, full rewrites deferred to Phase 08 polish)
 - `/building/authentication` (Cycle 4 — closed 2026-05-30)
 - `/getting-started/quickstart` (Cycle 5 — closed 2026-05-30; 3 SQL dialect fixes + FW-2 cross-link Aside)
+- `/examples/index` (Cycle 6 — closed 2026-05-30; G8a A2 rewrite)
+- `/examples/saas-blog` (Cycle 6 — G8a A2)
+- `/examples/realtime-collaboration` (Cycle 6 — G8a A2)
+- `/examples/mobile-analytics-backend` (Cycle 6 — G8a A2)
+- `/operations/performance-benchmarks` (Cycle 6 — G8b B2 + schema-substrate pivot)
+- `/community/blog/rest-direct-execution-benchmark` (Cycle 6 — G8b B2 + rest_path annotation)
+- `/community/blog/why-grpc-skips-json` (Cycle 6 — VelocityBench leftover cleanup)
+- `/community/support` (Cycle 6 — G8d 1-line)
 
 ## Framework bugs filed
 
@@ -313,3 +321,7 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - FW-27 [#359](https://github.com/fraiseql/fraiseql/issues/359) — HS256 audience claim not enforced: `build_hs256_auth` only calls `with_audience` when `hs.audience.is_some()`; omitting `audience` in `[auth_hs256]` accepts tokens with any `aud` claim
 - FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) — PKCE warns but continues without state encryption: `pkce_store_from_schema` emits `warn!` when `state_encryption` is `None` then proceeds; PKCE flow runs without state encryption
 - FW-29 [#361](https://github.com/fraiseql/fraiseql/issues/361) — JWKS hot-rotate window equals cache TTL: `get_decoding_key` returns cached key on cache hit without upstream consult; key rotation is invisible during the TTL window (default 300 s)
+
+## Carry-forwards
+
+- **INFRA-1** — `demo.fraiseql.dev` TLS SAN mismatch. The subdomain cert does not cover `demo.fraiseql.dev`; `curl` returns SSL error (SAN mismatch), and `fraiseql.dev/graphql` serves HTML, not an API endpoint. Surfaced in Phase 01 / Cycle 4 external-link audit (deferred). Confirmed still present in Phase 03 / Cycle 6 Reviewer drop-scan. This is a Phase 10 finalisation item (infra fix to the live deployment); no docs-side workaround is available. Pages that previously linked to `demo.fraiseql.dev` were patched to remove the link in Phase 01. Future phases must not re-introduce links to this domain until the TLS issue is resolved.
