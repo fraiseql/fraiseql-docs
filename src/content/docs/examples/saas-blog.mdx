@@ -5,9 +5,7 @@ description: Build a scalable SaaS blogging platform with FraiseQL
 
 import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-A complete example of a production-ready, multi-tenant blogging platform using FraiseQL.
-
-**Repository**: [github.com/fraiseql/examples/saas-blog](https://github.com/fraiseql/examples/saas-blog)
+This page walks through a production-ready, multi-tenant blogging platform built on FraiseQL. Every snippet below is the runnable form — copy into your own project, adjust the names, and you have the same patterns in your codebase. If you want a runnable scaffold first, walk the [quickstart](/getting-started/quickstart) and then return here.
 
 ## Features Demonstrated
 
@@ -507,48 +505,40 @@ enabled = true
 backend = "redis"
 ```
 
-## Getting Started
+## Walk the example end-to-end
 
 <Steps>
-1. **Clone the example**
+1. **Scaffold a project**
+
+   If you don't already have a FraiseQL project, walk the [quickstart](/getting-started/quickstart) — it covers `fraiseql init`, the minimal `fraiseql.toml`, and the first `fraiseql run`.
+
+2. **Install the schema above**
+
+   Apply the SQL from the [Database Schema](#database-schema) section in this page (tables, views, RLS policies, audit trigger). Either via your migration tool or directly:
 
    ```bash
-   git clone https://github.com/fraiseql/examples/saas-blog
-   cd saas-blog
+   psql "$DATABASE_URL" -f schema.sql
    ```
 
-2. **Set up environment**
+3. **Compile the FraiseQL schema**
 
    ```bash
-   cp .env.example .env
-   uv sync
+   fraiseql compile
    ```
 
-3. **Start database**
-
-   ```bash
-   docker-compose up -d postgres redis
-   ```
-
-4. **Run migrations**
-
-   ```bash
-   fraiseql migrate
-   ```
-
-5. **Start FraiseQL server**
+4. **Start the server**
 
    ```bash
    fraiseql run
    ```
 
-6. **Visit GraphQL playground**
+5. **Visit GraphQL playground**
 
    ```bash
    open http://localhost:8080/graphql
    ```
 
-7. **Test the API**
+6. **Test the API**
 
    Create a tenant:
    ```graphql
@@ -595,7 +585,7 @@ backend = "redis"
    }
    ```
 
-8. **Verify tenant isolation**
+7. **Verify tenant isolation**
 
    Query posts from the first tenant:
    ```graphql
@@ -626,20 +616,14 @@ backend = "redis"
    }
    ```
 
-9. **Run tests**
+8. **Add tests for your patterns**
 
-   ```bash
-   pytest tests/ -v
-   ```
+   Once the example runs end-to-end, codify the invariants in your own test suite (`pytest`, `vitest`, `go test`, etc.). The patterns to assert:
 
-   Expected output:
-   ```
-   tests/test_tenancy.py::test_tenant_isolation PASSED
-   tests/test_posts.py::test_create_post PASSED
-   tests/test_posts.py::test_soft_delete PASSED
-   tests/test_auth.py::test_role_based_access PASSED
-   tests/test_subscriptions.py::test_live_updates PASSED
-   ```
+   - Tenant isolation: a query from tenant A returns 0 rows from tenant B.
+   - Soft delete: deleted posts disappear from `posts` but reappear via `restorePost`.
+   - Role-based access: a `subscriber` cannot call `createPost`.
+   - Live updates: subscribing to `commentCreated` receives a payload after a `createComment` mutation.
 
 </Steps>
 

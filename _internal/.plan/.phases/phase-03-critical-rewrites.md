@@ -264,8 +264,8 @@ Each page goes through a fresh-context review:
 ## Status
 
 - [ ] Not started
-- [~] RED in progress
-- [ ] GREEN in progress
+- [ ] RED in progress
+- [~] GREEN in progress
 - [ ] REFACTOR in progress
 - [ ] CLEANUP in progress
 - [ ] Complete

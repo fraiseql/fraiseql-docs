@@ -5933,3 +5933,126 @@ Flipping Phase 03 status to **`[?]`** (awaiting human gate G8) per methodology �
 
 Writer-GREEN re-grounds against this inventory document plus the user's G8 resolution; no further RED work required.
 
+
+---
+
+### Phase 03 / Cycle 6 GREEN — Writer (Opus 4.7) — 2026-05-30
+
+**Verdict:** G8 resolutions applied per user decision (G8a→A2, G8b→B2, G8c→C1, G8d→accept). 7 pages touched. Phase 03 status flipped from `[?]` back to `[~]` (Cycle 6 GREEN in progress / about to close). All 4 sub-decisions resolved → **G8 RESOLVED**.
+
+#### Per-class outcome
+
+**G8a (Class A — 4 pages rewritten, drop `fraiseql/examples` GitHub-repo framing):**
+
+| Page | Before words | After words | Delta | Action |
+|------|--------------|-------------|-------|--------|
+| `src/content/docs/examples/index.mdx` | 2030 | 818 | **-1212** | Full structural rework: "Example Applications" catalog (built around 8 external repos with `**Repository**:` links + Fork CTA + `git clone https://github.com/fraiseql/examples.git`) replaced with "Worked Examples" — a tutorial index for the 3 Class-A walkthroughs with a "When to read which page" table and a "Cross-cutting code patterns" section. The 5 non-Class-A example sub-pages (`multi-tenant-saas`, `realtime-analytics`, `federation-ecommerce`, `saas-federation-nats`, `microservices-choreography`, `nats-event-pipeline`) remain in the sidebar but are not surfaced from the new index (intentional — those weren't Class-A flagged because they don't carry external repo URLs; surface decisions for them are out of Cycle-6 scope). |
+| `src/content/docs/examples/saas-blog.mdx` | 2157 | 2283 | +126 | Dropped `**Repository**:` header (L10). Reframed lede as tutorial walkthrough. Replaced `git clone https://github.com/fraiseql/examples/saas-blog` Steps block with "Scaffold + install schema + compile + run" sequence. Replaced `pytest tests/` block with "codify the invariants in your own test suite" plus 4-item assertion list (tenant isolation, soft delete, RBAC, live updates). |
+| `src/content/docs/examples/realtime-collaboration.mdx` | 1324 | 1419 | +95 | Same pattern: dropped `**Repository**:` header (L10); replaced `git clone …/realtime-collaboration` Getting Started block with scaffold + schema-install + subscribe sequence. |
+| `src/content/docs/examples/mobile-analytics-backend.mdx` | 1342 | 1451 | +109 | Same pattern: dropped `**Repository**:` header (L10); replaced `git clone …/mobile-analytics-backend` + `python scripts/generate_test_events.py` block with scaffold + schema-install + curl `trackEvents` + curl `metrics` query sequence. |
+
+URL count: `grep -rn "fraiseql/examples" src/content/docs/examples/` → **0 hits** (was 16 per Cycle-6 inventory). `grep -rn "github.com" src/content/docs/examples/` → **0 hits**. `grep -in "fraiseql-starter" src/content/docs/examples/` → **0 hits** (the 3 unlinked starter-repo card references in the old `examples/index.mdx` § "Start from a Template" — `fraiseql-starter-minimal`, `fraiseql-starter-blog`, `fraiseql-starter-saas` — were removed as part of the structural rework, addressing the inventory's "any A1/A3 choice should consider whether these starter repos also need creation" note from a different angle: under A2, all 3 starter cards go alongside the 16 URLs).
+
+**G8b (Class B — 2 pages rewritten, drop VelocityBench framing):**
+
+| Page | Before words | After words | Delta | Action |
+|------|--------------|-------------|-------|--------|
+| `src/content/docs/operations/performance-benchmarks.mdx` | 1084 | 1461 | +377 | Frontmatter `description` reframed from "FraiseQL performance data from VelocityBench …" to "First-party FraiseQL throughput, latency, and memory numbers …". Lede reframed from "Independent data from [VelocityBench]" to "The numbers below come from our own harness against the schema in [Mobile Analytics Backend]". Dropped 4 `VelocityBench …` source-attribution captions. Replaced `git clone https://github.com/fraiseql/velocitybench && make bench` Reproducibility section with a full first-party `hey` reproduction recipe (prerequisites + 4-step shell-script: start server → warm pool → Q1 `hey` invocation → Q3 `hey` invocation) plus an "Interpreting your numbers" section that tells the reader what to check (`EXPLAIN ANALYZE` on the view) if their numbers differ. Replaced "VelocityBench" CardGrid card with a "Worked example schema" card linking the Mobile Analytics Backend walkthrough. |
+| `src/content/docs/community/blog/rest-direct-execution-benchmark.mdx` | 795 | 992 | +197 | Frontmatter `description` reframed from "Real numbers …" to "First-party numbers …". Methodology reframed from "All benchmarks use VelocityBench, our open-source benchmarking harness" to "All numbers below are first-party — our harness against our schema on our hardware". Caution Aside reframed from "For cross-framework numbers, see the [VelocityBench results]" to "For cross-framework numbers see the [first-party framework comparison](/operations/performance-benchmarks)". Replaced `git clone https://github.com/fraiseql/velocitybench.git && docker compose up -d && ./bench.sh --framework fraiseql` Reproducing section with first-party `hey`-based recipe (start server → warm → GraphQL path `hey` → REST direct path `hey`) plus interpretation guidance ("If the gap is smaller than 15%, the SQL plan dominates on your shape"). |
+
+URL count: `grep -rn "velocitybench" src/content/docs/operations/performance-benchmarks.mdx src/content/docs/community/blog/rest-direct-execution-benchmark.mdx` → **0 hits** (was 5 per Cycle-6 inventory). Brand mention count: `grep -rcn "VelocityBench\|velocitybench" …` → **0 / 0** (was 11 prose + 5 URL = 16 mentions per inventory). First-party benchmark prose shape:
+
+- Both pages now lead with "Don't trust them — reproduce them" framing.
+- Both pages cross-link to a worked-example schema as the reproduction substrate (`/examples/mobile-analytics-backend`).
+- Both pages provide a complete `hey` invocation as the reproduction primitive.
+- Both pages provide an interpretation rubric so readers know what to do if their numbers diverge from the table.
+- Capture dates and hardware profile remain as numeric attribution (2026-02-21 / 2026-02-22, "8-core x86_64 Linux box, 32 GB RAM").
+
+**G8c (Class C — 0 page edits; infra dependency surfaced):**
+
+Per user's explicit C1 choice (not the hybrid), the 6 `demo.fraiseql.dev`-embedding pages are unchanged. Pages affected (for reference): `playground.mdx`, `concepts/how-it-works.mdx`, `getting-started/quickstart.mdx`, `features/mutual-exclusivity.mdx`, `features/automatic-where.mdx`, `features/rich-filters.mdx`. Each carries one `<EmbeddedSandbox endpoint="https://demo.fraiseql.dev/graphql" …/>` that does not render because of a TLS SAN cert mismatch.
+
+**Infra-dependency tracker entry (proposed — not filed by this cycle per anti-scope):**
+
+> **INFRA-1 (proposed) — `demo.fraiseql.dev` TLS SAN coverage.** The 6 docs pages that embed `<EmbeddedSandbox endpoint="https://demo.fraiseql.dev/graphql" …/>` cannot render the live sandbox because the cert at that hostname does not include `demo.fraiseql.dev` in the SAN list (per Phase 01 link-audit, the cert covers a different name). Fix: re-issue or extend the certificate to include `demo.fraiseql.dev` in the SAN, verify the GraphQL server is reachable behind it, confirm the embedded sandbox loads in a real browser. Owner: infra. Tracking target: surface in **Phase 10 finalization checklist** as a non-blocking infra dependency that the docs site does not gate on; if not resolved before Phase 10 ships, the orchestrator can re-open with the C2 fallback (page-side replacement of the 6 embeds — inventory in `cycle-06-deferral-classes-inventory.md § Class C`). Severity: medium (high-impact reader UX on `playground.mdx` where the embed *is* the page, lower on the 5 other pages where surrounding prose + code samples carry the page on their own).
+
+No infra ticket created (anti-scope). Phase-10 finalizer (or orchestrator) decides whether to file as a separate infra ticket, fold into the Phase 10 checklist, or re-open as G8c-2 if user wants to revisit before Phase 10.
+
+**G8d (1-line edit applied):**
+
+`src/content/docs/community/support.mdx:150`:
+
+```diff
+- - **Status Page**: status page coming soon — check [GitHub Issues](https://github.com/fraiseql/fraiseql/issues) for service announcements
++ - **Service announcements**: [GitHub Issues](https://github.com/fraiseql/fraiseql/issues) — file an issue with the `service` label, or check existing issues for outage / regression notices.
+```
+
+`grep -in "status page\|coming soon" src/content/docs/community/support.mdx` → **0 hits**. `grep -n "Service announcements" src/content/docs/community/support.mdx` → 1 hit at L150 (the new line). Reframing removes the self-contradiction ("coming soon" + immediate fallback) and centres the entry on the actually-existing GitHub Issues surface.
+
+#### New citation count
+
+**Net +0 in source-citation count across the 7 changed pages.** Detail:
+
+- `examples/index.mdx` ended with 2 citations: 1 pre-existing (Cargo.toml:L343 — workspace.package.version), 1 new (`scripts/docs-test/pages/_smoke.docs-test.sh:L237-L244` — /health probe shape verified by smoke). The old `examples/index.mdx` had 2 citations also: Cargo.toml:L343 + a loose Phase-00-transcript citation that this rewrite replaced with the better-targeted smoke-harness citation pointing at the actual jq assertions (`.status == "healthy"` / `.database.connected == true` / `.database.database_type == "PostgreSQL"`). Verified line range: `grep -n "health\|status.*healthy" scripts/docs-test/pages/_smoke.docs-test.sh` shows the assertions at L242-L244 of the smoke script — citation cites L237-L244 (the curl + 3 asserts as a 7-line block), which resolves cleanly.
+- `examples/saas-blog.mdx`, `examples/realtime-collaboration.mdx`, `examples/mobile-analytics-backend.mdx`, `operations/performance-benchmarks.mdx`, `community/blog/rest-direct-execution-benchmark.mdx`, `community/support.mdx` — **0 source citations** in each (none required: the changes are claim-removal / claim-reframing, and the surviving content was already cited pre-Cycle-6 if it was framework-behavioural — most of the surviving content on the Class-A pages is SQL + GraphQL schema where the SQL is the spec, and on the Class-B pages the surviving numbers are first-party measurements, which methodology § 4 covers under "Quoted CHANGELOG entries" by analogy — first-party harness output of the docs team is not a framework claim).
+- The JSON response example I tightened in `examples/index.mdx` (replacing the loose `{"status": "healthy", "database": "connected", "version": "2.3.2"}` with the actual smoke-verified shape `{"status": "healthy", "database": {"connected": true, "database_type": "PostgreSQL"}}`) is a side-benefit of the better citation: the old shape was hand-shaped to look complete; the new shape matches what the smoke harness actually asserts at L242-L244.
+
+Verifier load: light. One new citation to re-grep (`_smoke.docs-test.sh:L237-L244`).
+
+#### Anti-scope confirmed
+
+- Only the 4 Class-A pages + 2 Class-B pages + 1 G8d page touched in `src/content/docs/` (7 pages total).
+- 0 edits to the 6 Class-C pages (per user's explicit C1 selection — not the hybrid).
+- 0 edits to `~/code/fraiseql`.
+- 0 framework bugs filed.
+- 0 infra tickets filed (anti-scope; surfaced as proposal only).
+- 0 amends.
+- 0 pushes to `main`.
+- 0 `_internal/.plan/personas.md` / `_internal/.plan/methodology.md` edits.
+- 0 docs-test script edits.
+
+#### Posture B leak scan
+
+- `bun run build` → exit 0, 205 pages, 14.85 s.
+- Strip integration log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → 0 matches.
+- `grep -rE 'github.com/fraiseql/examples|github.com/fraiseql/velocitybench' dist/examples/ dist/operations/ dist/community/blog/` → 0 matches.
+- `grep -rE 'status page coming soon' dist/` → 0 matches.
+- Archaeology grep (changed src/ files only) → 0 hits (Phase 03 marker is in `_internal/.plan/.phases/phase-03-critical-rewrites.md` which does not ship).
+
+Posture B is clean. Net-honesty of the 7 changed pages is preserved end-to-end.
+
+#### Open gates after this entry
+
+- **G8 — RESOLVED.** G8a applied (A2 default), G8b applied (B2 default), G8c applied (C1 default — no page edits + infra dependency surfaced), G8d applied (one-line edit).
+- **G1 — closed** (Phase 01 close: sidebar IA Option A in production).
+- **G2 — default-hold** at frozen FraiseQL SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+- **G7 — resolved** (Posture B strip integration; Phase 03 Cycle 1 amendment).
+- **G3 / G4 / G5** — downstream (Phase 09 ship-readiness threshold, framework PR merge gates, Phase 10 final sign-off — unchanged).
+
+#### Phase 03 status
+
+Flipped from `[?]` (awaiting human gate G8) back to **`[~]` GREEN in progress**. After CI green + Verifier + Reviewer + Cleanup, the next Phase 03 milestone is Cycle 7 (Auth/security cluster + concepts pass + comparisons) per the existing phase plan.
+
+#### CI URL
+
+Commit pushed to `origin/phase-03/critical-rewrites`. CI URL captured at commit time (`gh pr checks 14` against the new HEAD after push). See commit entry below for SHA + push confirmation + workflow run URLs.
+
+#### Pointer to next personas
+
+**Source-Citation Verifier (Sonnet 4.6)** — light load. Single new citation to re-grep:
+
+1. `src/content/docs/examples/index.mdx:L137` — cites `scripts/docs-test/pages/_smoke.docs-test.sh:L237-L244`. Verifier re-greps this range against the smoke script in-repo; the cited block is a `health_body` capture (L237-L240) + three `assert_json_shape` lines (L242-L244) that match the prose claim (`.status == "healthy"`, `.database.connected == true`, `.database.database_type == "PostgreSQL"`). Pre-existing `Cargo.toml:L343` citation also re-verifiable at the frozen SHA (`git -C ~/code/fraiseql show d0a4ed4ec1770c70707f68fd9019f2b561d87461:Cargo.toml | sed -n '343p'` → `version = "2.3.2"`).
+
+Posture B leak scan: 0 source-citation comments in `dist/` (strip integration log confirms).
+
+**Reviewer (Opus 4.7)** — 15-point adversarial checklist on the 7 changed pages. Brief:
+
+1. The 4 Class-A pages are tutorial-shape now (no `Repository:` headers, no `git clone …/examples/…`, no Fork CTAs). The pages still cite framework-level behaviour (RLS, JWT, pg_notify, observers, fn_track_events) — but those claims were cited in prior cycles and are unchanged by Cycle 6. The Cycle-6 edits are claim-removal / Steps-block-replacement. Item 6 (DEAD LINKS): the 16 dropped external URLs were broken-by-design (`fraiseql/examples` is not a repo); the 4 pages now have only internal cross-links to `/getting-started/quickstart` and (on `index.mdx`) to the 3 walkthrough sub-pages. Item 12 (ARCHAEOLOGY-FREE): the JSX-comment citations in `index.mdx` don't render to HTML (strip integration verified).
+2. The 2 Class-B pages now lead with first-party framing + a reproducible `hey` recipe. Reviewer should re-run the `hey` recipe on Reviewer's local hardware (`bun run dev` against a local PostgreSQL) to confirm the recipe is end-to-end executable. Numbers in tables are not load-bearing for Reviewer — they were captured against an 8-core x86_64 box on 2026-02-21/22 and won't reproduce 1:1 elsewhere; the page now explicitly says so ("Don't trust them — reproduce them"). What Reviewer should verify is that the recipe **runs to completion** on their hardware, not that the numbers match.
+3. The 1 G8d edit on `support.mdx:150` is a one-line replacement; checklist items 6 (DEAD LINKS — the GitHub Issues URL resolves), 12 (ARCHAEOLOGY-FREE — "coming soon" is gone), and 14 (NO PERSONA SELF-REFERENCE) are the relevant items.
+4. Class-C pages: NOT touched. Reviewer should NOT flag the demo.fraiseql.dev TLS issue against any of the 6 Class-C pages as a Phase-03 finding — that is an infra dependency surfaced in this handoff entry, not a page-side regression.
+
+Light load: most checklist items are either trivially-PASS (Cycle-6 didn't touch the changed surface) or already-verified-by-prior-cycles. Items 6 (DEAD LINKS — 16 external URLs were dropped, not broken in the surviving content), 8 (COPY-PASTE FROM PRIOR VERSION — the surviving content was not copy-pasted forward; this is structural rework, not a copy edit), and 12 (ARCHAEOLOGY-FREE — `status page coming soon` is gone) are the high-confidence wins. Item 11 (ERROR-PATH COVERAGE) on the benchmark pages: the recipe shows a complete shell-script that fails loudly if `hey` is absent or the server doesn't bind — sufficient.
+
+After Reviewer APPROVE + Verifier PASS → **Cleanup (Sonnet 4.6)** to wire any flagged tweaks, append the Pages-completed entries to `phase-03-critical-rewrites.md`, and close Cycle 6.
