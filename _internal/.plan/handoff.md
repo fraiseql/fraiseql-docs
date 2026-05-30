@@ -6056,3 +6056,87 @@ Posture B leak scan: 0 source-citation comments in `dist/` (strip integration lo
 Light load: most checklist items are either trivially-PASS (Cycle-6 didn't touch the changed surface) or already-verified-by-prior-cycles. Items 6 (DEAD LINKS — 16 external URLs were dropped, not broken in the surviving content), 8 (COPY-PASTE FROM PRIOR VERSION — the surviving content was not copy-pasted forward; this is structural rework, not a copy edit), and 12 (ARCHAEOLOGY-FREE — `status page coming soon` is gone) are the high-confidence wins. Item 11 (ERROR-PATH COVERAGE) on the benchmark pages: the recipe shows a complete shell-script that fails loudly if `hey` is absent or the server doesn't bind — sufficient.
 
 After Reviewer APPROVE + Verifier PASS → **Cleanup (Sonnet 4.6)** to wire any flagged tweaks, append the Pages-completed entries to `phase-03-critical-rewrites.md`, and close Cycle 6.
+
+---
+
+### Phase 03 / Cycle 6 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-30
+
+**Verdict: PASS.** All 2 citations verified. Posture B leak-free.
+
+---
+
+#### Context note: initial invocation found no Writer commit
+
+On first invocation the Verifier found the remote branch was ahead of local — the Cycle 6 Writer-GREEN commit (`1f03fc1`) had been pushed to `origin/phase-03/critical-rewrites` but the local working tree was still at the Cycle-5 Verifier HEAD (`ea0ce61`). After pulling (`git reset --hard origin/phase-03/critical-rewrites`) the correct 7-page state was available. Verification below is against the pulled state.
+
+---
+
+#### Citation count per page (post-Cycle-6 Cycle 6 GREEN)
+
+| Page | Citations | Change from pre-Cycle-6 |
+|------|-----------|------------------------|
+| `examples/index.mdx` | 2 | 0 net (old handoff-transcript citation at L355 replaced with `_smoke.docs-test.sh:L237-L244` at L145; Cargo.toml:L343 retained at L129) |
+| `examples/saas-blog.mdx` | 0 | 0 |
+| `examples/realtime-collaboration.mdx` | 0 | 0 |
+| `examples/mobile-analytics-backend.mdx` | 0 | 0 |
+| `operations/performance-benchmarks.mdx` | 0 | 0 |
+| `community/blog/rest-direct-execution-benchmark.mdx` | 0 | 0 |
+| `community/support.mdx` | 0 | 0 |
+| **Total** | **2** | **0 net** |
+
+---
+
+#### Citation 1 — `examples/index.mdx:L129`
+
+- **Annotation:** `{/* source: Cargo.toml:L343 (workspace.package.version = "2.3.2") */}`
+- **Prose claim:** `INFO  FraiseQL v2.3.2 starting…` (startup log banner)
+- **Check:** `git -C ~/code/fraiseql show d0a4ed4ec1770c70707f68fd9019f2b561d87461:Cargo.toml | sed -n '343p'` → `version = "2.3.2"`
+- **Result: PASS.** L343 at the frozen SHA is exactly `version = "2.3.2"`.
+
+---
+
+#### New citation — `examples/index.mdx:L145` (the Cycle 6 addition)
+
+- **Annotation:** `{/* source: scripts/docs-test/pages/_smoke.docs-test.sh:L237-L244 — /health probe asserts .status == "healthy", .database.connected == true, and .database.database_type == "PostgreSQL" on the PostgreSQL profile; the smoke harness verifies this end-to-end in CI. */}`
+- **Prose claim:** `/health` expected response shape — `{"status": "healthy", "database": {"connected": true, "database_type": "PostgreSQL"}}`
+- **Check:** read `scripts/docs-test/pages/_smoke.docs-test.sh:L237-L244` directly:
+  - L237: `local health_body health_code`
+  - L238–240: curl to `/health`, capture HTTP code + body
+  - L241: `assert_http_2xx "/health"` (guards the subsequent shape checks)
+  - L242: `assert_json_shape "$health_body" '.status == "healthy"'` ← matches page
+  - L243: `assert_json_shape "$health_body" '.database.connected == true'` ← matches page `"connected": true`
+  - L244: `assert_json_shape "$health_body" '.database.database_type == "PostgreSQL"'` ← matches page `"database_type": "PostgreSQL"`
+- **Shape cross-check:** the prose JSON `{"status": "healthy", "database": {"connected": true, "database_type": "PostgreSQL"}}` matches all three jq assertions verbatim. No `version` field claimed (correct — smoke does not assert `version`).
+- **Result: PASS.** Citation resolves. Prose matches assertions.
+
+---
+
+#### Spot-checks on retained citations from adjacent Phase 03 pages (5 checks)
+
+| # | File | Citation | Check | Result |
+|---|------|----------|-------|--------|
+| 1 | `building/multi-tenancy.md:L12` | `crates/fraiseql-core/src/schema/security_config.rs:L113-L142` | `TenancyMode` enum (`none`, `row`, `schema`) at L113 | PASS |
+| 2 | `building/multi-tenancy.md:L15` | `crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L36-L102` | `resolve()` reads JWT → header → domain-registry in priority order at L36 | PASS |
+| 3 | `features/observers.mdx:L10` | `crates/fraiseql-server/src/server/builder.rs:L343-L346` | `init_observer_runtime` under `#[cfg(feature = "observers")]` at L344 | PASS |
+| 4 | `building/authentication.md:L16` | `crates/fraiseql-server/src/server/builder.rs:L308-L323` | `OidcValidator::new` built only when `config.auth` is `Some` at L308 | PASS |
+| 5 | `building/authentication.md:L25` | `crates/fraiseql-server/src/routes/auth.rs:L301-L375` | `revoke_token` uses `dangerous::insecure_decode` at L312 | PASS |
+
+---
+
+#### Posture B leak scan
+
+- `bun run build` → exit 0, 208 pages, 15.84 s. Strip integration log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → 0 matches.
+- Posture B: **CLEAN.**
+
+---
+
+#### Anti-scope confirmed
+
+- No edits to `src/content/docs/` (Posture B; citations remain in source).
+- No citation stripping (Posture B).
+- No edits to `~/code/fraiseql`.
+- No amend of prior commits.
+- No push to `main`.
+
+---
