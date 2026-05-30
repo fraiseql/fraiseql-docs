@@ -5144,3 +5144,10 @@ No novel gates introduced. The 6 framework bugs (FW-24..FW-29) join the 23 alrea
    - **The Known-Issues table cross-references.** The 6-row table cross-refs into the Security-caveats sub-anchors for each FW-N row. Verify the anchor IDs resolve in the rendered HTML.
 3. **Cleanup (Sonnet 4.6)** — runs after Reviewer APPROVE. Strip the `<!-- source: ... -->` citations from the rendered HTML (the build pipeline already does this via `strip-source-citations`); verify `git grep -i 'TODO\|FIXME\|XXX\|Phase '` returns nothing on touched files; add Cycle 4 to the phase doc's `## Pages completed` block; append the 6 framework bugs (FW-24..FW-29) to the phase doc's `## Framework bugs filed` block.
 
+
+#### 11. CI URL captured
+
+- Push: `cd39419` on `phase-03/critical-rewrites` (Cycle 4 GREEN HEAD).
+- PR: https://github.com/fraiseql/fraiseql-docs/pull/14 (cumulative Phase 03 PR; Cycle 1+2+3+4).
+- CI run: https://github.com/fraiseql/fraiseql-docs/actions/runs/26669686289 (in progress at handoff close).
+
