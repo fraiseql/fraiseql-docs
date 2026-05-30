@@ -6840,3 +6840,69 @@ Unchanged. G1 closed, G2 default-hold, G7 resolved, G8 resolved. G9c/G10/G11 orc
 #### Pointer
 
 Next session: **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 7a close. Same low-touch profile.
+
+---
+
+### Phase 03 / Cycle 7a close — Cleanup (Sonnet 4.6) — 2026-05-30
+
+#### Build state
+
+- `bun run check`: 0 errors, 0 warnings, 60 hints (0/0/60 baseline — unchanged).
+- `bun run build`: exit 0, **205 pages**, strip integration log present (`scanned 281 HTML files, modified 3, stripped 223 source-citation comments`).
+- Posture B leak scan: `grep -rE '<!--\s*source:|\{/\* source:' dist/` → **0 hits**. ✅
+
+#### Archaeology grep
+
+```
+git grep -nE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" \
+  src/content/docs/features/security.mdx \
+  src/content/docs/features/oauth-providers.mdx \
+  src/content/docs/concepts/configuration.mdx
+```
+
+Result: **0 hits** (the 2 grep matches on `oauth-providers.mdx` are `XXXXXXXXX` Cognito user-pool-ID placeholders — confirmed legitimate by prior Reviewer). ✅
+
+#### Sidebar
+
+All 3 pages already in sidebar from Phase 01 IA. No `astro.config.mjs` changes needed.
+
+#### Cross-links
+
+Verified by Cycle 7a Writer: 3 pages cross-link each other and `/building/authentication`. No new inbound link deficits.
+
+#### Phase 03 doc update
+
+`_internal/.plan/.phases/phase-03-critical-rewrites.md` `## Pages completed` block appended:
+
+- `/features/security` (Cycle 7a — G9c hub split)
+- `/features/oauth-providers` (Cycle 7a — REWRITE for [auth] contradiction)
+- `/concepts/configuration` (Cycle 7a — REWRITE for [auth] contradiction)
+
+No new framework bugs for Cycle 7a (page-side correction only; Reviewer confirmed no new framework-side regressions introduced).
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted. G3/G4/G5 downstream.
+
+#### Commit SHA + push status
+
+See commit below. Branch: `phase-03/critical-rewrites`. No push to `main`.
+
+#### Pointer
+
+**Writer (Opus 4.7) — Cycle 7b.** Single-session batch covering 13 POLISH pages (concepts + security cluster). POLISH = specific staleness fixes (version anchors, broken cross-links, citation drift) — NOT rewrites. Triage each page for specific edits.
+
+Pages in scope for 7b:
+- `/features/encryption`
+- `/features/audit-logging`
+- `/features/rate-limiting`
+- `/features/server-side-injection`
+- `/features/mutations`
+- `/concepts/why-fraiseql`
+- `/concepts/how-it-works`
+- `/concepts/cqrs`
+- `/concepts/developer-owned-sql`
+- `/concepts/view-composition`
+- `/concepts/type-system`
+- `/concepts/schema`
+- `/concepts/elo-validation`

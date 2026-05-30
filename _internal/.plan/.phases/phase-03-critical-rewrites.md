@@ -291,6 +291,9 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - `/community/blog/rest-direct-execution-benchmark` (Cycle 6 — G8b B2 + rest_path annotation)
 - `/community/blog/why-grpc-skips-json` (Cycle 6 — VelocityBench leftover cleanup)
 - `/community/support` (Cycle 6 — G8d 1-line)
+- `/features/security` (Cycle 7a — G9c hub split)
+- `/features/oauth-providers` (Cycle 7a — REWRITE for [auth] contradiction)
+- `/concepts/configuration` (Cycle 7a — REWRITE for [auth] contradiction)
 
 ## Framework bugs filed
 
