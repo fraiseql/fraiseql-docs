@@ -6906,3 +6906,107 @@ Pages in scope for 7b:
 - `/concepts/type-system`
 - `/concepts/schema`
 - `/concepts/elo-validation`
+
+---
+
+### Phase 03 / Cycle 7b GREEN — Writer (Opus 4.7) — 2026-05-30
+
+POLISH batch across 13 pages, executed in a single Writer-Opus session per the partition plan. No rewrites; targeted edits only. Each page received either a small specific patch (security cluster) or a one-line cross-link slug fix (concepts pass). Final `git diff --stat`: 10 files touched, **47 insertions / 22 deletions** across the 10 modified files. 3 concepts pages received no edits — re-grep confirmed they had no pending POLISH targets at frozen SHA.
+
+#### Per-page outcomes
+
+**Security cluster (5 pages):**
+
+1. **`/features/rate-limiting`** — POLISH applied. **CRITICAL FIX:** field-name correction `failed_login_max_requests` → `failed_login_max_attempts` and `failed_login_window_secs` → `failed_login_lockout_secs` (the CLI TOML schema fields per `crates/fraiseql-cli/src/config/toml_schema/security.rs:L209-L212`). Defaults table corrected (`max_attempts = 10`, `lockout_secs = 900`, matching `Default impl` at L243-L244, **not** `5` / `3600` as previously documented). **FW-24 #356 caveat box added** before the Failed-login-protection example, mirroring `building/authentication.md` caveat 6 exactly (CLI accepts; server runtime drops silently; mitigation = reverse-proxy / CDN layer). Stale cross-links fixed: `/guides/authentication` → `/building/authentication`, `/guides/performance` → `/operations/performance`. Word-count delta: ~+14 / -8 lines (net positive due to the caveat box).
+
+2. **`/features/encryption`** — POLISH applied. Stale cross-link `/guides/deployment` → `/operations/deployment-guide`. Added a Next-Steps card cross-linking `/building/authentication` for the `[security.*]` compile-step indirection that owns `key_reference` mapping. Word-count delta: ~+4 / -2 lines.
+
+3. **`/features/audit-logging`** — POLISH applied. "Schema (auto-created):" caption corrected to "Schema (operator-managed)" with a 1-line clarifier that FraiseQL writes to this table but does not run migrations against the user's database. Stale `/guides/deployment` → `/operations/deployment-guide`. Added a Next-Steps `/building/authentication` cross-link. GH-link to `production-security-checklist.md` at frozen SHA verified to still resolve (`/tmp/fraiseql-7b/docs/guides/production-security-checklist.md` exists). Word-count delta: ~+3 / -2 lines.
+
+4. **`/features/server-side-injection`** — POLISH applied. Stale `/guides/multi-tenancy` → `/building/multi-tenancy`. Added `/building/authentication` cross-link. **SQLite caveat verified** at frozen SHA: `crates/fraiseql-core/src/schema/compiled/mutation.rs:L60-L62` doc comment explicitly says "Works on PostgreSQL, SQL Server, and MySQL. SQLite has no stored-routine mechanism and will return an error if inject is configured on a mutation." — citation added to the page. Word-count delta: ~+8 / -3 lines.
+
+5. **`/features/mutations`** — POLISH applied. **Auth section 2-line patch:** removed the wrong "env vars `JWT_SECRET`, `JWT_ALGORITHM`" framing (legacy at v2.3.2) and pivoted to the canonical `[auth]` / `[auth_hs256]` direct-TOML phrasing, cross-linking `/building/authentication` for the security caveats LEAD. Added a top-of-page scope statement (`<Aside type="tip">`) disambiguating this page as the mutation reference and pointing newcomers to `/getting-started/adding-mutations` for the step-by-step intro. Stale slugs fixed: `/guides/authentication` → `/building/authentication`, `/concepts/observers` → `/features/observers`, `/guides/testing` → `/building/testing`. Word-count delta: ~+10 / -4 lines.
+
+**Concepts pass (8 pages):**
+
+6. **`/concepts/why-fraiseql`** — 1 slug fix: `/guides/performance-benchmarks` → `/operations/performance-benchmarks`. Word-count delta: 1 line replaced.
+
+7. **`/concepts/how-it-works`** — **NO EDIT.** Re-grep confirmed: no `/guides/*` slugs; the `demo.fraiseql.dev` reference at L424 is a known INFRA-1 deferral (TLS SAN mismatch), tracked separately in Phase 06 handoff and NOT a Phase-03 page-side regression. Word-count delta: 0.
+
+8. **`/concepts/cqrs`** — 1 slug fix: `/concepts/mutations` → `/features/mutations` (Option A IA slug move). Word-count delta: 1 line replaced.
+
+9. **`/concepts/developer-owned-sql`** — **NO EDIT.** Re-grep confirmed: no `/guides/*` or `/concepts/mutations` slugs. Page is internally consistent. Word-count delta: 0.
+
+10. **`/concepts/view-composition`** — 2 slug fixes: `/concepts/mutations` → `/features/mutations` and `/guides/schema-design` → `/building/schema-design`. Word-count delta: 2 lines replaced.
+
+11. **`/concepts/type-system`** — 1 slug fix: `/guides/schema-design` → `/building/schema-design`. Word-count delta: 1 line replaced.
+
+12. **`/concepts/schema`** — **NO EDIT.** SpecQL Aside at L221-L223 is a plain-text mention (no link to verify per Phase 01 Cycle 1+4 audit which already swapped specql hyperlinks to plain text on `/reference/decorators` and `/reference/authoring-ir`). Re-grep confirmed no remaining `fraiseql/specql` links on this page. Word-count delta: 0.
+
+13. **`/concepts/elo-validation`** — Rolled into POLISH from DEFER bucket (per inventory recommendation). 1 slug fix: `/guides/custom-scalars` → `/building/custom-scalars`. Word-count delta: 1 line replaced.
+
+#### Total citation delta
+
+One new JSX citation added to `/features/server-side-injection` for the SQLite caveat (`crates/fraiseql-core/src/schema/compiled/mutation.rs:L60-L62`). Two new HTML citations added to `/features/rate-limiting` for the FW-24 caveat box, mirroring `building/authentication.md` caveat 6 (`crates/fraiseql-cli/src/config/toml_schema/security.rs:L209-L212` + `crates/fraiseql-server/src/middleware/rate_limit/config.rs:L7-L52`). **Net citation delta: +3 source-citation annotations**, all verified at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461` via the `/tmp/fraiseql-7b` worktree before insertion.
+
+#### Cross-link inventory
+
+Cross-link health checks performed (re-grep at HEAD):
+
+- `/building/authentication` — inbound links added or fixed on: rate-limiting, encryption, audit-logging, server-side-injection, mutations.
+- `/building/multi-tenancy` — slug-corrected on: server-side-injection.
+- `/building/schema-design` — slug-corrected on: view-composition, type-system.
+- `/building/custom-scalars` — slug-corrected on: elo-validation.
+- `/building/testing` — slug-corrected on: mutations.
+- `/operations/deployment-guide` — slug-corrected on: encryption, audit-logging.
+- `/operations/performance` — slug-corrected on: rate-limiting.
+- `/operations/performance-benchmarks` — slug-corrected on: why-fraiseql.
+- `/features/mutations` — slug-corrected on: cqrs, view-composition (Option A IA move).
+- `/features/observers` — slug-corrected on: mutations.
+
+All target slugs verified to exist via `find src/content/docs -name "<slug>.md*"`.
+
+#### Specific high-stakes fixes applied
+
+1. **Rate-limiting field names + FW-24 caveat box.** The page now correctly names the CLI TOML fields AND warns readers that brute-force lockout is a no-op at v2.3.2 per FW-24 #356. A reader who follows `/features/rate-limiting` to configure failed-login protection will now reach the same canonical mitigation as `/building/authentication` caveat 6: enforce at the reverse proxy / CDN layer.
+
+2. **Mutations auth section pivot.** Removed the legacy `JWT_SECRET` / `JWT_ALGORITHM` env-var framing and pivoted to the canonical `[auth]` / `[auth_hs256]` direct-TOML phrasing, eliminating the contradiction with `building/authentication.md`'s Cycle-4 LEAD.
+
+3. **Audit-logging "auto-created" copy correction.** Operators run their own migrations; the framework does not write DDL to user databases. Removed the false claim.
+
+4. **Server-side-injection SQLite caveat source-cited.** The page already named the caveat; the citation pin to the framework comment at frozen SHA closes the audit-trail gap.
+
+#### Framework bugs filed this cycle
+
+**Zero.** POLISH scope; no Bug-Finder dispatched. The rate-limiting fix relies on an already-filed framework bug (FW-24 #356) and adds a docs-side caveat box matching `building/authentication.md`'s pattern — no new framework issue surfaces.
+
+#### Build state
+
+- `bun run build`: exit 0, **205 pages**, strip integration log present (`scanned 281 HTML files, modified 3, stripped 223 source-citation comments`).
+- `bun run check`: 0 errors / 0 warnings / 60 hints (baseline — unchanged).
+- Posture B leak scan: `grep -rE '<!--\s*source:|\{/\* source:' dist/` → **0 hits**. ✅
+- Archaeology grep on 10 touched files: 0 hits.
+
+#### Anti-scope confirmed
+
+- No edits to `/community/vs/*` (Cycle 7c territory).
+- No edits to `~/code/fraiseql` (worktree `/tmp/fraiseql-7b` was used read-only for citation verification; not removed because the next Reviewer / Verifier will need it).
+- No refile of FW-1..FW-29 — Cycle-7b is page-side polish only.
+- No amend; new commit only.
+- No push to `main`.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted. G3/G4/G5 downstream.
+
+#### Commit SHA + push status
+
+See commit below. Branch: `phase-03/critical-rewrites`. PR #14 still open from Cycle 7a; this commit lands on top.
+
+#### CI URL after push
+
+Captured in the next handoff entry (Cycle 7b verifier or reviewer) once CI completes — the Writer does not declare GREEN locally.
+
+#### Pointer to next personas
+
+**Verifier (Sonnet 4.6, light load)** — re-grep the 3 new citations at frozen SHA (FW-24 pair on rate-limiting; SQLite caveat on server-side-injection). The rest of the touched pages either lost or had no citations; nothing else to verify beyond the new additions. **Reviewer (Opus 4.7, 15-point on the batch)** — per the brief, may sample N pages rather than walking all 13; sample priorities: rate-limiting (highest stakes; FW-24 caveat + field names), mutations (auth section pivot), audit-logging (operator-managed copy correction). Concepts pages are all single-line slug-fix patches; one sampled concept page suffices for the consistency check.

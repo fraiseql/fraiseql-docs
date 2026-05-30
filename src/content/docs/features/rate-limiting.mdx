@@ -62,12 +62,23 @@ auth_logout_window_secs    = 60
 
 ### Failed login protection
 
+<Aside type="danger">
+**FW-24 [#356](https://github.com/fraiseql/fraiseql/issues/356) — brute-force protection silently dropped at v2.3.2.** The CLI TOML schema `RateLimitingSecurityConfig` accepts `failed_login_max_attempts` and `failed_login_lockout_secs`; the server runtime mirror `RateLimitConfig` has neither field. Serde silently drops the keys. A whole-server grep for `failed_logins` returns zero hits — `fraiseql-auth::AuthRateLimiters` exists in a sibling crate but is never instantiated by `fraiseql-server`. Brute-force lockout via `[security.rate_limiting]` is a **no-op at v2.3.2**.
+
+**Mitigation:** enforce brute-force lockout at the reverse proxy or CDN layer until the field is wired in the server runtime. See [authentication caveat 6](/building/authentication#6-fw-24-356--brute-force-protection-silently-dropped-security).
+
+{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L209-L212 — CLI schema accepts failed_login_max_attempts / failed_login_lockout_secs */}
+{/* source: crates/fraiseql-server/src/middleware/rate_limit/config.rs:L7-L52 — server runtime mirror has no failed_login_* fields */}
+</Aside>
+
 ```toml
 [security.rate_limiting]
-enabled                  = true
-failed_login_max_requests = 5
-failed_login_window_secs  = 3600  # 1-hour lockout window
+enabled                    = true
+failed_login_max_attempts  = 5
+failed_login_lockout_secs  = 3600  # 1-hour lockout window
 ```
+
+The CLI accepts these fields, but they are no-ops at v2.3.2 per the caveat above. The defaults coded into the CLI schema are `failed_login_max_attempts = 10` and `failed_login_lockout_secs = 900` (15 minutes).
 
 ---
 
@@ -144,8 +155,8 @@ Set `FRAISEQL_REQUIRE_REDIS=1` in your deployment environment to make the server
 | `auth_callback_max_requests` | `10` | Per 60s window |
 | `auth_refresh_max_requests` | `20` | Per 300s window |
 | `auth_logout_max_requests` | `30` | Per 60s window |
-| `failed_login_max_requests` | `5` | Failed attempts before lockout |
-| `failed_login_window_secs` | `3600` | 1-hour lockout window |
+| `failed_login_max_attempts` | `10` | Failed attempts before lockout (accepted by CLI; silently dropped by server runtime per [FW-24 #356](https://github.com/fraiseql/fraiseql/issues/356)) |
+| `failed_login_lockout_secs` | `900` | 15-minute lockout window (accepted by CLI; silently dropped by server runtime per [FW-24 #356](https://github.com/fraiseql/fraiseql/issues/356)) |
 
 ---
 
@@ -337,12 +348,12 @@ Rate limiting applies per-transport. Metrics are tagged with the transport type 
     [Security](/features/security) — Authentication and authorization
   </Card>
   <Card title="Authentication" icon="approve-check-circle">
-    [Authentication](/guides/authentication) — JWT, OIDC, and failed login protection
+    [Authentication](/building/authentication) — JWT, OIDC, and failed login protection
   </Card>
   <Card title="TOML Reference" icon="setting">
     [TOML Config](/reference/toml-config#securityrate_limiting) — Full field reference
   </Card>
   <Card title="Performance" icon="rocket">
-    [Performance](/guides/performance) — Optimization strategies
+    [Performance](/operations/performance) — Optimization strategies
   </Card>
 </CardGrid>
