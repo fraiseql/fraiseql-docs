@@ -6622,3 +6622,183 @@ None — no new citation failures requiring issue filing.
 #### Open gates
 
 None new. G2 SHA-bump continues to hold to `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+---
+
+### Phase 03 / Cycle 7a review — Reviewer (Opus 4.7) — 2026-05-30
+
+**Verdict: BLOCK.** 13 of 15 checklist items PASS. Two items ❌ (item 7 UNDEFINED SYMBOLS; item 8 COPY-PASTE / CONSISTENCY-vs-CANONICAL via the `[security.*]` ↔ `[fraiseql.security.*]` split). One critical user-facing TOML-section contradiction with the just-shipped canonical Cycle-4 `building/authentication.md`. Findings posted as inline PR comments via `gh pr review 14`. Re-running fresh Docker docs-test was not warranted — the issues are page-content drift against framework source and Cycle-4, both verifiable from text + frozen-SHA greps; the docs-test runs already PASS in CI and would PASS again locally without changing the verdict.
+
+#### CI re-confirmation
+
+PR #14 HEAD `1f90313`. `gh pr checks 14`:
+
+```
+discover pages and frozen SHA        pass   4s
+page-test (_smoke)                   pass   10m5s
+page-test (authentication)           pass   9m18s
+page-test (file-storage)             pass   9m31s
+page-test (multi-tenancy)            pass   9m22s
+page-test (observers)                pass   9m25s
+pre-commit.ci - pr                   fail   (Phase-10 deferred)
+```
+
+6/6 docs-test jobs SUCCESS. `pre-commit.ci - pr` ERROR (deferred per Phase 10). CI run URL: https://github.com/fraiseql/fraiseql-docs/actions/runs/26678148388.
+
+#### 8+ citation re-greps at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`
+
+Distinct from Verifier's 10 spot-checks. Worktree at `/tmp/fraiseql-frozen-reviewer`.
+
+1. **security.mdx:L29 `oidc_auth.rs:L48-L62` → `extract_access_token_cookie`**. L48 is `pub(crate) fn extract_access_token_cookie(headers: &axum::http::HeaderMap) -> Option<String>`. Body strips `__Host-access_token=` prefix and trims `"`. ✅
+2. **oauth-providers.mdx:L23 `providers.rs:L172-L262` → 5 provider constructors**. Constructor signatures at L191 (auth0) / L214 (keycloak) / L229 (okta) / L245 (cognito) / L260 (azure_ad). Verifier's "off-by-4 aggregate range" verdict re-confirmed: all 5 constructors are present in cited range; `azure_ad` body actually closes at L266 but the range L172-L262 still covers its signature + first body line. No kick-back warranted — but per-tab citations also reviewed below.
+3. **security.mdx:L143-L172 `security.rs:L7-L34` + `:L9` `SecuritySettings deny_unknown_fields`**. L9 is `#[serde(default, deny_unknown_fields)]` on `SecuritySettings`. L60 / L73 carry the same on `AuthorizationRule` / `AuthorizationPolicy`. ✅ **But the file's L1 module docstring reads `//! Security configuration types for [security.*] and [auth] TOML sections.`** — this is the framework's own self-description, NOT `[fraiseql.security.*]`. Material to the contradiction below.
+4. **oauth-providers.mdx:L149 `auth.rs:L24-L114` → `mount_auth_routes`**. `pub(super) fn mount_auth_routes` at L24; all 5 routes (`/auth/start`, `/auth/callback`, `/auth/me`, `/auth/revoke`, `/auth/revoke-all`) confirmed within range. ✅
+5. **security.mdx:L180,L203 `rbac_management.rs:L117-L135` → RBAC routes**. `pub fn rbac_management_router` at L117; all 4 stems (`/api/roles`, `/api/permissions`, `/api/user-roles`, `/api/audit/permissions`) match the page's route table. ✅
+6. **security.mdx:L62 `token.rs:L355-L368` → algorithm allowlist enforcement**. L355-L358 doc comment "Returns `SecurityError::InvalidTokenAlgorithm` if the algorithm is not in the allow-list"; L364-L366 `if !self.config.allowed_algorithms.contains(&alg_str) { return Err(SecurityError::InvalidTokenAlgorithm { algorithm: alg_str }); }`. ✅
+7. **configuration.mdx:L181 `config/mod.rs:L1-L15` → `expand_env_vars` module documentation**. Module documentation describes loading from `fraiseql.toml`; `expand_env_vars` defined at L138 with regex `\$\{([A-Za-z_][A-Za-z0-9_]*)\}`. ✅
+8. **configuration.mdx:L78 `initialization.rs:L44-L82` → `pkce_store_from_schema`**. L44 `pub(super) async fn pkce_store_from_schema(schema: &CompiledSchema, ...)`; L50 reads `schema.security.additional.get("pkce")`; L86 emits the warn line `"Enable [security.state_encryption] in production for full protection."` — **framework's own user-facing warning emits `[security.state_encryption]` WITHOUT `fraiseql.` prefix**. Material to the contradiction below. ✅ on the symbol existence; ❌ on the page's choice of `[fraiseql.security.state_encryption]` framing.
+9. **(bonus) security.mdx:L258-L260 → `ValidationConfig` `max_aliases` claim**. `server_settings.rs:L48-L60` exposes `ValidationConfig` with `max_query_depth` and `max_query_complexity`. **`max_aliases` is NOT a field on `ValidationConfig`** — it lives on `ComplexityConfig` at `crates/fraiseql-core/src/graphql/complexity.rs:L46-L65` (non-serde, code-only). Grep `crates/fraiseql-cli/src/config/ crates/fraiseql-server/src/server_config/ | grep max_aliases` → 0 hits. The page's claim that `[fraiseql.validation]` exposes `max_aliases` with default 30 is **wrong on both the section name AND the field existence**. See Finding 1.
+10. **(bonus) Workspace `Cargo.toml:L343` → `version = "2.3.2"`**. Frozen SHA's workspace version matches the pages' v2.3.2 references. ✅
+
+#### Consistency check vs `building/authentication.md` (Cycle 4)
+
+Per the brief, the 3 Cycle-7a pages MUST NOT contradict the canonical authentication page. Three sub-checks:
+
+- **`[auth]` IS direct-TOML auto-wired.** All 3 pages state this consistently. security.mdx:L32, oauth-providers.mdx:L25-L27, configuration.mdx:L41-L51 all agree with authentication.md:L127-L132 (`### Direct-TOML (auto-wired) — [auth], [auth_hs256], [auth.me]`). ✅
+- **`[security.*]` requires `fraiseql-cli compile`.** Both oauth-providers.mdx and configuration.mdx surface this. configuration.mdx:L56-L78 explicitly documents the compile-step indirection; oauth-providers.mdx:L139 names `[fraiseql.security.pkce]` as compile-step. ✅ on the requirement, ❌ on the naming — the new pages spell it `[fraiseql.security.*]` while the canonical authentication.md spells it `[security.*]` (38 vs 0). See Finding 2.
+- **FW-24..FW-29 cross-links.** Counts: security.mdx 15 references, oauth-providers.mdx 6, configuration.mdx 4. All 6 IDs reachable from each surface. ✅
+
+Verdict: contradicts canonical on the user-facing TOML section name (the load-bearing parameter for any reader copying TOML from one page to the other).
+
+#### G9c hub split verification
+
+Read `/features/security` top-to-bottom (354 lines). Structure is now genuinely hub-shaped:
+
+- §1 Security caveats — table with 6 rows + 1 observer cross-link. ✅
+- §2 JWT verification at the request edge — concise (~50 lines), kept inline because it is the security cluster's distinct subject. ✅
+- §3 Field-level RBAC — concise (~80 lines), kept inline. ✅
+- §4 RBAC management API — concise (~50 lines), kept inline because it is the cluster's distinct admin surface. ✅
+- §5 Other security subsystems — CardGrid with cross-links to 6 dedicated pages (Authentication / OAuth / Encryption / Audit / Rate limiting / Server-side injection). ✅
+- §6 Quick mention — short bullet block on error sanitization / query complexity / CORS, with `/reference/toml-config` as canonical owner. ✅
+- §7 Authorization error responses + §8 Testing + §9 Known issues + §10 Next steps. ✅
+
+Hub split is real, not nominal. No section is long-form detail. ✅
+
+#### Item 12 grep result
+
+```
+$ grep -nE "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP" \
+    src/content/docs/features/security.mdx \
+    src/content/docs/features/oauth-providers.mdx \
+    src/content/docs/concepts/configuration.mdx
+src/content/docs/features/oauth-providers.mdx:99:issuer = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXXXXXXX"
+src/content/docs/features/oauth-providers.mdx:103:`OidcConfig::cognito("us-east-1", "us-east-1_XXXXXXXXX", "1example23456789")` builds the same shape.
+```
+
+2 false-positive hits — both are the documented `XXXXXXXXX` Cognito user-pool-ID placeholder (the official AWS Cognito ID shape). No real archaeology markers. ✅ (Aligns with Writer's claim: "the only matches are `XXXXXXXXX` placeholders in the Cognito user-pool-ID example".)
+
+#### Posture B leak-free verification
+
+```
+$ bun run build
+… [build] 205 page(s) built in 14.81s
+… [fraiseql-docs:strip-source-citations] strip-source-citations: scanned 281 HTML files, modified 3, stripped 223 source-citation comments.
+$ grep -rE '<!--\s*source:|\{/\* source:' dist/
+$ echo $?
+0
+```
+
+**0 hits.** ✅. Strip integration counts match Verifier's reported numbers exactly (281 HTML / 3 modified / 223 stripped).
+
+#### 15-point adversarial checklist
+
+```
+[✅] 1.  VERSION DRIFT — only v2.3.2 named on the 3 pages (description in configuration.mdx:L3, version-at table at L84, multiple `at v2.3.2` callouts on security.mdx + oauth-providers.mdx). Workspace `Cargo.toml:L343 = "2.3.2"` at frozen SHA. ✅ Azure v2.0 endpoint suffix (oauth-providers.mdx:L112) is the Microsoft URL convention, not a FraiseQL version.
+[✅] 2.  WRONG-DB PATHS — 3 pages are auth/config not DB-feature. No multi-DB-shape claims. n/a.
+[✅] 3.  FEATURE-FLAG OMISSIONS — `redis-pkce` and `redis-rate-limiting` named in configuration.mdx:L64 (PKCE) + cross-link to authentication.md. authentication.md's Quick-reference table at L121 carries the full Cargo-feature row. ✅
+[✅] 4.  SECURITY-DEFAULT REGRESSIONS — pages call out `audience` is SECURITY CRITICAL (security.mdx:L40, oauth-providers.mdx:L38), keep `allowed_algorithms = ["RS256"]` (security.mdx:L41, oauth-providers.mdx:L40), warn that error sanitization is disabled by default (security.mdx:L254), warn that wildcard CORS with credentials is unsafe (security.mdx:L262). No `require_auth = false` example.
+[✅] 5.  SDK DIVERGENCE — only Python SDK shown (Functional in roadmap). No Go / Rust / TS / JVM snippets.
+[✅] 6.  DEAD LINKS — all 16 distinct internal slugs reachable in `dist/`. Anchor sub-checks: `#token-revocation`, `#security-caveats`, `#jwt-and-oidc`, `#authme-session-identity-endpoint`, `#api-keys`, `#pkce-oauth2-flow`, `#hs256-testing-mode`, `#field-level-rbac`, `#authorization-policies-toml-driven`, `#quick-mention--error-sanitization-query-complexity-cors`, and all 6 FW-2[4-9] anchor IDs on authentication.md — all resolve. ✅
+[❌] 7.  UNDEFINED SYMBOLS — security.mdx:L258 documents `[fraiseql.validation]` with field `max_aliases` (default 30). `max_aliases` exists on `ComplexityConfig` (`crates/fraiseql-core/src/graphql/complexity.rs:L46-L65`) BUT is NOT a TOML-serde field — `ValidationConfig` (`crates/fraiseql-cli/src/config/toml_schema/server_settings.rs:L48-L60`, `deny_unknown_fields`) exposes only `max_query_depth` and `max_query_complexity`. A reader who copies `[fraiseql.validation] max_aliases = 50` into `fraiseql.toml` and runs `fraiseql-cli compile` gets `unknown field` error. **See Finding 1.**
+[❌] 8.  COPY-PASTE FROM PRIOR VERSION — the OPPOSITE class as the brief warned. The pages do NOT carry surviving "auth doesn't exist" framing (verified clean). BUT they introduce a NEW form (`[fraiseql.security.*]`) that contradicts the just-shipped canonical Cycle-4 `building/authentication.md` (which uses `[security.*]` for the same blocks, matching the framework's own SaaS example + module docstring + user-facing warning logs). Counts: authentication.md = 38 `[security.*]` / 0 `[fraiseql.security.*]`; 3 Cycle-7a pages combined = 12 `[security.*]` / 39 `[fraiseql.security.*]`. **See Finding 2.**
+[✅] 9.  CONDITIONAL CAVEATS — pages call out: PKCE callback URL must include trailing slash exactly (oauth-providers.mdx:L330); `__Host-` prefix instructs browsers to reject `Domain=` (security.mdx:L29 cross-link + authentication.md primary); HS256 + OIDC mutually exclusive (security.mdx:L32, configuration.mdx:L45); audience required for OIDC (security.mdx:L40, oauth-providers.mdx:L31). ✅
+[✅] 10. RLS / SECURITY INTERACTIONS — security.mdx:L52 documents the `jwt:sub`, `jwt:email`, `jwt:name`, `jwt:display_name` RLS session-variable mappings + `inject={"sql_param": "jwt:<claim>"}` cross-link to `/features/server-side-injection`. oauth-providers.mdx:L211 confirms `inject` only supports `jwt:<claim>` values. Matches authentication.md:L210 verbatim. ✅
+[✅] 11. ERROR-PATH COVERAGE — security.mdx:L99-L111 + L267-L290 shows authoritative `UNAUTHENTICATED` + `FORBIDDEN` JSON shapes. oauth-providers.mdx:L294-L307 carries the "Common OAuth errors" table (7 codes). FW-26 critical caveat carries a full repro + mitigation. ✅
+[✅] 12. ARCHAEOLOGY-FREE — see grep above. Only 2 hits, both legitimate `XXXXXXXXX` Cognito user-pool placeholders. ✅
+[✅] 13. SOURCE CITATIONS RESOLVE — 8 random re-greps above; 68/68 cited by Verifier. Reviewer adds bonus re-grep #9 which reveals item-7 prose drift (max_aliases) but the citation itself (`server_settings.rs:L49`) resolves to the right struct. The PAGE's prose around the citation is the issue, not the citation. ✅ on citation resolution; ❌ on item 7 prose.
+[✅] 14. NO PERSONA SELF-REFERENCE — clean.
+[✅] 15. DARK MODE — Posture B citations stripped; rendered HTML unchanged from Cycle 5 baseline. Inherits Cycle-5 dark-mode PASS.
+```
+
+Pass: 13 / 15. Fail: 2 (items 7 and 8).
+
+#### Cycle-specific adversarial: oauth-providers as a fresh reader
+
+Read top-to-bottom as a reader landing from search for "fraiseql Auth0 setup":
+
+- Lede + provider table + "direct-TOML on ServerConfig.auth" framing at L25 — **correct and clear**. The reader will not believe `[auth]` is a parse error (the prior version's WRONG claim is gone).
+- Tabbed per-provider examples — each provider's TOML + matching constructor signature is clean and copy-pasteable. The Auth0 tab is fully wired (trailing-slash on issuer; audience matches the Auth0 API identifier). ✅
+- Routes table at L141 — correctly names `/auth/start`, `/auth/callback`, `/auth/me`, `/auth/revoke`, `/auth/revoke-all` with their gating conditions and the FW-26 critical caveat. ✅
+- FW-26 callout block at L151-L157 — adequately stops a reader from exposing revocation to the public internet. ✅
+- PKCE flow walkthrough + JWT claims in queries — reader can immediately wire up a working Auth0 deployment by copying the Auth0 tab + the `[auth.me]` snippet on configuration.mdx. ✅
+
+**One gap surfaces.** The reader copy-pastes `[fraiseql.security.pkce]` from oauth-providers.mdx:L49 — but `/building/authentication` (the linked-to canonical page) writes the same block as `[security.pkce]`. If the reader follows the cross-link and copies the canonical version into their `fraiseql.toml`, the two examples no longer match. The reader cannot tell which form is "the real one" without reading the framework source. This is Finding 2's surface effect.
+
+Could a reader wire up Auth0 by following the page? **Yes for the `[auth]` block (direct-TOML — no compile step) — same form on both pages**. **No-with-friction for `[fraiseql.security.pkce]` / `[fraiseql.security.token_revocation]` etc. — section name contradicts canonical**.
+
+#### Findings — blocking
+
+**Finding 1 (❌ Item 7) — `src/content/docs/features/security.mdx:L258`:** `max_aliases` (default 30) documented as a `[fraiseql.validation]` TOML key. At frozen SHA: `ValidationConfig` (`crates/fraiseql-cli/src/config/toml_schema/server_settings.rs:L48-L60`) has only `max_query_depth` and `max_query_complexity`. `deny_unknown_fields` on L49 will reject `max_aliases` with "unknown field" at `fraiseql-cli compile`. `max_aliases` exists on `ComplexityConfig` in `crates/fraiseql-core/src/graphql/complexity.rs:L46-L65` but that struct is not serde-Deserialize and is built only in code; it cannot be set via TOML at v2.3.2. Fix: drop the `max_aliases` claim from L258 (and from the inline citation block) OR add a per-line caveat that `max_aliases` is a runtime constant not exposed via TOML. The 1000-variable-per-request claim is correct (`MAX_VARIABLES_COUNT = 1_000` at `crates/fraiseql-core/src/graphql/complexity.rs:L44`) — keep that part.
+
+**Finding 2 (❌ Item 8) — `[fraiseql.security.*]` ↔ `[security.*]` user-facing contradiction with Cycle-4 canonical `building/authentication.md`:** The Writer chose to document the security subsystems as `[fraiseql.security.*]` (citing `TomlProjectConfig` at `crates/fraiseql-cli/src/config/mod.rs:L74-L75` where the path is `fraiseql.security`). This is a defensible choice for the `compile.rs:L179 → TomlProjectConfig::from_file("fraiseql.toml")` workflow. **HOWEVER:**
+
+- The framework's own SaaS example (`examples/saas/fraiseql.toml:L21`) writes `[security]`.
+- The framework's own module docstring (`crates/fraiseql-cli/src/config/toml_schema/security.rs:L1`) says: `//! Security configuration types for [security.*] and [auth] TOML sections.`
+- The framework's own user-facing warning log (`crates/fraiseql-server/src/server/initialization.rs:L86`) emits: `"Enable [security.state_encryption] in production for full protection."`
+- The just-shipped canonical `src/content/docs/building/authentication.md` writes `[security.*]` (38 mentions, 0 `[fraiseql.security.*]`).
+- The 3 Cycle-7a pages collectively write `[fraiseql.security.*]` 39 times and `[security.*]` 12 times.
+
+A reader following authentication.md and then reading the new 3 pages gets two different TOML-section paths for the same subsystems. The two forms parse differently in the framework's two loader paths (`TomlSchema` vs `TomlProjectConfig`) — both technically valid, but a single reader's `fraiseql.toml` can only sit on one of them. **Either Cycle 4 is wrong (authentication.md should use `[fraiseql.security.*]`) or Cycle 7a is wrong (3 new pages should use `[security.*]`).** All four reference points outside the docs (SaaS example, module docstring, warning log, framework's own internal-facing test patterns) align with Cycle 4's form. Cycle 7a's choice introduces a regression of consistency.
+
+Mechanical fix (preferred — matches framework idiom): rewrite the 39 `[fraiseql.security.*]` → `[security.*]` across the 3 Cycle-7a pages. Five concrete loci:
+
+- `concepts/configuration.mdx`: § "Compile-step indirection" heading + table at L60-L72 + example block at L131-L159 + L164-L165 prose about top-level typos + L174 (`[fraiseql.security.token_revocation]` env-var block) + L192 (env-var table cross-ref).
+- `features/security.mdx`: L141-L173 (authorization-policies block) + L237 (state_encryption card) + L240 (`audit_logging_enabled`) + L243 (rate-limiting card) + L254-L260 (error sanitization + validation).
+- `features/oauth-providers.mdx`: L49, L139, L143-L154, L326, L361 — 10 `[fraiseql.security.*]` rewrites.
+
+If the framework genuinely supports both forms (Workflow A ↔ Workflow B), the doc fix is to pick ONE and use it consistently across the 4 pages. The form already used by all the framework's own evidence is `[security.*]` — Cycle 4 followed it. Recommend matching it.
+
+#### Findings — non-blocking nits
+
+- **Nit 1:** oauth-providers.mdx:L116 says Azure tokens carry user identity in `oid` rather than `sub`. ✅ true. But the cross-link example `inject={"user_id": "jwt:oid"}` would surface the OID through a SQL-injected param — and `oid` is not in the framework's documented `jwt:` claim list at authentication.md:L210 (`jwt:sub`, `jwt:email`, `jwt:name`, `jwt:display_name`). The reader will need additional framework code reading to know `jwt:oid` syntax even works in `inject`. Could be improved by linking explicitly to `/features/server-side-injection` (already linked) AND noting that arbitrary `jwt:<claim>` paths are accepted there. Low priority.
+- **Nit 2:** configuration.mdx:L72 introduces a sophisticated dual-`[auth]` distinction: CLI-level `[auth]` = `OidcClientConfig` (PKCE OAuth client) vs server-level `[auth]` = `OidcConfig` (validator). This is a real and correct distinction at the frozen SHA. However, no other doc page touches this; a reader who lands on configuration.mdx first and then reads building/authentication.md or oauth-providers.mdx will see only the server-level `[auth]` and may not realise PKCE needs a different `[auth]` block. Worth surfacing on building/authentication.md's PKCE section or on oauth-providers.mdx's per-tab examples. Future-cycle task.
+- **Nit 3:** Per-tab citations on oauth-providers.mdx (L66, L79, L92, L105, L118) cite constructor ranges (`L191-L204` / `L206-L219` / `L221-L234` / `L236-L249` / `L251-L262`). Each constructor's actual body closes 2-5 lines past the cited end (cognito body closes at L251 — page cites azure_ad as L251-L262 starting AT cognito's close brace, so the first 9 lines of the azure_ad citation are doc comments, not body). Not misleading (each function header IS within range), but sloppy. Future Verifier cycles should tighten the per-tab ranges to `L<def-line>-L<close-brace-line>`.
+- **Nit 4:** `framework-qa-triage.md`'s "Documented at frozen SHA" column shows `Pending` for FW-21, FW-24..FW-29 even though the new 3 Cycle-7a pages now cross-link them in `## Known issues`. Cleanup-Sonnet should backfill the column on cycle close.
+
+#### PR review posted
+
+Line-level review with 2 blocking findings + 4 nits posted to PR #14 via `gh pr review 14 --comment` (see PR review tab; review #N).
+
+#### Open gates after this entry
+
+- **G9 — closed by Writer-GREEN** (G9c hub split applied; verified above).
+- **G10 — closed by Writer-GREEN** (preserve decorators; verified — `requires_scope`, `requires_role`, `inject` examples are real at frozen SHA).
+- **G11 — deferred** (vs/* page treatment; rolls into 7c).
+- **G1 — closed.** **G2 — default-hold** at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. **G7 — resolved**. **G3 / G4 / G5** — downstream.
+
+#### Anti-scope confirmed
+
+- No edits to `src/content/docs/`.
+- No edits to `~/code/fraiseql`.
+- No new framework bugs filed (the section-name contradiction is a doc-side defect, not a framework defect — the framework genuinely supports both Workflow A and Workflow B; the issue is internal docs consistency).
+- No amend.
+- No push to `main`.
+
+#### Pointer to next persona
+
+**Writer / orchestrator (Opus 4.7)** — return to GREEN with two fixes on the same branch (`phase-03/critical-rewrites`):
+
+1. **`features/security.mdx:L258`** — drop the `max_aliases` claim from the validation bullet. Keep `max_query_depth` (real default 10) and the 1000-variable hard-cap (`MAX_VARIABLES_COUNT`). Optionally add a one-line aside: "Alias count is hard-capped at 30 by the runtime via the `DEFAULT_MAX_ALIASES` constant (`crates/fraiseql-core/src/graphql/complexity.rs:L37`); not user-configurable via TOML at v2.3.2."
+2. **`features/security.mdx`, `features/oauth-providers.mdx`, `concepts/configuration.mdx`** — rewrite all `[fraiseql.security.*]` → `[security.*]` (39 instances). This matches the canonical Cycle-4 authentication.md, the framework's own SaaS example, the framework's own module docstring, and the framework's own user-facing warning logs. The `[fraiseql.security]` form was a defensible-but-non-canonical Writer choice that contradicts the just-shipped Cycle-4 page. **Important:** keep the underlying claim that the compile step is required for these subsystems — that part is correct. Only the section-name token changes. Citations (which point at the same Rust source) need no edit.
+
+After Writer pushes the two fixes, this Reviewer (or fresh Opus) re-runs items 7 + 8 only on the 3 pages; the other 13 already PASS. CI must remain green on the new HEAD before approval. On Reviewer APPROVE, hand off to Cleanup (Sonnet 4.6) for 7a close. Then dispatch Writer-Opus (batch) for 7b (13 POLISH pages).
