@@ -5830,3 +5830,18 @@ None. Cycle 5 is a doc-side dialect-fix cycle — by construction, the three cor
 After Cleanup, the path is straight to **Cycle 6 (Phase-01 Cycle-4 deferral classes)** per the phase-03 plan.
 
 ---
+
+### Phase 03 / Cycle 5 close — Cleanup (Sonnet 4.6) — 2026-05-30
+
+- **Build state:** `bun run check` → 0 errors, 0 warnings, 60 hints (baseline unchanged). `bun run build` → exit 0, **205 pages**, 281 HTML files, strip-source-citations integration scanned 281 HTML files, modified 3, stripped 223 comments. Dist leak: 0. Build time: 15.30 s.
+- **Archaeology grep:** `git grep -nE "TODO|FIXME|XXX|HACK|coming soon|WIP" src/content/docs/getting-started/quickstart.mdx` → 0 hits. The single `Phase 4` hit on L32 is a JSX-comment citation introduced by Phase 01 Cycle 4 (install-matrix consolidation) — invisible in rendered output (Reviewer verified in this cycle's checklist; `dist/getting-started/quickstart/index.html` grep → 0 hits). Not archaeology.
+- **Sidebar:** `/getting-started/quickstart` is in the Phase 01 Option A sidebar (Getting Started group); no sidebar edit required.
+- **Cross-links:** inbound links confirmed — `getting-started/introduction.mdx` links `[Install locally and connect your database](/getting-started/quickstart)` and `index.mdx` has `[Manual Setup](/getting-started/quickstart)`. At least two inbound links present.
+- **Style Auditor edits:** none this cycle (deferred to Cycle N per brief). The 3 Reviewer nits (long Aside sentence L195, citation-after-block L199, item-11 silent-shape error message) are batched for the Phase 03 close style-audit cycle alongside Cycle 4's L398 bare-fence and caveat-11 nits.
+- **Phase 03 doc update:** `/getting-started/quickstart` appended to `## Pages completed` as "Cycle 5 — closed 2026-05-30; 3 SQL dialect fixes + FW-2 cross-link Aside".
+- **No new framework bugs** from Cycle 5 (all three fixes were doc-side dialect bugs; FW-2 #327 is the pre-existing framework adjacency, already filed and cross-linked).
+- **Open gates:** unchanged. G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. G3/G4/G5 downstream.
+- **Commit SHA + push:** see commit entry below.
+- **Next persona: Writer (Opus 4.7)** for Phase 03 / Cycle 6 — Phase-01 Cycle-4 deferral classes A/B/C/D. Per orchestrator brief: **Class A (`fraiseql/examples` 11 URLs across 4 pages) is a CONTENT DECISION worth surfacing as a novel gate G6** — the question is "do the docs promise example code at all?" Cycle 6 RED should propose the gate framing, not pick the answer. Classes B (`velocitybench`, 2 pages), C (`demo.fraiseql.dev`, 6 pages), and D (`charts.fraiseql.io`, 0 hits) are infra/prose decisions also worth surfacing as sub-gates before committing to a fix path.
+
+---

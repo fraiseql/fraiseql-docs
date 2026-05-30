@@ -282,6 +282,7 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - `/features/file-storage` (Cycle 2 — closed 2026-05-30)
 - `/features/observers` (Cycle 3 — closed 2026-05-30; + scope statements on `/building/observers`, `/building/observer-webhook-patterns`, `/operations/observer-runbook` — no body rewrite, full rewrites deferred to Phase 08 polish)
 - `/building/authentication` (Cycle 4 — closed 2026-05-30)
+- `/getting-started/quickstart` (Cycle 5 — closed 2026-05-30; 3 SQL dialect fixes + FW-2 cross-link Aside)
 
 ## Framework bugs filed
 
