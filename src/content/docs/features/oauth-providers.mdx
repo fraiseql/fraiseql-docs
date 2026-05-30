@@ -1,154 +1,184 @@
 ---
 title: OAuth Providers
-description: Configure OAuth2 and OIDC authentication with multiple providers
+description: Configure OIDC providers (Auth0, Keycloak, Okta, Cognito, Azure AD, generic OIDC) via the `[auth]` TOML section, with the per-provider constructors that populate it
 ---
 
 import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/components';
 
-FraiseQL supports multiple OAuth2/OIDC providers for authentication, with built-in support for popular identity platforms.
+This page covers per-provider OIDC configuration. The validator surface itself — `OidcConfig`, audience enforcement, JWKS, algorithm allowlist, `__Host-access_token` cookie, PKCE flow, token revocation, and the 11 security caveats including the six open framework issues — lives on [Building → Authentication](/building/authentication). Read that page first if you have not already.
 
-## Supported Providers
+## Supported providers
 
-| Provider | Protocol | Features |
-|----------|----------|----------|
-| Google | OIDC | Email verification, profile |
-| GitHub | OAuth2 | Org membership, teams |
-| Microsoft Azure AD | OIDC | Tenant isolation, groups |
-| Okta | OIDC | Custom claims, MFA |
-| Auth0 | OIDC | Rules, roles, permissions |
-| Keycloak | OIDC | Self-hosted, realm support |
-| Logto | OIDC | Self-hosted, tenant support |
-| Ory | OIDC | Self-hosted, open source |
-| Generic OIDC | OIDC | Any compliant provider |
+The OIDC validator works with any compliant provider. The framework ships convenience constructors for the five most common ones; the generic OIDC path covers everything else.
+
+| Provider | Protocol | Constructor at frozen SHA |
+|----------|----------|----------------------------|
+| Auth0 | OIDC | `OidcConfig::auth0(domain, audience)` |
+| Keycloak | OIDC | `OidcConfig::keycloak(base_url, realm, client_id)` |
+| Okta | OIDC | `OidcConfig::okta(domain, audience)` |
+| AWS Cognito | OIDC | `OidcConfig::cognito(region, user_pool_id, client_id)` |
+| Microsoft Entra ID (Azure AD) | OIDC | `OidcConfig::azure_ad(tenant_id, client_id)` |
+| Any compliant provider | OIDC | manual `[auth]` TOML or `OidcConfig::default()` |
+
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L172-L262 — per-provider constructors */}
+
+The constructors populate `OidcConfig` with the right `issuer` URL pattern and set `audience` from the supplied client ID / API identifier; every other field falls back to `OidcConfig::default()`. The configuration is direct-TOML on `ServerConfig.auth: Option<OidcConfig>` — no compile step required.
+
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L293-L307 — ServerConfig.auth: Option<OidcConfig> with TOML doc example */}
 
 ## Configuration
 
-<Aside type="caution">
-FraiseQL does not have an `[auth]` TOML section — it causes a hard parse error. All OAuth/OIDC provider credentials and endpoints are configured via environment variables before starting `fraiseql run`.
-</Aside>
+`[auth]` is a valid `fraiseql.toml` section, direct-wired by the binary. The validator refuses to boot when `audience` and `additional_audiences` are both empty — this is the framework's mandatory mitigation for token-confusion attacks.
 
-OAuth provider credentials are configured via environment variables. FraiseQL fetches the provider's `/.well-known/openid-configuration` endpoint at startup to discover authorization and token endpoints.
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L290-L320 — validate() refuses boot when audience + additional_audiences both empty */}
 
-```bash
-export OIDC_DISCOVERY_URL="https://your-provider.example.com"
-export OIDC_CLIENT_ID="your-client-id"
-export OIDC_CLIENT_SECRET="your-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
+```toml title="fraiseql.toml — generic OIDC"
+[auth]
+issuer = "https://your-provider.example.com/"      # MUST match the iss claim exactly
+audience = "https://api.example.com"               # SECURITY CRITICAL — boot fails without it
+# additional_audiences = ["legacy-api-id"]         # optional secondary audiences
+# allowed_algorithms = ["RS256"]                   # default; do not widen (see Authentication caveat 10)
+# jwks_cache_ttl_secs = 300                        # default
+# clock_skew_secs = 60                             # default; hard-capped at 300 regardless of value
+# scope_claim = "scope"                            # space-separated string; some IdPs use "scp" or "permissions"
+# required = true                                  # default — reject requests without a valid token
 ```
+
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L50-L143 — OidcConfig fields with defaults */}
+
+The OIDC client secret is **never** stored in `fraiseql.toml` for the validator path — the validator only verifies inbound tokens against the IdP's JWKS, which is a public document. The client secret is only needed for the PKCE flow (browser login → callback → token exchange); for that, set `[fraiseql.security.pkce]` and source the secret from `${OIDC_CLIENT_SECRET}` at compile time. See [Authentication → PKCE](/building/authentication#pkce-oauth2-flow).
+
+### Per-provider config
+
+Each tab below shows the minimum TOML needed to wire that provider's OIDC validator. The constructor names map one-to-one with these examples.
 
 <Tabs syncKey="provider">
-<TabItem label="Google">
-```bash
-export OIDC_DISCOVERY_URL="https://accounts.google.com"
-export OIDC_CLIENT_ID="your-client-id.apps.googleusercontent.com"
-export OIDC_CLIENT_SECRET="your-google-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
-```
-</TabItem>
-<TabItem label="GitHub">
-```bash
-export OIDC_DISCOVERY_URL="https://token.actions.githubusercontent.com"
-export OIDC_CLIENT_ID="your-github-app-client-id"
-export OIDC_CLIENT_SECRET="your-github-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
-```
-</TabItem>
-<TabItem label="Azure AD">
-```bash
-export OIDC_DISCOVERY_URL="https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0"
-export OIDC_CLIENT_ID="your-azure-client-id"
-export OIDC_CLIENT_SECRET="your-azure-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
-```
-</TabItem>
-<TabItem label="Okta">
-```bash
-export OIDC_DISCOVERY_URL="https://your-domain.okta.com"
-export OIDC_CLIENT_ID="your-okta-client-id"
-export OIDC_CLIENT_SECRET="your-okta-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
-```
-</TabItem>
 <TabItem label="Auth0">
-```bash
-export OIDC_DISCOVERY_URL="https://your-tenant.auth0.com"
-export OIDC_CLIENT_ID="your-auth0-client-id"
-export OIDC_CLIENT_SECRET="your-auth0-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
+
+```toml title="fraiseql.toml"
+[auth]
+issuer = "https://your-tenant.auth0.com/"        # trailing slash matters
+audience = "https://api.example.com"             # your Auth0 API identifier
 ```
+
+`OidcConfig::auth0("your-tenant.auth0.com", "https://api.example.com")` builds the same shape.
+
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L191-L204 — auth0 constructor */}
+
 </TabItem>
 <TabItem label="Keycloak">
-```bash
-export OIDC_DISCOVERY_URL="https://keycloak.example.com/realms/my-realm"
-export OIDC_CLIENT_ID="your-keycloak-client-id"
-export OIDC_CLIENT_SECRET="your-keycloak-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
+
+```toml title="fraiseql.toml"
+[auth]
+issuer = "https://keycloak.example.com/realms/my-realm"
+audience = "my-fraiseql-client"                  # the client_id registered in the realm
 ```
+
+`OidcConfig::keycloak("https://keycloak.example.com", "my-realm", "my-fraiseql-client")` builds the same shape.
+
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L206-L219 — keycloak constructor */}
+
 </TabItem>
-<TabItem label="Logto">
-```bash
-export OIDC_DISCOVERY_URL="https://your-logto-endpoint/oidc"
-export OIDC_CLIENT_ID="your-logto-client-id"
-export OIDC_CLIENT_SECRET="your-logto-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
+<TabItem label="Okta">
+
+```toml title="fraiseql.toml"
+[auth]
+issuer = "https://your-org.okta.com"
+audience = "api://default"                       # Okta authorization-server audience
 ```
+
+`OidcConfig::okta("your-org.okta.com", "api://default")` builds the same shape.
+
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L221-L234 — okta constructor */}
+
 </TabItem>
-<TabItem label="Ory">
-```bash
-export OIDC_DISCOVERY_URL="https://your-ory-issuer-url"
-export OIDC_CLIENT_ID="your-ory-client-id"
-export OIDC_CLIENT_SECRET="your-ory-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
+<TabItem label="Cognito">
+
+```toml title="fraiseql.toml"
+[auth]
+issuer = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXXXXXXX"
+audience = "1example23456789"                    # the App Client ID
 ```
+
+`OidcConfig::cognito("us-east-1", "us-east-1_XXXXXXXXX", "1example23456789")` builds the same shape.
+
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L236-L249 — cognito constructor */}
+
+</TabItem>
+<TabItem label="Azure AD">
+
+```toml title="fraiseql.toml"
+[auth]
+issuer = "https://login.microsoftonline.com/00000000-1111-2222-3333-444444444444/v2.0"
+audience = "55555555-6666-7777-8888-999999999999"   # the Application (client) ID
+```
+
+`OidcConfig::azure_ad("00000000-...", "55555555-...")` builds the same shape. Note: Azure tokens carry the user identifier in `oid` rather than `sub`; surface it via `inject={"user_id": "jwt:oid"}` when the schema-level identity must match the Azure object ID.
+
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L251-L262 — azure_ad constructor */}
+
 </TabItem>
 <TabItem label="Generic OIDC">
-```bash
-# Any OIDC-compliant provider
-export OIDC_DISCOVERY_URL="https://identity.example.com"
-export OIDC_CLIENT_ID="your-client-id"
-export OIDC_CLIENT_SECRET="your-client-secret"
-export OIDC_REDIRECT_URI="https://api.example.com/auth/callback"
-# FraiseQL auto-discovers endpoints from /.well-known/openid-configuration
+
+```toml title="fraiseql.toml"
+[auth]
+issuer = "https://identity.example.com/"
+audience = "your-api-id"
+# jwks_uri = "https://identity.example.com/.well-known/jwks.json"   # optional override; default is OIDC discovery
 ```
+
+Any RFC 8414 / OIDC-compliant provider works. By default the validator fetches `<issuer>/.well-known/openid-configuration` to discover the JWKS URI; set `jwks_uri` to bypass discovery.
+
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L100-L106 — jwks_uri optional override */}
+
 </TabItem>
 </Tabs>
 
-## Authentication Flow
+## Authentication endpoints
 
-### Authorization Code Flow
+The OIDC validator gates every request through `oidc_auth_middleware` (Bearer header preferred, `__Host-access_token` cookie as fallback). The PKCE OAuth2 flow — required for browser logins — mounts two additional endpoints when `[fraiseql.security.pkce]` is configured in the compiled schema.
+
+| Endpoint | Method | Purpose | Mounted when |
+|----------|--------|---------|--------------|
+| `/auth/start` | GET | Begins the PKCE flow; redirects to the IdP with a generated challenge | `[fraiseql.security.pkce]` + OIDC client identity configured |
+| `/auth/callback` | GET | Consumes the verifier; exchanges code at the IdP; sets `__Host-access_token` cookie | `[fraiseql.security.pkce]` + OIDC client identity configured |
+| `/auth/me` | GET | Returns the validated session's identity claims | `[auth.me] enabled = true` + OIDC validator present |
+| `/auth/revoke` | POST | Revoke a single token by `jti` (**unauthenticated at v2.3.2 — FW-26 #358**) | `[fraiseql.security.token_revocation]` configured |
+| `/auth/revoke-all` | POST | Revoke all tokens for a `sub` (**unauthenticated at v2.3.2 — FW-26 #358**) | `[fraiseql.security.token_revocation]` configured |
+
+{/* source: crates/fraiseql-server/src/server/routing/auth.rs:L24-L114 — mount_auth_routes; all five routes shown above */}
+
+<Aside type="caution" title="FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) — `/auth/revoke*` is unauthenticated">
+`POST /auth/revoke` and `POST /auth/revoke-all` are mounted without any auth middleware at v2.3.2. The sibling `/auth/me` route in the same `mount_auth_routes` function DOES apply `oidc_auth_middleware`, but the revocation routes do not. The `revoke_token` handler decodes the supplied token via `jsonwebtoken::dangerous::insecure_decode` — no signature check. `revoke_all_tokens` accepts a body `{"sub": "..."}` with no token at all.
+
+**Gate `/auth/revoke*` behind an authenticating reverse proxy, or omit `[fraiseql.security.token_revocation]` from the compiled schema entirely** — the routes are not mounted when the manager is absent.
+
+See [Authentication → caveat 2](/building/authentication#2-fw-26-358--authrevoke-and-authrevoke-all-are-unauthenticated-critical) for the full repro and mitigation.
+</Aside>
+
+The PKCE flow is documented in detail at [Authentication → PKCE OAuth2 flow](/building/authentication#pkce-oauth2-flow). Other auth extensions (`/auth/v1/authorize` social login, `/auth/v1/signup` anonymous signup, `/auth/v1/mfa/*` TOTP MFA) mount under their own configuration sections; the same `mount_auth_routes` function gates them.
+
+{/* source: crates/fraiseql-server/src/server/routing/auth.rs:L47-L80 — social_login / anon_signup / mfa branches */}
+
+## Authentication flow
+
+The PKCE Authorization Code flow is the recommended browser-login pattern.
 
 <Steps>
-1. Client sends login request to FraiseQL
-2. FraiseQL redirects to the OAuth provider
-3. Provider sends Auth Code + State back to client
-4. Client sends the code to FraiseQL callback
-5. FraiseQL exchanges the code with the provider for tokens
-6. FraiseQL issues a session token to the client
+1. The client opens `GET /auth/start?...` in a browser. FraiseQL generates a PKCE code verifier and challenge, stores the state server-side in `PkceStateStore`, and redirects the browser to the IdP's authorization endpoint.
+2. The user authenticates at the IdP and approves the consent screen. The IdP redirects the browser back to `GET /auth/callback?code=<authcode>&state=<state>`.
+3. FraiseQL retrieves the verifier from `PkceStateStore`, exchanges the authorization code with the IdP's token endpoint, and validates the returned access token against the configured `[auth]` audience and algorithm allowlist.
+4. The callback sets the `__Host-access_token="<jwt>"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=<expires_in or 300>` cookie and redirects to the configured post-login URI.
+5. Subsequent requests carry the cookie automatically (or use `Authorization: Bearer <jwt>` for non-browser clients); `oidc_auth_middleware` validates on every request.
 </Steps>
 
-### Endpoints
+{/* source: crates/fraiseql-server/src/routes/auth.rs:L114 — pub async fn auth_start */}
+{/* source: crates/fraiseql-server/src/routes/auth.rs:L168 — pub async fn auth_callback */}
+{/* source: crates/fraiseql-server/src/routes/auth.rs:L220-L246 — cookie format hard-coded */}
 
-| Endpoint | Purpose |
-|----------|---------|
-| `/auth/login` | Initiate OAuth flow |
-| `/auth/callback` | OAuth callback handler |
-| `/auth/logout` | End session |
-| `/auth/refresh` | Refresh access token |
-| `/auth/userinfo` | Get current user info |
+## JWT claims in queries
 
-## Security Features
-
-### PKCE Support
-
-PKCE (Proof Key for Code Exchange) is configured via `[security.pkce]` in `fraiseql.toml` — see [Security](/features/security#pkce).
-
-### State Encryption
-
-State blobs are encrypted via `[security.state_encryption]` in `fraiseql.toml` — see [Security](/features/security#oauth-state-security).
-
-## JWT Claims in Queries
-
-FraiseQL is a compiled GraphQL engine. The Python SDK generates a schema at compile time — there are no runtime resolver functions accessing a `Context` object. Instead, JWT claims are injected into SQL parameters using the `inject` decorator argument:
+FraiseQL is a compiled engine. The Python SDK declares schema at compile time; there is no runtime resolver function with a `Context` object. JWT claims are surfaced to SQL via the `inject={"sql_param": "jwt:<claim>"}` decorator argument — the Rust runtime reads the verified claim from the `SecurityContext` and binds it as a SQL parameter, never as a GraphQL input.
 
 ```python
 import fraiseql
@@ -160,14 +190,13 @@ class User:
     email: str
     name: str
 
-# The authenticated user's own profile — user_id is injected from jwt:sub
+# The authenticated user's own profile — user_id injected from jwt:sub
 @fraiseql.query(
     sql_source="v_user",
     inject={"user_id": "jwt:sub"},
 )
 def me() -> User | None:
     """Get the currently authenticated user."""
-    pass
 
 # Tenant-scoped queries — org_id injected from a custom JWT claim
 @fraiseql.query(
@@ -176,26 +205,30 @@ def me() -> User | None:
 )
 def users(limit: int = 20, offset: int = 0) -> list[User]:
     """List users in the caller's organization."""
-    pass
 ```
 
-The `inject={"param": "jwt:claim"}` syntax tells the Rust engine to read the named JWT claim and pass it as a SQL parameter, keeping it out of the GraphQL API surface entirely. The SQL view or function receives it as a bound parameter.
+{/* source: crates/fraiseql-cli/src/schema/converter/queries.rs:L20-L33 — InjectedParamSource::Jwt parsing */}
 
-## Role Mapping
+`inject` only supports `jwt:<claim>` values; compile-time validation rejects other prefixes with an error. See [Server-side injection](/features/server-side-injection) for the full reference and the SQL function signature shape.
 
-Roles are read from a claim in the JWT returned by your provider. FraiseQL maps JWT roles to field-level authorization rules defined in `fraiseql.toml`:
+## Role mapping
 
-```json
+Roles are read from the configured `scope_claim` (default `"scope"`, a space-separated string) or from a dedicated `roles` claim that the IdP populates. The validator parses both shapes and surfaces them on the `SecurityContext`; field-level rules then enforce `requires_role` and `requires_scope` against the parsed values.
+
+```json title="Example JWT payload (Auth0 namespaced claims)"
 {
-  "sub": "usr_123",
+  "sub": "auth0|abc123",
   "email": "alice@example.com",
-  "roles": ["admin", "editor"],
+  "https://myapp.com/roles": ["admin", "editor"],
+  "scope": "read:User write:Post",
+  "iat": 1740783600,
   "exp": 1740787200,
-  "iss": "https://auth.example.com"
+  "iss": "https://your-tenant.auth0.com/",
+  "aud": "https://api.example.com"
 }
 ```
 
-Use `requires_role` on a type to restrict access to callers with that role:
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L115-L120 — scope_claim default + alternatives ("scp", "permissions") */}
 
 ```python
 @fraiseql.type(requires_role="admin")
@@ -204,18 +237,20 @@ class AdminDashboard:
     revenue: float
 ```
 
-Field-level access control uses `fraiseql.field(requires_scope=...)` — see [Security](/features/security#field-authorization).
+Field-level access control uses `fraiseql.field(requires_scope=...)`. See [Security → field-level RBAC](/features/security#field-level-rbac).
 
-## Multi-Provider Setup
+## Multi-provider setup
 
-Login endpoint accepts a provider parameter to select among configured providers:
+A single FraiseQL deployment validates one OIDC issuer at a time via `[auth]`. To support multiple providers (e.g. "log in with Google or with Auth0"), either:
 
-```
-/auth/login?provider=github
-/auth/login?provider=google
-```
+- Front the deployment with a federating IdP (Auth0, Keycloak, Cognito Identity Pools) and configure that as `[auth]`. The federating IdP handles the per-upstream OAuth flows and re-issues tokens against the FraiseQL audience.
+- Run one FraiseQL replica per provider behind a path-based or header-based router, each with its own `[auth]`. The router decides which replica serves the request based on the `provider` parameter or a discovery cookie.
 
-## Test the OAuth Flow
+The `/auth/v1/authorize` route (mounted when `social_login` is configured) is the framework's built-in social-login dispatcher; it accepts a `provider` parameter and the registered providers come from the social-login registry. The full surface is covered on the Auth Extensions page (to be written in a future cycle); the source of truth is `mount_auth_routes` and the `social_login` field on the server state.
+
+{/* source: crates/fraiseql-server/src/server/routing/auth.rs:L47-L57 — social_login route mounted under /auth/v1/authorize */}
+
+## Test the OAuth flow
 
 After configuring a provider, verify the full authorization code exchange manually before wiring up a frontend.
 
@@ -223,61 +258,53 @@ After configuring a provider, verify the full authorization code exchange manual
 1. **Start the login flow** — open the login URL in a browser or follow the redirect:
 
    ```bash
-   curl -v http://localhost:8080/auth/login?provider=google
-   # Follow the Location header to the Google authorization page
+   curl -v "http://localhost:8080/auth/start"
+   # Follow the Location header to the provider's authorization page
    ```
 
-2. **Authorize in the browser** — log in and approve the consent screen. Your browser is redirected back to the callback URL with a `code` parameter.
+2. **Authorize in the browser** — log in and approve the consent screen. Your browser is redirected back to the callback URL with `code` and `state` query parameters.
 
-3. **Exchange the authorization code** — FraiseQL handles this automatically via the callback endpoint. To test it directly:
+3. **Inspect the callback response** — `GET /auth/callback?code=...&state=...` returns a `303 See Other` with:
+
+   ```
+   Set-Cookie: __Host-access_token="<jwt>"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=<expires_in or 300>
+   ```
+
+4. **Call a protected query** using the cookie:
 
    ```bash
-   curl -X POST http://localhost:8080/auth/callback \
-     -H "Content-Type: application/x-www-form-urlencoded" \
-     -d "code=AUTHORIZATION_CODE&state=STATE_VALUE&provider=google"
-   ```
-
-4. **Inspect the token response** — a successful exchange returns a session token:
-
-   ```json
-   {
-     "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-     "token_type": "Bearer",
-     "expires_in": 86400,
-     "refresh_token": "rt_01HV3KQBN7MXSZQZQR4F5P0G2Y",
-     "user": {
-       "id": "usr_01HV3KQBN7MXSZQZQR4F5P0G2Y",
-       "email": "alice@example.com",
-       "name": "Alice Smith",
-       "roles": ["user"]
-     }
-   }
-   ```
-
-5. **Call a protected query** using the returned token:
-
-   ```bash
-   curl http://localhost:8080/graphql \
-     -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+   curl --cookie "__Host-access_token=$JWT" http://localhost:8080/graphql \
      -H "Content-Type: application/json" \
      -d '{"query":"{ me { id email } }"}'
    ```
+
+   Or use `Authorization: Bearer $JWT` for non-browser clients.
+
+5. **Inspect the validated session** via `[auth.me]`:
+
+   ```bash
+   curl -fsS http://localhost:8080/auth/me -H "Authorization: Bearer $JWT"
+   # {"sub":"auth0|abc","user_id":"auth0|abc","expires_at":"2026-05-30T...",
+   #  "email":"alice@example.com","tenant_id":"acme"}
+   ```
 </Steps>
 
-## Common OAuth Errors
+{/* source: crates/fraiseql-server/src/routes/auth.rs:L432-L460 — auth_me handler returns sub, user_id, expires_at + email/display_name + extra_claims */}
 
-| HTTP Status | Error | Cause | Fix |
-|-------------|-------|-------|-----|
-| `400 Bad Request` | `invalid_client` | Client ID or secret is wrong | Verify `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` env vars match the provider app settings |
+## Common OAuth errors
+
+| HTTP status | Error code | Cause | Fix |
+|-------------|-----------|-------|-----|
+| `400 Bad Request` | `invalid_client` | Client ID or secret wrong | Verify `client_id` matches the provider app settings; the secret comes from `${OIDC_CLIENT_SECRET}` at compile time |
 | `400 Bad Request` | `redirect_uri_mismatch` | Callback URL not registered | Add `server_redirect_uri` exactly as configured to the provider's allowed redirect list |
-| `400 Bad Request` | `invalid_grant` | Authorization code already used or expired | Codes are single-use and expire quickly (usually 60 seconds); do not reuse or delay exchange |
-| `401 Unauthorized` | `invalid_token` | Access token expired or revoked | Use `/auth/refresh` with the refresh token to obtain a new access token |
-| `403 Forbidden` | `access_denied` | User denied consent or lacks required scope | Verify the scopes requested in your provider app settings; ensure the user approves all requested permissions |
-| `403 Forbidden` | `org_required` | User is not a member of `required_org` (GitHub) | Verify `required_org` value; user must be a member of that GitHub organization |
-| `500 Internal Server Error` | `token_exchange_failed` | Network error reaching the provider | Check outbound connectivity; verify `discovery_url` and the issuer are reachable |
+| `400 Bad Request` | `invalid_grant` | Authorization code already used or expired | Codes are single-use and expire quickly; do not reuse or delay exchange |
+| `401 Unauthorized` | `invalid_token` | Access token expired or signature invalid | Re-run the PKCE flow to obtain a fresh token |
+| `401 Unauthorized` | `audience_mismatch` | Token `aud` does not match `[auth] audience` | Confirm the IdP issued the token for the configured audience identifier |
+| `403 Forbidden` | `access_denied` | User denied consent or lacks required scope | Verify the scopes requested in your provider app settings |
+| `500 Internal Server Error` | `token_exchange_failed` | Network error reaching the provider | Check outbound connectivity to the issuer's discovery and token endpoints |
 
 <Aside type="tip">
-All OAuth errors are logged at `WARN` level. Run `RUST_LOG=debug fraiseql run` to see the full error response from the provider, which usually includes a more specific `error_description` field.
+OAuth errors are logged at `WARN` level. Run `RUST_LOG=debug fraiseql-server --config fraiseql.toml` to see the full error response from the provider, including its more specific `error_description`.
 </Aside>
 
 ## Metrics
@@ -292,44 +319,58 @@ All OAuth errors are logged at `WARN` level. Run `RUST_LOG=debug fraiseql run` t
 
 ## Troubleshooting
 
-### Redirect URI Mismatch
+### Redirect URI mismatch
 
-Ensure redirect URI matches exactly in:
-1. `OIDC_REDIRECT_URI` environment variable
-2. Provider app settings
-3. Actual callback URL
+Ensure the redirect URI matches exactly in:
 
-### Token Validation Errors
+1. `server_redirect_uri` in `[fraiseql.security.pkce]` or the OIDC client identity block.
+2. Provider app settings (each provider has its own "Allowed Callback URLs" field).
+3. The browser's actual landing URL after IdP redirect.
 
-1. Check clock sync between servers
-2. Verify `discovery_url` is correct and reachable
-3. Check token hasn't expired
+A trailing slash counts.
 
-### Missing Claims
+### Token validation errors
 
-1. Verify scopes include required claims
-2. Check provider-specific claim names
-3. Review claim mapping configuration
+1. Check the configured `issuer` matches the `iss` claim exactly (including trailing slash for Auth0).
+2. Verify the IdP's `/.well-known/openid-configuration` is reachable from the FraiseQL pod / VM.
+3. Check the audience: `[auth] audience` must match the token's `aud` exactly, or be listed in `additional_audiences`.
+4. Confirm the clock skew: FraiseQL tolerates up to `clock_skew_secs` (default 60, hard-capped at 300) between the FraiseQL host and the IdP.
 
-## OAuth Across Transports
+   {/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L160-L165 — MAX_CLOCK_SKEW_SECS = 300 */}
 
-OAuth/OIDC authentication protects all three FraiseQL transports equally. The Rust runtime validates the JWT before routing the request to its transport handler, regardless of whether the request arrived as GraphQL, REST, or gRPC.
+### Missing claims
 
-- **GraphQL and REST**: send `Authorization: Bearer <token>` as an HTTP header.
-- **gRPC**: send `authorization: Bearer <token>` as gRPC call metadata (lowercase key, same value format).
+1. Verify scopes requested in your provider app settings include the claims you reference in `inject={...}` and `requires_scope`.
+2. Some IdPs put roles under `roles`, `groups`, `scp`, or `permissions` rather than `scope`; set `[auth] scope_claim = "..."` accordingly.
+3. Azure AD uses `oid` for the persistent user identifier; `sub` differs between apps. Pin the right one for your schema.
 
-The OAuth flow itself (authorization code exchange, token issuance, refresh) always goes through the `/auth/*` HTTP endpoints — there is no gRPC-native OAuth flow.
+## OAuth across transports
+
+OIDC authentication protects all three FraiseQL transports identically. The validator runs at the routing layer before transport dispatch.
+
+- **GraphQL and REST** — send `Authorization: Bearer <jwt>` (or the PKCE cookie) as an HTTP header.
+- **gRPC** — send `authorization: bearer <jwt>` as gRPC call metadata (lowercase key, same value format).
+
+The OAuth flow itself — authorization code exchange, token issuance, refresh — always goes through the `/auth/*` HTTP endpoints; there is no gRPC-native OAuth flow.
+
+## Known issues
+
+| ID | Symptom | Workaround |
+|---|---|---|
+| FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) (**critical**) | `/auth/revoke` and `/auth/revoke-all` are unauthenticated. | Gate at reverse proxy or omit `[fraiseql.security.token_revocation]`. See [Authentication caveat 2](/building/authentication#2-fw-26-358--authrevoke-and-authrevoke-all-are-unauthenticated-critical). |
+| FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) | PKCE with `state_encryption` disabled warns once and continues; `state` token is the raw lookup key. | Configure `[fraiseql.security.state_encryption]` before enabling PKCE. See [Authentication caveat 4](/building/authentication#4-fw-28-360--pkce-warns-but-continues-without-state-encryption-security). |
+| FW-29 [#361](https://github.com/fraiseql/fraiseql/issues/361) | JWKS cache holds rotated-out keys for up to `jwks_cache_ttl_secs` (default 300 s). Stolen-key replay window equals the TTL. | Restart replicas after rotating a compromised key at the IdP; tighten `jwks_cache_ttl_secs` if the IdP supports it. See [Authentication caveat 5](/building/authentication#5-fw-29-361--jwks-hot-rotate-window-equals-the-cache-ttl-security). |
 
 ## Next Steps
 
 <CardGrid>
-  <Card title="Security" icon="shield">
-    [Security](/features/security) — RBAC and field-level authorization
+  <Card title="Authentication" icon="approve-check">
+    [Building → Authentication](/building/authentication) — full auth surface, all 11 caveats, and the canonical `[auth]` / `[auth_hs256]` reference.
   </Card>
-  <Card title="Rate Limiting" icon="random">
-    [Rate Limiting](/features/rate-limiting) — Protect auth endpoints
+  <Card title="Security hub" icon="shield">
+    [Security](/features/security) — JWT verification, field-level RBAC, and the RBAC management API.
   </Card>
-  <Card title="Deployment" icon="rocket">
-    [Deployment](/guides/deployment) — Production OAuth setup
+  <Card title="Configuration" icon="setting">
+    [Configuration](/concepts/configuration) — the map from `fraiseql.toml` sections to direct-TOML vs compile-step indirection.
   </Card>
 </CardGrid>

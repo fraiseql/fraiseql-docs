@@ -1,232 +1,107 @@
 ---
 title: TOML Configuration
-description: Configure FraiseQL with a simple, readable TOML file
+description: How `fraiseql.toml` is structured at v2.3.2 — which sections the binary reads directly, which require `fraiseql-cli compile`, and where each section's authoritative reference lives
 ---
 
 import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/components';
 
-<Aside type="caution">
-**This page is being updated.** Some TOML sections shown here (`[auth]`, `[compilation]`, `[rate_limit]`) do not exist in the engine and will cause a hard "unknown field" error at `fraiseql compile`. For the authoritative, engine-verified reference, see [TOML Configuration](/reference/toml-config).
-</Aside>
+FraiseQL configuration lives in a single `fraiseql.toml` file. Different sections are consumed at different points in the build / boot lifecycle:
 
-FraiseQL uses a single `fraiseql.toml` file for all configuration. TOML is human-readable, git-friendly, and has no YAML gotchas.
+- The **`fraiseql-server` binary** reads `ServerConfig` directly from `fraiseql.toml` at startup. The sections it auto-wires are `[auth]`, `[auth_hs256]`, `[auth.me]`, `[server]`, `[server.cors]`, `[server.tls]`, `[tls]`, `[database]`, plus a handful of operator-facing knobs (`metrics_token`, `admin_token`, `admin_readonly_token`, `storage_token`).
+- The **`fraiseql-cli compile` step** reads `fraiseql.toml` as a `TomlProjectConfig`, picks up `[fraiseql.security.*]` (and any subordinate blocks under it), and bakes them into `schema.compiled.json` under `schema.security.additional["<subsystem>"]`. The server reads from there at boot for: API keys, token revocation, PKCE, state encryption, error sanitization, per-endpoint rate limiting, and trusted documents.
+- The **CLI alone** validates the security configuration with `serde(deny_unknown_fields)`. Editing `[fraiseql.security.*]` without re-running `fraiseql-cli compile` is a silent no-op at the runtime; the server only sees what compile bakes in.
 
-## Minimal Configuration
+The authoritative source for the full auth-and-security surface is [Building → Authentication](/building/authentication). This page is the map.
 
-```toml title="fraiseql.toml"
-[project]
-name = "my-api"
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L41 — ServerConfig struct (server reads this from --config TOML) */}
+{/* source: crates/fraiseql-cli/src/config/mod.rs:L21 — TomlProjectConfig serde(default, deny_unknown_fields) */}
+{/* source: crates/fraiseql-cli/src/commands/compile.rs:L165-L210 — compile reads fraiseql.toml, merges fraiseql.security into intermediate schema */}
 
-[database]
-url = "${DATABASE_URL}"
-```
-
-That's it. Everything else has sensible defaults.
-
-## Verified Configuration Sections
-
-The following sections are confirmed valid in `fraiseql.toml`. Unknown sections cause a hard parse error at `fraiseql compile`.
+## Minimal configuration
 
 ```toml title="fraiseql.toml"
-# ============================================
-# Project Metadata
-# ============================================
 [project]
 name = "my-api"
 version = "1.0.0"
 
-# ============================================
-# Database Configuration
-# ============================================
 [database]
 url = "${DATABASE_URL}"
-pool_min = 2           # default: 2
-pool_max = 20
-connect_timeout_ms = 5000
-idle_timeout_ms = 600000
-ssl_mode = "prefer"    # disable | allow | prefer | require
-
-# ============================================
-# Server Configuration
-# ============================================
-[server]
-host = "0.0.0.0"        # default: 0.0.0.0
-port = 8080             # default: 8080
-request_timeout_ms = 30000
-keep_alive_secs = 75
-
-[server.cors]
-origins     = ["https://app.example.com"]
-credentials = true
-
-[server.tls]
-cert_file = "/path/to/cert.pem"
-key_file  = "/path/to/key.pem"
-
-# ============================================
-# Security
-# ============================================
-[security]
-default_policy = "authenticated"   # or "public"
-
-[[security.rules]]
-name              = "owner_only"
-rule              = "user.id == object.owner_id"
-cacheable         = true
-cache_ttl_seconds = 300
-
-[[security.policies]]
-name              = "admin_only"
-type              = "rbac"
-roles             = ["admin"]
-strategy          = "any"
-
-[security.error_sanitization]
-enabled                     = true
-hide_implementation_details = true
-sanitize_database_errors    = true
-custom_error_message        = "An internal error occurred"
-
-[security.rate_limiting]
-enabled             = true
-requests_per_second = 100
-burst_size          = 200
-
-[security.state_encryption]
-enabled    = true
-algorithm  = "chacha20-poly1305"
-key_source = "env"
-key_env    = "STATE_ENCRYPTION_KEY"
-
-[security.pkce]
-enabled               = true
-code_challenge_method = "S256"
-state_ttl_secs        = 600
-
-[security.enterprise]
-audit_logging_enabled = true
-audit_log_backend     = "postgresql"
-
-# ============================================
-# Query Defaults
-# ============================================
-[query_defaults]
-# Default limits and pagination settings
-
-# ============================================
-# Federation
-# ============================================
-[federation]
-enabled = true
-
-[federation.circuit_breaker]
-enabled                  = true
-failure_threshold        = 5
-recovery_timeout_secs    = 30
 ```
 
-<Aside type="note">
-**Authentication** (`JWT_SECRET`, `JWT_ALGORITHM`, OAuth credentials) is configured via environment variables, not `fraiseql.toml`. **Logging** uses `RUST_LOG`. **Tracing** can be configured via the `[tracing]` TOML section (since v2.1.0) or `OTEL_*` env vars. There are no `[auth]`, `[logging]`, `[graphql]`, or `[metrics]` sections.
+Every other section has defaults. The `[fraiseql]` block becomes mandatory once you have a schema file (`schema_file` / `output_file` paths); otherwise the CLI uses `schema.json` / `schema.compiled.json` defaults.
 
-For the full engine-verified reference, see [TOML Configuration Reference](/reference/toml-config).
-</Aside>
+{/* source: crates/fraiseql-cli/src/config/mod.rs:L66-L93 — FraiseQLSettings defaults */}
 
-<Aside type="note">
-**Available since v2.1**
+## Configuration surface map
 
-Multi-transport configuration sections:
+### Direct-from-ServerConfig (binary reads at startup; no compile step)
 
-```toml
-[rest]
-path = "/rest/v1"
-require_auth = false
-openapi_enabled = true
+These sections live on `ServerConfig` and are auto-wired by `fraiseql-server` when present in `fraiseql.toml`. They are visible without `fraiseql-cli compile`.
 
-[grpc]
-enabled = true
-```
-</Aside>
+| Section | What it configures | Authoritative reference |
+|---------|-------------------|--------------------------|
+| `[auth]` | OIDC token validator (issuer, audience, JWKS, algorithm allowlist) — production auth path | [Authentication → JWT and OIDC](/building/authentication#jwt-and-oidc) |
+| `[auth.me]` | `GET /auth/me` session-identity endpoint — opt-in, rides on `[auth]` | [Authentication → `/auth/me`](/building/authentication#authme-session-identity-endpoint) |
+| `[auth_hs256]` | HS256 symmetric-key validator — integration testing only, mutually exclusive with `[auth]` | [Authentication → HS256 testing mode](/building/authentication#hs256-testing-mode) |
+| `[server]` | Bind address, port, request timeout, keep-alive, admin-token guards | [Reference → TOML config](/reference/toml-config) |
+| `[server.cors]` | CORS origins, credentials, allowed methods | [Reference → TOML config](/reference/toml-config) |
+| `[server.tls]` / `[tls]` | TLS certificate, private key, mTLS settings | [Reference → TOML config](/reference/toml-config) |
+| `[database]` | Connection URL, pool sizing, SSL mode, connection / idle timeouts | [Reference → TOML config](/reference/toml-config) |
 
-## Environment Variables
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L293-L307 — auth: Option<OidcConfig> direct on ServerConfig */}
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L308-L323 — auth_hs256: Option<Hs256Config> direct on ServerConfig */}
+{/* source: crates/fraiseql-server/src/server_config/hs256.rs:L11-L39 — Hs256Config struct, mutually-exclusive-with-[auth] docstring */}
+{/* source: crates/fraiseql-server/src/main.rs:L25-L34 — load_config: toml::from_str into ServerConfig */}
 
-Use `${VAR_NAME}` syntax in `fraiseql.toml` to reference environment variables:
+### Compile-step indirection (`[fraiseql.security.*]` — requires `fraiseql-cli compile`)
 
-```toml
-[database]
-url = "${DATABASE_URL}"
+These sections live on `TomlProjectConfig.fraiseql.security` in the CLI's schema. The CLI validates them with `deny_unknown_fields`, bakes them into the compiled schema, and the server reads them from `schema.compiled.json` at boot. A TOML edit alone is a silent no-op — re-run compile after every change.
 
-[server]
-port = 8080
-```
+| Section | What it configures | Authoritative reference |
+|---------|-------------------|--------------------------|
+| `[fraiseql.security.api_keys]` | Static API keys with SHA-256 hashed storage | [Authentication → API keys](/building/authentication#api-keys) |
+| `[fraiseql.security.token_revocation]` | JWT `jti` revocation (memory or Redis; postgres downgrades — FW-25) | [Authentication → Token revocation](/building/authentication#token-revocation) |
+| `[fraiseql.security.pkce]` | PKCE OAuth2 challenge (S256 default; redis-pkce for multi-replica) | [Authentication → PKCE OAuth2 flow](/building/authentication#pkce-oauth2-flow) |
+| `[fraiseql.security.state_encryption]` | AEAD encryption of OAuth state and PKCE blobs (ChaCha20-Poly1305 or AES-256-GCM) | [Encryption](/features/encryption) |
+| `[fraiseql.security.rate_limiting]` | Per-endpoint rate caps for auth routes (failed-login fields silently dropped — FW-24) | [Rate limiting](/features/rate-limiting) |
+| `[fraiseql.security.error_sanitization]` | Strip stack traces and DB errors from client responses (disabled by default) | [Security → error sanitization](/features/security#quick-mention--error-sanitization-query-complexity-cors) |
+| `[fraiseql.security.trusted_documents]` | Query allowlist (strict or permissive mode) | [Reference → TOML config](/reference/toml-config) |
+| `[fraiseql.security.enterprise]` | Audit logging flags (`audit_logging_enabled`, `audit_log_backend`) | [Audit logging](/features/audit-logging) |
+| `[[fraiseql.security.rules]]` / `[[fraiseql.security.policies]]` / `[[fraiseql.security.field_auth]]` | Elo-rule and RBAC/ABAC policy declarations bound to types and fields | [Security → authorization policies](/features/security#authorization-policies-toml-driven) |
+| `[fraiseql.tenancy]` | Tenant-mode discriminator (shared-pool / pool-per-tenant / schema-per-tenant) | [Multi-tenancy](/building/multi-tenancy) |
+| `[auth]` (at the CLI's TomlSchema level) | OAuth2 client identity for the PKCE flow (discovery URL, client ID, client secret env var, server redirect URI) — distinct from the server's `[auth]` OIDC validator | [Authentication → PKCE OAuth2 flow](/building/authentication#pkce-oauth2-flow) |
 
-### Configuration via Environment Variables
+{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L7-L34 — SecuritySettings struct with all subsystems */}
+{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L9 — serde(default, deny_unknown_fields) on SecuritySettings */}
+{/* source: crates/fraiseql-server/src/api_key.rs:L237-L251 — api_key_authenticator_from_schema reads schema.security.additional["api_keys"] */}
+{/* source: crates/fraiseql-server/src/token_revocation.rs:L384-L390 — revocation_manager_from_schema reads compiled schema */}
+{/* source: crates/fraiseql-server/src/server/initialization.rs:L44-L82 — pkce_store_from_schema reads compiled schema */}
 
-Some settings are **only** configurable via environment variables (no TOML equivalent):
+### Other top-level sections
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | Database connection string |
-| `JWT_SECRET` | JWT signing secret (HS256) or public key path (RS256/ES256) |
-| `JWT_ALGORITHM` | `HS256` \| `RS256` \| `ES256` (default: `HS256`) |
-| `JWT_ISSUER` | Expected `iss` claim (optional) |
-| `JWT_AUDIENCE` | Expected `aud` claim (optional) |
-| `RUST_LOG` | Log level: `error` \| `warn` \| `info` \| `debug` \| `trace` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry collector endpoint (fallback; prefer `[tracing] otlp_endpoint` in TOML) |
-| `OTEL_SERVICE_NAME` | Service name for traces (fallback; prefer `[tracing] service_name` in TOML) |
+These sections cover the rest of the framework — schema authoring, transports, observability, federation, observers, caching. They live under `[fraiseql.*]` (schema authoring) or as their own top-level blocks consumed by the CLI's `TomlSchema`.
 
-## Configuration by Environment
+| Section | Status at v2.3.2 | Cross-link |
+|---------|------------------|------------|
+| `[fraiseql]` | Schema file paths, security namespace, tenancy | [Reference → TOML config](/reference/toml-config) |
+| `[rest]` / `[grpc]` | Multi-transport configuration | [REST endpoints](/features/rest-transport) / [gRPC](/features/grpc-transport) |
+| `[observers]` | Event-system configuration; PG LISTEN/NOTIFY default at the binary | [Observers](/features/observers) |
+| `[federation]` | Federation gateway / subgraph configuration | [Federation gateway](/building/federation-gateway) |
+| `[caching]` | Result-cache rules | [Reference → TOML config](/reference/toml-config) |
+| `[observability]` / `[tracing]` | OpenTelemetry export, metrics | [Reference → TOML config](/reference/toml-config) |
+| `[validation]` | Query-depth and alias limits | [Security → query complexity](/features/security#quick-mention--error-sanitization-query-complexity-cors) |
+| `[storage.<name>]` | Object-storage backends (S3, MinIO, Azurite, fake-GCS, local) | [File storage](/features/file-storage) |
 
-Use separate `fraiseql.toml` files per environment, or use environment variable substitution to vary values:
+{/* source: crates/fraiseql-cli/src/config/toml_schema/mod.rs:L62-L165 — TomlSchema struct: federation, security, observers, caching, observability, rest, validation, mcp */}
 
-```bash
-# Development
-DATABASE_URL=postgresql://localhost:5432/myapp_dev fraiseql run
+## Example: production OIDC + compile-step subsystems
 
-# Production (different .env file or secrets manager)
-DATABASE_URL=postgresql://prod-host:5432/myapp fraiseql run
-```
+The shapes below match the `building/authentication` page exactly. Edit, then re-run `fraiseql-cli compile` before restarting the server.
 
-You can also maintain separate config files:
-
-```bash
-# Use a different config file
-fraiseql run --config fraiseql.production.toml
-```
-
-## Validation
-
-FraiseQL validates your `fraiseql.toml` when you run `fraiseql compile`. Unknown sections cause a hard parse error — this is intentional, so configuration mistakes are caught at build time rather than at runtime.
-
-```bash
-fraiseql compile
-# Error: unknown field `[auth]` in fraiseql.toml at line 12
-```
-
-## Common Patterns
-
-### Local Development
-
-```toml
+```toml title="fraiseql.toml — production OIDC + PKCE + revocation"
 [project]
 name = "my-api"
-
-[database]
-url = "postgresql://localhost:5432/myapp_dev"
-
-[server]
-port = 8080
-```
-
-```bash
-# Development logging
-RUST_LOG=debug fraiseql run
-```
-
-### Production
-
-```toml
-[project]
-name = "my-api"
+version = "1.0.0"
 
 [database]
 url = "${DATABASE_URL}"
@@ -237,52 +112,181 @@ ssl_mode = "require"
 [server]
 host = "0.0.0.0"
 port = 8080
+admin_api_enabled = true
+admin_token = "${FRAISEQL_ADMIN_TOKEN}"
 
 [server.cors]
 origins = ["https://app.example.com"]
 credentials = true
 
-[security.error_sanitization]
-enabled = true
+# ---- Direct-TOML on ServerConfig (no compile step required) ----
+[auth]                                     # OIDC validator — direct-wired
+issuer = "https://your-tenant.auth0.com/"
+audience = "https://api.example.com"       # SECURITY CRITICAL — boot fails without it
 
-[security.rate_limiting]
-enabled             = true
-requests_per_second = 100
-burst_size          = 200
+[auth.me]                                  # opt-in; rides on [auth]
+enabled = true
+expose_claims = ["tenant_id", "https://myapp.com/role"]
+
+# ---- Compile-step indirection (re-run `fraiseql-cli compile` after edits) ----
+[fraiseql.security.state_encryption]
+enabled = true
+algorithm = "chacha20-poly1305"
+key_source = "env"
+key_env = "STATE_ENCRYPTION_KEY"
+
+[fraiseql.security.pkce]
+enabled = true
+code_challenge_method = "S256"
+state_ttl_secs = 600
+
+[fraiseql.security.token_revocation]
+enabled = true
+backend = "redis"                          # "postgres" silently downgrades — FW-25 #357
+redis_url = "redis://redis:6379"
+require_jti = true
+fail_open = false
+
+[fraiseql.security.error_sanitization]
+enabled = true
+hide_implementation_details = true
+sanitize_database_errors = true
+custom_error_message = "An internal error occurred"
+
+[fraiseql.security.rate_limiting]
+enabled = true
+trust_proxy_headers = false                # requires trusted_proxy_cidrs if true
+```
+
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L293-L307 — auth field doc comment example */}
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L40 — ServerConfig struct (no deny_unknown_fields, so unknown sections are silently ignored at server boot) */}
+
+The server silently ignores `[fraiseql.*]` at boot — those keys are not present on `ServerConfig`. The CLI's compile step rejects unknown fields at the `[fraiseql.security.*]` level, so misspellings there fail loudly. Misspellings at the top level (`[fraseql.security.*]`, `[security.api_keys]` instead of `[fraiseql.security.api_keys]`) are NOT caught by the server — the keys end up parsed as unrelated top-level sections and silently dropped.
+
+## Environment variable substitution
+
+`fraiseql.toml` supports `${VAR_NAME}` substitution at parse time. Use it for secrets and per-environment values:
+
+```toml
+[database]
+url = "${DATABASE_URL}"
+
+[fraiseql.security.token_revocation]
+redis_url = "${REDIS_URL}"
+
+[server]
+admin_token = "${FRAISEQL_ADMIN_TOKEN}"
+```
+
+{/* source: crates/fraiseql-cli/src/config/mod.rs:L1-L15 — expand_env_vars import + module documentation */}
+
+### Variables with no TOML equivalent
+
+These settings exist only as environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | Database connection string (when `[database] url = "${DATABASE_URL}"`) |
+| `RUST_LOG` | Log level — `error` \| `warn` \| `info` \| `debug` \| `trace` |
+| `FRAISEQL_OBSERVERS_ALLOW_INSECURE` | Observer SSRF / scheme-validation bypass — never set in production. See [Observers security caveats](/features/observers#security-caveats). |
+| `STATE_ENCRYPTION_KEY` | 32-byte secret consumed by `[fraiseql.security.state_encryption] key_source = "env"` |
+| `OIDC_CLIENT_SECRET` | OAuth2 client secret for the PKCE flow; referenced from `[auth] client_secret_env` (CLI-level) |
+| `FRAISEQL_HS256_SECRET` | HS256 shared secret; referenced from `[auth_hs256] secret_env` |
+| `FRAISEQL_ADMIN_TOKEN` | Bearer token for the RBAC management API and other admin operations |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Trace export collector endpoint (fallback; prefer `[tracing] otlp_endpoint`) |
+
+## Configuration by environment
+
+Use separate `fraiseql.toml` files per environment, or vary values via `${VAR}` substitution:
+
+```bash
+# Development
+DATABASE_URL=postgresql://localhost:5432/myapp_dev fraiseql-server --config fraiseql.toml
+
+# Production (different .env file or secrets manager)
+DATABASE_URL=postgresql://prod-host:5432/myapp fraiseql-server --config fraiseql.toml
+```
+
+You can also maintain separate config files:
+
+```bash
+fraiseql-cli compile --config fraiseql.production.toml --output schema.compiled.json
+fraiseql-server --config fraiseql.production.toml
+```
+
+## Validation
+
+The CLI's `fraiseql-cli compile` validates `fraiseql.toml` against the strict `TomlProjectConfig` schema. Unknown fields inside `[fraiseql.*]` blocks fail loudly:
+
+```bash
+fraiseql-cli compile
+# Error: unknown field `unknown_field` at fraiseql.toml:N:N
+```
+
+The server's `--config` loader does NOT use `deny_unknown_fields` — unknown top-level sections (typos like `[secuirty]`, or sections the server does not know about) are silently ignored. If a section's behaviour depends on the compile step, run `fraiseql-cli compile` after every TOML edit and treat the compile error as the source of truth.
+
+{/* source: crates/fraiseql-cli/src/config/mod.rs:L21 — TomlProjectConfig serde(default, deny_unknown_fields) */}
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L40 — ServerConfig has no deny_unknown_fields */}
+
+## Common patterns
+
+### Local development (HS256 + no PKCE)
+
+```toml title="fraiseql.toml"
+[project]
+name = "my-api"
+
+[database]
+url = "postgresql://localhost:5432/myapp_dev"
+
+[server]
+port = 8080
+
+[auth_hs256]
+secret_env = "FRAISEQL_HS256_SECRET"
+issuer = "local-dev"
+audience = "my-api"                         # operator-required; framework does not enforce (FW-27)
 ```
 
 ```bash
-# Production env vars
-JWT_SECRET=your-256-bit-secret
-RUST_LOG=info
-OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+export FRAISEQL_HS256_SECRET="$(openssl rand -base64 32)"
+RUST_LOG=debug fraiseql-server --config fraiseql.toml
 ```
 
-### Multi-Tenant
+### Production (OIDC + PKCE + revocation + state encryption)
 
-```toml
+See the full example earlier on this page. The four-line compile-step block:
+
+```bash
+export STATE_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+export FRAISEQL_ADMIN_TOKEN="$(openssl rand -hex 32)"
+fraiseql-cli compile --output schema.compiled.json
+fraiseql-server --config fraiseql.toml
+```
+
+### Multi-tenant (JWT-claim tenant dispatch)
+
+```toml title="fraiseql.toml"
 [project]
 name = "multi-tenant-api"
 
 [database]
 url = "${DATABASE_URL}"
+
+[auth]
+issuer = "${OIDC_ISSUER}"
+audience = "${OIDC_AUDIENCE}"
+
+[fraiseql.tenancy]
+mode = "shared_pool"                        # see Multi-tenancy page for "pool_per_tenant" / "schema_per_tenant"
+discriminator_claim = "org_id"              # JWT claim that picks the tenant
 ```
 
-```bash
-# JWT includes tenant_id claim — extracted in middleware
-JWT_SECRET=your-256-bit-secret
-```
+See the [Multi-tenancy](/building/multi-tenancy) page for the tenant-registry / executor-factory wiring and the library-API caveat (FW-3 #330).
 
-See [Multi-Tenancy Guide](/guides/multi-tenancy) for RLS and schema-per-tenant patterns.
+### Multi-transport (REST + gRPC + GraphQL on one port)
 
-### Multi-Transport
-
-<Aside type="note">
-**Available since v2.1**
-
-Enable REST and gRPC alongside GraphQL. All three transports are served from the same port (default: 8080).
-
-```toml
+```toml title="fraiseql.toml"
 [project]
 name = "my-api"
 
@@ -301,22 +305,23 @@ openapi_enabled = true
 enabled = true
 ```
 
-REST endpoints are only created for operations that include `rest_path`/`rest_method` annotations. gRPC endpoints are auto-generated for all operations when `[grpc]` is enabled — see [gRPC Transport](/features/grpc-transport). Operations without REST annotations remain GraphQL-only (plus gRPC if enabled).
-</Aside>
+REST endpoints exist for operations that include `rest_path` / `rest_method` annotations; gRPC services are auto-generated for all operations when `[grpc] enabled = true`. See [gRPC transport](/features/grpc-transport) and [REST endpoints](/features/rest-transport).
 
-## Next Steps
+{/* source: crates/fraiseql-cli/src/config/toml_schema/mod.rs:L155-L158 — pub rest: RestTomlConfig */}
+
+## Next steps
 
 <CardGrid>
-  <Card title="How It Works" icon="information">
-    [Understand compilation](/concepts/how-it-works) and how FraiseQL maps your schema to SQL.
+  <Card title="Authentication" icon="approve-check">
+    [Authentication](/building/authentication) — the authoritative reference for `[auth]`, `[auth_hs256]`, `[auth.me]`, and every `[fraiseql.security.*]` block.
   </Card>
-  <Card title="Schema Definition" icon="document">
-    [Define your types](/concepts/schema) in Python, TypeScript, or Go.
+  <Card title="TOML reference" icon="document">
+    [TOML configuration reference](/reference/toml-config) — every key, type, default, and validation rule.
   </Card>
-  <Card title="CLI Reference" icon="laptop">
-    [All CLI commands](/reference/cli) for building and serving your API.
+  <Card title="OAuth providers" icon="external">
+    [OAuth providers](/features/oauth-providers) — per-provider `[auth]` shapes for Auth0, Keycloak, Okta, Cognito, Azure AD.
   </Card>
-  <Card title="Type System" icon="puzzle">
-    [Understand the type system](/concepts/type-system) and how Python types map to GraphQL.
+  <Card title="How it works" icon="information">
+    [How it works](/concepts/how-it-works) — schema compilation, the `schema.compiled.json` artifact, and how the runtime consumes it.
   </Card>
 </CardGrid>

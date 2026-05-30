@@ -6498,3 +6498,67 @@ If the user wants to formally surface G9 / G10 / G11 as gates: writer marks Phas
 2. **Writer-Opus (batch) → Reviewer-Opus (batch) → Cleanup-Sonnet** for 7b (13 POLISH pages).
 3. **Writer-Opus (batch) → Reviewer-Opus (batch) → Cleanup-Sonnet** for 7c (5 POLISH vs/* pages).
 
+
+---
+
+### Phase 03 / Cycle 7a GREEN — Writer (Opus 4.7) — 2026-05-30
+
+#### Scope
+
+Three REWRITE pages identified by Cycle 7 RED, addressing the auth/security cluster's `[auth]`-section falsehoods and the `/features/security` hub-vs-detail boundary. G9c (split) accepted per orchestrator-default; G10 (preserve Python decorators) accepted; G11 (vs/\* point-in-time) deferred to 7c.
+
+#### Per-page outcomes
+
+| Page | Word count delta | Citations | Key changes |
+|---|---|---|---|
+| `src/content/docs/features/security.mdx` | 2264 → 2276 (+12) | 28 | G9c split applied — hub now LEADS with security-caveats table cross-linking the 6 FW-24..FW-29 anchors on `/building/authentication`; keeps JWT verification at request edge + field-level RBAC + the **corrected** RBAC management API (routes are `/api/roles`, `/api/permissions`, `/api/user-roles`, `/api/audit/permissions` per `crates/fraiseql-server/src/api/rbac_management.rs:L117-L135`, NOT the `/api/rbac/*` shape the prior page documented); de-scopes OAuth / encryption / audit / rate-limiting / server-side-injection / multi-tenancy to dedicated pages via CardGrid; `admin_token` gating documented per the bearer-token middleware at `extensions.rs:L160-L179` |
+| `src/content/docs/features/oauth-providers.mdx` | 1368 → 2542 (+1174) | 20 | Wrong `:::caution` Aside at L26-28 (claiming `[auth]` is a parse error) DELETED. Replaced with documented `[auth]` TOML config that is direct-wired on `ServerConfig.auth: Option<OidcConfig>` at `crates/fraiseql-server/src/server_config/mod.rs:L293-L307`. Documents the 5 provider constructors (Auth0 / Keycloak / Okta / Cognito / Azure AD) at `crates/fraiseql-core/src/security/oidc/providers.rs:L172-L262` with per-provider TOML examples. Replaces the wrong endpoints table (`/auth/login`, `/auth/userinfo`, `/auth/refresh`, `/auth/logout`) with the actual routes (`/auth/start`, `/auth/callback`, `/auth/me`, `/auth/revoke`, `/auth/revoke-all`) at `crates/fraiseql-server/src/server/routing/auth.rs:L24-L114`. FW-26 critical caveat surfaced inline; FW-28 + FW-29 cross-linked. Cookie format documented per `crates/fraiseql-server/src/routes/auth.rs:L220-L246`. Page no longer contradicts `/building/authentication`. |
+| `src/content/docs/concepts/configuration.mdx` | 935 → 1902 (+967) | 20 | Wrong top-of-page `:::caution` Aside at L8-10 (claiming `[auth]`, `[compilation]`, `[rate_limit]` cause hard parse errors) DELETED. Wrong `:::note` at L129 (denying `[auth]` / `[logging]` / `[graphql]` / `[metrics]` sections) DELETED. Replaced with a config-surface map: **Direct-from-ServerConfig** (`[auth]`, `[auth.me]`, `[auth_hs256]`, `[server]`, `[server.cors]`, `[server.tls]`, `[database]`) vs **Compile-step indirection** (`[fraiseql.security.*]` subsystems under `TomlProjectConfig.fraiseql.security`, validated by CLI `deny_unknown_fields`). Notes the dual `[auth]` naming convention: server-level `[auth]` = `OidcConfig` (validator) at `server_config/mod.rs:L293-L307`; CLI's `[auth]` = `OidcClientConfig` (PKCE OAuth client) at `crates/fraiseql-cli/src/config/toml_schema/security.rs:L516-L527`. Calls out the server's lack of `deny_unknown_fields` (typos at top level are silently ignored at boot — re-run compile to surface). |
+| **Totals** | **+2153 words** | **68 citations** | — |
+
+#### Citations target
+
+≥ 20 required. Delivered 68 (28 + 20 + 20). All citations point at the frozen FraiseQL SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461` and were re-verified by direct grep before pasting. Verifier-Sonnet will re-grep ≥ 8 random citations per the methodology.
+
+#### Cross-link inventory
+
+The 3 pages now form a coherent triangle, with `/building/authentication` as the canonical reference for the auth surface:
+
+- `/features/security` → `/building/authentication` (×8 — caveat-anchor deep-links + general reference), `/features/oauth-providers`, `/features/encryption`, `/features/audit-logging`, `/features/rate-limiting`, `/features/server-side-injection`, `/features/observers` (FW-21 cross-link), `/building/multi-tenancy`, `/reference/toml-config`.
+- `/features/oauth-providers` → `/building/authentication` (×7 — caveat-anchor deep-links + general reference), `/features/security`, `/features/server-side-injection`, `/concepts/configuration`.
+- `/concepts/configuration` → `/building/authentication` (×5 — caveat-anchor deep-links + general reference), `/features/oauth-providers`, `/features/security`, `/features/encryption`, `/features/rate-limiting`, `/features/audit-logging`, `/features/observers`, `/features/file-storage`, `/features/rest-transport`, `/features/grpc-transport`, `/building/federation-gateway`, `/building/multi-tenancy`, `/reference/toml-config`, `/concepts/how-it-works`.
+
+All caveat deep-links to `/building/authentication` use the anchors confirmed in the Cycle 4 GREEN page (e.g. `#2-fw-26-358--authrevoke-and-authrevoke-all-are-unauthenticated-critical`).
+
+#### Gate resolutions applied
+
+- **G9 → G9c (split).** `/features/security` becomes the JWT-verification + field-level-RBAC + RBAC-management-API hub; OAuth / encryption / audit / rate-limiting / server-side-injection live on their own pages, linked from the hub's CardGrid. Caveats live on `/building/authentication`; the hub names the symptom and points at the anchor.
+- **G10 → preserve Python decorators.** `@fraiseql.type`, `@fraiseql.query`, `@fraiseql.mutation`, `Annotated[..., fraiseql.field(requires_scope=...)]`, `inject={"key": "jwt:claim"}` — all kept on the pages that documented them. Verified at `crates/fraiseql-cli/src/schema/converter/queries.rs:L158`, `types.rs:L40`, `types.rs:L182`, `queries.rs:L20-L33`.
+- **G11 → deferred to 7c.** Cycle 7a does not touch comparison pages.
+
+#### Build state
+
+- `bun run build` → exit 0; **205 pages** built; `strip-source-citations: scanned 281 HTML files, modified 3, stripped 223 source-citation comments` — the 3 modified files match the 3 REWRITE pages.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/features/security/ dist/features/oauth-providers/ dist/concepts/configuration/` → **0 hits** (Posture B integrity confirmed).
+- `git grep -nE "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP"` on the 3 pages → 0 archaeology hits (the only matches are `XXXXXXXXX` placeholders in the Cognito user-pool-ID example, which is the documented placeholder shape).
+
+#### Framework bugs filed
+
+**Zero.** All six relevant framework issues (FW-24..FW-29) and the security-adjacent FW-21 are already filed and tracked in `framework-qa-triage.md`. The Cycle 7a work is page-side correction — the bugs are documented, the workarounds are in place, the cross-links flow to `/building/authentication` for the caveat block. No new adversarial work was warranted beyond what Cycle 4's Bug-Finder already produced.
+
+#### CI URL
+
+To be captured on push; PR description + this handoff entry will be back-filled once the workflow run starts.
+
+#### Pointer
+
+**Source-Citation Verifier (Sonnet 4.6)** and **Reviewer (Opus 4.7)** for Phase 03 / Cycle 7a — fresh contexts, in parallel. Verifier re-greps ≥ 8 random citations across the 3 pages at the frozen SHA; Reviewer walks the 15-point checklist on each page in turn, with special attention to:
+
+- Item 1 (version drift) — verify `[auth]` IS the auto-wired OIDC validator at the frozen SHA, not a parse error.
+- Item 7 (undefined symbols) — confirm `OidcConfig::auth0` / `::keycloak` / `::okta` / `::cognito` / `::azure_ad` all exist at `providers.rs:L172-L262`.
+- Item 8 (copy-paste from prior version) — the prior pages contained the OPPOSITE claim ([auth] is a parse error); confirm the new pages now align with `/building/authentication`.
+- Item 10 (RLS / security interactions) — confirm the `inject={"sql_param": "jwt:claim"}` framing matches Cycle 4's GREEN page.
+- Item 11 (error-path coverage) — `/features/oauth-providers` carries the "Common OAuth errors" table; verify error codes against the framework.
+- Item 13 (source citations resolve) — re-grep at least 3 random citations.
+
+On Reviewer + Verifier both APPROVE, hand off to **Cleanup (Sonnet 4.6)** for 7a close — verify sidebar entries, archaeology grep, append `## Pages completed` rows to phase-03 doc, commit cleanly. Then dispatch **Writer-Opus (batch)** for 7b (13 POLISH pages).
