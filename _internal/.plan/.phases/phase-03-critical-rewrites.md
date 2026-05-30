@@ -281,6 +281,7 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - `/building/multi-tenancy` (Cycle 1 — closed 2026-05-29)
 - `/features/file-storage` (Cycle 2 — closed 2026-05-30)
 - `/features/observers` (Cycle 3 — closed 2026-05-30; + scope statements on `/building/observers`, `/building/observer-webhook-patterns`, `/operations/observer-runbook` — no body rewrite, full rewrites deferred to Phase 08 polish)
+- `/building/authentication` (Cycle 4 — closed 2026-05-30)
 
 ## Framework bugs filed
 
@@ -305,3 +306,9 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - FW-21 [#348](https://github.com/fraiseql/fraiseql/issues/348) — (CRITICAL) anonymous observer admin API
 - FW-22 [#349](https://github.com/fraiseql/fraiseql/issues/349) — EmailAction stub — returns success without sending
 - FW-23 [#350](https://github.com/fraiseql/fraiseql/issues/350) — transport silently ignored regardless of feature flag
+- FW-24 [#356](https://github.com/fraiseql/fraiseql/issues/356) — `[security.rate_limiting].failed_login_max_attempts` / `failed_login_lockout_secs` silently dropped: CLI schema accepts both fields; server-runtime `RateLimitingSecurityConfig` mirror omits them — brute-force protection is no-op
+- FW-25 [#357](https://github.com/fraiseql/fraiseql/issues/357) — `[security.token_revocation] backend = "postgres"` silent downgrade: `revocation_manager_from_schema` has no `"postgres" =>` match arm; falls through to `"Unknown revocation backend"` warn and memory backend
+- FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) — (CRITICAL) anonymous `/auth/revoke` and `/auth/revoke-all` endpoints: `mount_auth_routes` merges revocation routes without an `oidc_auth_middleware` layer — any unauthenticated caller can revoke any token
+- FW-27 [#359](https://github.com/fraiseql/fraiseql/issues/359) — HS256 audience claim not enforced: `build_hs256_auth` only calls `with_audience` when `hs.audience.is_some()`; omitting `audience` in `[auth_hs256]` accepts tokens with any `aud` claim
+- FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) — PKCE warns but continues without state encryption: `pkce_store_from_schema` emits `warn!` when `state_encryption` is `None` then proceeds; PKCE flow runs without state encryption
+- FW-29 [#361](https://github.com/fraiseql/fraiseql/issues/361) — JWKS hot-rotate window equals cache TTL: `get_decoding_key` returns cached key on cache hit without upstream consult; key rotation is invisible during the TTL window (default 300 s)

@@ -5501,3 +5501,57 @@ Unchanged. G1 closed, G2 default-hold, G7 resolved.
 #### Pointer
 
 Next session: **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 4 close. Same low-touch profile as Cycles 1, 2, 3: confirm archaeology grep clean, update `phase-03-critical-rewrites.md` Pages completed (`/building/authentication`) + Framework bugs filed (FW-24..FW-29, 6 entries), capture CI URL, append phase close entry.
+
+**Writer (Opus 4.7)** for Phase 03 / Cycle 4 — apply the single `#auth-me-session-identity-endpoint` anchor fix at L196.
+
+---
+
+### Phase 03 / Cycle 4 close — Cleanup (Sonnet 4.6) — 2026-05-30
+
+#### Build state
+
+- `bun run check` → 0 errors, 0 warnings, 60 hints (all pre-existing in `e2e/` and component files; none in `src/content/docs/`).
+- `bun run build` → exit 0, 205 pages, 14.73 s.
+- Strip integration log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`.
+- Posture B leak scan: `grep -rE '<!--\s*source:' dist/` → 0 matches.
+
+#### Archaeology grep
+
+`git grep -nE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" src/content/docs/building/authentication.md` → 0 matches (exit 1). Clean.
+
+#### Cross-link inventory
+
+Inbound cross-links to `/building/authentication`:
+- `src/content/docs/features/file-storage.md` — confirmed (grep hit).
+- `src/content/docs/building/multi-tenancy.md` — confirmed (grep hit).
+
+Requirement (≥1 inbound link): satisfied with 2.
+
+#### Sidebar confirmation
+
+`astro.config.mjs:L244`: `{ label: 'Authentication', slug: 'building/authentication' }` — present. Redirect `'/guides/authentication': '/building/authentication'` also present at L77.
+
+#### Style Auditor edits
+
+None for Cycle 4. Reviewer's two non-blocking nits (L398 bare fence, caveat 11 mitigation paragraph) deferred to Cycle 5 Style Auditor per Reviewer verdict.
+
+#### Phase 03 doc updates
+
+- `/building/authentication` appended to `## Pages completed` (Cycle 4 — closed 2026-05-30).
+- FW-24..FW-29 appended to `## Framework bugs filed`:
+  - FW-24 #356 `[security.rate_limiting].failed_login_*` silently dropped
+  - FW-25 #357 `[security.token_revocation] backend = "postgres"` silent downgrade
+  - FW-26 #358 (CRITICAL) anonymous `/auth/revoke{,-all}` endpoints
+  - FW-27 #359 HS256 audience claim not enforced
+  - FW-28 #360 PKCE warns but continues without state encryption
+  - FW-29 #361 JWKS hot-rotate window equals cache TTL
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved.
+
+#### Pointer
+
+**Writer (Opus 4.7)** for Phase 03 / Cycle 5 — quickstart 3 SQL bugs (`/getting-started/quickstart.mdx` L156 SQLite `json()`, L184 MSSQL `JSON_QUERY`, L167+L179 MSSQL `WITH SCHEMABINDING` view-on-view). Per sweep matrix this is Phase 03 scope. Cycle 5 is substantively simpler than 1–4 (3 mechanical SQL fixes vs. substantive rewrites).
+
+---
