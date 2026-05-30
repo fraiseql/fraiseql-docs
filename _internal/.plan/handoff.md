@@ -5461,3 +5461,43 @@ Once item 6 flips ✅, the path to phase-03/cycle-4 close is:
 2. Source-Citation Verifier: nothing new to do — Verifier's PASS-72/72 already shipped.
 3. Cleanup (Sonnet 4.6): apply Style Auditor nits at Cycle 5 phase close (the L398 bare-fence and the caveat-11 mitigation-paragraph gap); update phase doc `## Pages completed`; append FW-24..FW-29 to phase doc `## Framework bugs filed`.
 
+
+---
+
+### Phase 03 / Cycle 4 GREEN — orchestrator follow-on (L196 anchor fix) — 2026-05-30
+
+Reviewer's BLOCK was a single-character anchor mismatch in a body link. Orchestrator scope.
+
+#### L196 fix
+
+- Before: `[/auth/me](#auth-me-session-identity-endpoint)`
+- After:  `[/auth/me](#authme-session-identity-endpoint)`
+- Reason: Starlight derives the heading anchor from `/auth/me` as `authme` (the `/` is removed; no hyphen substitution). The link target was assuming `auth-me` (hyphen-separated). One-character fix; link now resolves in rendered HTML.
+- Verified in `dist/building/authentication/index.html`: `href="#authme-session-identity-endpoint"` matches `id="authme-session-identity-endpoint"`.
+
+#### Reviewer's two non-blocking nits — deferred to Cycle 5 Style Auditor
+
+1. L398 bare ```` ``` ```` fence (no language tag) around cookie format display.
+2. Caveat 11 missing explicit `**Mitigation:**` paragraph (breaks caveats 2-7 pattern).
+
+Both are style-guide consistency tweaks within Style Auditor scope.
+
+#### Verification
+
+- `bun run build` → exit 0, 205 pages.
+- `grep -rE '<!--\s*source:' dist/` → 0 hits.
+- `grep -E 'href="#authme' dist/building/authentication/index.html` → confirms the link rewrites correctly.
+
+#### Anti-scope
+
+- No re-spawn of Writer-Opus.
+- No edits beyond L196.
+- No amend; new commit only.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved.
+
+#### Pointer
+
+Next session: **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 4 close. Same low-touch profile as Cycles 1, 2, 3: confirm archaeology grep clean, update `phase-03-critical-rewrites.md` Pages completed (`/building/authentication`) + Framework bugs filed (FW-24..FW-29, 6 entries), capture CI URL, append phase close entry.

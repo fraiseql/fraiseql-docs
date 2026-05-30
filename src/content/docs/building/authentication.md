@@ -193,7 +193,7 @@ The OIDC validator validates incoming JWTs against the issuer's JWKS document. I
 | `allowed_algorithms` | `Vec<String>` | `["RS256"]` | Algorithm-confusion mitigation (caveat 10). <!-- source: crates/fraiseql-core/src/security/oidc/providers.rs:L152-L154 --> |
 | `jwks_cache_ttl_secs` | `u64` | `300` | Stolen-key replay window (caveat 5). <!-- source: crates/fraiseql-core/src/security/oidc/providers.rs:L147-L150 --> |
 | `clock_skew_secs` | `u64` | `60` | Capped at `MAX_CLOCK_SKEW_SECS = 300` regardless of config. <!-- source: crates/fraiseql-core/src/security/oidc/providers.rs:L160-L165 --> |
-| `me` | `Option<MeEndpointConfig>` | `None` | Opt-in; see [`/auth/me`](#auth-me-session-identity-endpoint). |
+| `me` | `Option<MeEndpointConfig>` | `None` | Opt-in; see [`/auth/me`](#authme-session-identity-endpoint). |
 
 Provider-specific constructors exist for Auth0, Keycloak, Okta, Cognito, and Azure AD; they fill in `issuer` and `audience` from supplied tenant / domain values and return a populated `OidcConfig`.
 
