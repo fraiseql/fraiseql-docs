@@ -8,8 +8,8 @@ import { Tabs, TabItem, CardGrid, Card, Aside, Steps } from '@astrojs/starlight/
 FraiseQL configuration lives in a single `fraiseql.toml` file. Different sections are consumed at different points in the build / boot lifecycle:
 
 - The **`fraiseql-server` binary** reads `ServerConfig` directly from `fraiseql.toml` at startup. The sections it auto-wires are `[auth]`, `[auth_hs256]`, `[auth.me]`, `[server]`, `[server.cors]`, `[server.tls]`, `[tls]`, `[database]`, plus a handful of operator-facing knobs (`metrics_token`, `admin_token`, `admin_readonly_token`, `storage_token`).
-- The **`fraiseql-cli compile` step** reads `fraiseql.toml` as a `TomlProjectConfig`, picks up `[fraiseql.security.*]` (and any subordinate blocks under it), and bakes them into `schema.compiled.json` under `schema.security.additional["<subsystem>"]`. The server reads from there at boot for: API keys, token revocation, PKCE, state encryption, error sanitization, per-endpoint rate limiting, and trusted documents.
-- The **CLI alone** validates the security configuration with `serde(deny_unknown_fields)`. Editing `[fraiseql.security.*]` without re-running `fraiseql-cli compile` is a silent no-op at the runtime; the server only sees what compile bakes in.
+- The **`fraiseql-cli compile` step** reads `fraiseql.toml` as a `TomlProjectConfig`, picks up `[security.*]` (and any subordinate blocks under it), and bakes them into `schema.compiled.json` under `schema.security.additional["<subsystem>"]`. The server reads from there at boot for: API keys, token revocation, PKCE, state encryption, error sanitization, per-endpoint rate limiting, and trusted documents.
+- The **CLI alone** validates the security configuration with `serde(deny_unknown_fields)`. Editing `[security.*]` without re-running `fraiseql-cli compile` is a silent no-op at the runtime; the server only sees what compile bakes in.
 
 The authoritative source for the full auth-and-security surface is [Building → Authentication](/building/authentication). This page is the map.
 
@@ -53,21 +53,21 @@ These sections live on `ServerConfig` and are auto-wired by `fraiseql-server` wh
 {/* source: crates/fraiseql-server/src/server_config/hs256.rs:L11-L39 — Hs256Config struct, mutually-exclusive-with-[auth] docstring */}
 {/* source: crates/fraiseql-server/src/main.rs:L25-L34 — load_config: toml::from_str into ServerConfig */}
 
-### Compile-step indirection (`[fraiseql.security.*]` — requires `fraiseql-cli compile`)
+### Compile-step indirection (`[security.*]` — requires `fraiseql-cli compile`)
 
 These sections live on `TomlProjectConfig.fraiseql.security` in the CLI's schema. The CLI validates them with `deny_unknown_fields`, bakes them into the compiled schema, and the server reads them from `schema.compiled.json` at boot. A TOML edit alone is a silent no-op — re-run compile after every change.
 
 | Section | What it configures | Authoritative reference |
 |---------|-------------------|--------------------------|
-| `[fraiseql.security.api_keys]` | Static API keys with SHA-256 hashed storage | [Authentication → API keys](/building/authentication#api-keys) |
-| `[fraiseql.security.token_revocation]` | JWT `jti` revocation (memory or Redis; postgres downgrades — FW-25) | [Authentication → Token revocation](/building/authentication#token-revocation) |
-| `[fraiseql.security.pkce]` | PKCE OAuth2 challenge (S256 default; redis-pkce for multi-replica) | [Authentication → PKCE OAuth2 flow](/building/authentication#pkce-oauth2-flow) |
-| `[fraiseql.security.state_encryption]` | AEAD encryption of OAuth state and PKCE blobs (ChaCha20-Poly1305 or AES-256-GCM) | [Encryption](/features/encryption) |
-| `[fraiseql.security.rate_limiting]` | Per-endpoint rate caps for auth routes (failed-login fields silently dropped — FW-24) | [Rate limiting](/features/rate-limiting) |
-| `[fraiseql.security.error_sanitization]` | Strip stack traces and DB errors from client responses (disabled by default) | [Security → error sanitization](/features/security#quick-mention--error-sanitization-query-complexity-cors) |
-| `[fraiseql.security.trusted_documents]` | Query allowlist (strict or permissive mode) | [Reference → TOML config](/reference/toml-config) |
-| `[fraiseql.security.enterprise]` | Audit logging flags (`audit_logging_enabled`, `audit_log_backend`) | [Audit logging](/features/audit-logging) |
-| `[[fraiseql.security.rules]]` / `[[fraiseql.security.policies]]` / `[[fraiseql.security.field_auth]]` | Elo-rule and RBAC/ABAC policy declarations bound to types and fields | [Security → authorization policies](/features/security#authorization-policies-toml-driven) |
+| `[security.api_keys]` | Static API keys with SHA-256 hashed storage | [Authentication → API keys](/building/authentication#api-keys) |
+| `[security.token_revocation]` | JWT `jti` revocation (memory or Redis; postgres downgrades — FW-25) | [Authentication → Token revocation](/building/authentication#token-revocation) |
+| `[security.pkce]` | PKCE OAuth2 challenge (S256 default; redis-pkce for multi-replica) | [Authentication → PKCE OAuth2 flow](/building/authentication#pkce-oauth2-flow) |
+| `[security.state_encryption]` | AEAD encryption of OAuth state and PKCE blobs (ChaCha20-Poly1305 or AES-256-GCM) | [Encryption](/features/encryption) |
+| `[security.rate_limiting]` | Per-endpoint rate caps for auth routes (failed-login fields silently dropped — FW-24) | [Rate limiting](/features/rate-limiting) |
+| `[security.error_sanitization]` | Strip stack traces and DB errors from client responses (disabled by default) | [Security → error sanitization](/features/security#quick-mention--error-sanitization-query-complexity-cors) |
+| `[security.trusted_documents]` | Query allowlist (strict or permissive mode) | [Reference → TOML config](/reference/toml-config) |
+| `[security.enterprise]` | Audit logging flags (`audit_logging_enabled`, `audit_log_backend`) | [Audit logging](/features/audit-logging) |
+| `[[security.rules]]` / `[[security.policies]]` / `[[security.field_auth]]` | Elo-rule and RBAC/ABAC policy declarations bound to types and fields | [Security → authorization policies](/features/security#authorization-policies-toml-driven) |
 | `[fraiseql.tenancy]` | Tenant-mode discriminator (shared-pool / pool-per-tenant / schema-per-tenant) | [Multi-tenancy](/building/multi-tenancy) |
 | `[auth]` (at the CLI's TomlSchema level) | OAuth2 client identity for the PKCE flow (discovery URL, client ID, client secret env var, server redirect URI) — distinct from the server's `[auth]` OIDC validator | [Authentication → PKCE OAuth2 flow](/building/authentication#pkce-oauth2-flow) |
 
@@ -129,31 +129,31 @@ enabled = true
 expose_claims = ["tenant_id", "https://myapp.com/role"]
 
 # ---- Compile-step indirection (re-run `fraiseql-cli compile` after edits) ----
-[fraiseql.security.state_encryption]
+[security.state_encryption]
 enabled = true
 algorithm = "chacha20-poly1305"
 key_source = "env"
 key_env = "STATE_ENCRYPTION_KEY"
 
-[fraiseql.security.pkce]
+[security.pkce]
 enabled = true
 code_challenge_method = "S256"
 state_ttl_secs = 600
 
-[fraiseql.security.token_revocation]
+[security.token_revocation]
 enabled = true
 backend = "redis"                          # "postgres" silently downgrades — FW-25 #357
 redis_url = "redis://redis:6379"
 require_jti = true
 fail_open = false
 
-[fraiseql.security.error_sanitization]
+[security.error_sanitization]
 enabled = true
 hide_implementation_details = true
 sanitize_database_errors = true
 custom_error_message = "An internal error occurred"
 
-[fraiseql.security.rate_limiting]
+[security.rate_limiting]
 enabled = true
 trust_proxy_headers = false                # requires trusted_proxy_cidrs if true
 ```
@@ -161,7 +161,7 @@ trust_proxy_headers = false                # requires trusted_proxy_cidrs if tru
 {/* source: crates/fraiseql-server/src/server_config/mod.rs:L293-L307 — auth field doc comment example */}
 {/* source: crates/fraiseql-server/src/server_config/mod.rs:L40 — ServerConfig struct (no deny_unknown_fields, so unknown sections are silently ignored at server boot) */}
 
-The server silently ignores `[fraiseql.*]` at boot — those keys are not present on `ServerConfig`. The CLI's compile step rejects unknown fields at the `[fraiseql.security.*]` level, so misspellings there fail loudly. Misspellings at the top level (`[fraseql.security.*]`, `[security.api_keys]` instead of `[fraiseql.security.api_keys]`) are NOT caught by the server — the keys end up parsed as unrelated top-level sections and silently dropped.
+The server silently ignores `[fraiseql.*]` at boot — those keys are not present on `ServerConfig`. The CLI's compile step rejects unknown fields at the `[security.*]` level, so misspellings there fail loudly. Misspellings at the top level (`[fraseql.security.*]`, `[security.api_keys]` instead of `[security.api_keys]`) are NOT caught by the server — the keys end up parsed as unrelated top-level sections and silently dropped.
 
 ## Environment variable substitution
 
@@ -171,7 +171,7 @@ The server silently ignores `[fraiseql.*]` at boot — those keys are not presen
 [database]
 url = "${DATABASE_URL}"
 
-[fraiseql.security.token_revocation]
+[security.token_revocation]
 redis_url = "${REDIS_URL}"
 
 [server]
@@ -189,7 +189,7 @@ These settings exist only as environment variables:
 | `DATABASE_URL` | Database connection string (when `[database] url = "${DATABASE_URL}"`) |
 | `RUST_LOG` | Log level — `error` \| `warn` \| `info` \| `debug` \| `trace` |
 | `FRAISEQL_OBSERVERS_ALLOW_INSECURE` | Observer SSRF / scheme-validation bypass — never set in production. See [Observers security caveats](/features/observers#security-caveats). |
-| `STATE_ENCRYPTION_KEY` | 32-byte secret consumed by `[fraiseql.security.state_encryption] key_source = "env"` |
+| `STATE_ENCRYPTION_KEY` | 32-byte secret consumed by `[security.state_encryption] key_source = "env"` |
 | `OIDC_CLIENT_SECRET` | OAuth2 client secret for the PKCE flow; referenced from `[auth] client_secret_env` (CLI-level) |
 | `FRAISEQL_HS256_SECRET` | HS256 shared secret; referenced from `[auth_hs256] secret_env` |
 | `FRAISEQL_ADMIN_TOKEN` | Bearer token for the RBAC management API and other admin operations |
@@ -313,7 +313,7 @@ REST endpoints exist for operations that include `rest_path` / `rest_method` ann
 
 <CardGrid>
   <Card title="Authentication" icon="approve-check">
-    [Authentication](/building/authentication) — the authoritative reference for `[auth]`, `[auth_hs256]`, `[auth.me]`, and every `[fraiseql.security.*]` block.
+    [Authentication](/building/authentication) — the authoritative reference for `[auth]`, `[auth_hs256]`, `[auth.me]`, and every `[security.*]` block.
   </Card>
   <Card title="TOML reference" icon="document">
     [TOML configuration reference](/reference/toml-config) — every key, type, default, and validation rule.

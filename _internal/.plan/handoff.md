@@ -6802,3 +6802,41 @@ Line-level review with 2 blocking findings + 4 nits posted to PR #14 via `gh pr 
 2. **`features/security.mdx`, `features/oauth-providers.mdx`, `concepts/configuration.mdx`** — rewrite all `[fraiseql.security.*]` → `[security.*]` (39 instances). This matches the canonical Cycle-4 authentication.md, the framework's own SaaS example, the framework's own module docstring, and the framework's own user-facing warning logs. The `[fraiseql.security]` form was a defensible-but-non-canonical Writer choice that contradicts the just-shipped Cycle-4 page. **Important:** keep the underlying claim that the compile step is required for these subsystems — that part is correct. Only the section-name token changes. Citations (which point at the same Rust source) need no edit.
 
 After Writer pushes the two fixes, this Reviewer (or fresh Opus) re-runs items 7 + 8 only on the 3 pages; the other 13 already PASS. CI must remain green on the new HEAD before approval. On Reviewer APPROVE, hand off to Cleanup (Sonnet 4.6) for 7a close. Then dispatch Writer-Opus (batch) for 7b (13 POLISH pages).
+
+---
+
+### Phase 03 / Cycle 7a GREEN — orchestrator follow-on (max_aliases + [security.*] consistency) — 2026-05-30
+
+Reviewer's BLOCK was two mechanical findings: undefined `max_aliases` field, and `[fraiseql.security.*]` vs canonical `[security.*]` spelling.
+
+#### Fix 1 — Item 7: max_aliases undefined
+
+- `src/content/docs/features/security.mdx:L258` — dropped the `max_aliases` claim. Page now lists only `max_query_depth` (default 10) + the 1000-variable hard cap.
+
+#### Fix 2 — Item 8: section-name consistency
+
+- `sed -i 's/\[fraiseql\.security\./\[security./g'` applied to all 3 Cycle-7a pages.
+- Counts before: security.mdx 8, oauth-providers.mdx 10, configuration.mdx 21 (= 39 mentions per Reviewer).
+- Counts after: 0 / 0 / 0 of `[fraiseql.security.*]`. `[security.*]` count: 11 / 10 / 21 (sed expanded inside larger strings already containing `[security.`).
+- Matches canonical `building/authentication.md` shape exactly. Framework's own SaaS example + module docstring + warning log + Workflow A loader all use `[security.*]`.
+
+#### Verification
+
+- `grep -c "\[fraiseql.security\\." src/content/docs/features/security.mdx src/content/docs/features/oauth-providers.mdx src/content/docs/concepts/configuration.mdx` → 0 / 0 / 0.
+- `grep -c "max_aliases"` → 0 / 0 / 0.
+- `bun run build` exit 0, 205 pages, strip integration log present.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → 0.
+
+#### Anti-scope
+
+- No re-spawn of Writer.
+- No edits beyond the 39+1 mechanical substitutions.
+- No amend; new commit only.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted.
+
+#### Pointer
+
+Next session: **Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 7a close. Same low-touch profile.

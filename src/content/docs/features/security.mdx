@@ -138,7 +138,7 @@ def delete_user(id: ID) -> bool:
 
 ### Authorization policies (TOML-driven)
 
-For query-scoped and row-level authorization that does not fit a single annotation, FraiseQL accepts TOML-configured policies. The shapes live in the CLI's `[fraiseql.security.*]` block and are compiled into the schema; the server reads them from `schema.compiled.json` at startup.
+For query-scoped and row-level authorization that does not fit a single annotation, FraiseQL accepts TOML-configured policies. The shapes live in the CLI's `[security.*]` block and are compiled into the schema; the server reads them from `schema.compiled.json` at startup.
 
 {/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L7-L34 — SecuritySettings with rules + policies + field_auth */}
 
@@ -146,21 +146,21 @@ For query-scoped and row-level authorization that does not fit a single annotati
 [fraiseql.security]
 default_policy = "authenticated"   # "authenticated" | "public"
 
-[[fraiseql.security.rules]]
+[[security.rules]]
 name              = "owner_only"
 rule              = "user.id == object.owner_id"
 description       = "User can only access their own data"
 cacheable         = true
 cache_ttl_seconds = 300
 
-[[fraiseql.security.policies]]
+[[security.policies]]
 name              = "admin_only"
 type              = "rbac"          # "rbac" | "abac" | "custom" | "hybrid"
 roles             = ["admin"]
 strategy          = "any"           # "any" | "all" | "exactly"
 cache_ttl_seconds = 600
 
-[[fraiseql.security.field_auth]]
+[[security.field_auth]]
 type_name  = "User"
 field_name = "email"
 policy     = "admin_only"
@@ -234,10 +234,10 @@ The remaining security topics live on dedicated pages. Each one carries its own 
     [OAuth providers](/features/oauth-providers) — per-provider OIDC config (Auth0, Keycloak, Okta, Cognito, Azure AD) and the provider constructors at `OidcConfig::auth0` / `::keycloak` / `::okta` / `::cognito` / `::azure_ad`.
   </Card>
   <Card title="Encryption" icon="seti:lock">
-    [Encryption](/features/encryption) — `fraiseql-secrets` Rust crate, AES-256-GCM, Vault / env / file key backends. Configured under `[fraiseql.security.state_encryption]` for OAuth state and PKCE blobs.
+    [Encryption](/features/encryption) — `fraiseql-secrets` Rust crate, AES-256-GCM, Vault / env / file key backends. Configured under `[security.state_encryption]` for OAuth state and PKCE blobs.
   </Card>
   <Card title="Audit logging" icon="document">
-    [Audit logging](/features/audit-logging) — `[fraiseql.security.enterprise] audit_logging_enabled` plus the `audit-syslog` / `audit-webhook` Cargo features. Audit log DDL is operator-owned, not auto-created.
+    [Audit logging](/features/audit-logging) — `[security.enterprise] audit_logging_enabled` plus the `audit-syslog` / `audit-webhook` Cargo features. Audit log DDL is operator-owned, not auto-created.
   </Card>
   <Card title="Rate limiting" icon="setting">
     [Rate limiting](/features/rate-limiting) — global token bucket plus per-auth-endpoint dispatchers. FW-24 brute-force-protection drop is documented inline on the rate-limiting page.
@@ -251,11 +251,11 @@ The remaining security topics live on dedicated pages. Each one carries its own 
 
 These three controls are covered for completeness because they often surface in security reviews; their canonical home is the [TOML configuration reference](/reference/toml-config).
 
-- **Error sanitization** — `[fraiseql.security.error_sanitization]` is disabled by default. Enable it in production so `DatabaseError` and `InternalServerError` codes are replaced with a generic message; `VALIDATION_ERROR`, `NOT_FOUND`, `FORBIDDEN`, `UNAUTHENTICATED`, and `RATE_LIMITED` are never sanitized because clients need them to act on errors.
+- **Error sanitization** — `[security.error_sanitization]` is disabled by default. Enable it in production so `DatabaseError` and `InternalServerError` codes are replaced with a generic message; `VALIDATION_ERROR`, `NOT_FOUND`, `FORBIDDEN`, `UNAUTHENTICATED`, and `RATE_LIMITED` are never sanitized because clients need them to act on errors.
 
   {/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L42-L52 — error_sanitization: Option<ErrorSanitizationTomlConfig> */}
 
-- **Query complexity** — `[fraiseql.validation]` caps query depth (`max_query_depth`, default 10) and aliases (`max_aliases`, default 30). The 1,000-variable-per-request limit is a hard runtime constant; requests exceeding it are rejected with `VALIDATION_ERROR` before execution.
+- **Query complexity** — `[fraiseql.validation]` caps query depth (`max_query_depth`, default 10). The 1,000-variable-per-request limit is a hard runtime constant; requests exceeding it are rejected with `VALIDATION_ERROR` before execution.
 
   {/* source: crates/fraiseql-cli/src/config/toml_schema/server_settings.rs:L49 — ValidationConfig deny_unknown_fields */}
 
@@ -336,7 +336,7 @@ When a client lacks the required role or scope, FraiseQL returns a structured Gr
 | FW-25 [#357](https://github.com/fraiseql/fraiseql/issues/357) | `[token_revocation] backend = "postgres"` silently downgrades. | Use `backend = "redis"`. See [Auth caveat 7](/building/authentication#7-fw-25-357--token-revocation-backend--postgres-silently-downgrades-regression). |
 | FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) (**critical**) | `/auth/revoke*` unauthenticated. | Reverse-proxy gate or do not mount revocation. See [Auth caveat 2](/building/authentication#2-fw-26-358--authrevoke-and-authrevoke-all-are-unauthenticated-critical). |
 | FW-27 [#359](https://github.com/fraiseql/fraiseql/issues/359) | HS256 `audience` not enforced. | Set `[auth_hs256] audience` regardless. See [Auth caveat 3](/building/authentication#3-fw-27-359--hs256-audience-is-not-enforced-by-the-framework-security). |
-| FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) | PKCE warns and continues without state encryption. | Configure `[fraiseql.security.state_encryption]` before enabling PKCE. See [Auth caveat 4](/building/authentication#4-fw-28-360--pkce-warns-but-continues-without-state-encryption-security). |
+| FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) | PKCE warns and continues without state encryption. | Configure `[security.state_encryption]` before enabling PKCE. See [Auth caveat 4](/building/authentication#4-fw-28-360--pkce-warns-but-continues-without-state-encryption-security). |
 | FW-29 [#361](https://github.com/fraiseql/fraiseql/issues/361) | JWKS stale cache after IdP rotation. | Restart replicas after key rotation; tighten `jwks_cache_ttl_secs`. See [Auth caveat 5](/building/authentication#5-fw-29-361--jwks-hot-rotate-window-equals-the-cache-ttl-security). |
 
 ## Next Steps

@@ -46,7 +46,7 @@ audience = "https://api.example.com"               # SECURITY CRITICAL — boot 
 
 {/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L50-L143 — OidcConfig fields with defaults */}
 
-The OIDC client secret is **never** stored in `fraiseql.toml` for the validator path — the validator only verifies inbound tokens against the IdP's JWKS, which is a public document. The client secret is only needed for the PKCE flow (browser login → callback → token exchange); for that, set `[fraiseql.security.pkce]` and source the secret from `${OIDC_CLIENT_SECRET}` at compile time. See [Authentication → PKCE](/building/authentication#pkce-oauth2-flow).
+The OIDC client secret is **never** stored in `fraiseql.toml` for the validator path — the validator only verifies inbound tokens against the IdP's JWKS, which is a public document. The client secret is only needed for the PKCE flow (browser login → callback → token exchange); for that, set `[security.pkce]` and source the secret from `${OIDC_CLIENT_SECRET}` at compile time. See [Authentication → PKCE](/building/authentication#pkce-oauth2-flow).
 
 ### Per-provider config
 
@@ -136,22 +136,22 @@ Any RFC 8414 / OIDC-compliant provider works. By default the validator fetches `
 
 ## Authentication endpoints
 
-The OIDC validator gates every request through `oidc_auth_middleware` (Bearer header preferred, `__Host-access_token` cookie as fallback). The PKCE OAuth2 flow — required for browser logins — mounts two additional endpoints when `[fraiseql.security.pkce]` is configured in the compiled schema.
+The OIDC validator gates every request through `oidc_auth_middleware` (Bearer header preferred, `__Host-access_token` cookie as fallback). The PKCE OAuth2 flow — required for browser logins — mounts two additional endpoints when `[security.pkce]` is configured in the compiled schema.
 
 | Endpoint | Method | Purpose | Mounted when |
 |----------|--------|---------|--------------|
-| `/auth/start` | GET | Begins the PKCE flow; redirects to the IdP with a generated challenge | `[fraiseql.security.pkce]` + OIDC client identity configured |
-| `/auth/callback` | GET | Consumes the verifier; exchanges code at the IdP; sets `__Host-access_token` cookie | `[fraiseql.security.pkce]` + OIDC client identity configured |
+| `/auth/start` | GET | Begins the PKCE flow; redirects to the IdP with a generated challenge | `[security.pkce]` + OIDC client identity configured |
+| `/auth/callback` | GET | Consumes the verifier; exchanges code at the IdP; sets `__Host-access_token` cookie | `[security.pkce]` + OIDC client identity configured |
 | `/auth/me` | GET | Returns the validated session's identity claims | `[auth.me] enabled = true` + OIDC validator present |
-| `/auth/revoke` | POST | Revoke a single token by `jti` (**unauthenticated at v2.3.2 — FW-26 #358**) | `[fraiseql.security.token_revocation]` configured |
-| `/auth/revoke-all` | POST | Revoke all tokens for a `sub` (**unauthenticated at v2.3.2 — FW-26 #358**) | `[fraiseql.security.token_revocation]` configured |
+| `/auth/revoke` | POST | Revoke a single token by `jti` (**unauthenticated at v2.3.2 — FW-26 #358**) | `[security.token_revocation]` configured |
+| `/auth/revoke-all` | POST | Revoke all tokens for a `sub` (**unauthenticated at v2.3.2 — FW-26 #358**) | `[security.token_revocation]` configured |
 
 {/* source: crates/fraiseql-server/src/server/routing/auth.rs:L24-L114 — mount_auth_routes; all five routes shown above */}
 
 <Aside type="caution" title="FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) — `/auth/revoke*` is unauthenticated">
 `POST /auth/revoke` and `POST /auth/revoke-all` are mounted without any auth middleware at v2.3.2. The sibling `/auth/me` route in the same `mount_auth_routes` function DOES apply `oidc_auth_middleware`, but the revocation routes do not. The `revoke_token` handler decodes the supplied token via `jsonwebtoken::dangerous::insecure_decode` — no signature check. `revoke_all_tokens` accepts a body `{"sub": "..."}` with no token at all.
 
-**Gate `/auth/revoke*` behind an authenticating reverse proxy, or omit `[fraiseql.security.token_revocation]` from the compiled schema entirely** — the routes are not mounted when the manager is absent.
+**Gate `/auth/revoke*` behind an authenticating reverse proxy, or omit `[security.token_revocation]` from the compiled schema entirely** — the routes are not mounted when the manager is absent.
 
 See [Authentication → caveat 2](/building/authentication#2-fw-26-358--authrevoke-and-authrevoke-all-are-unauthenticated-critical) for the full repro and mitigation.
 </Aside>
@@ -323,7 +323,7 @@ OAuth errors are logged at `WARN` level. Run `RUST_LOG=debug fraiseql-server --c
 
 Ensure the redirect URI matches exactly in:
 
-1. `server_redirect_uri` in `[fraiseql.security.pkce]` or the OIDC client identity block.
+1. `server_redirect_uri` in `[security.pkce]` or the OIDC client identity block.
 2. Provider app settings (each provider has its own "Allowed Callback URLs" field).
 3. The browser's actual landing URL after IdP redirect.
 
@@ -357,8 +357,8 @@ The OAuth flow itself — authorization code exchange, token issuance, refresh �
 
 | ID | Symptom | Workaround |
 |---|---|---|
-| FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) (**critical**) | `/auth/revoke` and `/auth/revoke-all` are unauthenticated. | Gate at reverse proxy or omit `[fraiseql.security.token_revocation]`. See [Authentication caveat 2](/building/authentication#2-fw-26-358--authrevoke-and-authrevoke-all-are-unauthenticated-critical). |
-| FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) | PKCE with `state_encryption` disabled warns once and continues; `state` token is the raw lookup key. | Configure `[fraiseql.security.state_encryption]` before enabling PKCE. See [Authentication caveat 4](/building/authentication#4-fw-28-360--pkce-warns-but-continues-without-state-encryption-security). |
+| FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) (**critical**) | `/auth/revoke` and `/auth/revoke-all` are unauthenticated. | Gate at reverse proxy or omit `[security.token_revocation]`. See [Authentication caveat 2](/building/authentication#2-fw-26-358--authrevoke-and-authrevoke-all-are-unauthenticated-critical). |
+| FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) | PKCE with `state_encryption` disabled warns once and continues; `state` token is the raw lookup key. | Configure `[security.state_encryption]` before enabling PKCE. See [Authentication caveat 4](/building/authentication#4-fw-28-360--pkce-warns-but-continues-without-state-encryption-security). |
 | FW-29 [#361](https://github.com/fraiseql/fraiseql/issues/361) | JWKS cache holds rotated-out keys for up to `jwks_cache_ttl_secs` (default 300 s). Stolen-key replay window equals the TTL. | Restart replicas after rotating a compromised key at the IdP; tighten `jwks_cache_ttl_secs` if the IdP supports it. See [Authentication caveat 5](/building/authentication#5-fw-29-361--jwks-hot-rotate-window-equals-the-cache-ttl-security). |
 
 ## Next Steps
