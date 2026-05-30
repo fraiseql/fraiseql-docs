@@ -5,7 +5,14 @@ description: How FraiseQL compares to Prisma ORM
 
 import { Tabs, TabItem, Steps, CardGrid, Card, Aside } from '@astrojs/starlight/components';
 
+<Aside type="caution">
+Comparison snapshot as of 2026-05-30 against FraiseQL v2.3.2 (frozen SHA `d0a4ed4e`) and Prisma's then-current stable release. Verify current Prisma state at [prisma.io](https://www.prisma.io/).
+</Aside>
+
 Prisma is a popular ORM. FraiseQL is a GraphQL framework backed by a Rust binary. Here's why you might choose one over the other.
+
+{/* source: sdks/official/fraiseql-python/src/fraiseql/decorators.py — `@fraiseql.type` / `@fraiseql.query(sql_source="v_<name>")` decorator surface */}
+{/* source: crates/fraiseql-cli/src/schema/converter/ — Python-decorator-to-compiled-schema converter (v_ and fn_ mapping) */}
 
 ## The Fundamental Difference
 
@@ -578,7 +585,7 @@ Prisma is a database client. FraiseQL is a complete GraphQL API server.
   <Card title="Prisma Migration Guide" icon="rocket">
     Step-by-step guide to migrate from Prisma to FraiseQL.
 
-    [Read guide](/migrations/from-prisma)
+    [Read guide](/building/migrations/from-prisma)
   </Card>
   <Card title="Getting Started" icon="open-book">
     Learn FraiseQL fundamentals from scratch.
@@ -593,6 +600,6 @@ Prisma is a database client. FraiseQL is a complete GraphQL API server.
   <Card title="All Comparisons" icon="list-format">
     See how FraiseQL compares to other tools.
 
-    [Compare vs Apollo](/vs/apollo)
+    [Compare vs Apollo](/community/vs/apollo)
   </Card>
 </CardGrid>

@@ -5,7 +5,14 @@ description: How FraiseQL compares to Hasura GraphQL Engine
 
 import { CardGrid, Card, Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components';
 
+<Aside type="caution">
+Comparison snapshot as of 2026-05-30 against FraiseQL v2.3.2 (frozen SHA `d0a4ed4e`) and Hasura's then-current stable release. Pricing and feature parity ages out quickly; verify current Hasura state at [hasura.io/pricing](https://hasura.io/pricing).
+</Aside>
+
 Both FraiseQL and Hasura provide GraphQL APIs over databases. Here's how they differ.
+
+{/* source: crates/fraiseql-core/src/config/auth.rs:L8 — `pub struct AuthConfig` ([auth] OIDC section) */}
+{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L1 — module doc-comment "Security configuration types for `[security.*]` and `[auth]` TOML sections" */}
 
 ## The Fundamental Difference
 
@@ -31,7 +38,7 @@ Both FraiseQL and Hasura provide GraphQL APIs over databases. Here's how they di
 | **gRPC transport** | ✅ Transport-aware DB views, auto-generated .proto | ❌ Requires external gateway |
 | **OpenAPI generation** | ✅ Auto-generated from compiled schema | ❌ |
 
-> Pricing information accurate as of February 2026. Verify current pricing at [hasura.io/pricing](https://hasura.io/pricing).
+> Pricing information captured 2026-05-30. Verify current pricing at [hasura.io/pricing](https://hasura.io/pricing).
 
 FraiseQL serves REST and gRPC alongside GraphQL from a single binary. Hasura's RESTified Endpoints let you expose a saved GraphQL query as a REST URL, but they are not a first-class REST transport: there is no HTTP status-code mapping, no OpenAPI spec, and no request-body parsing. For gRPC clients, Hasura requires an external gateway.
 
@@ -91,12 +98,20 @@ url = "${DATABASE_URL}"
 
 [server]
 port = 8080
+
+# OIDC authentication (auto-wired from [auth] at boot)
+[auth]
+issuer = "https://your-idp.example.com"
+audience = "your-api-id"
+
+# Or HS256 for integration testing — see /building/authentication
+# [auth_hs256]
+# secret = "${JWT_SECRET}"
+# audience = "your-api-id"
 ```
 
-```bash
-# JWT authentication via env var (no [auth] section in fraiseql.toml)
-JWT_SECRET=your-256-bit-secret
-```
+{/* source: crates/fraiseql-core/src/config/auth.rs:L8 — `pub struct AuthConfig` ([auth] OIDC) */}
+{/* source: crates/fraiseql-server/src/server_config/hs256.rs — `[auth_hs256]` HS256 testing config (mutually exclusive with [auth]) */}
 
 ### Hasura: Console + YAML + Database Metadata
 
@@ -647,7 +662,7 @@ Already on Hasura and want to try FraiseQL? Here are the three core steps:
    ls metadata/databases/default/tables/
    ```
 
-   For each Hasura table, create a FraiseQL type and a SQL view. See the examples above for the conversion pattern, or refer to the [full migration guide](/migrations/from-hasura).
+   For each Hasura table, create a FraiseQL type and a SQL view. See the examples above for the conversion pattern, or refer to the [full migration guide](/building/migrations/from-hasura).
 
 3. **Run FraiseQL**
 
@@ -660,9 +675,9 @@ Already on Hasura and want to try FraiseQL? Here are the three core steps:
 
 </Steps>
 
-For a complete walkthrough including subscription migration and permission replication, see the [Migrating from Hasura](/migrations/from-hasura) guide.
+For a complete walkthrough including subscription migration and permission replication, see the [Migrating from Hasura](/building/migrations/from-hasura) guide.
 
-Migrating from Hasura? See the [step-by-step migration guide](/migrations/from-hasura).
+Migrating from Hasura? See the [step-by-step migration guide](/building/migrations/from-hasura).
 
 ## Summary
 
@@ -682,10 +697,10 @@ Both are excellent tools. Choose based on your team's preferences and requiremen
     Get a working GraphQL API in minutes. [Quick Start Guide](/getting-started/first-api)
   </Card>
   <Card title="Performance Benchmarks" icon="bars">
-    See how FraiseQL performs with real numbers. [View Benchmarks](/guides/performance-benchmarks)
+    See how FraiseQL performs with real numbers. [View Benchmarks](/operations/performance-benchmarks)
   </Card>
   <Card title="Migrate from Hasura" icon="right-arrow">
-    Step-by-step guide to moving your existing Hasura setup. [Migration Guide](/migrations/from-hasura)
+    Step-by-step guide to moving your existing Hasura setup. [Migration Guide](/building/migrations/from-hasura)
   </Card>
   <Card title="How FraiseQL Works" icon="information">
     Understand the compiled, database-first architecture. [Core Concepts](/concepts/how-it-works)

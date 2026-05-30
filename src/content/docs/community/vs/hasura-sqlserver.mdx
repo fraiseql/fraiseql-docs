@@ -5,10 +5,17 @@ description: Hasura requires PostgreSQL for full functionality. FraiseQL runs na
 
 import { Tabs, TabItem, Aside, Steps, CardGrid, Card } from '@astrojs/starlight/components';
 
+<Aside type="caution">
+Comparison snapshot as of 2026-05-30 against FraiseQL v2.3.2 (frozen SHA `d0a4ed4e`) and Hasura's then-current stable release (Hasura v3 / DDN line). Verify current Hasura SQL Server connector status at [hasura.io/docs](https://hasura.io/docs/3.0/connectors/microsoft-sql-server/).
+</Aside>
+
 Teams evaluating GraphQL on SQL Server frequently hit the same wall with Hasura: SQL Server
 is not a supported data source. FraiseQL is designed from the ground up to treat SQL Server
 as a first-class target — the same features that work on PostgreSQL work on SQL Server,
 with no separate product tier or connector required.
+
+{/* source: crates/fraiseql-cli/src/dialect/mssql.rs — T-SQL dialect generator (verified at frozen SHA) */}
+{/* source: crates/fraiseql-server/src/database/mssql/ — SQL Server runtime connection / executor path */}
 
 FraiseQL also serves REST and gRPC alongside GraphQL on SQL Server — not just GraphQL. All three transports are available when using SQL Server as the backing database.
 
@@ -260,9 +267,9 @@ query shape.
     Connection strings, pool config, and SQL Server-specific patterns. [SQL Server Guide](/databases/sqlserver)
   </Card>
   <Card title="Migrate from Hasura" icon="right-arrow">
-    Full step-by-step migration guide for teams coming from Hasura. [Migration Guide](/migrations/from-hasura)
+    Full step-by-step migration guide for teams coming from Hasura. [Migration Guide](/building/migrations/from-hasura)
   </Card>
   <Card title="Azure Deployment" icon="rocket">
-    Deploy FraiseQL with Azure SQL using Managed Identity. [Azure Guide](/deployment/azure)
+    Deploy FraiseQL with Azure SQL using Managed Identity. [Azure Guide](/operations/deployment/azure)
   </Card>
 </CardGrid>

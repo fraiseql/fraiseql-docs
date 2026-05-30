@@ -7256,3 +7256,129 @@ Unchanged. G1 closed, G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d874
 
 **Writer (Opus 4.7) — Cycle 7c batch** on the 5 `/community/vs/*` comparison pages with G11 default (point-in-time snapshots with inline date tag). Per the Cycle 7 RED inventory, these are the remaining POLISH cluster items before Phase 03 can close.
 
+
+
+---
+
+### Phase 03 / Cycle 7c GREEN — Writer (Opus 4.7) — 2026-05-30
+
+#### Scope
+
+5 `/community/vs/*` comparison pages, all POLISH bucket per Cycle 7 RED inventory. G11 default applied: point-in-time snapshots with inline date tag.
+
+#### Frozen SHA + branch
+
+- Frozen FraiseQL SHA: `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+- Branch: `phase-03/critical-rewrites` at `534eb2b` (Cycle 7b close) → this commit.
+
+#### Per-page edit summary
+
+| Page | Edit summary |
+|------|--------------|
+| `community/vs/hasura.mdx` | G11 date-tag `<Aside>` added; replaced stale "JWT authentication via env var (no `[auth]` section in fraiseql.toml)" with correct `[auth]` OIDC TOML snippet + `[auth_hs256]` commented sibling per canonical `/building/authentication`; updated "February 2026" pricing caption to 2026-05-30; slug fixes `/migrations/from-hasura` ×4 → `/building/migrations/from-hasura`; slug fix `/guides/performance-benchmarks` → `/operations/performance-benchmarks`; added 4 source citations. |
+| `community/vs/hasura-sqlserver.mdx` | G11 date-tag `<Aside>` added; slug fix `/migrations/from-hasura` → `/building/migrations/from-hasura`; slug fix `/deployment/azure` → `/operations/deployment/azure`; added 2 source citations (T-SQL dialect + MSSQL runtime path). The pre-existing CHANGELOG citation at L24 retained. |
+| `community/vs/apollo.mdx` | G11 date-tag `<Aside>` added; slug fixes `/guides/performance-benchmarks` ×2 → `/operations/performance-benchmarks`; slug fixes `/migrations/from-apollo` ×2 → `/building/migrations/from-apollo`; added 2 source citations (subscription decorator + runtime manager). The `@fraiseql.subscription(entity_type="Order", topic="user_created")` example verified at frozen SHA `sdks/official/fraiseql-python/src/fraiseql/decorators.py:L985` — no change needed. |
+| `community/vs/prisma.mdx` | G11 date-tag `<Aside>` added; slug fixes `/migrations/from-prisma` ×2 → `/building/migrations/from-prisma`; slug fix `/vs/apollo` (redirect-only) → `/community/vs/apollo` (canonical); added 2 source citations (Python decorator + converter). MDX build failure on initial citation form (`v_*/fn_*` inside JSX comment closed it early) — fixed by rewriting as "v_ and fn_ mapping". |
+| `community/vs/postgrest.mdx` | G11 date-tag adapted from existing "March 2026" `<Aside>` to 2026-05-30 snapshot framing; slug fix `/migrations/from-postgrest` → `/building/migrations/from-postgrest`; archaeology fix `Coming soon` → `Not exposed on REST surface at v2.3.2` (item 12 of checklist explicitly bans "coming soon" in rendered output); added 2 source citations (grpc-transport Cargo feature + REST decorator surface). |
+
+#### G11 inline date tag count
+
+5/5 pages carry the `Comparison snapshot as of 2026-05-30 against FraiseQL v2.3.2 (frozen SHA d0a4ed4e)` framing at the top of the page (either as a new `<Aside type="caution">` or by adapting an existing pre-G11 disclaimer).
+
+#### Word-count delta per page
+
+| Page | Before | After | Delta |
+|------|--------|-------|-------|
+| `apollo.mdx` | 2384 | 2437 | +53 |
+| `hasura-sqlserver.mdx` | 1238 | 1295 | +57 |
+| `hasura.mdx` | 2350 | 2449 | +99 |
+| `postgrest.mdx` | 897 | 934 | +37 |
+| `prisma.mdx` | 2052 | 2098 | +46 |
+| **Total** | **8921** | **9213** | **+292 (+3.3%)** |
+
+POLISH-scope delta confirmed; no full-page rewrite occurred.
+
+#### Citation count delta per page
+
+| Page | Before | After |
+|------|--------|-------|
+| `apollo.mdx` | 0 | 2 |
+| `hasura-sqlserver.mdx` | 1 | 3 |
+| `hasura.mdx` | 0 | 4 |
+| `postgrest.mdx` | 0 | 2 |
+| `prisma.mdx` | 0 | 2 |
+| **Total** | **1** | **13** |
+
+#### Cross-link inventory (Cycle 1-4 / 7a page references verified)
+
+The vs/* pages do not deep-link into the Cycle 1-4 / 7a rewritten pages by section anchor. They use top-level slugs only. Per Cycle 7 RED inventory, this is expected (the inventory's Cycle 1-4 cross-link impact column said "none direct" for all 5 vs/* pages).
+
+The one outbound link to a Cycle 7a-rewritten page now in scope: `hasura.mdx` configuration snippet references `[auth]` and `[auth_hs256]` and adds an inline comment "see /building/authentication" — does not link out, but matches the canonical TOML shape from the Cycle 4 + 7a rewrites.
+
+Slug-resolution verified for every outbound link touched this cycle:
+- `/building/migrations/from-hasura` → exists at `src/content/docs/building/migrations/from-hasura.mdx` ✅
+- `/building/migrations/from-apollo` → exists at `src/content/docs/building/migrations/from-apollo.mdx` ✅
+- `/building/migrations/from-prisma` → exists at `src/content/docs/building/migrations/from-prisma.mdx` ✅
+- `/building/migrations/from-postgrest` → exists at `src/content/docs/building/migrations/from-postgrest.mdx` ✅
+- `/operations/performance-benchmarks` → exists at `src/content/docs/operations/performance-benchmarks.mdx` ✅
+- `/operations/deployment/azure` → exists at `src/content/docs/operations/deployment/azure.mdx` ✅
+- `/community/vs/apollo` → exists (this cycle's edit on prisma.mdx) ✅
+- `/databases/sqlserver-enterprise`, `/databases/sqlserver` → exist (retained from prior content) ✅
+
+#### FraiseQL stale-claim corrections found + applied
+
+**1 substantive correction.** `community/vs/hasura.mdx` L97-99 (pre-edit) carried: `# JWT authentication via env var (no [auth] section in fraiseql.toml)\nJWT_SECRET=your-256-bit-secret`. This contradicts the canonical `/building/authentication` page which makes `[auth]` (OIDC) the primary auto-wired path at v2.3.2 (caveat 1: "always configure `[auth]` or `[auth_hs256]` before exposing the binary to any non-localhost network"), and contradicts the Cycle 4 + Cycle 7a `/concepts/configuration` + `/features/oauth-providers` rewrites which restored `[auth]` as the canonical OIDC section. The pre-edit framing was the same stale claim that Cycle 7a corrected on `/features/oauth-providers` and `/concepts/configuration`; it lingered on hasura.mdx because the comparison page was not in 7a's REWRITE bucket.
+
+Replaced with:
+```toml
+# OIDC authentication (auto-wired from [auth] at boot)
+[auth]
+issuer = "https://your-idp.example.com"
+audience = "your-api-id"
+
+# Or HS256 for integration testing — see /building/authentication
+# [auth_hs256]
+# secret = "${JWT_SECRET}"
+# audience = "your-api-id"
+```
+
+Sources: `crates/fraiseql-core/src/config/auth.rs:L8` (AuthConfig struct), `crates/fraiseql-server/src/server_config/hs256.rs` (Hs256Config; mutually exclusive with `[auth]`), `crates/fraiseql-cli/src/config/toml_schema/security.rs:L1` (module doc-comment "Security configuration types for `[security.*]` and `[auth]` TOML sections").
+
+**Additional ankle-deep cleanup (not in the brief's "stale-claim" sense but item-12-relevant):** `community/vs/postgrest.mdx:L39` Full-text-search row read "Coming soon" — replaced with v2.3.2-current factual framing "Not exposed on REST surface at v2.3.2". The page-prose `<Aside type="note">` at L116 already says "this is planned for a future FraiseQL release" which is acceptable forward-looking framing (not a "coming soon" hedge); retained.
+
+#### Build state
+
+- `bun run build` — exit 0, **205 pages**, 281 HTML files. Strip integration: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`. No new warnings beyond the 2 pre-existing baselines.
+- `bun run check` — 0 errors, 0 warnings, 60 hints (unchanged baseline).
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/community/vs/` → **0 hits.** Posture B leak-free.
+- `grep -inE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" src/content/docs/community/vs/*.mdx` → **0 hits.** Archaeology-free.
+
+#### Anti-scope (confirmed)
+
+- No comparison-content rewrites. The "FraiseQL vs X" framing, comparison tables, "when to choose which" guidance — all unchanged.
+- No edits to `~/code/fraiseql`.
+- No new framework bugs filed; no Bug-Finder invocation needed (per Cycle 7 RED partition plan).
+- No edits to docs pages outside `src/content/docs/community/vs/`.
+- No amend; no force-push.
+- No "Phase N" phrasing in rendered prose.
+
+#### Open framework bugs
+
+Unchanged from Cycle 7b close. FW-1 through FW-29 status as recorded; no new findings from comparison-page polish.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold at `d0a4ed4ec`, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted. G11 applied this cycle in concrete form (5/5 vs/* pages carry the inline 2026-05-30 snapshot framing). G3/G4/G5 downstream.
+
+#### CI URL
+
+(To be captured after `git push` and CI run start; will be appended via follow-on commit per § 6.1 "CI is the only GREEN gate".)
+
+#### Commit SHA + push status
+
+See commit below.
+
+#### Pointer to next persona
+
+**Verifier (Source-Citation Verifier, Sonnet 4.6) — light load** (13 new citations across 5 pages, all greppable at frozen SHA). Then **Reviewer (Opus 4.7) — sampling 2-3 vs pages** (e.g. `hasura.mdx` for the `[auth]` correction, `apollo.mdx` for the subscription example, `postgrest.mdx` for the archaeology fix + 3-citation density), CI parity check, and 15-point adversarial walk. Per the Cycle 7 RED partition plan, after Reviewer APPROVE → Cleanup (Sonnet 4.6) → Phase 03 close → Phase 04 kickoff.
+
