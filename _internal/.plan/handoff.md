@@ -7005,7 +7005,10 @@ See commit below. Branch: `phase-03/critical-rewrites`. PR #14 still open from C
 
 #### CI URL after push
 
-Captured in the next handoff entry (Cycle 7b verifier or reviewer) once CI completes — the Writer does not declare GREEN locally.
+`gh run list --branch phase-03/critical-rewrites --limit 1`:
+`https://github.com/fraiseql/fraiseql-docs/actions/runs/26678687383` (in_progress at handoff write).
+
+PR #14 HEAD: `8d05401` (Cycle 7b GREEN). `pre-commit.ci - pr` continues to flake per Phase-10 deferral; the 6 docs-test page jobs are the load-bearing checks.
 
 #### Pointer to next personas
 
