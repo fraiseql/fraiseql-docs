@@ -6562,3 +6562,7 @@ To be captured on push; PR description + this handoff entry will be back-filled 
 - Item 13 (source citations resolve) — re-grep at least 3 random citations.
 
 On Reviewer + Verifier both APPROVE, hand off to **Cleanup (Sonnet 4.6)** for 7a close — verify sidebar entries, archaeology grep, append `## Pages completed` rows to phase-03 doc, commit cleanly. Then dispatch **Writer-Opus (batch)** for 7b (13 POLISH pages).
+
+#### CI run URL — captured
+
+Push commit: `53c3b8d` → CI run: **https://github.com/fraiseql/fraiseql-docs/actions/runs/26678059022** (queued at 2026-05-30 07:27 UTC). The Reviewer must read CI output from this run directly, not from a local re-run, per methodology § 6.1.
