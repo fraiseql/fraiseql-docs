@@ -294,6 +294,19 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - `/features/security` (Cycle 7a — G9c hub split)
 - `/features/oauth-providers` (Cycle 7a — REWRITE for [auth] contradiction)
 - `/concepts/configuration` (Cycle 7a — REWRITE for [auth] contradiction)
+- `/features/encryption` (Cycle 7b — POLISH)
+- `/features/audit-logging` (Cycle 7b — POLISH)
+- `/features/rate-limiting` (Cycle 7b — POLISH + FW-24 caveat + field-name correction)
+- `/features/server-side-injection` (Cycle 7b — POLISH)
+- `/features/mutations` (Cycle 7b — POLISH + auth pivot)
+- `/concepts/why-fraiseql` (Cycle 7b — slug fix)
+- `/concepts/cqrs` (Cycle 7b — slug fix)
+- `/concepts/view-composition` (Cycle 7b — slug fixes)
+- `/concepts/type-system` (Cycle 7b — slug fix)
+- `/concepts/elo-validation` (Cycle 7b — slug fix)
+- `/concepts/how-it-works` (Cycle 7b — verified-clean, no change)
+- `/concepts/developer-owned-sql` (Cycle 7b — verified-clean, no change)
+- `/concepts/schema` (Cycle 7b — verified-clean, no change)
 
 ## Framework bugs filed
 

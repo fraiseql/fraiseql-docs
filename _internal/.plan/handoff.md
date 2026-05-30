@@ -7194,4 +7194,65 @@ CI green. Citations 5/5 verified. Posture B leak-free. FW-24 caveat sourcing-tru
 
 **Style Auditor (Sonnet 4.6)** OR **Cleanup (Sonnet 4.6)** for Cycle 7b close. The nits above are style-band only and best rolled into the phase-close style audit; no blocking content kick-back. After Cleanup, the orchestrator can either dispatch Writer-Opus for **Cycle 7c** (the 5 vs/* comparison pages) or proceed to **Phase 03 close → Phase 04 kickoff** per the cluster inventory plan.
 
+---
+
+### Phase 03 / Cycle 7b close — Cleanup (Sonnet 4.6) — 2026-05-30
+
+#### Build state
+
+- `bun run check` — 0 errors, 0 warnings, 60 hints (unchanged pre-existing baseline).
+- `bun run build` — exit 0, **205 pages**, 281 HTML files. Strip integration: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`. No new warnings beyond the 2 pre-existing baselines (`conf` language in `building/federation-nats-integration.mdx`; `/[...slug]` vs `/` route conflict).
+
+#### Archaeology grep result
+
+Ran against all 13 scoped files (10 touched + 3 verified-clean concept pages):
+
+```
+git grep -nE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" \
+  src/content/docs/features/encryption.mdx \
+  src/content/docs/features/audit-logging.mdx \
+  src/content/docs/features/rate-limiting.mdx \
+  src/content/docs/features/server-side-injection.mdx \
+  src/content/docs/features/mutations.mdx \
+  src/content/docs/concepts/why-fraiseql.mdx \
+  src/content/docs/concepts/cqrs.mdx \
+  src/content/docs/concepts/view-composition.mdx \
+  src/content/docs/concepts/type-system.mdx \
+  src/content/docs/concepts/elo-validation.mdx \
+  src/content/docs/concepts/how-it-works.mdx \
+  src/content/docs/concepts/developer-owned-sql.mdx \
+  src/content/docs/concepts/schema.mdx
+```
+
+**Result:** 3 hits — all in `concepts/how-it-works.mdx` (`### Phase 1: Parsing`, `### Phase 2: Analysis & Query Path Compilation`, `### Phase 3: Output`). These are FraiseQL's internal compilation-pipeline stage headings, confirmed-clean by the Cycle 3 Reviewer (pre-existing framework-concept prose, not docs-overhaul markers). **Archaeology: 0 real hits.**
+
+#### Sidebar
+
+No edits required. All 10 touched pages and 3 verified-clean pages were already present in the Phase 01 Option A sidebar.
+
+#### Cross-links
+
+Verified by Cycle 7b Writer + Reviewer (15/15 pass, item 6 DEAD LINKS ✅). No cross-link patching required by Cleanup.
+
+#### Phase 03 doc update
+
+`_internal/.plan/.phases/phase-03-critical-rewrites.md` — appended 13 entries to `## Pages completed`:
+- 10 touched pages (5 features POLISH, 5 concepts slug-fix).
+- 3 verified-clean concept pages noted as "verified-clean, no change" (how-it-works, developer-owned-sql, schema).
+
+#### No new framework bugs
+
+No framework bugs surfaced by Cleanup this cycle.
+
+#### Commit SHA + push status
+
+See commit below. Branch: `phase-03/critical-rewrites`.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted. G3/G4/G5 downstream.
+
+#### Pointer to next persona
+
+**Writer (Opus 4.7) — Cycle 7c batch** on the 5 `/community/vs/*` comparison pages with G11 default (point-in-time snapshots with inline date tag). Per the Cycle 7 RED inventory, these are the remaining POLISH cluster items before Phase 03 can close.
 
