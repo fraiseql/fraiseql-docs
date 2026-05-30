@@ -7453,3 +7453,47 @@ Reason: the Cargo feature is named `grpc`, not `grpc-transport`. Confirmed: `cra
 
 **Writer (Opus 4.7)** — fix the 3 failing citations on `hasura-sqlserver.mdx` (×2) and `postgrest.mdx` (×1 citation + ×1 prose at L29). After Writer fix commit, re-invoke **Verifier (Sonnet 4.6)** to re-verify the 3 corrected citations only. If all pass, proceed to **Reviewer (Opus 4.7)**.
 
+
+---
+
+### Phase 03 / Cycle 7c GREEN — orchestrator follow-on (citation path corrections) — 2026-05-30
+
+Verifier's KICK-BACK: 3/13 citation failures, all path drifts at frozen SHA. Mechanical orchestrator-scope fixes.
+
+#### Fix 1 — `hasura-sqlserver.mdx:L17`
+
+- Before: `crates/fraiseql-cli/src/dialect/mssql.rs`
+- After:  `crates/fraiseql-db/src/dialect/sqlserver.rs`
+- Reason: at frozen SHA `d0a4ed4ec`, the dialect crate is `fraiseql-db` (not `-cli`); MSSQL filename is `sqlserver.rs` (not `mssql.rs`). Re-verified via `git ls-tree`.
+
+#### Fix 2 — `hasura-sqlserver.mdx:L18`
+
+- Before: `crates/fraiseql-server/src/database/mssql/`
+- After:  `crates/fraiseql-db/src/sqlserver/adapter.rs`
+- Reason: the runtime adapter lives in `fraiseql-db`, not `fraiseql-server/src/database/`. Adapter is a file, not a directory. Re-verified.
+
+#### Fix 3 — `postgrest.mdx:L14` + `:L29`
+
+- Before: feature `grpc-transport`
+- After:  feature `grpc`
+- Reason: at frozen SHA, `crates/fraiseql-server/Cargo.toml:L161` declares the feature as `grpc`, not `grpc-transport`. Fixed both the citation comment AND the prose at L29 (sed replace_all).
+
+#### Verification
+
+- `grep -nE "grpc-transport|fraiseql-cli/src/dialect/mssql|fraiseql-server/src/database/mssql" src/content/docs/community/vs/ -r` → 0 hits.
+- `bun run build` exit 0, 205 pages.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → 0.
+
+#### Anti-scope
+
+- No re-spawn of Writer-Opus for 3 mechanical citation-path corrections.
+- No edits beyond these 3 lines.
+- No amend; new commit only.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted.
+
+#### Pointer
+
+Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 7c — once CI green on this commit. Reviewer's APPROVE on items 1-15 will be on the 10 PASS + 3 NEW-VERIFIED citations.

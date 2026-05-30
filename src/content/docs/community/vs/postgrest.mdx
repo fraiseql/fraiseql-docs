@@ -11,7 +11,7 @@ Comparison snapshot as of 2026-05-30 against FraiseQL v2.3.2 (frozen SHA `d0a4ed
 
 Both FraiseQL and PostgREST turn a PostgreSQL database into an HTTP API. They reflect fundamentally different philosophies about how that API should be defined.
 
-{/* source: crates/fraiseql-server/Cargo.toml — `grpc-transport` Cargo feature gates the gRPC binary path; REST is unconditional v2.1+ surface */}
+{/* source: crates/fraiseql-server/Cargo.toml — `grpc` Cargo feature gates the gRPC binary path; REST is unconditional v2.1+ surface */}
 {/* source: sdks/official/fraiseql-python/src/fraiseql/decorators.py — `@fraiseql.query(rest_path=..., rest_method=...)` annotation surface */}
 
 ## Summary Comparison
@@ -26,7 +26,7 @@ Both FraiseQL and PostgREST turn a PostgreSQL database into an HTTP API. They re
 | ETags | Yes (xxHash64, `If-None-Match` → 304) | Yes |
 | `Prefer` header | `return`, `count=exact` | `return`, `count`, `handling`, `resolution` |
 | GraphQL | Yes | No |
-| gRPC | Yes (requires `grpc-transport` feature flag) | No |
+| gRPC | Yes (requires `grpc` feature flag) | No |
 | WebSocket subscriptions | Yes | No |
 | Schema authoring | 11 SDK languages | PostgreSQL schema |
 | Database support | PostgreSQL, MySQL, SQLite, SQL Server | PostgreSQL only |
