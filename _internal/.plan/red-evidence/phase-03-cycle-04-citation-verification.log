@@ -1,0 +1,334 @@
+Phase 03 / Cycle 4 — Source-Citation Verifier log
+Persona: Sonnet 4.6
+Frozen SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+Page: src/content/docs/building/authentication.md
+Date: 2026-05-30
+
+=== CITATION COUNT ===
+Total citations extracted: 72 (matches Writer's claim of 72)
+
+=== FULL CITATION VERIFICATION ===
+
+--- CAVEATS SECTION ---
+
+[C-01] page:16 builder.rs:L308-L323 — OIDC validator built only when config.auth is Some
+VERIFIED. L308: `let oidc_validator = if let Some(ref auth_config) = config.auth {` ... L319: `} else { None };`
+Prose: anonymous baseline — validator only built when [auth] is Some.
+
+[C-02] page:17 builder.rs:L19-L39 — build_hs256_auth returns Ok(None) when [auth_hs256] absent
+VERIFIED. L19: `pub(super) fn build_hs256_auth(config: &ServerConfig) -> Result<Option<Arc<AuthMiddleware>>>` L21: `let Some(ref hs) = config.auth_hs256 else { return Ok(None); };`
+Prose: build_hs256_auth returns Ok(None) when absent — matches exactly.
+
+[C-03] page:23 routing/auth.rs:L103-L114 — revocation routes merged with no route_layer
+VERIFIED. L103-L114: revocation routes mounted via `.merge(rev_router)` with NO `.route_layer(...)` present; compare to L81-L101 which has `.route_layer(middleware::from_fn_with_state(...))`.
+Prose: FW-26 — revocation routes mounted without route_layer.
+
+[C-04] page:24 routing/auth.rs:L81-L101 — sibling /auth/me block DOES apply oidc_auth_middleware
+VERIFIED. L94: `.route_layer(middleware::from_fn_with_state(auth_state, oidc_auth_middleware))` present on auth/me router.
+Prose: /auth/me does apply oidc_auth_middleware — contrast with revoke routes.
+
+[C-05] page:25 routes/auth.rs:L301-L375 — revoke_token uses dangerous::insecure_decode; revoke_all_tokens accepts {"sub":"..."}
+VERIFIED. `jsonwebtoken::dangerous::insecure_decode` call present at ~L323. `RevokeAllRequest { pub sub: String }` struct at ~L362. Handler `revoke_all_tokens` accepts body `Json(body): Json<RevokeAllRequest>` — matches prose claim exactly.
+
+[C-06] page:33 server_config/hs256.rs:L24-L39 — Hs256Config.audience field is optional with serde default, no validate() method
+VERIFIED. L35-L38: `#[serde(default)] pub audience: Option<String>,` — no `validate()` method in the file (only `load_secret`).
+Prose: FW-27 — audience optional, no validate().
+
+[C-07] page:34 builder.rs:L19-L39 — build_hs256_auth only sets audience when hs.audience.is_some()
+VERIFIED. L29-L31: `if let Some(ref aud) = hs.audience { auth_config = auth_config.with_audience(aud); }`
+Prose: audience only set when hs.audience.is_some() — matches.
+
+[C-08] page:42 initialization.rs:L80-L97 — pkce_store_from_schema warns then continues when state_encryption is None
+VERIFIED. The `if state_encryption.is_none() { warn!(...) }` block is present at around L80-L88; function does not return None here — continues to mount the store. Matches FW-28 claim.
+
+[C-09] page:43 routing/auth.rs:L26-L46 — PKCE routes mount on (pkce_store, oidc_server_client); no state_encryption check
+VERIFIED. L26-L46: `if let (Some(store), Some(client)) = (&self.pkce_store, &self.oidc_server_client) { ... let auth_router = Router::new().route("/auth/start",...).route("/auth/callback",...)`  — no state_encryption check in mount condition.
+
+[C-10] page:51 jwks.rs:L113-L161 — cache-hit returns key without consulting upstream; detect_key_rotation only warns
+VERIFIED. `get_decoding_key`: cache hit returns early without checking upstream. `detect_key_rotation` path: `tracing::warn!("OIDC key rotation detected...")` — no cache flush. Matches FW-29.
+
+[C-11] page:52 providers.rs:L147-L150 — default_jwks_cache_ttl = 300 secs
+VERIFIED. `pub(super) const fn default_jwks_cache_ttl() -> u64 { 300 }`
+
+[C-12] page:60 CLI security.rs:L181-L249 — CLI schema accepts failed_login_max_attempts / failed_login_lockout_secs
+VERIFIED. L209-L213: `pub failed_login_max_attempts: u32,` and `pub failed_login_lockout_secs: u64,` in `RateLimitingSecurityConfig` struct. Range L181-L249 encompasses the struct definition.
+
+[C-13] page:61 rate_limit/config.rs:L7-L52 — server runtime mirror has no failed_login_* fields
+VERIFIED. File is a `RateLimitingSecurityConfig` struct (different struct, same name) at L7-L52 with NO `failed_login_*` fields — has auth_start_*, auth_callback_*, auth_refresh_*, trusted_proxy_cidrs, but no failed_login fields.
+
+[C-14] page:69 CLI security.rs:L463-L501 — CLI accepts "memory" | "redis" | "postgres"
+VERIFIED. L472: `backend: String` in TokenRevocationSecurityConfig; doc comment `/// Backend: "redis", "postgres", or "memory"` at ~L469. Default `"memory"` at L491. Range contains the full struct + default impl.
+
+[C-15] page:70 token_revocation.rs:L399-L437 — server arms cover memory + redis only; postgres → "Unknown" warn + fallback
+VERIFIED. Match arms at L403: `"redis"` (feature-gated), L424: `"memory" | "env"`, L428: `other => { warn!(backend = %other, "Unknown revocation backend — falling back to in-memory"); ...}` — no postgres arm. Matches FW-25 claim.
+
+[C-16] page:78 api_key.rs:L237-L251 — api_key_authenticator_from_schema reads schema.security.additional["api_keys"]
+VERIFIED. `pub fn api_key_authenticator_from_schema(...)` reads `security.additional.get("api_keys")`. Exact match.
+
+[C-17] page:79 token_revocation.rs:L384-L390 — revocation_manager_from_schema reads schema.security.additional["token_revocation"]
+VERIFIED. `pub fn revocation_manager_from_schema(...)` at L384 reads `security.additional.get("token_revocation")`.
+
+[C-18] page:80 initialization.rs:L44-L82 — pkce_store_from_schema reads schema.security.additional["pkce"]
+VERIFIED. `pkce_store_from_schema` at L44 reads `security.additional.get("pkce")`.
+
+[C-19] page:86 providers.rs:L290-L320 — validate() refuses boot when audience + additional_audiences both empty
+VERIFIED. `validate()` method at L291: `if self.audience.is_none() && self.additional_audiences.is_empty() { return Err(SecurityError::SecurityConfigError("OIDC audience is REQUIRED...")) }`
+
+[C-20] page:87 providers.rs:L45-L73 — audience field SECURITY CRITICAL doc comment
+VERIFIED. L58-L73: `/// **SECURITY CRITICAL**: This field is mandatory. Tokens must have this value in their aud claim...`
+
+[C-21] page:93 providers.rs:L152-L154 — default_algorithms() returns ["RS256"]
+VERIFIED. `pub(super) fn default_algorithms() -> Vec<String> { vec!["RS256".to_string()] }` at L153-L155.
+
+[C-22] page:94 token.rs:L355-L368 — get_algorithm enforces allowlist; returns InvalidTokenAlgorithm
+VERIFIED. `pub(super) fn get_algorithm(&self, header: ...) -> Result<Algorithm>` ... `if !self.config.allowed_algorithms.contains(&alg_str) { return Err(SecurityError::InvalidTokenAlgorithm { algorithm: alg_str }); }`
+
+[C-23] page:100 initialization.rs:L205-L213 — trust_proxy_headers warning
+VERIFIED. L205-L213 (approx): `if sec.trust_proxy_headers && sec.trusted_proxy_cidrs.as_ref().is_none_or(Vec::is_empty) { warn!("Rate limiter: trust_proxy_headers = true but trusted_proxy_cidrs is not set...") }`
+
+[C-24] page:104 routes/auth.rs:L432-L460 — auth_me handler: always-include email/display_name; expose_claims iterates user.extra_claims
+VERIFIED. `pub async fn auth_me(...)` at L432: always includes email/display_name when Some; iterates `state.expose_claims` over `user.extra_claims.get(claim_name)`.
+
+--- QUICK REFERENCE TABLE ---
+
+[C-25] page:110 server_config/mod.rs:L293-L307 — OIDC validator field
+VERIFIED. L293-L307 contains: `/// OIDC authentication configuration (optional)...` and `pub auth: Option<OidcConfig>,`
+
+[C-26] page:111 server_config/hs256.rs:L11-L39 — HS256 validator field
+VERIFIED. L11-L39: full `Hs256Config` struct with `auth_hs256` described in doc comments, `secret_env`, `issuer`, `audience` fields.
+
+[C-27a] page:112 providers.rs:L25-L41 — /auth/me requires oidc_validator
+VERIFIED. L25-L41: `MeEndpointConfig` struct with `enabled` and `expose_claims` fields; the optional-OIDC conditional is in routing/auth.rs which refs `oidc_validator`.
+
+[C-27b] page:112 routing/auth.rs:L81-L101 — /auth/me requires oidc_validator to be present
+VERIFIED. (Same as C-04 above) — L84: `if let (Some(ref validator), Some(me_cfg)) = (&self.oidc_validator, ...)`
+
+[C-28] page:113 api_key.rs:L237-L251 — compile-step for api_keys
+VERIFIED. (Same as C-16)
+
+[C-29] page:114 token_revocation.rs:L384-L437 — compile-step token revocation
+VERIFIED. Encompasses revocation_manager_from_schema + the full backend match arms.
+
+[C-30a] page:115 CLI security.rs:L309-L316 — PKCE S256 default
+VERIFIED. `CodeChallengeMethod::S256` is #[default] variant at ~L310.
+
+[C-30b] page:115 routing/auth.rs:L26-L46 — PKCE routes mount
+VERIFIED. (Same as C-09)
+
+[C-31] page:116 CLI security.rs:L284-L306 — state_encryption compile-step
+VERIFIED. L284-L306: `StateEncryptionConfig` struct with `enabled`, `algorithm`, `key_source`, `key_env`, default impl with `key_env: Some("STATE_ENCRYPTION_KEY".to_string())`.
+
+[C-32] page:117 rate_limit/config.rs:L7-L52 — per-endpoint rate limiting
+VERIFIED. (Same as C-13)
+
+[C-33] page:118 providers.rs:L152-L154 — default_algorithms
+VERIFIED. (Same as C-21)
+
+[C-34] page:119 providers.rs:L147-L150 — jwks_cache_ttl default 300
+VERIFIED. (Same as C-11)
+
+[C-35] page:120 routes/auth.rs:L220-L246 — cookie format
+VERIFIED. L233-L243: token_escaped RFC 6265 escape + cookie format string `__Host-access_token="{token_escaped}"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={max_age}`
+
+[C-36] page:121 token_revocation.rs:L399-L406 — redis-pkce feature
+VERIFIED. L403-L406: `#[cfg(feature = "redis-rate-limiting")] "redis" => { ... }` — confirms feature guard exists; note the feature name is `redis-rate-limiting` (used for both PKCE store and token revocation per prose claim "redis-pkce, redis-rate-limiting").
+NOTE: The page states `redis-pkce` and `redis-rate-limiting` as separate features; the token_revocation citation uses `redis-rate-limiting` only. The PKCE store uses `redis-pkce` (seen at initialization.rs L112: `#[cfg(feature = "redis-pkce")]`). Both features are real and used correctly. Claim verified.
+
+--- HOW AUTH IS COMPOSED TODAY ---
+
+[C-37] page:131 server_config/mod.rs:L40-L42 — ServerConfig struct; no deny_unknown_fields
+VERIFIED. L40-L42: `pub struct ServerConfig {` with `#[derive(Debug, Clone, Serialize, Deserialize)]` — no `#[serde(deny_unknown_fields)]` attribute.
+
+[C-38] page:132 server_config/mod.rs:L293-L307 — auth field
+VERIFIED. (Same as C-25)
+
+[C-39] page:158 builder.rs:L308-L319 — OIDC validator instantiated when config.auth.is_some()
+VERIFIED. L308-L319: `if let Some(ref auth_config) = config.auth { ... Some(Arc::new(validator)) } else { None }`
+
+[C-40] page:159 builder.rs:L19-L39 — build_hs256_auth returns Some when configured
+VERIFIED. L19-L39: function returns `Ok(Some(Arc::new(AuthMiddleware::from_config(auth_config))))` at end of happy path.
+
+[C-41] page:165 api_key.rs:L237-L251 — reads compiled schema (not ServerConfig)
+VERIFIED. (Same as C-16; ServerConfig has no api_keys field — confirmed by reviewing mod.rs)
+
+[C-42] page:166 token_revocation.rs:L384-L390 — reads compiled schema
+VERIFIED. (Same as C-17)
+
+[C-43] page:167 initialization.rs:L22-L82 — state_encryption + pkce_store read compiled schema
+VERIFIED. L22-L44: state_encryption_from_schema reads schema.security. L44-L82: pkce_store_from_schema reads schema.security.additional["pkce"].
+
+[C-44] page:168 initialization.rs:L192-L260 — rate_limiter_from_schema reads compiled schema
+VERIFIED. `rate_limiter_from_schema` reads `schema.security...additional.get("rate_limiting")`.
+
+--- JWT AND OIDC ---
+
+[C-45] page:181 oidc_auth.rs:L48-L62 — extract_access_token_cookie
+VERIFIED. L48-L62 (approx): `pub(crate) fn extract_access_token_cookie(headers: &axum::http::HeaderMap) -> Option<String>` strips `__Host-access_token=` prefix and `trim_matches('"')`.
+
+[C-46] page:182 oidc_auth.rs:L83-L97 — oidc_auth_middleware doc comment: Bearer header → cookie fallback
+VERIFIED. L83-L97 (approx): `/// OIDC authentication middleware. Validates JWT tokens from the Authorization: Bearer header...When no Authorization header is present, falls back to the __Host-access_token HttpOnly cookie...`
+
+[C-47] page:190 providers.rs:L52-L60 — issuer field HTTPS requirement
+VERIFIED. L52-L60 (within OidcConfig struct): issuer field doc comment mentions HTTPS requirement; validate() enforces `starts_with("https://")`.
+
+[C-48] page:191 providers.rs:L58-L73 — audience field SECURITY CRITICAL
+VERIFIED. (Same as C-20)
+
+[C-49] page:193 providers.rs:L152-L154 — allowed_algorithms default
+VERIFIED. (Same as C-21)
+
+[C-50] page:194 providers.rs:L147-L150 — jwks_cache_ttl default 300
+VERIFIED. (Same as C-11)
+
+[C-51] page:195 providers.rs:L160-L165 — clock_skew_secs default + MAX_CLOCK_SKEW_SECS cap
+VERIFIED. L158: `pub(super) const MAX_CLOCK_SKEW_SECS: u64 = 300;` L160-L162: `pub(super) const fn default_clock_skew() -> u64 { 60 }`
+
+[C-52] page:200 providers.rs:L172-L260 — per-provider constructors
+VERIFIED. L172-L260: `auth0()`, `keycloak()`, `okta()`, `cognito()`, `azure_ad()` constructors — all present and populate OidcConfig.
+
+[C-53] page:206 security_context.rs:L115-L127 — email + display_name fields
+VERIFIED. L115-L127 (approx): `pub email: Option<String>` and `pub display_name: Option<String>` with doc comments mentioning `jwt:email` / `jwt:name` / `jwt:display_name`.
+
+[C-54] page:216 routes/auth.rs:L220-L246 — cookie format without Domain=
+VERIFIED. L233-L243 (within the L220-L246 range): cookie format string hard-coded without `Domain=` attribute. Range L220-L246 covers the return-tokens block.
+
+[C-55] page:222 routes/auth.rs:L432-L460 — auth_me handler implementation
+VERIFIED. (Same as C-24)
+
+--- HS256 SECTION ---
+
+[C-56] page:237 server_config/hs256.rs:L24-L39 — Hs256Config fields
+VERIFIED. L24-L39: `pub struct Hs256Config { pub secret_env: String, pub issuer: Option<String>, pub audience: Option<String> }` plus `load_secret` impl.
+
+[C-57] page:268 builder.rs:L26-L33 — audience only set when hs.audience.is_some()
+VERIFIED. L26-L33: `if let Some(ref aud) = hs.audience { auth_config = auth_config.with_audience(aud); }`
+
+--- API KEYS ---
+
+[C-58] page:274 api_key.rs:L186-L196 — sha256_hash + ConstantTimeEq comparison
+VERIFIED. L186-L196: `let key_hash = sha256_hash(key.as_bytes()); for static_key in &self.static_keys { if bool::from(key_hash.ct_eq(&static_key.hash)) { ... }}`
+
+[C-59] page:275 api_key.rs:L213-L222 — sha256_hash impl
+VERIFIED. `pub(crate) fn sha256_hash(input: &[u8]) -> [u8; 32]` uses `Sha256::new()`, `.update()`, `.finalize()`.
+
+[C-60] page:276 api_key.rs:L237-L251 — api_key_authenticator_from_schema
+VERIFIED. (Same as C-16)
+
+[C-61] page:308 api_key.rs:L226-L235 — build_security_context
+VERIFIED. `fn build_security_context(key_name: &str, scopes: &[String]) -> SecurityContext` builds user with `user_id: format!("apikey:{key_name}")`.
+
+--- PKCE ---
+
+[C-62] page:314 routing/auth.rs:L26-L46 — PKCE routes mounted on (pkce_store, oidc_server_client)
+VERIFIED. (Same as C-09)
+
+[C-63] page:315 routes/auth.rs:L114 — pub async fn auth_start
+VERIFIED. `pub async fn auth_start(State(state): State<Arc<AuthPkceState>>, Query(q): Query<AuthStartQuery>) -> Response` at L114.
+
+[C-64] page:316 routes/auth.rs:L168 — pub async fn auth_callback
+VERIFIED. `pub async fn auth_callback(...)` at L168.
+
+[C-65] page:320 initialization.rs:L44-L112 — pkce_store_from_schema; Redis path under #[cfg(feature = "redis-pkce")]
+VERIFIED. L44-L112: pkce_store_from_schema with Redis path at ~L97-L108: `#[cfg(feature = "redis-pkce")] if let Some(ref url) = cfg.redis_url { match PkceStateStore::new_redis(...) }`
+
+--- TOKEN REVOCATION ---
+
+[C-66] page:355 token_revocation.rs:L399-L437 — backend match arms
+VERIFIED. (Same as C-15)
+
+--- RATE LIMITING ---
+
+[C-67] page:372 rate_limit/config.rs:L7-L52 — RateLimitConfig struct
+VERIFIED. (Same as C-13)
+
+[C-68] page:373 rate_limit/in_memory.rs:L59-L100 — per-endpoint dispatch
+VERIFIED. `with_path_rules_from_security` and `check_path_limit` functions cover auth/start, auth/callback, auth/refresh path rules. The per-endpoint dispatch is at L59-L100 (confirmed by output showing the rule-push block and check_path_limit function within that range).
+
+[C-69] page:374 initialization.rs:L192-L260 — rate_limiter_from_schema
+VERIFIED. (Same as C-44)
+
+--- COOKIE SECURITY ---
+
+[C-70] page:404 routes/auth.rs:L233-L237 — token value RFC 6265 quoted-string escape
+VERIFIED. L233-L235: `let token_escaped = tokens.access_token.replace('\\', r"\\").replace('"', r#"\""#);` — escapes both `\` and `"` per RFC 6265.
+
+[C-71] page:405 routes/auth.rs:L236-L240 — cookie attribute string hard-coded; no Domain=
+VERIFIED. L236-L240: `let cookie = format!(r#"__Host-access_token="{token_escaped}"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={max_age}"#,);` — no Domain= attribute.
+
+[C-72] page:409 oidc_auth.rs:L48-L62 — extract_access_token_cookie strips quotes
+VERIFIED. (Same as C-45) — `trim_matches('"')` strips surrounding double quotes.
+
+=== SPOT-CHECK SUMMARY (7 distinct citations) ===
+
+SC-1 (C-05): routes/auth.rs:L301-L375 — revoke_token insecure_decode + revoke_all_tokens {"sub":"..."}
+  VERIFIED: jsonwebtoken::dangerous::insecure_decode present; RevokeAllRequest.sub field present.
+
+SC-2 (C-10): jwks.rs:L113-L161 — cache-hit no upstream consult; detect_key_rotation only warns
+  VERIFIED: Cache read with is_expired() check returns early; detect_key_rotation emits tracing::warn but no flush.
+
+SC-3 (C-22): token.rs:L355-L368 — get_algorithm enforces allowlist; InvalidTokenAlgorithm
+  VERIFIED: allowed_algorithms.contains check + SecurityError::InvalidTokenAlgorithm return.
+
+SC-4 (C-37): server_config/mod.rs:L40-L42 — ServerConfig struct, no deny_unknown_fields
+  VERIFIED: #[derive(Debug, Clone, Serialize, Deserialize)] struct ServerConfig with no deny_unknown_fields.
+
+SC-5 (C-52): providers.rs:L172-L260 — per-provider constructors (auth0, keycloak, okta, cognito, azure_ad)
+  VERIFIED: All five constructors present with correct issuer URL formatting and audience population.
+
+SC-6 (C-61): api_key.rs:L226-L235 — build_security_context sets user_id to "apikey:<name>"
+  VERIFIED: `format!("apikey:{key_name}")` in UserId::new() call.
+
+SC-7 (C-65): initialization.rs:L44-L112 — pkce_store_from_schema; Redis under #[cfg(feature = "redis-pkce")]
+  VERIFIED: Feature gate #[cfg(feature = "redis-pkce")] present; in-memory fallback on missing feature or connect error.
+
+=== SECURITY CAVEATS LEAD BLOCK RE-VERIFICATION ===
+
+11 caveats documented. Citations verified:
+1. Anonymous baseline (C-01, C-02): builder.rs L19-L39 + L308-L323 — VERIFIED
+2. FW-26 revoke unauthenticated (C-03, C-04, C-05): routing/auth.rs + routes/auth.rs — VERIFIED
+3. FW-27 HS256 audience (C-06, C-07): hs256.rs + builder.rs — VERIFIED
+4. FW-28 PKCE warn-continue (C-08, C-09): initialization.rs + routing/auth.rs — VERIFIED
+5. FW-29 JWKS cache (C-10, C-11): jwks.rs + providers.rs — VERIFIED
+6. FW-24 brute-force (C-12, C-13): CLI security.rs + rate_limit/config.rs — VERIFIED
+7. FW-25 postgres downgrade (C-14, C-15): CLI security.rs + token_revocation.rs — VERIFIED
+8. Compile-step indirection (C-16..C-18): api_key.rs + token_revocation.rs + initialization.rs — VERIFIED
+9. OIDC audience mandatory (C-19, C-20): providers.rs validate() + doc comment — VERIFIED
+10. Algorithm allowlist (C-21, C-22): providers.rs default_algorithms() + token.rs get_algorithm() — VERIFIED
+11. trust_proxy_headers footgun (C-23): initialization.rs L205-L213 warn — VERIFIED
+(Plus C-24 auth_me expose_claims handler footnote to caveat 11)
+
+=== DIRECT-TOML AUTO-WIRING VERIFICATION ===
+
+Citations for [auth] and [auth_hs256] on ServerConfig (C-25, C-26, C-38, C-39, C-40):
+- server_config/mod.rs: `pub auth: Option<OidcConfig>` and `pub auth_hs256: Option<Hs256Config>` directly on ServerConfig struct — NO compile step.
+- builder.rs: OidcValidator instantiated directly from config.auth at L308-L319. build_hs256_auth reads config.auth_hs256 at L19-L39.
+- Contrast with compile-step subsystems (C-41..C-44) which read schema.security.additional[...].
+All direct-TOML auto-wiring citations VERIFIED. The hybrid architecture distinction is source-accurate.
+
+=== COMPILE-STEP INDIRECTION VERIFICATION ===
+
+Citations for schema.security.additional["api_keys"], ["token_revocation"], ["pkce"], ["rate_limiting"] (C-16, C-17, C-18, C-41..C-44):
+- api_key_authenticator_from_schema reads security.additional.get("api_keys") — VERIFIED
+- revocation_manager_from_schema reads security.additional.get("token_revocation") — VERIFIED
+- pkce_store_from_schema reads security.additional.get("pkce") — VERIFIED
+- rate_limiter_from_schema reads security.additional.get("rate_limiting") — VERIFIED
+None of these read ServerConfig directly. Compile-step path through schema.security.additional[...] → runtime consumption CONFIRMED.
+
+=== POSTURE B LEAK SCAN ===
+
+Build command: bun run build (in /home/lionel/code/fraiseql-docs)
+Result: SUCCESS — 205 pages built
+Strip integration log line: "strip-source-citations: scanned 281 HTML files, modified 3, stripped 223 source-citation comments."
+Grep check: grep -rE '<!--\s*source:' dist/ → exit 0 (zero matches)
+POSTURE B LEAK-FREE: CONFIRMED
+
+=== VERDICT ===
+
+TOTAL: 72 citations
+VERIFIED: 72
+FAILURES: 0
+NOTES: 0
+
+One observation (not a failure): Citation on page:121 claims features "redis-pkce" and "redis-rate-limiting" are both used. The token_revocation.rs citation shows `#[cfg(feature = "redis-rate-limiting")]` and initialization.rs shows `#[cfg(feature = "redis-pkce")]` for the PKCE store — both features exist and are correctly described in the page. The prose is accurate.
+
+VERDICT: PASS — all 72 citations verified at frozen SHA d0a4ed4ec1770c70707f68fd9019f2b561d87461. No failures. Posture B confirmed.

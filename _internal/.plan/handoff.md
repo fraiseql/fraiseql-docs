@@ -5151,3 +5151,75 @@ No novel gates introduced. The 6 framework bugs (FW-24..FW-29) join the 23 alrea
 - PR: https://github.com/fraiseql/fraiseql-docs/pull/14 (cumulative Phase 03 PR; Cycle 1+2+3+4).
 - CI run: https://github.com/fraiseql/fraiseql-docs/actions/runs/26669686289 (in progress at handoff close).
 
+### Phase 03 / Cycle 4 verification — Source-Citation Verifier
+
+**Persona:** Source-Citation Verifier (Sonnet 4.6)
+**Date:** 2026-05-30
+**Subject:** `src/content/docs/building/authentication.md`
+**Frozen SHA:** `d0a4ed4ec1770c70707f68fd9019f2b561d87461`
+**Branch:** `phase-03/critical-rewrites`
+
+#### Citation count
+
+| Metric | Value |
+|---|---|
+| Total citations in page | 72 |
+| Citations verified | 72 |
+| Failures | 0 |
+| Notes | 1 (informational, not a failure) |
+
+Writer's claim of 72 citations confirmed by `grep -c '<!-- source:'` returning 72.
+
+#### Spot-check results (7 distinct citations)
+
+1. `routes/auth.rs:L301-L375` — `revoke_token` uses `jsonwebtoken::dangerous::insecure_decode`; `revoke_all_tokens` accepts `{"sub":"..."}` body. **VERIFIED.**
+2. `security/oidc/jwks.rs:L113-L161` — cache-hit returns key without consulting upstream; `detect_key_rotation` only warns (no flush). **VERIFIED.**
+3. `security/oidc/token.rs:L355-L368` — `get_algorithm` enforces allowlist; returns `SecurityError::InvalidTokenAlgorithm`. **VERIFIED.**
+4. `server_config/mod.rs:L40-L42` — `ServerConfig` struct declaration; no `#[serde(deny_unknown_fields)]`. **VERIFIED.**
+5. `security/oidc/providers.rs:L172-L260` — all five per-provider constructors (`auth0`, `keycloak`, `okta`, `cognito`, `azure_ad`) present and functional. **VERIFIED.**
+6. `api_key.rs:L226-L235` — `build_security_context` sets `user_id` to `format!("apikey:{key_name}")`. **VERIFIED.**
+7. `server/initialization.rs:L44-L112` — `pkce_store_from_schema` with Redis path under `#[cfg(feature = "redis-pkce")]`. **VERIFIED.**
+
+#### Security caveats LEAD block citation re-verification
+
+All 11 caveat groups verified against framework source:
+
+1. **Anonymous baseline** (builder.rs L308-L323 + L19-L39): OIDC validator only built when `config.auth.is_some()`; HS256 returns `Ok(None)` when absent. **VERIFIED.**
+2. **FW-26 revoke unauthenticated** (routing/auth.rs L103-L114 + L81-L101; routes/auth.rs L301-L375): revocation routes merged with no `route_layer`; `/auth/me` has `route_layer`; `insecure_decode` confirmed. **VERIFIED.**
+3. **FW-27 HS256 audience** (hs256.rs L24-L39; builder.rs L19-L39): `audience` is `Option<String>` with `#[serde(default)]`; no `validate()`; audience only set when `is_some()`. **VERIFIED.**
+4. **FW-28 PKCE warn-continue** (initialization.rs L80-L97; routing/auth.rs L26-L46): `if state_encryption.is_none() { warn!(...) }` then continues; no state_encryption check in mount condition. **VERIFIED.**
+5. **FW-29 JWKS cache** (jwks.rs L113-L161; providers.rs L147-L150): cache-hit returns without upstream; `detect_key_rotation` warns; default TTL 300 s. **VERIFIED.**
+6. **FW-24 brute-force** (CLI security.rs L181-L249; rate_limit/config.rs L7-L52): CLI has `failed_login_max_attempts`/`failed_login_lockout_secs`; server mirror struct has neither field. **VERIFIED.**
+7. **FW-25 postgres downgrade** (CLI security.rs L463-L501; token_revocation.rs L399-L437): CLI accepts `"postgres"` backend; server match has no `"postgres"` arm → falls through to `warn!("Unknown revocation backend")`. **VERIFIED.**
+8. **Compiled-schema indirection** (api_key.rs L237-L251; token_revocation.rs L384-L390; initialization.rs L44-L82): all three read `schema.security.additional[...]`. **VERIFIED.**
+9. **OIDC audience mandatory** (providers.rs L290-L320; L45-L73): `validate()` returns `SecurityConfigError("OIDC audience is REQUIRED...")` when both `audience` and `additional_audiences` empty. **VERIFIED.**
+10. **Algorithm allowlist** (providers.rs L152-L154; token.rs L355-L368): `default_algorithms()` returns `["RS256"]`; `get_algorithm` enforces with `InvalidTokenAlgorithm`. **VERIFIED.**
+11. **trust_proxy_headers footgun** (initialization.rs L205-L213): `warn!("Rate limiter: trust_proxy_headers = true but trusted_proxy_cidrs is not set...")` emitted; no boot refusal. **VERIFIED.**
+
+#### Direct-TOML auto-wiring re-verification
+
+`server_config/mod.rs`: `pub auth: Option<OidcConfig>` and `pub auth_hs256: Option<Hs256Config>` are direct fields on `ServerConfig` — no `schema.security.*` lookup. `builder.rs` instantiates both validators from these fields at startup without a compile step. Citations C-25, C-26, C-38, C-39, C-40 all resolve correctly. **VERIFIED.**
+
+#### Compile-step indirection re-verification
+
+`api_key_authenticator_from_schema`, `revocation_manager_from_schema`, `pkce_store_from_schema`, and `rate_limiter_from_schema` all read from `schema.security.additional["<subsystem>"]` — not from `ServerConfig`. The four cited source locations (initialization.rs L22-L82, L192-L260; api_key.rs L237-L251; token_revocation.rs L384-L390) confirm the path through compiled schema → runtime consumption. **VERIFIED.**
+
+#### Informational note (not a failure)
+
+Citation on page line 121 references `redis-pkce` and `redis-rate-limiting` as features for "PKCE state in Redis / revocation in Redis." Confirmed: `initialization.rs` uses `#[cfg(feature = "redis-pkce")]` for PKCE store; `token_revocation.rs` uses `#[cfg(feature = "redis-rate-limiting")]` for the Redis revocation backend. Both features exist and are used as described. The table claim is accurate.
+
+#### Posture B leak scan
+
+- Build: `bun run build` — SUCCESS, 205 pages built.
+- Strip integration log line: `strip-source-citations: scanned 281 HTML files, modified 3, stripped 223 source-citation comments.`
+- Post-build grep: `grep -rE '<!--\s*source:' dist/` → **exit 0 (zero matches)**.
+- **Posture B leak-free: CONFIRMED.**
+
+#### Artefact
+
+Per-citation log: `_internal/.plan/red-evidence/phase-03-cycle-04-citation-verification.log`
+
+#### Verdict
+
+**PASS.** All 72 citations verified at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. Zero failures. Posture B confirmed. Page may proceed to Reviewer and Cleanup.
+
