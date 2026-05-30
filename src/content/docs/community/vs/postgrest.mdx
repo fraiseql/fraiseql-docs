@@ -6,10 +6,13 @@ description: How FraiseQL compares to PostgREST — multi-transport vs REST-only
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
 <Aside type="caution">
-Pricing and features accurate as of March 2026. Verify current information at [postgrest.org](https://postgrest.org).
+Comparison snapshot as of 2026-05-30 against FraiseQL v2.3.2 (frozen SHA `d0a4ed4e`) and the then-current PostgREST stable release. Verify current PostgREST features at [postgrest.org](https://postgrest.org).
 </Aside>
 
 Both FraiseQL and PostgREST turn a PostgreSQL database into an HTTP API. They reflect fundamentally different philosophies about how that API should be defined.
+
+{/* source: crates/fraiseql-server/Cargo.toml — `grpc` Cargo feature gates the gRPC binary path; REST is unconditional v2.1+ surface */}
+{/* source: sdks/official/fraiseql-python/src/fraiseql/decorators.py — `@fraiseql.query(rest_path=..., rest_method=...)` annotation surface */}
 
 ## Summary Comparison
 
@@ -23,7 +26,7 @@ Both FraiseQL and PostgREST turn a PostgreSQL database into an HTTP API. They re
 | ETags | Yes (xxHash64, `If-None-Match` → 304) | Yes |
 | `Prefer` header | `return`, `count=exact` | `return`, `count`, `handling`, `resolution` |
 | GraphQL | Yes | No |
-| gRPC | Yes (requires `grpc-transport` feature flag) | No |
+| gRPC | Yes (requires `grpc` feature flag) | No |
 | WebSocket subscriptions | Yes | No |
 | Schema authoring | 11 SDK languages | PostgreSQL schema |
 | Database support | PostgreSQL, MySQL, SQLite, SQL Server | PostgreSQL only |
@@ -33,7 +36,7 @@ Both FraiseQL and PostgREST turn a PostgreSQL database into an HTTP API. They re
 | Authentication | JWT/OIDC/API keys | JWT via PostgreSQL RLS |
 | Embedding | `?select=id,orders(id,total)` with nesting + rename + count | `?select=*,orders(*)` |
 | Bulk operations | `POST /bulk`, filter-based PATCH/DELETE, upsert | Yes |
-| Full-text search | Coming soon | `?fts=term` |
+| Full-text search | Not exposed on REST surface at v2.3.2 | `?fts=term` |
 | License | Apache 2.0 | MIT |
 
 ## The Fundamental Difference
@@ -120,6 +123,6 @@ FraiseQL's REST transport arrived in v2.1. PostgREST has been production-ready f
   <Card title="Migrate from PostgREST" icon="rocket">
     Step-by-step guide to adopting FraiseQL annotation-driven REST alongside GraphQL.
 
-    [Read guide](/migrations/from-postgrest)
+    [Read guide](/building/migrations/from-postgrest)
   </Card>
 </CardGrid>

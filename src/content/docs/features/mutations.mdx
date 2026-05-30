@@ -9,6 +9,10 @@ import { Tabs, TabItem, Aside, CardGrid, Card } from '@astrojs/starlight/compone
 FraiseQL mutations call database functions (`fn_*`). The SQL syntax on this page uses **PostgreSQL**. For MySQL stored procedures, SQLite triggers, or SQL Server stored procedures, see your [database guide](/databases/).
 </Aside>
 
+<Aside type="tip">
+This page is the reference for mutation authoring — `mutation_response`, `fn_*` patterns, decorator parameters, transaction boundaries, error envelopes, and observer integration. For a step-by-step introduction that wires up your first mutation end-to-end, see [Adding Mutations](/getting-started/adding-mutations).
+</Aside>
+
 Mutations are **write operations** in FraiseQL. They call PostgreSQL `fn_*` functions that write to `tb_*` tables and return a `mutation_response` composite row — keeping writes and reads cleanly separated through the CQRS pattern.
 
 ## Mutation Flow
@@ -285,7 +289,7 @@ $$;
 
 ## Authentication and Authorization
 
-Protect mutations using role-based access control via the `requires_role` parameter on `@fraiseql.mutation`, or restrict individual fields with `fraiseql.field(requires_scope=...)`. Authentication token validation is configured at the server level via environment variables (`JWT_SECRET`, `JWT_ALGORITHM`).
+Protect mutations using role-based access control via the `requires_role` parameter on `@fraiseql.mutation`, or restrict individual fields with `fraiseql.field(requires_scope=...)`. Authentication token validation is configured at the server level via the direct-TOML `[auth]` section (OIDC) or `[auth_hs256]` section (HS256 testing mode) — both auto-wired on `ServerConfig`. See [Authentication](/building/authentication) for the canonical configuration, mutually exclusive section rules, and the security caveats that LEAD that page.
 
 <Tabs syncKey="language">
   <TabItem label="Python">
@@ -557,19 +561,19 @@ For large-scale CDC pipelines (audit logs, event sourcing), you can also enable 
 
 ---
 
-## Next Steps
+## Next steps
 
 <CardGrid>
   <Card title="CQRS Pattern" icon="open-book">
     [Understand the write vs. read separation that mutations rely on](/concepts/cqrs)
   </Card>
   <Card title="Observers" icon="setting">
-    [React to mutations with webhooks and side effects](/concepts/observers)
+    [React to mutations with webhooks and side effects](/features/observers)
   </Card>
   <Card title="Authentication" icon="seti:lock">
-    [Configure token validation and scope enforcement](/guides/authentication)
+    [Configure token validation and scope enforcement](/building/authentication)
   </Card>
   <Card title="Testing" icon="approve-check">
-    [Test PostgreSQL functions and the full mutation lifecycle](/guides/testing)
+    [Test PostgreSQL functions and the full mutation lifecycle](/building/testing)
   </Card>
 </CardGrid>

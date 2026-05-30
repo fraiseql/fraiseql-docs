@@ -7,6 +7,56 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import tailwindcss from '@tailwindcss/vite';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+// Astro integration: strip `<!-- source: ... -->` annotations from built HTML.
+// Citations are authored as HTML comments so the Source-Citation Verifier persona
+// can re-grep them at the frozen FraiseQL SHA. Astro removes JSX-comment-form
+// citations from `.mdx` at compile, but HTML-comment-form citations on `.md`
+// pages otherwise pass through to `dist/` as live HTML comments. Starlight's
+// markdown pipeline emits them at a stage where user-supplied rehype plugins
+// don't see them, so the strip runs post-build on the serialized HTML.
+// Resolves human gate G7 (Phase 03 / Cycle 1).
+function stripSourceCitationsIntegration() {
+  const SOURCE_COMMENT_RE = /<!--\s*source:\s*[^>]*-->\s*/g;
+  return {
+    name: 'fraiseql-docs:strip-source-citations',
+    hooks: {
+      /**
+       * @param {{ dir: URL, logger: { info: (msg: string) => void } }} ctx
+       */
+      'astro:build:done': async ({ dir, logger }) => {
+        let scanned = 0;
+        let modified = 0;
+        let stripped = 0;
+        /** @param {string} current */
+        const walk = async (current) => {
+          const entries = await readdir(current, { withFileTypes: true });
+          for (const entry of entries) {
+            const full = join(current, entry.name);
+            if (entry.isDirectory()) {
+              await walk(full);
+            } else if (entry.isFile() && entry.name.endsWith('.html')) {
+              scanned++;
+              const html = await readFile(full, 'utf8');
+              const matches = html.match(SOURCE_COMMENT_RE);
+              if (matches) {
+                stripped += matches.length;
+                modified++;
+                await writeFile(full, html.replace(SOURCE_COMMENT_RE, ''), 'utf8');
+              }
+            }
+          }
+        };
+        await walk(dir.pathname);
+        logger.info(
+          `strip-source-citations: scanned ${scanned} HTML files, modified ${modified}, stripped ${stripped} source-citation comments.`,
+        );
+      },
+    },
+  };
+}
 
 // https://astro.build/config
 export default defineConfig({
@@ -110,6 +160,7 @@ export default defineConfig({
   },
 
   integrations: [
+    stripSourceCitationsIntegration(),
     starlight({
       title: 'FraiseQL',
       tagline: 'Schema. Compile. Serve.',

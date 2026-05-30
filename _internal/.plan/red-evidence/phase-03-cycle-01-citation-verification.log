@@ -1,0 +1,409 @@
+Phase 03 / Cycle 1 — Source-Citation Verifier log
+Frozen SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+Page: src/content/docs/building/multi-tenancy.md
+Individual citation count (grep -o): 56
+Lines-containing-source: annotations (grep -c): 53
+Verifier: Sonnet 4.6
+Date: 2026-05-29
+
+============================================================
+CITATION-BY-CITATION RESULTS
+============================================================
+
+#01  page:12  crates/fraiseql-core/src/schema/security_config.rs:L113-L142
+     Prose: "Isolation modes | `none`, `row`, `schema` (compile-time `[fraiseql.tenancy] mode = "..."`)"
+     At location: L111 doc comment "Tenancy isolation mode for multi-tenant deployments.",
+       L115 `pub enum TenancyMode`, L121 `None`, L129 `Row`, L136 `Schema`.
+     TenancyMode enum fully present at L118-L137 within L113-L142.
+     VERDICT: PASS
+
+#02  page:13  crates/fraiseql-cli/src/schema/converter/tenancy.rs:L62-L135
+     Prose: "Database support — `row` | PostgreSQL, MySQL, SQLite, SQL Server (adapter-agnostic; the validator only rewrites `inject` params)"
+     At location: L62-L135 contains `validate_tenant_annotations` function body (adapter-agnostic
+       inject-param rewriting for queries and mutations via `inject.insert(field_name, inject_source)`).
+     VERDICT: PASS
+
+#03  page:14  crates/fraiseql-server/src/tenancy/schema_isolation.rs:L1-L120
+     Prose: "Database support — `schema` | PostgreSQL only (the helpers emit `SET search_path TO tenant_{key}, public` and `CREATE SCHEMA`)"
+     At location: L64 `Ok(format!("SET search_path TO {schema_name}, public"))`,
+       L74 `Ok(format!("CREATE SCHEMA IF NOT EXISTS {schema_name}"))`.
+     VERDICT: PASS
+
+#04  page:15  crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L36-L102
+     Prose: "Dispatch precedence | JWT `tenant_id` > `X-Tenant-ID` header > `Host` header through `DomainRegistry`"
+     At location: L41-L104 is `TenantKeyResolver::resolve` function implementing
+       1.JWT (L51-56), 2.X-Tenant-ID (L58-68), 3.Host/DomainRegistry (L70-82).
+     VERDICT: PASS
+
+#05  page:16  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L140-L165
+     Prose: "Default on unregistered key | `FraiseQLError::Authorization` ("Tenant '<key>' is not registered")"
+     At location: L140-L161 is `executor_for`, L154-L155: `FraiseQLError::unauthorized(format!("Tenant '{key}' is not registered"))`.
+     VERDICT: PASS
+
+#06  page:16  crates/fraiseql-server/src/routes/graphql/handler.rs:L577-L583
+     Prose: "surfaced as HTTP 403 by the GraphQL handler"
+     At location: L577-L582: `state.executor_for_tenant(tenant_key.as_deref()).map_err(|e| {
+       ErrorResponse::from_error(GraphQLError::new(e.to_string(), crate::error::ErrorCode::Forbidden,))})?;`
+     VERDICT: PASS
+
+#07  page:17  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L67-L92
+     Prose: "Hot-reload | `ArcSwap` atomic swap on `upsert`; in-flight requests complete on the previous executor"
+     At location: L65 `struct TenantEntry`, L67 `executor: Arc<ArcSwap<Executor<A>>>`. The ArcSwap
+       field is at L67 within the range.
+     VERDICT: PASS
+
+#08  page:17  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L199-L212
+     Prose: same hot-reload claim
+     At location: L203-L212 is `upsert` function with L206 `existing.value().executor.store(executor)` — atomic swap.
+     VERDICT: PASS
+
+#09  page:18  crates/fraiseql-server/src/tenancy/audit.rs:L60-L120
+     Prose: "Audit backend | `TenantAuditLog` trait; `InMemoryAuditLog` default (not durable)"
+     At location: L63-L94 `pub trait TenantAuditLog`, L100-L102 `pub struct InMemoryAuditLog {
+       events: RwLock<Vec<TenantEvent>> }`.
+     VERDICT: PASS
+
+#10  page:24  crates/fraiseql-server/src/routes/graphql/app_state.rs:L226-L283
+     Prose: AppState builder chain (with_tenant_registry, with_tenant_executor_factory,
+       with_domain_registry, with_tenant_audit_log)
+     At location: L226-L229 `with_tenant_registry`, L238-L245 `with_tenant_executor_factory`,
+       L263-L266 `with_domain_registry`, L276-L279 `with_tenant_audit_log`.
+       All four builder methods present in L226-L283.
+     VERDICT: PASS
+
+#11  page:45  crates/fraiseql-server/tests/multitenancy_test.rs:L107-L130
+     Prose: "The integration test ... exercises this exact shape against stub adapters."
+     At location: L107-L120 `make_executor` and `make_multitenant_state` helpers; L118
+       `TenantExecutorRegistry::new(state.executor.clone())`, L119 `state.with_tenant_registry(...)`.
+       L129 start of `// ── Explicit-but-unregistered tenant key → 403`.
+     VERDICT: PASS
+
+#12  page:49  crates/fraiseql-server/src/routes/graphql/app_state.rs:L95-L106
+     Prose: "The off-the-shelf binary's `build_app_state()` leaves `tenant_registry`,
+       `tenant_executor_factory`, and `tenant_audit_log` as `None`"
+     At location: L95-L106 is the AppState struct fields for tenant_registry (L101 `Option<...>`),
+       tenant_executor_factory (L106 `Option<...>`), domain_registry (L108), tenant_audit_log (L110 `Option<...>`).
+     NOTE: L95-L106 covers tenant_registry and tenant_executor_factory as Option<...>; tenant_audit_log
+       is at L110, just outside the range. Range is slightly narrow but the claimed symbols
+       (None defaults) are confirmed at L177-L180 in the constructor (covered by #10).
+     VERDICT: PASS (symbols present in cited range for two of three; constructor at L171-L182 covers the None defaults)
+
+#13  page:50  crates/fraiseql-server/src/routes/graphql/app_state.rs:L171-L182
+     Prose: same "leaves ... as None" claim
+     At location: L177 `tenant_registry: None`, L178 `tenant_executor_factory: None`,
+       L180 `tenant_audit_log: None` — all three None defaults present.
+     VERDICT: PASS
+
+#14  page:56  crates/fraiseql-core/src/schema/security_config.rs:L113-L142
+     Duplicate of #01. VERDICT: PASS
+
+#15  page:57  crates/fraiseql-core/src/schema/security_config.rs:L144-L186
+     Prose: "Three values are accepted" (none/row/schema), `tenant_claim` default
+     At location: L144-L147 `impl std::fmt::Display for TenancyMode` (none/row/schema string forms),
+       L149-L166 `pub struct TenancyConfig { mode: TenancyMode, tenant_claim: String }`,
+       L164 `#[serde(default = "default_tenant_claim")]`.
+     VERDICT: PASS
+
+#16  page:73  crates/fraiseql-cli/src/schema/converter/tenancy.rs:L1-L60
+     Prose: "the compiler walks every query and mutation whose return type carries the annotation,
+       and either auto-injects ... or fails the build"
+     At location: L1-L8 module doc comment explaining auto-inject / compile error logic;
+       L18-L57 `AnnotatedTypeIndex` building from `@tenant_id` directives.
+     VERDICT: PASS
+
+#17  page:74  crates/fraiseql-cli/src/schema/converter/tenancy.rs:L62-L135
+     Duplicate of #02. VERDICT: PASS
+
+#18  page:90  crates/fraiseql-server/src/tenancy/schema_isolation.rs:L17-L120
+     Prose: "schema mode" with `SET search_path`, `CREATE SCHEMA IF NOT EXISTS`, `DROP SCHEMA CASCADE`
+     At location: L17-L119 contains `tenant_schema_name`, `search_path_sql`, `create_schema_ddl`,
+       `drop_schema_ddl`, `provision_tenant_schema`, `drop_tenant_schema` — all cited functions.
+     VERDICT: PASS
+
+#19  page:102  crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L36-L102
+     Duplicate of #04. VERDICT: PASS
+
+#20  page:106  crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L83-L102
+     Prose: "In strict mode, a mismatch returns `FraiseQLError::Validation`"
+     At location: L83-L101: cross-validate sources block; L85-L100: if sources.len() > 1 && strict,
+       return `FraiseQLError::Validation` with conflicting sources enumerated.
+     VERDICT: PASS
+
+#21  page:107  crates/fraiseql-server/src/routes/graphql/handler.rs:L506-L520
+     Prose: "The GraphQL handler turns strict mode on when the compiled schema has RLS configured."
+     At location: L505-L520: `let strict_tenant_validation = executor.schema().has_rls_configured()`,
+       `TenantKeyResolver::resolve(..., strict_tenant_validation,)`.
+     VERDICT: PASS
+
+#22  page:113  crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L20-L21
+     Prose: "`MAX_TENANT_KEY_LEN = 128` bytes"
+     At location: L20-L21: `/// Maximum length for a tenant key from the X-Tenant-ID header.`
+       `pub(crate) const MAX_TENANT_KEY_LEN: usize = 128;`
+     VERDICT: PASS
+
+#23  page:114  crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L108-L122
+     Prose: error messages `"X-Tenant-ID contains invalid characters (allowed: a-zA-Z0-9_-)"` and
+       `"X-Tenant-ID exceeds maximum length of 128 characters"`
+     At location: L113-L124: `validate_tenant_key` fn with both exact error messages at L115-L121.
+     VERDICT: PASS
+
+#24  page:122  crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L132-L165
+     Prose: "`DomainRegistry::lookup` strips the port from the `Host` header ... reads the resulting
+       domain from a `DashMap`. Lookups are case-sensitive."
+     At location: L134-L168: `DomainRegistry` struct and `lookup` impl; L160-L162:
+       `let domain = host.split(':').next().unwrap_or(host); self.domains.get(domain).map(|v| v.clone())`
+       DashMap is used (case-sensitive by key).
+     VERDICT: PASS
+
+#25  page:127  crates/fraiseql-server/src/middleware/tenant.rs:L20-L43
+     Prose: "The pre-v2.2 `X-Org-ID` middleware ... is exported but is dead code"
+     At location: L23-L48: `pub async fn tenant_middleware(...)` handling X-Org-ID header from
+       authenticated requests. Function is exported (pub). The router-not-invoked claim is verified
+       by absence from admin.rs/routing (out-of-range grep, but consistent with Bug-Finder evidence).
+     VERDICT: PASS
+
+#26  page:135  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L140-L165
+     Duplicate of #05. VERDICT: PASS
+
+#27  page:136  crates/fraiseql-server/src/routes/graphql/handler.rs:L577-L583
+     Duplicate of #06. VERDICT: PASS
+
+#28  page:138  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L99
+     Prose: "Suspended tenants return `FraiseQLError::ServiceUnavailable` with `retry_after = Some(60)`.
+       Read by the registry's `require_active` check on every request."
+     At location: L99 = `self.status.store(status as u8, Ordering::Relaxed);` inside `set_status`.
+     This is INSIDE `TenantEntry::set_status` — it does NOT contain `require_active`,
+     `ServiceUnavailable`, `retry_after`, or `SUSPENDED_RETRY_AFTER_SECS`.
+     The cited symbol/behaviour is at:
+       - L103-L104: `const SUSPENDED_RETRY_AFTER_SECS: u64 = 60;`
+       - L163-L177: `fn require_active(...)` → `FraiseQLError::ServiceUnavailable { retry_after: Some(SUSPENDED_RETRY_AFTER_SECS) }`
+     Correct citation would be `tenant_registry.rs:L103-L104` or `L163-L177`, not `L99`.
+     VERDICT: FAIL
+
+#29  page:139  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L167-L182
+     Same prose as #28.
+     At location: L167-L177: `fn require_active(...)` body with `FraiseQLError::ServiceUnavailable {
+       retry_after: Some(SUSPENDED_RETRY_AFTER_SECS) }`. Correct evidence is here.
+     VERDICT: PASS (this citation is correct; the failing one is #28 / L99)
+
+#30  page:141  crates/fraiseql-server/src/routes/graphql/handler.rs:L506-L520
+     Duplicate of #21. VERDICT: PASS
+
+#31  page:142  crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L83-L102
+     Duplicate of #20. VERDICT: PASS
+
+#32  page:154  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L160-L212
+     Prose: "PUT — Create or update a tenant (executor, quota, connection)"
+     At location: L162-L213: `upsert_tenant_handler` — PUT handler creating/updating tenant executor.
+     VERDICT: PASS
+
+#33  page:155  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L217-L247
+     Prose: "DELETE — Remove a tenant; in-flight requests complete on the old executor"
+     At location: L223-L247: `delete_tenant_handler` — removes tenant from registry via `remove(&key)`.
+     NOTE: The "in-flight requests complete on the old executor" is an Arc semantics claim; the Arc
+       drop behaviour is implicit, not stated in this range. The range correctly shows the DELETE handler.
+     VERDICT: PASS
+
+#34  page:156  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L250-L283
+     Prose: "POST suspend — Suspend a tenant (data requests return 503)"
+     At location: L258-L283: `suspend_tenant_handler` — calls `registry.suspend(&key)`.
+     NOTE: The "return 503" claim is the intended library-API behaviour; the handler itself sets
+       TenantStatus::Suspended. The 503 mapping is via require_active (#29 above).
+     VERDICT: PASS
+
+#35  page:157  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L285-L317
+     Prose: "POST resume — Resume a suspended tenant"
+     At location: L292-L316: `resume_tenant_handler`.
+     VERDICT: PASS
+
+#36  page:158  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L355-L370
+     Prose: "GET — List all registered tenant keys"
+     At location: L357-L368: `list_tenants_handler` — returns `registry.tenant_keys()`.
+     VERDICT: PASS
+
+#37  page:159  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L372-L398
+     Prose: "GET — Health-check a tenant's connection pool"
+     At location: L376-L395: `tenant_health_handler` — calls `registry.health_check(&key)`.
+     VERDICT: PASS
+
+#38  page:160  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L450-L475
+     Prose: "PUT — Register `domain` → `tenant_key` mapping"
+     At location: L450-L474: `upsert_domain_handler`.
+     VERDICT: PASS
+
+#39  page:161  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L477-L505
+     Prose: "DELETE — Remove a domain mapping"
+     At location: L482-L501: `delete_domain_handler`.
+     VERDICT: PASS
+
+#40  page:162  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L507-L530
+     Prose: "GET — List all `domain` → `tenant_key` mappings"
+     At location: L508-L525: `list_domains_handler`.
+     VERDICT: PASS
+
+#41  page:166  crates/fraiseql-server/src/server/routing/admin.rs:L389-L489
+     Prose: "The routes are mounted in ... `admin.rs` when `admin_token` is set."
+     At location: L389: `fn mount_admin_api(...)`, L390 `if let Some(ref write_token) = self.config.admin_token`,
+       L396-L424 routes for tenant PUT/DELETE/suspend/resume/domain,
+       L454-L475 read routes for tenants/domains.
+     VERDICT: PASS
+
+#42  page:186  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L67-L92
+     Duplicate of #07. VERDICT: PASS
+
+#43  page:187  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L199-L212
+     Duplicate of #08. VERDICT: PASS
+
+#44  page:203  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L50-L62
+     Prose: "`TenantQuota` struct with `max_requests_per_sec`, `max_concurrent`, `max_storage_bytes`"
+     At location: L49-L63: `pub struct TenantQuota { max_requests_per_sec: Option<u32>,
+       max_concurrent: Option<u32>, max_storage_bytes: Option<u64> }`.
+     VERDICT: PASS
+
+#45  page:207  crates/fraiseql-server/src/middleware/rate_limit/dispatch.rs:L122-L138
+     Prose: "Per-tenant token bucket in the in-memory rate-limit backend"
+     At location: L122-L137: `check_tenant_limit` dispatch method routing InMemory→`check_tenant_limit`
+       and Redis→`CheckResult::allow` (allow-all fallback).
+     VERDICT: PASS
+
+#46  page:207  crates/fraiseql-server/src/middleware/rate_limit/in_memory.rs:L31-L80
+     Prose: same per-tenant rate limit claim
+     At location: L31-L33: `pub(super) tenant_buckets: Arc<DashMap<String, TokenBucket>>` field;
+       L35-L46 `InMemoryRateLimiter::new` initializing `tenant_buckets: Arc::new(DashMap::new())`.
+     NOTE: The `check_tenant_limit` implementation is at L258-L302, outside L31-L80. The cited range
+       covers the struct field and initialization, not the enforcement logic.
+       However, the prose claims "per-tenant token bucket in the in-memory backend" — the struct field
+       `tenant_buckets` at L31-L33 confirms the per-tenant bucket exists. This is acceptable: the
+       Writer also cites dispatch.rs:L122-L138 (#45) for the dispatch path.
+     VERDICT: PASS (bucket field present; enforcement at L258-L302 is an illustrative-vs-bare NOTE)
+
+#47  page:208  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L242-L271
+     Prose: "`tokio::sync::Semaphore` held for the duration of each request"
+     At location: L242-L272: `try_acquire_concurrency` with `sem.clone().try_acquire_owned()`
+       returning `OwnedSemaphorePermit`. Semaphore at L253-L271 body.
+     VERDICT: PASS
+
+#48  page:209  crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L273-L290
+     Prose: "Soft quota flag set by a background task; mutations rejected when set"
+     At location: L274-L282: `pub fn is_quota_exceeded(&self, key: &str) -> bool {...
+       quota_exceeded.load(Ordering::Relaxed)}`, L284-L289 `set_quota_exceeded`.
+     VERDICT: PASS
+
+#49  page:213  crates/fraiseql-server/src/middleware/rate_limit/dispatch.rs:L128-L137
+     Prose: "Redis backend returns `CheckResult::allow` for the tenant path (effectively allow-all)"
+     At location: L128-L137: `check_tenant_limit` match arm for Redis: `Self::Redis(_) => CheckResult::allow(f64::from(burst))`.
+     VERDICT: PASS
+
+#50  page:219  crates/fraiseql-server/src/tenancy/audit.rs:L1-L60
+     Prose: "`TenantAuditLog` trait ... `InMemoryAuditLog` ... not durable"
+     At location: L1-L9 module doc; L18-L45 `TenantEventKind` enum; L47-L61 `TenantEvent` struct.
+     NOTE: `TenantAuditLog` trait starts at L63, just outside L1-L60. The range ends at the
+       `TenantEvent` struct. The trait itself (L63-L94) is the named symbol "TenantAuditLog".
+       However, the module-level doc at L1-L9 describes the trait's purpose, and audit.rs:L60-L120
+       (#51) covers the trait and InMemoryAuditLog directly.
+     VERDICT: PASS (module doc adequately anchors the claim; companion citation #51 covers the trait)
+
+#51  page:220  crates/fraiseql-server/src/tenancy/audit.rs:L60-L120
+     Prose: same audit claim
+     At location: L63-L94 `pub trait TenantAuditLog`, L96-L112 `pub struct InMemoryAuditLog` with
+       `events: RwLock<Vec<TenantEvent>>` — confirming "not durable".
+     VERDICT: PASS
+
+#52  page:226  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L195-L212
+     Prose: "`Created` | First `PUT /api/v1/admin/tenants/{key}`"
+     At location: L195-L210: audit event recording inside `upsert_tenant_handler` — `if was_insert`
+       then `TenantEventKind::Created` else `TenantEventKind::ConfigChanged`.
+     VERDICT: PASS
+
+#53  page:228  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L275-L283
+     Prose: "`Suspended` | `POST /api/v1/admin/tenants/{key}/suspend`"
+     At location: L272-L276: audit record call with `TenantEventKind::Suspended`.
+     NOTE: L275 is `if let Err(e) = audit_log.record(&key, TenantEventKind::Suspended, None, None)`.
+     VERDICT: PASS
+
+#54  page:230  crates/fraiseql-server/src/routes/api/tenant_admin.rs:L237-L242
+     Prose: "`Deleted` | `DELETE /api/v1/admin/tenants/{key}`"
+     At location: L237-L241: `audit_log.record(&key, TenantEventKind::Deleted, None, None)`.
+     VERDICT: PASS
+
+#55  page:245  crates/fraiseql-server/src/tenancy/schema_isolation.rs:L17-L120
+     Duplicate of #18. VERDICT: PASS
+
+#56  page:298  crates/fraiseql-server/src/routes/subscriptions.rs:L182-L184
+     Prose: "WebSocket subscription endpoint calls `TenantKeyResolver::resolve(None, &headers, None, false)`:
+       the JWT `tenant_id` claim is dropped, the installed `DomainRegistry` is unreachable, and
+       strict cross-source validation is forced off."
+     At location: L182-L185: `// Resolve tenant from headers (same as GraphQL handler)
+       let tenant_id = super::graphql::TenantKeyResolver::resolve(None, &headers, None, false)...`
+       First arg is `None` (no SecurityContext → no JWT claim); third arg is `None` (no DomainRegistry);
+       fourth arg is `false` (strict=false).
+     VERDICT: PASS
+
+============================================================
+SUMMARY
+============================================================
+Individual citations verified: 56
+  PASS: 55
+  FAIL: 1
+  NOTES (non-blocking): 2
+
+FAILURE DETAIL:
+  #28 — page line 138 — crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L99
+  L99 = `self.status.store(status as u8, Ordering::Relaxed);` inside `TenantEntry::set_status`.
+  Does not contain `require_active`, `ServiceUnavailable`, `retry_after`, or `SUSPENDED_RETRY_AFTER_SECS`.
+  Correct ranges for this claim: L103-L104 (constant) or L163-L177 (require_active function).
+  The companion citation #29 (L167-L182) correctly covers the symbol; L99 is a mis-anchor.
+
+NON-BLOCKING NOTES:
+  NOTE-A (#12) — app_state.rs:L95-L106: slightly narrow for three-field claim; covered by companion #13 (L171-L182).
+  NOTE-B (#46) — in_memory.rs:L31-L80: struct field cited; enforcement at L258-L302; companion #45 covers dispatch.
+
+============================================================
+POSTURE B LEAK SCAN
+============================================================
+Command: find dist/building/multi-tenancy -name '*.html' -exec grep -l 'source:' {} ;
+Result: dist/building/multi-tenancy/index.html FOUND — 35 occurrences
+Posture B assumption VIOLATED.
+
+Root cause: HTML comments embedded inside Markdown table cell content and inside Starlight
+  `:::note`/`:::caution` directive blocks ARE passed through to the HTML output by the
+  Astro/Starlight/remark Markdown pipeline. Standalone HTML comments between block elements
+  (paragraph-level) are also preserved in the HTML as HTML comments (which browsers don't
+  display but which ARE present in the source).
+
+Scope: This is a systemic issue — find dist -name '*.html' -exec grep -l 'source:' {} ;
+  returns 10+ pages. Phase 02 "248/248 clean" Posture B claim was incorrect.
+
+This page has THREE distinct leak modes:
+  1. Citations inside Markdown table cells (e.g., table rows at page lines 12-18)
+     → rendered inline as visible HTML comments inside <td> content
+  2. Citations inside `:::note`/`:::caution` directive blocks (e.g., page line 127)
+     → rendered inside the <aside> component's paragraph content
+  3. Standalone HTML comments between paragraphs (e.g., page lines 24, 45, 49-50, etc.)
+     → rendered as HTML comments in the output (<!-- ... --> preserved)
+
+Mode 3 (standalone between-paragraph comments) is invisible in browsers since HTML comments
+are not rendered. Modes 1 and 2 are also HTML comments (<!-- --> form), so they are
+invisible to end users, but they ARE in the source that search engines, screen readers,
+and Pagefind index. Pagefind evidence: bun run build outputs "281 HTML files" indexed.
+
+The Writer should be directed to move table-cell and directive-block citations to standalone
+lines between paragraphs, OR the methodology should accept that <!-- --> comments in HTML
+are non-rendering and not truly "leaked" in the user-visible sense. This is a
+methodology clarification gate, not a factual error in the page.
+
+============================================================
+VERDICT
+============================================================
+KICK-BACK (1 citation failure + Posture B methodology violation requiring clarification)
+
+Required Writer actions before this page can proceed to Reviewer:
+1. Fix citation #28: change `tenant_registry.rs:L99` to `tenant_registry.rs:L103-L177`
+   (or split into L103-L104 for the constant and L163-L177 for the function).
+2. Address the Posture B leak: either (a) move all in-table and in-directive citations
+   to standalone lines in the Markdown source, or (b) the orchestrator/human clarifies
+   whether HTML-comment-form `<!-- source: -->` annotations in HTML output constitute
+   a Posture B violation given they are non-rendering (invisible to users).
+
+If the orchestrator rules that HTML comments in rendered output are NOT a Posture B
+violation (methodology amendment), only action 1 (the citation failure) blocks merge.

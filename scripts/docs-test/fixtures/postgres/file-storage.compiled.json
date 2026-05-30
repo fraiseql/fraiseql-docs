@@ -1,0 +1,34 @@
+{
+  "_comment": "Compiled schema for `pages/file-storage.docs-test.sh` PostgreSQL iteration.",
+  "_comment_2": "Hand-written to give fraiseql-server a non-empty schema so it boots cleanly under the file-storage overlay. The docs-test only exercises /health and /storage/v1/* 404s — no real data reads required. We DELIBERATELY do NOT populate a `storage.buckets` block here: at frozen SHA the off-the-shelf binary's ServerSubsystemsBuilder is never called (FW-7 #334), so populating buckets would not flip the binary into wiring the storage subsystem. Populating buckets here would mislead the harness into believing the schema-driven path exists.",
+  "_source": "src/content/docs/features/file-storage.md — StorageObject type used as a placeholder bucket-row shape.",
+  "_format_source": "crates/fraiseql-core/src/schema/compiled/schema.rs:L67-L150 (CompiledSchema struct).",
+  "_query_format_source": "crates/fraiseql-core/src/schema/compiled/query.rs:L46-L120 (QueryDefinition struct).",
+  "_type_format_source": "crates/fraiseql-core/src/schema/graphql_type_defs.rs:L42-L102 (TypeDefinition struct).",
+  "_baseline_example": "scripts/docs-test/fixtures/postgres/_smoke.compiled.json — used as the shape reference (Cycle 5 smoke).",
+  "_storage_format_source": "crates/fraiseql-server/src/schema/loader.rs:L40-L77 (SchemaStorageConfig).",
+  "_note_on_storage_section": "Intentionally OMITTED. See _comment_2.",
+
+  "types": [
+    {
+      "name": "StorageObject",
+      "sql_source": "v_storage_object_placeholder",
+      "jsonb_column": "data",
+      "fields": [
+        {"name": "key",          "field_type": "String", "nullable": false},
+        {"name": "bucket",       "field_type": "String", "nullable": false},
+        {"name": "content_type", "field_type": "String", "nullable": false},
+        {"name": "size_bytes",   "field_type": "Int",    "nullable": false}
+      ],
+      "description": "A storage object record (placeholder; the docs-test does not read from this view)."
+    }
+  ],
+  "queries": [],
+  "mutations": [],
+  "subscriptions": [],
+  "enums": [],
+  "input_types": [],
+  "interfaces": [],
+  "unions": [],
+  "directives": []
+}

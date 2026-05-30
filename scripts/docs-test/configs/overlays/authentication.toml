@@ -1,0 +1,85 @@
+# Authentication overlay for the FraiseQL docs-test harness.
+#
+# Loaded by scripts/docs-test/pages/authentication.docs-test.sh as a full
+# `fraiseql.toml`. The content mirrors baseline.toml with one addition: an
+# `[auth_hs256]` block that uses the binary's actual `Hs256Config` schema
+# (direct-TOML, auto-wired — NOT the compile-step `[security.*]` indirection).
+#
+# Why this overlay exists:
+#   The docs-test exercises the HS256 testing-mode path (the only auth flavour
+#   the docs-test stack can drive end-to-end without an OIDC stub container).
+#   The shared secret is supplied via the `FRAISEQL_HS256_SECRET` env var,
+#   injected into the fraiseql container by the docs-test script's compose
+#   override (the secret itself never lives in this file — that is the whole
+#   point of `secret_env`).
+#
+#   With this overlay applied, the binary mounts `oidc_auth_middleware` against
+#   the HS256 validator (note: the OIDC middleware accepts BOTH OIDC- and
+#   HS256-signed tokens depending on which validator is configured at startup —
+#   they share the same `AuthMiddleware::validate_token_with_signature` code
+#   path). The docs-test then mints tokens with `jwt-cli` (or equivalent) and
+#   verifies positive / negative flows against `/graphql`.
+#
+#   When Phase 09 lands the FW-24 / FW-25 / FW-26 / FW-27 / FW-28 / FW-29 fixes,
+#   this overlay continues to drive the happy path; the script's "FW symptom
+#   reproduces" assertions flip to failure and the page-content section that
+#   describes the symptom must be updated.
+#
+# Compiled-schema fixture (paired):
+#   scripts/docs-test/fixtures/postgres/authentication.compiled.json —
+#   placeholder TypeDefinition only; no observer, no storage, no tenancy.
+#   The compiled schema does NOT carry `[security.token_revocation]` /
+#   `[security.api_keys]` / `[security.pkce]` blocks in this fixture because
+#   the docs-test asserts the documented FW-26 (`/auth/revoke` unauthenticated)
+#   symptom from a STATIC source-grep — not a live HTTP probe. Loading
+#   `[security.token_revocation]` into the compiled schema would also mount
+#   `/auth/revoke*` live, which the harness does not need to probe to assert
+#   the documented FW-26 shape at the frozen SHA.
+#
+# All keys derived from `~/code/fraiseql@d0a4ed4ec` (the frozen SHA). The
+# `<!-- source: ... -->` HTML-comment citations live inside `#` TOML
+# comments so `toml::from_str` ignores them.
+
+bind_addr = "0.0.0.0:8080"
+
+database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"
+
+schema_path = "/etc/fraiseql/schema.compiled.json"
+
+cors_enabled = true
+cors_origins = ["http://localhost:8080"]
+
+health_path = "/health"
+
+playground_enabled = false
+metrics_enabled = false
+admin_api_enabled = false
+introspection_enabled = false
+
+# ── HS256 testing-mode validator (direct-TOML, auto-wired) ───────────────────
+# Maps to `ServerConfig.auth_hs256: Option<Hs256Config>` at
+# `crates/fraiseql-server/src/server_config/hs256.rs:L24-L39`. The binary
+# parses these keys directly — no compile step required.
+#
+# The shared secret value is loaded from the `FRAISEQL_HS256_SECRET`
+# environment variable at startup; it is NEVER written to TOML. The docs-test
+# script's compose override sets this env var on the fraiseql container.
+#
+# `audience` is set (operator best practice per FW-27 / #359 — the framework
+# does NOT enforce it; setting it is the caller's responsibility).
+#
+# Mutually exclusive with `[auth]` (OIDC). When both are present the OIDC
+# validator wins; for the docs-test we configure HS256 only.
+#
+# <!-- source: crates/fraiseql-server/src/server_config/hs256.rs:L24-L39 -->
+# <!-- source: crates/fraiseql-server/src/server/builder.rs:L19-L39 -->
+
+[auth_hs256]
+secret_env = "FRAISEQL_HS256_SECRET"
+issuer = "fraiseql-docs-test"
+audience = "docs-test-api"
+
+# ── Pool sizing (inherits baseline) ──────────────────────────────────────────
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30

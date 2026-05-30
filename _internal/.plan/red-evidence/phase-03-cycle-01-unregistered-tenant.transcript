@@ -1,0 +1,157 @@
+# Phase 03 / Cycle 1 RED — Unregistered tenant key reproduction
+#
+# Persona: Writer (Opus 4.7)
+# Date: 2026-05-29
+# Frozen FraiseQL SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461 (v2.3.2)
+# Target page: /building/multi-tenancy
+#
+# Goal (Cycle-1 RED bullet 1): "Start a single-tenant FraiseQL server in the
+# container. Send X-Tenant-ID: foo for an unregistered key. Capture response."
+#
+# Expected per phase-doc Cycle-1 "New" list:
+#   "Security: explicit-but-unregistered tenant key returns 403, not default-tenant data."
+#
+# Actual at frozen SHA, against the off-the-shelf `fraiseql-server` binary
+# booted from `scripts/docs-test/configs/baseline.toml`: the header is
+# silently IGNORED and the request is served from the default executor.
+# There is no tenant_registry wired into the binary's AppState.
+#
+# Source citations explaining why:
+#   - crates/fraiseql-server/src/server/routing/state.rs:L10-L181
+#     (`build_app_state()` never calls `with_tenant_registry`,
+#     `with_tenant_executor_factory`, `with_domain_registry`, or
+#     `with_tenant_audit_log`).
+#   - crates/fraiseql-server/src/routes/graphql/app_state.rs:L101 — registry
+#     field is `Option<Arc<TenantExecutorRegistry<A>>>`, defaulted to `None`.
+#   - crates/fraiseql-server/src/routes/graphql/tenant_registry.rs:L140-L165 —
+#     `executor_for(None)` returns the default executor; only an explicit key
+#     against a registered tenant takes the explicit-deny path. Without a
+#     registry, the GraphQL dispatch never calls `executor_for(Some(_))` —
+#     `X-Tenant-ID` is dispatched but does not select anything.
+#   - crates/fraiseql-server/src/middleware/tenant.rs:L18-L43 — note the
+#     middleware uses `X-Org-ID`, NOT `X-Tenant-ID`, and only stores a context
+#     for authenticated users. `X-Tenant-ID` is consumed by
+#     `TenantKeyResolver::resolve()` in
+#     crates/fraiseql-server/src/routes/graphql/tenant_key.rs:L40-L102,
+#     which is invoked by the GraphQL handler only when a registry is present.
+#
+# Reproduction shell (run from ~/code/fraiseql-docs/scripts/docs-test):
+#
+#   ./docs-test.sh up --profile fraiseql --wait-timeout 180
+#   curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://localhost:8080/health
+#   curl -s -H 'X-Tenant-ID: foo' -H 'Content-Type: application/json' \
+#        -X POST http://localhost:8080/graphql -d '{"query":"{ __typename }"}'
+#
+# Transcript follows.
+
+────────────────────────────────────────────────────────────────────────────
+
+$ ./docs-test.sh up --profile fraiseql --wait-timeout 180
+docs-test: up --wait --wait-timeout 180 (profiles: fraiseql)...
+ Container fraiseql-docs-test-postgres-1 Healthy
+ Container fraiseql-docs-test-redis-1 Healthy
+ Container fraiseql-docs-test-fraiseql-1 Healthy
+
+$ curl -s http://localhost:8080/health
+{"status":"healthy","database":{"connected":true,"database_type":"PostgreSQL","active_connections":0,"idle_connections":4},"version":"2.3.2","schema_hash":"316c9100f7a872c8c411033ac2a00066"}
+
+$ curl -s -o /dev/null -w 'HTTP %{http_code}\n' \
+       -H 'X-Tenant-ID: foo' \
+       -H 'Content-Type: application/json' \
+       -X POST http://localhost:8080/graphql \
+       -d '{"query":"{ __typename }"}'
+HTTP 200
+
+$ curl -s -H 'X-Tenant-ID: foo' \
+       -H 'Content-Type: application/json' \
+       -X POST http://localhost:8080/graphql \
+       -d '{"query":"{ __typename }"}'
+{"errors":[{"message":"Validation error: Query '__typename' not found in schema","code":"VALIDATION_ERROR"}]}
+
+────────────────────────────────────────────────────────────────────────────
+
+Server-side log line for the same request (fraiseql-docs-test-fraiseql-1):
+
+  fraiseql_server::routes::graphql::handler:
+    Query execution failed
+    error=Validation error: Query '__typename' not found in schema
+    elapsed_ms=5
+    operation_name=None
+  tower_http::trace::on_response:
+    finished processing request
+    latency=6 ms
+    status=200
+
+No log entry referencing the X-Tenant-ID header, no log entry referencing
+TenantKeyResolver, no 403, no Authorization error. The request reaches the
+default executor's GraphQL handler which rejects it solely because the
+baked-in compiled schema does not declare a `__typename` query — the same
+response a request with NO X-Tenant-ID header would produce.
+
+────────────────────────────────────────────────────────────────────────────
+
+Probing the admin API on the same baseline binary:
+
+$ curl -s -o /dev/null -w 'HTTP %{http_code}\n' \
+       -X GET http://localhost:8080/api/v1/admin/tenants
+HTTP 404
+
+$ curl -s -o /dev/null -w 'HTTP %{http_code}\n' \
+       -X PUT http://localhost:8080/api/v1/admin/tenants/foo \
+       -H 'Content-Type: application/json' \
+       -d '{"schema":{},"connection":{}}'
+HTTP 404
+
+The 404 is the correct response when `admin_api_enabled = false`
+(crates/fraiseql-server/src/server/routing/admin.rs:L389-L489 — `mount_admin_api`
+is only called when the flag is true). The baseline overlay sets the flag
+to false (configs/baseline.toml:L60).
+
+────────────────────────────────────────────────────────────────────────────
+
+What this reproduction proves (vs. what the phase-doc Cycle 1 "New" list claims):
+
+1. CONFIRMED: the `X-Tenant-ID` header is one of the three dispatch sources
+   (`TenantKeyResolver::resolve`, tenant_key.rs:L40-L102), alongside the JWT
+   `tenant_id` claim and the Host-header domain registry.
+
+2. CONFIRMED: the explicit-deny-on-unregistered-key behaviour exists at the
+   *library* level (tenant_registry.rs:L140-L165 returns
+   `FraiseQLError::Authorization` for `executor_for(Some(unknown))`).
+
+3. DRIFT — the explicit-deny behaviour is NOT reachable through the
+   off-the-shelf `fraiseql-server` binary because `build_app_state()`
+   (server/routing/state.rs:L10-L181) never installs a `TenantExecutorRegistry`,
+   a `TenantExecutorFactory`, a `DomainRegistry`, or a `TenantAuditLog`. The
+   multi-tenant runtime is a *library API* that a host application must wire
+   into its own `AppState` instantiation. The phase-doc bullets imply the
+   binary serves the admin REST API and enforces the security model; the
+   binary does not. The Writer GREEN draft must either:
+
+      (a) Frame the multi-tenant runtime as a library-API surface and show
+          how to compose it (a la `crates/fraiseql-server/tests/multitenancy_test.rs`
+          which calls `state.with_tenant_registry(...)` explicitly), or
+
+      (b) File a framework issue requesting that `fraiseql-server` expose a
+          `[tenancy.runtime] enabled = true` switch that wires the registry
+          and factory into the default `build_app_state()` path, then either
+          block the page on the fix or document the workaround.
+
+   Option (b) is more user-friendly but is a Phase-09-shaped concern. Option
+   (a) is what the page can ship today, possibly with a `## Known issues`
+   block linking the issue.
+
+4. NOT REPRODUCED IN THIS RED PASS: the `[tenancy] mode = "row" | "schema"`
+   TOML overlay path. The `TenancyConfig`/`TenancyMode` types live in the
+   compiled-schema security section
+   (crates/fraiseql-core/src/schema/security_config.rs:L113-L186), not the
+   server's runtime TOML. They are emitted by `fraiseql-cli compile` from
+   `[fraiseql.tenancy]` in `fraiseql.toml` (per CLI config
+   crates/fraiseql-cli/src/config/security.rs:L340-L420). The docs-test
+   image does NOT ship the `fraiseql` CLI binary (per
+   scripts/docs-test/Dockerfile.fraiseql comments — only `fraiseql-server`
+   is shipped). The GREEN Writer can exercise this either by adding a
+   handcrafted `schema.compiled.json` with a populated
+   `security.tenancy` section, OR by extending the Cycle-5 smoke fixtures
+   to compile a richer schema via a side container that bundles the CLI.
+   This is harness work — flag for the GREEN Writer / Cleanup.

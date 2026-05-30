@@ -1,0 +1,206 @@
+=================================================================
+ Phase 03 / Cycle 3 RED — observer framework-surface inventory
+ Date: 2026-05-29T22:21:52Z
+ Frozen FraiseQL SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+=================================================================
+
+Static-source inventory of fraiseql-observers and the binary's
+observer subsystem against the phase-doc Cycle 3 "New" list. Citation
+candidates for the GREEN Writer are included inline.
+
+## Crate layout
+
+  $ git ls-tree -r d0a4ed4ec | grep -E 'crates/fraiseql-observers/' | wc -l
+  104
+
+`fraiseql-observers` is large (104 files, of which 80+ under `src/`).
+The crate's `lib.rs` documents the architecture in its module rustdoc
+(`crates/fraiseql-observers/src/lib.rs:L1-L45`).
+
+## TOML configuration shape (binary-wired)
+
+`fraiseql-server::ServerConfig::observers: Option<ObserverConfig>`
+(`crates/fraiseql-server/src/server_config/mod.rs:L440-L443`).
+
+`ObserverConfig` (`crates/fraiseql-server/src/server_config/observers.rs:L94-L130`):
+- `enabled: bool` (default `true`)
+- `poll_interval_ms: u64` (default `100`)
+- `batch_size: usize` (default `100`)
+- `channel_capacity: usize` (default `1000`)
+- `auto_reload: bool` (default `true`)
+- `reload_interval_secs: u64` (default `60`)
+- `pool: ObserverPoolConfig` (`:L42-L83`)
+  - `min_connections: u32` (default `2`)
+  - `max_connections: u32` (default `5`)
+  - `acquire_timeout_secs: u64` (default `10`)
+
+There is no `backend`, `redis_url`, `nats_url`, or `handlers` field on
+`ObserverConfig`. Unknown TOML fields are silently dropped — `ServerConfig`
+does not carry `#[serde(deny_unknown_fields)]`
+(`crates/fraiseql-server/src/server_config/mod.rs:L40-L42`).
+
+## Library-API (fraiseql-observers) configuration shape
+
+`fraiseql-observers::ObserverRuntimeConfig`
+(`crates/fraiseql-observers/src/config/runtime.rs:L13-L73`):
+- `transport: TransportConfig` (`config/transport.rs:L48-L73`)
+  - `transport: TransportKind` (default `Postgres`; variants
+    `Postgres`, `Nats`, `InMemory` — `transport.rs:L15-L26`)
+  - `run_bridge: bool`
+  - `run_executors: bool` (default `true`)
+  - `nats: NatsTransportConfig` (gated on `nats` feature)
+  - `bridge: BridgeTransportConfig`
+- `redis: Option<RedisConfig>` (gated on Redis features)
+- `clickhouse: Option<ClickHouseConfig>`
+- `job_queue: Option<JobQueueConfig>`
+- `performance: PerformanceConfig`
+- `channel_capacity: usize` (default `1000`)
+- `max_concurrency: usize` (default `50`)
+- `overflow_policy: OverflowPolicy` (default `Drop`; variants
+  `Drop`, `Block`, `DropOldest` — `runtime.rs:L113-L122`)
+- `backlog_alert_threshold: usize` (default `500`)
+- `shutdown_timeout: String` (default `"30s"`)
+- `max_dlq_size: Option<usize>` (default `None` = unbounded)
+- `observers: HashMap<String, ObserverDefinition>` (`runtime.rs:L132-L145`)
+
+`ObserverDefinition` (`runtime.rs:L132-L160`):
+- `event_type: String` (e.g. `INSERT|UPDATE|DELETE|CUSTOM`)
+- `entity: String`
+- `condition: Option<String>` (Elo DSL)
+- `actions: Vec<ActionConfig>`
+- `retry: RetryConfig`
+- `on_failure: FailurePolicy`
+
+`ActionConfig` is a tagged union (`#[non_exhaustive]`, tag = "type",
+snake_case — `runtime.rs:L260-L350`):
+- `Webhook { url, url_env, headers, body_template }`
+- `Slack { webhook_url, webhook_url_env, channel, message_template }`
+- `Email { to, to_template, subject, subject_template, body_template, reply_to }`
+- `Sms { phone, phone_template, message_template }` (stub)
+- `Push { device_token, title_template, body_template }` (stub)
+- `Search { index, id_template }` (stub)
+- `Cache { key_pattern, action }` (stub)
+
+`RetryConfig` (`runtime.rs:L170-L220`):
+- `max_attempts: u32` (default `3`)
+- `initial_delay_ms: u64` (default `100`)
+- `max_delay_ms: u64` (default `30000`)
+- `backoff_strategy: BackoffStrategy` (default `Exponential`;
+  variants `Exponential|Linear|Fixed`)
+
+`FailurePolicy` (`runtime.rs:L243-L255`): `Log` (default) | `Alert` | `Dlq`.
+
+## fraiseql-cli TOML-validation schema (different shape, NOT runtime)
+
+`fraiseql-cli::ObserversConfig`
+(`crates/fraiseql-cli/src/config/toml_schema/observers.rs:L1-L55`).
+This is the shape the four current docs pages describe. The CLI uses it
+when compiling the user's source TOML for schema validation; the
+server binary's `ServerConfig` parser does NOT use this schema and does
+NOT translate `[[observers.handlers]]` into runtime observer registrations.
+
+## Binary wiring (does the off-the-shelf binary do it?)
+
+Yes — the off-the-shelf binary auto-instantiates the observer runtime when
+`feature = "observers"` is built in (which the docs-test image is). The
+wiring is at:
+
+- `fraiseql-server::Server::init_observer_runtime`
+  (`crates/fraiseql-server/src/server/extensions.rs:L362-L389`).
+- `fraiseql-server::Server::build_observer_pool` reads `[observers.pool]`
+  from `ServerConfig` (`crates/fraiseql-server/src/server/extensions.rs:
+  L273-L308`).
+- `fraiseql-server::Server::from_executor` calls `init_observer_runtime`
+  unconditionally when `feature = "observers"` is enabled
+  (`crates/fraiseql-server/src/server/builder.rs:L343-L346`).
+- Routes are mounted in
+  `crates/fraiseql-server/src/server/routing/observers.rs:L18-L66`:
+  - `app.nest("/api/observers", observer_routes(...))` — CRUD over
+    observer definitions, backed by `tb_observer` table.
+  - `app.nest("/api/observers", observer_changelog_routes(...))` —
+    `GET /api/observers/changelog`, `GET|PUT /api/observers/checkpoint/{id}`.
+  - `app.merge(observer_runtime_routes(...))` — `/runtime/health`,
+    `/runtime/reload` at the router ROOT (NOT nested under `/api/observers`).
+  - `app.nest("/api/observers", observer_dlq_routes(...))` —
+    `/delivery/health`, `/dlq`, `/dlq/retry-all`, `/dlq/{id}`,
+    `/dlq/{id}/retry`.
+
+This is DIFFERENT from multi-tenancy (FW-3) and storage (FW-7) — there the
+binary fails to wire the subsystem. Observers IS auto-wired. But:
+
+- The observer-definition store is `tb_observer`, a DB table not auto-
+  migrated by the binary (`crates/fraiseql-observers/migrations/
+  06_create_observer_management.sql`).
+- The TOML shape the user-facing docs advertise (`backend`/`handlers`)
+  is for the CLI validation schema, NOT the runtime.
+
+So the docs-page failure for observers is NOT a binary-wiring failure —
+it's a documented-TOML-shape failure (the docs describe `[[handlers]]`,
+the binary's TOML schema doesn't have it) AND a missing-bootstrap-step
+failure (the docs don't explain that `tb_observer` and the DLQ schema
+must be installed by hand).
+
+## Phase-doc Cycle 3 "New" list — confirm/refute matrix
+
+| Phase-doc bullet | Status | Where it lives | Notes |
+|------------------|--------|----------------|-------|
+| `[observers]` TOML section | PARTIAL (drift) | `server_config/observers.rs:L94-L130` | Real, but missing `backend`/`redis_url`/`nats_url`/`handlers`. Different shape than docs say. |
+| Backends: in-memory | CONFIRMED | `config/transport.rs:L15-L26` (`TransportKind::InMemory`) | Library-API; not selectable via binary's `[observers]`. |
+| Backends: NATS | CONFIRMED | `config/transport.rs:L15-L26`, `transport/nats.rs:L1` | Behind `observers-nats` feature on `fraiseql-server`. |
+| Backends: Redis | REFUTED | n/a | Redis is not an event transport. It's CACHE / DEDUP / JOB-QUEUE / LEASE (`Cargo.toml:L52-L68`). |
+| Backends: PostgreSQL | CONFIRMED | `config/transport.rs:L15-L26` (`TransportKind::Postgres` is default), `transport/postgres_notify.rs:L1` | Polls `tb_entity_change_log`. |
+| Backends: MySQL | REFUTED-as-stated | `transport/mysql_bridge.rs:L1-L31` | MySQL exists ONLY as a *bridge* (MySQL → NATS), not as a transport. |
+| Feature flag `observers` | CONFIRMED | `fraiseql-server/Cargo.toml:L171-L172` | Maps to `dep:fraiseql-observers`. |
+| Feature flag `observers-nats` | CONFIRMED | `fraiseql-server/Cargo.toml:L176` | Maps to `observers + fraiseql-observers/nats`. |
+| Feature flag `observers-enterprise` | CONFIRMED | `fraiseql-server/Cargo.toml:L175` | Maps to `observers + fraiseql-observers/{enterprise, nats}`; the `enterprise` bundle is `["checkpoint", "dedup", "caching", "queue", "search", "metrics"]` (`fraiseql-observers/Cargo.toml:L57`). NOT "cross-instance HA" by itself — the HA primitive is `redis-lease`, which is in the `enterprise` bundle indirectly via `caching` ( ← `redis`). Worth a precise callout. |
+| Action: webhook (retry / DLQ) | CONFIRMED | `actions.rs:L1-L43`, `executor/retry.rs:L17-L80`, `traits.rs::DeadLetterQueue` | SSRF protection in `actions.rs:L33-L45` is real. |
+| Action: NATS publish | INFERRED — not an `ActionConfig` variant | `transport/nats.rs` | NATS is a TRANSPORT, not an action. The Cycle-3-spec line is mis-classified — NATS publish is the event-source side, not the action side. The runtime publishes events to NATS via the bridge; user code does not configure NATS publish per-action. |
+| Action: email | CONFIRMED | `runtime.rs:L290-L308` (`ActionConfig::Email`), `actions.rs::EmailAction` | |
+| Action: custom | PARTIAL | n/a as `ActionConfig` variant | `ActionConfig` is `#[non_exhaustive]` (`runtime.rs:L262`) — custom actions are not pluggable; "custom" means new variants in future minor versions, not user-defined types. |
+| Observer changelog handlers (v2.3) | CONFIRMED | `crates/fraiseql-server/src/observers/changelog_handlers/mod.rs`, mounted at `/api/observers/changelog` and `/api/observers/checkpoint/{id}` (`server/routing/observers.rs:L43-L44`) | CHANGELOG cites #316/#317 axum 0.8 fix. |
+| DLQ handlers (v2.3) | CONFIRMED | `crates/fraiseql-server/src/observers/dlq_handlers/mod.rs`, mounted at `/api/observers/dlq` etc. (`server/routing/observers.rs:L58-L65`) | |
+| Lifecycle: subscription | CONFIRMED | `listener/change_log.rs`, `listener/coordinator.rs`, `listener/lease.rs:L1-L18`, `listener/failover.rs` | |
+| Lifecycle: dispatch | CONFIRMED | `executor/dispatch.rs:L1-L60`, `executor/mod.rs`, `executor/actions.rs` | |
+| Lifecycle: retry strategy | CONFIRMED | `executor/retry.rs:L1-L80` (exponential/linear/fixed with jitter via `rand`), `config/runtime.rs::RetryConfig` (`L170-L220`) | |
+| Lifecycle: DLQ behaviour | CONFIRMED | `traits.rs::DeadLetterQueue`, `job_queue/dlq.rs::DeadLetterQueueManager`, in-memory DLQ in `fraiseql-server/src/observers/runtime.rs::InMemoryDlq` | |
+| `entity_type_index` atomicity (F056) | CONFIRMED | `crates/fraiseql-server/src/observers/runtime.rs:L18 (use arc_swap::ArcSwap;)`, L139 (field), L164 (init), L300 (atomic swap), CHANGELOG L347-L358 | Reference: F006/F007/F008/F013/F048/F056/F057 batch. |
+| Cross-instance HA via `observers-enterprise` | NUANCED | `listener/lease.rs:L1-L18` lists three lease backends: in-process, postgres advisory lock, redis SET NX EX. The `redis-lease` feature is in the `enterprise` bundle transitively (`caching` → `redis`). The phase-doc line "cross-instance HA via observers-enterprise" is *technically* true via the redis-lease backend but the binary on default features uses an in-process lease (no HA). |
+| Worker panic propagation (F014) | CONFIRMED | `crates/fraiseql-observers/src/job_queue/executor.rs:L129-L188`, CHANGELOG L226-L228 (F014). Panics are caught at the JoinHandle layer, logged at `error!`, and counted by the metrics registry. |
+
+## Drifted bullets — items in scope but not in the phase-doc Cycle 3 New list
+
+The phase-doc's "New" list under-specifies several reader-critical surfaces:
+
+- **`tb_observer` schema bootstrap** — observers live in the DB; the migration
+  is at `crates/fraiseql-observers/migrations/06_create_observer_management.sql`
+  and is NOT auto-applied. Without it, the binary errors at startup with
+  `relation "tb_observer" does not exist` and runs `degraded`.
+- **DLQ schema bootstrap** — separate migration at
+  `crates/fraiseql-observers/migrations/01_create_dlq_schema.sql`.
+- **Observer checkpoint store** — `migrations/02_create_observer_checkpoints.sql`
+  is required if observers are polling `tb_entity_change_log` across restarts.
+- **NATS transport additional migrations** —
+  `migrations/03_add_nats_transport.sql`, `04_add_mysql_nats_transport.sql`,
+  `05_add_mssql_nats_transport.sql`.
+- **HTTP API for creating observers** —
+  `POST /api/observers` with the request shape in
+  `crates/fraiseql-server/src/observers/handlers.rs` is the documented way
+  to install an observer at runtime. None of the four current pages mention
+  this endpoint.
+- **`fraiseql-observers` CLI binary** — separate from `fraiseql-cli`; behind
+  the `cli` feature flag of `fraiseql-observers`; DLQ subcommands return
+  hard-coded mock data (`crates/fraiseql-observers/src/cli/commands/dlq.rs:L38-L80`).
+- **Per-handler webhook timeout & SSRF allowlist** — webhook URLs are
+  validated against SSRF (loopback, RFC 1918, link-local, ULA) at dispatch
+  time (`crates/fraiseql-observers/src/actions.rs:L33-L45`,
+  `ssrf.rs:L1`). Default 30-second timeout (`actions.rs:L20-L23`).
+- **`/health` degraded semantics** — `/health` returns
+  `{"status":"degraded", "observers":{"running":false,...}}` when the runtime
+  failed to start. None of the four pages document this.
+- **Route-mount inconsistency** — `/runtime/health` and `/runtime/reload`
+  are at the router ROOT, not under `/api/observers` like the other observer
+  routes. Likely a bug; needs FW-13.
+
+=================================================================
+ End of inventory transcript.
+=================================================================

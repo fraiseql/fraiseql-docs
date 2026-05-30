@@ -30,7 +30,7 @@ audit_log_backend     = "postgresql"   # "postgresql" | "syslog" | "file"
 
 FraiseQL writes to the `tb_audit_log` table you create in your database (see schema below). Retention and batching are managed by your PostgreSQL maintenance jobs.
 
-**Schema (auto-created):**
+**Schema (operator-managed):** FraiseQL writes to this table but does not create it. Apply the DDL below in your own migration tooling — the framework does not run migrations against your database.
 
 <Tabs syncKey="db">
   <TabItem label="PostgreSQL">
@@ -407,7 +407,7 @@ The `details JSONB` column in `tb_audit_log` stores event-specific context. Frai
 
 ### Monitor Audit System Health
 
-```
+```text
 # Alert on audit write failures
 rate(fraiseql_audit_errors_total[5m]) > 0
 
@@ -438,8 +438,9 @@ fraiseql_audit_queue_size > 1000
 3. Archive to cheaper storage
 4. Increase sampling for high-volume events
 
-## Next Steps
+## Next steps
 
 - [Security](/features/security) - Authorization configuration
+- [Authentication](/building/authentication) - JWT, OIDC, and the `[security.*]` compile-step indirection
 - [Encryption](/features/encryption) - Protect audit data
-- [Deployment](/guides/deployment) - Production audit setup
+- [Deployment](/operations/deployment-guide) - Production audit setup

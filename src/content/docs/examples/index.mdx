@@ -1,427 +1,53 @@
 ---
-title: Example Applications
-description: Real-world FraiseQL example applications with complete source code
+title: Worked Examples
+description: Walk through FraiseQL patterns by use-case — schemas, queries, mutations, and the runtime model behind them
 ---
 
 import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-Learn FraiseQL by exploring complete, production-ready example applications.
-
-## Prerequisites
-
-Before running any example:
-- FraiseQL installed:
-  ```bash
-  curl -fsSL https://fraiseql.dev/install.sh | sh
-  # or: cargo install fraiseql
-  ```
-- PostgreSQL 14+ running locally or via Docker (`docker run -p 5432:5432 postgres:16`)
-- Node.js 18+ (for frontend examples)
-
-When the development server starts successfully you will see:
-
-{/* source: Cargo.toml:L343 (workspace.package.version = "2.3.2") */}
-```
-$ fraiseql run
-INFO  FraiseQL v2.3.2 starting…
-INFO  Schema compiled — 12 types, 8 queries, 4 mutations
-INFO  Connected to PostgreSQL at localhost:5432/mydb
-INFO  GraphQL endpoint: http://localhost:8080/graphql
-INFO  GraphiQL playground: http://localhost:8080/graphiql
-```
-
-## Start from a Template
-
-Not sure where to begin? Clone a working starter and extend it:
-
-<CardGrid>
-  <Card title="Minimal" icon="rocket">
-    PostgreSQL, one table, no Docker. The fastest way to see FraiseQL running — clone `fraiseql-starter-minimal` and run `fraiseql run`.
-  </Card>
-  <Card title="Blog API" icon="document">
-    PostgreSQL — users, posts, comments, tags, mutations. The schema used throughout the docs. Clone `fraiseql-starter-blog` and run `docker compose up`.
-  </Card>
-  <Card title="SaaS Multi-Tenant" icon="shield">
-    PostgreSQL + RLS + JWT. Two isolated tenants out of the box. Clone `fraiseql-starter-saas` and run `docker compose up`.
-  </Card>
-</CardGrid>
-
-## Example Catalog
+Each page in this section walks through a complete worked example: schema, queries, mutations, and the production patterns that hold them together. Follow the walkthrough in your own project — every snippet is the runnable form.
 
 <Aside type="tip">
-New to FraiseQL? Start with the **[SaaS Blog](../saas-blog)** example — it covers the most common production patterns (multi-tenancy, RLS, JWT auth) in a single focused project.
+New to FraiseQL? Walk the [quickstart](/getting-started/quickstart) first to scaffold a project from scratch, then return here for production patterns by use-case.
 </Aside>
 
-| Example | Description | Database | Complexity | Tags |
-|---------|-------------|----------|------------|------|
-| [Multi-Tenant SaaS](../multi-tenant-saas) | Organizations, projects, RLS, observers, REST + GraphQL. The reference example for production patterns | PostgreSQL + NATS | Intermediate | auth, RLS, observers, REST |
-| [SaaS Blog](../saas-blog) | Multi-tenant blog with posts, comments, and role-based access. Requires PostgreSQL (uses Row-Level Security) | PostgreSQL | Intermediate | auth, RLS, CQRS |
-| [Federation E-Commerce](../federation-ecommerce) | Product catalog, orders, and inventory across federated databases | PostgreSQL (federated) | Intermediate | federation, saga |
-| [Real-Time Collaboration](../realtime-collaboration) | Collaborative document editing with live cursors and conflict resolution | PostgreSQL | Advanced | WebSocket, CRDT |
-| [Real-Time Analytics](../realtime-analytics) | Event ingestion, metrics, and live dashboards | PostgreSQL + TimescaleDB | Intermediate | time-series, streaming |
-| [Mobile Analytics Backend](../mobile-analytics-backend) | Push notifications, offline sync, and background jobs. Requires PostgreSQL (uses materialized views) | PostgreSQL | Intermediate | mobile, jobs |
-| [SaaS Federation + NATS](../saas-federation-nats) | Multi-tenant SaaS with cross-service federation over NATS | PostgreSQL + NATS | Advanced | federation, NATS |
-| [NATS Event Pipeline](../nats-event-pipeline) | Event-driven pipeline with NATS subjects and durable consumers | PostgreSQL + NATS | Advanced | events, NATS |
-| [Microservices Choreography](../microservices-choreography) | Service-to-service choreography with saga and compensating transactions | PostgreSQL | Advanced | microservices, saga |
-
-## Available Examples
-
-### 1. SaaS Blog Platform (Multi-Tenant)
-
-**What you'll learn**:
-- Multi-tenant architecture
-- Row-level security (RLS)
-- User authentication with JWT
-- Role-based access control (RBAC)
-- Subscription-based features
-
-**Features**:
-- User accounts and profiles
-- Blog posts and comments
-- Multiple teams/organizations
-- Tenant-isolated data (requires PostgreSQL 14+)
-- Feature flags per subscription tier
-- Analytics dashboard
-
-**Technology Stack**:
-- Backend: FraiseQL
-- Database: PostgreSQL (uses Row-Level Security)
-- Frontend: Next.js (React)
-- Authentication: JWT + Okta
-- Hosting: Docker + Kubernetes
-
-**Repository**: [github.com/fraiseql/examples/saas-blog-platform](https://github.com/fraiseql/examples/saas-blog-platform)
-
-**Duration**: 45 minutes to understand, 2-3 hours to deploy
-
----
-
-### 2. Federation E-Commerce
-
-**What you'll learn**:
-- Federation across multiple databases
-- Saga pattern for distributed transactions
-- Product catalog management
-- Order processing pipeline
-- Inventory management
-- Payment processing
-
-**Features**:
-- Product catalog (PostgreSQL)
-- Inventory tracking (PostgreSQL)
-- Order management (PostgreSQL)
-- Payment integration (Stripe)
-- Shipping integration (EasyPost)
-- Promotional codes and discounts
-- Order notifications (email + SMS)
-
-**Technology Stack**:
-- Backend: FraiseQL
-- Databases: PostgreSQL (federated)
-- Frontend: Vue.js
-- Payment: Stripe API
-- Notifications: Twilio (SMS), SendGrid (Email)
-- Hosting: AWS (ECS + RDS)
-
-**Repository**: [github.com/fraiseql/examples/federation-ecommerce](https://github.com/fraiseql/examples/federation-ecommerce)
-
-**Duration**: 1 hour to understand, 4-5 hours to deploy
-
----
-
-### 3. Real-Time Collaboration App
-
-**What you'll learn**:
-- WebSocket-based real-time updates
-- Conflict-free replicated data (CRDT)
-- Concurrent editing
-- Operational transformation
-- Presence indicators
-- Activity feeds
-
-**Features**:
-- Collaborative document editing
-- Real-time cursors and selections
-- Version history with branching
-- Comments and mentions
-- Permissions and sharing
-- Activity feed
-- Undo/redo
-
-**Technology Stack**:
-- Backend: FraiseQL
-- Database: PostgreSQL
-- Frontend: React + Yjs (CRDT)
-- Real-time: WebSocket (built-in to FraiseQL)
-- Hosting: Kubernetes
-
-**Repository**: [github.com/fraiseql/examples/realtime-collaboration](https://github.com/fraiseql/examples/realtime-collaboration)
+## When to read which page
 
-**Duration**: 1.5 hours to understand, 6+ hours to deploy
-
----
-
-### 4. Real-Time Analytics
-
-**What you'll learn**:
-- Time-series data aggregation
-- Complex analytics queries
-- Reporting with materialized views
-- Data warehouse patterns
-- Dashboard APIs
-- Real-time metrics
-
-**Features**:
-- Event ingestion pipeline
-- Metrics calculation
-- Funnel analysis
-- Cohort analysis
-- Custom dashboards
-- Data export
-- Real-time metrics
+| Walkthrough | Demonstrates | Database | Complexity |
+|-------------|--------------|----------|------------|
+| [SaaS Blog](/examples/saas-blog) | Multi-tenant blog with posts, comments, RBAC | PostgreSQL (RLS) | Intermediate |
+| [Real-Time Collaboration](/examples/realtime-collaboration) | Concurrent editing, presence, OT, subscriptions | PostgreSQL | Advanced |
+| [Mobile Analytics Backend](/examples/mobile-analytics-backend) | Batch ingestion, rollups, retention, dashboards | PostgreSQL (materialized views) | Intermediate |
 
-**Technology Stack**:
-- Backend: FraiseQL
-- Databases: PostgreSQL + TimescaleDB
-- Frontend: Grafana + Custom dashboards
-- Streaming: Apache Kafka (optional)
-- Hosting: Docker
+Each walkthrough builds on the SQL-first model: `tb_` base tables → `v_` views with `jsonb_build_object` payloads → compile-time Python (or other-language) declarations that map to `fn_` mutation functions. The runtime is the same database you already know how to operate.
 
-**Repository**: [github.com/fraiseql/examples/realtime-analytics](https://github.com/fraiseql/examples/realtime-analytics)
+## Patterns covered across the walkthroughs
 
-**Duration**: 1 hour to understand, 4 hours to deploy
-
----
+### Multi-tenancy
 
-### 5. Mobile Analytics Backend
-
-**What you'll learn**:
-- Push notifications
-- Offline-first sync
-- Background jobs
-- File uploads
-- Deep linking
-- Analytics tracking (requires PostgreSQL — uses materialized views)
+Row-Level Security on tenant-scoped tables; tenant context set from JWT claims via `current_setting('app.tenant_id')`. Covered in detail on the [SaaS Blog walkthrough](/examples/saas-blog) and on the dedicated [multi-tenancy guide](/building/multi-tenancy).
 
-**Features**:
-- User authentication
-- Profile management
-- Content sync
-- Push notifications
-- File uploads
-- Offline queue
-- Background jobs
-- Analytics
+### Authentication and authorization
 
-**Technology Stack**:
-- Backend: FraiseQL
-- Database: PostgreSQL (uses materialized views)
-- Mobile: React Native + Expo
-- Push: Firebase Cloud Messaging
-- Files: AWS S3
-- Jobs: Celery + Redis
-- Hosting: AWS
+JWT-based auth with role enforcement inside SQL functions; `inject={"user_id": "jwt:sub"}` populates the caller identity at compile time so client-supplied identity is never trusted. Covered in the [authentication guide](/building/authentication).
 
-**Repository**: [github.com/fraiseql/examples/mobile-analytics-backend](https://github.com/fraiseql/examples/mobile-analytics-backend)
+### Soft deletes
 
-**Duration**: 45 minutes to understand, 3-4 hours to deploy
+`deleted_at TIMESTAMPTZ` columns plus views that filter `WHERE deleted_at IS NULL`. Restore is a one-statement update. Demonstrated in [SaaS Blog](/examples/saas-blog#soft-deletes--recovery).
 
----
+### Real-time subscriptions
 
-### 6. SaaS Federation + NATS
+`pg_notify` from inside the mutation function; FraiseQL delivers the payload to GraphQL subscribers. No application-layer queue. Demonstrated in [Real-Time Collaboration](/examples/realtime-collaboration#real-time-subscriptions).
 
-**What you'll learn**:
-- Multi-tenant federation
-- Cross-service data composition
-- NATS pub/sub messaging
-- Durable consumers and fan-out
+### Batch ingestion and rollups
 
-**Features**:
-- Multi-tenant SaaS with federated services
-- Cross-service GraphQL queries
-- Event-driven notifications via NATS
-- Tenant-scoped subscriptions
+A single SQL function ingests an array of events and updates rolling aggregates atomically — no per-event round-trip. Demonstrated in [Mobile Analytics Backend](/examples/mobile-analytics-backend#high-performance-event-ingestion).
 
-**Technology Stack**:
-- Backend: FraiseQL
-- Databases: PostgreSQL + NATS JetStream
-- Hosting: Docker + Kubernetes
+## Cross-cutting code patterns
 
-**Repository**: [github.com/fraiseql/examples/saas-federation-nats](https://github.com/fraiseql/examples/saas-federation-nats)
+### Authentication and authorization
 
-**Duration**: 1 hour to understand, 4 hours to deploy
-
----
-
-### 7. NATS Event Pipeline
-
-**What you'll learn**:
-- NATS subjects and consumer groups
-- Durable consumers with JetStream
-- Event fan-out and filtering
-- Dead-letter queue handling
-
-**Features**:
-- Event ingestion with NATS subjects
-- Durable consumers for reliability
-- Fan-out to multiple processors
-- DLQ for failed messages
-
-**Technology Stack**:
-- Backend: FraiseQL
-- Databases: PostgreSQL + NATS JetStream
-- Hosting: Docker
-
-**Repository**: [github.com/fraiseql/examples/nats-event-pipeline](https://github.com/fraiseql/examples/nats-event-pipeline)
-
-**Duration**: 45 minutes to understand, 2-3 hours to deploy
-
----
-
-### 8. Microservices Choreography
-
-**What you'll learn**:
-- Service-to-service choreography
-- Saga pattern with compensating transactions
-- Idempotent event handlers
-- Distributed audit trails
-
-**Features**:
-- Order → Inventory → Payment → Shipping pipeline
-- Compensation on failure (inventory release, refunds)
-- Full event log for observability
-- Retry and DLQ handling
-
-**Technology Stack**:
-- Backend: FraiseQL (multiple services)
-- Database: PostgreSQL
-- Messaging: NATS JetStream
-- Hosting: Docker Compose / Kubernetes
-
-**Repository**: [github.com/fraiseql/examples/microservices-choreography](https://github.com/fraiseql/examples/microservices-choreography)
-
-**Duration**: 1 hour to understand, 4-5 hours to deploy
-
----
-
-## Quick Start Any Example
-
-<Steps>
-1. **Clone the example**
-
-   ```bash
-   git clone https://github.com/fraiseql/examples.git
-   cd examples/saas-blog-platform
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   uv sync
-   npm install
-   ```
-
-3. **Set up environment**
-
-   ```bash
-   cp .env.example .env
-   # Edit .env with your credentials
-   ```
-
-4. **Start database**
-
-   ```bash
-   docker-compose up -d postgres
-   ```
-
-5. **Run migrations**
-
-   ```bash
-   fraiseql migrate
-   ```
-
-6. **Start development server**
-
-   ```bash
-   fraiseql run
-   ```
-
-7. **Verify the API is healthy**
-
-   ```bash
-   curl http://localhost:8080/health
-   ```
-
-   {/* source: Phase 00 / Cycle 2 GREEN transcript — /health body contains `"version":"2.3.2"` per the handoff at line 130; matches Cargo.toml:L343 workspace.package.version. */}
-   Expected response:
-
-   ```json
-   {"status": "healthy", "database": "connected", "version": "2.3.2"}
-   ```
-
-8. **In another terminal, start frontend**
-
-   ```bash
-   cd frontend && npm run dev
-   # Open http://localhost:3000
-   ```
-</Steps>
-
-### Run in Container
-
-```bash
-# Build image
-docker build -t fraiseql-example .
-
-# Run with Docker Compose
-docker-compose up
-
-# Open http://localhost:3000
-```
-
-### Deploy to Cloud
-
-Each example includes deployment instructions:
-- Docker Compose (local)
-- Kubernetes manifests (production)
-- Cloud deployment scripts (AWS, GCP, Azure)
-
-See each example's `README.md` for specific instructions.
-
-## Learning Path
-
-**Intermediate** (Start here):
-1. SaaS Blog Platform (multi-tenancy, RLS, auth)
-2. Federation E-Commerce (federation, saga)
-3. Real-Time Analytics (time-series, materialized views)
-4. Mobile Analytics Backend (files + notifications + background jobs)
-
-**Advanced**:
-5. NATS Event Pipeline (event-driven, durable consumers)
-6. SaaS Federation + NATS (cross-service federation)
-7. Real-Time Collaboration (WebSocket, CRDT, OT)
-8. Microservices Choreography (saga, compensation, distributed transactions)
-
-## REST and gRPC in Examples
-
-All FraiseQL starters and examples serve REST and gRPC alongside GraphQL on port 8080 — no extra configuration is needed. Each example's `README.md` notes which transport the example exercises. To test REST or gRPC endpoints in any example:
-
-```bash
-# REST — same resource names as GraphQL queries (default path: /rest/v1; configure via [rest] path)
-curl http://localhost:8080/rest/v1/users
-
-# gRPC — separate port (default 50052), requires grpcurl
-grpcurl -plaintext localhost:50052 list
-grpcurl -plaintext -d '{"limit": 10}' localhost:50052 fraiseql.BlogService/ListPosts
-```
-
-Schema annotations like `@fraiseql.query` (with `fraiseql.config(sql_source="v_post")` in the function body) automatically generate both the GraphQL resolver and the REST/gRPC endpoints. No separate REST or gRPC schema definition is needed.
-
-## Common Patterns Across Examples
-
-### Authentication & Authorization
-
-All examples use JWT with role-based access control:
+JWT claims drive both row-level filtering (`SET app.tenant_id = jwt.tenant_id`) and per-function role checks. The Python (or other-language) decorator is compile-time only — there is no runtime middleware to break.
 
 ```python
 @fraiseql.query(requires_scope="read:posts")
@@ -430,9 +56,7 @@ def get_posts(user_id: ID) -> list[Post]:
     pass
 ```
 
-### Soft Deletes
-
-Examples show how to implement soft deletes:
+### Soft deletes
 
 ```python
 @fraiseql.type
@@ -447,9 +71,7 @@ def get_posts() -> list[Post]:
     return fraiseql.config(sql_source="v_post")
 ```
 
-### Pagination
-
-Standard cursor-based pagination using relay:
+### Cursor-based pagination
 
 ```python
 @fraiseql.query
@@ -461,7 +83,7 @@ def get_posts(
     return fraiseql.config(sql_source="v_post", relay=True)
 ```
 
-### Error Handling
+### Error handling
 
 Validation and error handling live in the SQL function, not in the Python decorator body. The Python layer is compile-time only:
 
@@ -472,93 +94,80 @@ def create_post(title: str) -> Post:
     pass
 ```
 
-### Testing
+## REST and gRPC in the examples
 
-All examples include test suites:
+All walkthroughs serve REST and gRPC alongside GraphQL on port 8080 — no extra configuration is needed. Each walkthrough notes which transport it exercises. To test REST or gRPC endpoints:
 
 ```bash
-pytest tests/
-# or
-npm test
+# REST — same resource names as GraphQL queries (default path: /rest/v1; configure via [rest] path)
+curl http://localhost:8080/rest/v1/users
+
+# gRPC — separate port (default 50052), requires grpcurl
+grpcurl -plaintext localhost:50052 list
+grpcurl -plaintext -d '{"limit": 10}' localhost:50052 fraiseql.BlogService/ListPosts
 ```
 
-## Contributing Examples
+Schema annotations like `@fraiseql.query` (with `fraiseql.config(sql_source="v_post")` in the function body) automatically generate both the GraphQL resolver and the REST/gRPC endpoints. No separate REST or gRPC schema definition is needed.
 
-Have a great FraiseQL example?
+## Suggested reading order
 
-1. Fork [github.com/fraiseql/examples](https://github.com/fraiseql/examples)
-2. Create your example in a new directory
-3. Include `README.md` with:
-   - Description and learning objectives
-   - Architecture diagram
-   - Setup instructions
-   - Deployment instructions
-   - Key features explained
-4. Include tests and CI/CD configuration
-5. Submit pull request
+**Start here:**
 
-### Example Structure
+1. [SaaS Blog](/examples/saas-blog) — covers multi-tenancy, RLS, RBAC, soft deletes, audit trail. The reference walkthrough for production patterns.
 
-```
-your-example/
-├── README.md           # Description, setup, deployment
-├── .env.example        # Example environment file
-├── pyproject.toml      # Python dependencies (uv)
-├── package.json        # Node dependencies
-├── tests/              # Test suite
-├── app/                # FraiseQL backend
-│   ├── main.py         # Entry point
-│   ├── schema.py       # FraiseQL schema
-│   ├── database/       # Database setup
-│   └── ...
-├── frontend/           # Frontend application
-│   ├── pages/
-│   ├── components/
-│   └── ...
-└── docker-compose.yml  # Local development
+**Then pick by your use-case:**
+
+2. [Real-Time Collaboration](/examples/realtime-collaboration) — WebSocket subscriptions, presence, conflict resolution inside SQL functions.
+3. [Mobile Analytics Backend](/examples/mobile-analytics-backend) — high-volume ingestion, time-series rollups, retention windows.
+
+## Verifying your environment
+
+Each walkthrough assumes you can already run `fraiseql run` against a local PostgreSQL. If you can't, walk the [quickstart](/getting-started/quickstart) first.
+
+When the development server starts successfully you will see:
+
+{/* source: Cargo.toml:L343 (workspace.package.version = "2.3.2") */}
+```text
+$ fraiseql run
+INFO  FraiseQL v2.3.2 starting…
+INFO  Schema compiled — 12 types, 8 queries, 4 mutations
+INFO  Connected to PostgreSQL at localhost:5432/mydb
+INFO  GraphQL endpoint: http://localhost:8080/graphql
+INFO  GraphiQL playground: http://localhost:8080/graphiql
 ```
 
-## FAQ
+Health check after start:
 
-**Q: Can I use these as production templates?**
+```bash
+curl http://localhost:8080/health
+```
 
-A: Yes! Examples are designed to be production-ready. They include:
-- Security best practices
-- Error handling
-- Comprehensive tests
-- CI/CD configuration
-- Deployment scripts
+{/* source: scripts/docs-test/pages/_smoke.docs-test.sh:L237-L244 — /health probe asserts `.status == "healthy"`, `.database.connected == true`, and `.database.database_type == "PostgreSQL"` on the PostgreSQL profile; the smoke harness verifies this end-to-end in CI. */}
+Expected response shape (fields verified by the smoke harness in CI):
 
-**Q: Do I need to understand all examples?**
+```json
+{
+  "status": "healthy",
+  "database": {
+    "connected": true,
+    "database_type": "PostgreSQL"
+  }
+}
+```
 
-A: No. Pick the one closest to your use case and dig deep. Other patterns are similar and you'll pick them up quickly.
-
-**Q: Can I combine patterns from multiple examples?**
-
-A: Absolutely! That's the learning goal. Understand individual patterns, then combine them for your app.
-
-**Q: Are examples updated with new FraiseQL versions?**
-
-A: Yes. We maintain all examples with the latest FraiseQL release.
-
-**Q: Where do I ask questions about an example?**
-
-A:
-- Each example repo has a GitHub Discussions section
-- Join our [Discord](https://discord.gg/fraiseql) for real-time help
-- Check [Troubleshooting](/troubleshooting) guide
+## Next steps
 
 <CardGrid>
-  <Card title="SaaS Blog Platform" icon="document">
-    Start with multi-tenancy and RLS — the most common SaaS pattern.
+  <Card title="Quickstart" icon="rocket">
+    [Scaffold a project from scratch](/getting-started/quickstart) — minimal FraiseQL on PostgreSQL.
   </Card>
-  <Card title="E-Commerce API" icon="seti:db">
-    Learn federation and saga patterns for distributed transactions.
+  <Card title="Multi-tenancy guide" icon="seti:db">
+    [Built-in tenancy modes and RLS patterns](/building/multi-tenancy).
   </Card>
-  <Card title="Real-Time Collaboration" icon="random">
-    Explore WebSocket subscriptions and conflict resolution with OT.
+  <Card title="Authentication guide" icon="approve-check-circle">
+    [JWT, OIDC, PKCE, API keys, revocation](/building/authentication).
   </Card>
-  <Card title="Analytics Platform" icon="bars">
-    Build time-series pipelines and live dashboards with NATS.
+  <Card title="Observers" icon="random">
+    [Event-driven side effects with retry and DLQ](/features/observers).
   </Card>
 </CardGrid>

@@ -1,58 +1,84 @@
 ---
 title: Security
-description: Authentication, authorization, and security features in FraiseQL
+description: Security hub for FraiseQL — JWT verification, field-level RBAC, and the RBAC management API, with cross-links to the dedicated detail pages
 ---
 
 import { Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-FraiseQL's security model has four layers: JWT verification by the engine, policy-driven authorization, field-level access control, and server-side injection for row filtering. Each layer is independent and can be used without the others.
+This page is the security cluster's hub. It covers the two subsystems that uniquely live here — **JWT verification at the request edge** and **field-level RBAC (including the runtime RBAC management API)** — and cross-links every other security topic to its dedicated page. The authoritative source for the full authentication surface (`[auth]` OIDC validator, `[auth_hs256]`, PKCE OAuth2, token revocation, `/auth/me`, framework caveats) is [Building → Authentication](/building/authentication); read it before exposing any auth route to the public internet.
 
-All security features — JWT/OIDC authentication, field-level RBAC, server-side injection, error sanitization — apply identically across GraphQL, REST, and gRPC transports. The Executor is transport-agnostic: security is enforced before the transport layer serializes the response. There is no separate security configuration per transport.
+## Security caveats
 
-## JWT Authentication
+Six framework issues are open against the v2.3.2 authentication surface; one is critical, three are security regressions, two are operator footguns. The full caveat block — including mitigations and `## Known issues` — lives on [Building → Authentication](/building/authentication#security-caveats); the table below names the symptom and points at the matching caveat anchor. **Do not expose `/auth/revoke*` or the RBAC management API to the public internet without an authenticating reverse proxy.**
 
-FraiseQL verifies JWTs automatically on every request. JWT secret and algorithm settings are configured via **environment variables**. OIDC provider identity (for browser login flows using PKCE) is configured in the `[security.pkce]` section of `fraiseql.toml` — see [OIDC client identity](#oidc-client-identity) below.
+| ID | Symptom | Where documented |
+|---|---|---|
+| FW-24 [#356](https://github.com/fraiseql/fraiseql/issues/356) | `[security.rate_limiting] failed_login_max_attempts` / `failed_login_lockout_secs` are silently dropped by the server runtime. Brute-force lockout is a no-op. | [Auth caveat 6](/building/authentication#6-fw-24-356--brute-force-protection-silently-dropped-security) |
+| FW-25 [#357](https://github.com/fraiseql/fraiseql/issues/357) | `[security.token_revocation] backend = "postgres"` silently downgrades to in-memory. | [Auth caveat 7](/building/authentication#7-fw-25-357--token-revocation-backend--postgres-silently-downgrades-regression) |
+| FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) (**critical**) | `POST /auth/revoke` and `POST /auth/revoke-all` are mounted with no auth middleware. | [Auth caveat 2](/building/authentication#2-fw-26-358--authrevoke-and-authrevoke-all-are-unauthenticated-critical) |
+| FW-27 [#359](https://github.com/fraiseql/fraiseql/issues/359) | HS256 boot without `audience` succeeds; presented tokens are not audience-checked. | [Auth caveat 3](/building/authentication#3-fw-27-359--hs256-audience-is-not-enforced-by-the-framework-security) |
+| FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) | PKCE with `state_encryption` disabled warns once and continues; `state` is unencrypted. | [Auth caveat 4](/building/authentication#4-fw-28-360--pkce-warns-but-continues-without-state-encryption-security) |
+| FW-29 [#361](https://github.com/fraiseql/fraiseql/issues/361) | JWKS cache holds rotated-out keys for up to `jwks_cache_ttl_secs`; `detect_key_rotation` warns but does not flush. | [Auth caveat 5](/building/authentication#5-fw-29-361--jwks-hot-rotate-window-equals-the-cache-ttl-security) |
 
-| Environment variable | Description |
-|----------------------|-------------|
-| `JWT_SECRET` | Signing secret (HS256) or public key path (RS256) |
-| `JWT_ALGORITHM` | `HS256`, `RS256`, `ES256` — default `HS256` |
-| `JWT_ISSUER` | Expected `iss` claim (optional) |
-| `JWT_AUDIENCE` | Expected `aud` claim (optional) |
+The observer admin surface (FW-21 [#348](https://github.com/fraiseql/fraiseql/issues/348)) is security-adjacent and shares the same "unauthenticated admin route" class as FW-26; see [Observers](/features/observers#security-caveats) for the dedicated treatment.
 
-### Expected token structure
+## JWT verification at the request edge
 
-```json
-{
-  "sub": "user-123",
-  "email": "user@example.com",
-  "roles": ["user", "admin"],
-  "scope": "read:User write:Post",
-  "iat": 1704067200,
-  "exp": 1704070800
-}
+FraiseQL verifies a JWT on every incoming request through `oidc_auth_middleware`. The middleware prefers an `Authorization: Bearer <token>` header and falls back to the `__Host-access_token` HttpOnly cookie set by the PKCE callback. JWTs are validated against the IdP's JWKS (RS256 by default) or against a shared symmetric secret (HS256) for testing.
+
+{/* source: crates/fraiseql-server/src/middleware/oidc_auth.rs:L48-L62 — extract_access_token_cookie */}
+{/* source: crates/fraiseql-server/src/middleware/oidc_auth.rs:L83-L97 — oidc_auth_middleware doc comment: Bearer header → cookie fallback */}
+
+The validator is configured via `[auth]` (OIDC) or `[auth_hs256]` (testing) in `fraiseql.toml`. Both sections are direct-TOML on `ServerConfig` — the binary auto-wires them at startup without a `fraiseql-cli compile` step.
+
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L293-L307 — auth: Option<OidcConfig> */}
+{/* source: crates/fraiseql-server/src/server_config/hs256.rs:L11-L39 — Hs256Config struct + mutual exclusion docstring */}
+
+```toml title="fraiseql.toml — production OIDC"
+[auth]
+issuer = "https://your-tenant.auth0.com/"
+audience = "https://api.example.com"     # SECURITY CRITICAL — boot fails without it
+# allowed_algorithms = ["RS256"]         # default; do not widen (algorithm-confusion risk)
+# jwks_cache_ttl_secs = 300              # default; tighten only if your IdP supports fast rotation
 ```
 
-### Sending a request
+`OidcConfig::validate()` refuses to boot when both `audience` and `additional_audiences` are empty — this is the framework's mandatory audience guard against token-confusion attacks. HS256 has no equivalent guard at v2.3.2 (FW-27); set `[auth_hs256] audience` explicitly even though the framework allows you to omit it.
 
-```bash
-curl -X POST http://localhost:8080/graphql \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
-  -H "Content-Type: application/json" \
-  -d '{"query": "{ me { email } }"}'
-```
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L290-L320 — validate() refuses boot when audience + additional_audiences both empty */}
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L45-L73 — audience field SECURITY CRITICAL doc comment */}
 
----
+### What the validator returns
 
-## Field-Level Authorization
+When the JWT validates, the middleware constructs a `SecurityContext` exposing `user_id` (from `sub`), `email`, `display_name` (both normalised from common claim shapes), `expires_at`, `scopes` (parsed from the configured `scope_claim`, default `scope`), `roles`, and `extra_claims`. RLS policies access these via `jwt:sub`, `jwt:email`, `jwt:name`, and `jwt:display_name` session-variable mappings. Custom claims are injected per-query via `inject={"sql_param": "jwt:<claim>"}` (see [Server-side injection](/features/server-side-injection)).
 
-### Requiring scopes
+{/* source: crates/fraiseql-core/src/security/security_context.rs:L115-L127 — email + display_name fields */}
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L115-L120 — scope_claim default */}
 
-Use `Annotated` to require scopes for individual fields:
+### Algorithm allowlist — keep it `["RS256"]`
+
+`OidcConfig::default_algorithms()` returns `vec!["RS256".to_string()]`. The validator enforces this list at decode time and rejects tokens signed with disallowed algorithms (`SecurityError::InvalidTokenAlgorithm`). Widening the allowlist to include `HS256` on a JWKS-only OIDC deployment opens the classic algorithm-confusion attack — keep the default unless you have a documented reason and a second-layer mitigation.
+
+{/* source: crates/fraiseql-core/src/security/oidc/providers.rs:L152-L154 — default_algorithms() returns ["RS256"] */}
+{/* source: crates/fraiseql-core/src/security/oidc/token.rs:L355-L368 — get_algorithm enforces allowlist; returns InvalidTokenAlgorithm */}
+
+### Anonymous baseline
+
+When neither `[auth]` nor `[auth_hs256]` is configured, the binary boots, mounts `/graphql` and `/studio`, and serves every request as anonymous. `*_require_auth` flags default `true` but only enforce when a validator is installed; without one, the require-auth check is a no-op. Always configure `[auth]` or `[auth_hs256]` before exposing the binary to any non-localhost network.
+
+{/* source: crates/fraiseql-server/src/server/builder.rs:L308-L323 — OIDC validator built only when config.auth is Some */}
+{/* source: crates/fraiseql-server/src/server/builder.rs:L19-L39 — build_hs256_auth returns Ok(None) when [auth_hs256] absent */}
+
+## Field-level RBAC
+
+FraiseQL enforces role and scope requirements directly on type fields and on whole queries and mutations. The shapes are declared in the Python SDK at authoring time and baked into the compiled schema; the Rust runtime enforces them at execution time.
+
+### Requiring scopes on fields
 
 ```python
 from typing import Annotated
+from decimal import Decimal
 import fraiseql
+from fraiseql.scalars import ID
 
 @fraiseql.type
 class User:
@@ -67,7 +93,9 @@ class User:
     ssn: Annotated[str, fraiseql.field(requires_scope="hr:read_pii admin:view")]
 ```
 
-When a client requests a protected field without the required scope, FraiseQL returns `null` for that field and includes an error entry:
+{/* source: crates/fraiseql-cli/src/schema/converter/types.rs:L182 — requires_scope flows from intermediate to converted FieldDefinition */}
+
+When a client requests a protected field without the required scope, FraiseQL returns `null` for the field and includes an error entry:
 
 ```json
 {
@@ -76,459 +104,170 @@ When a client requests a protected field without the required scope, FraiseQL re
   },
   "errors": [{
     "message": "Forbidden: missing scope hr:read_salary",
-    "path": ["user", "salary"]
+    "path": ["user", "salary"],
+    "extensions": { "code": "FORBIDDEN", "statusCode": 403 }
   }]
 }
 ```
 
-### Query and mutation authorization
+### Requiring roles on types, queries, and mutations
 
 ```python
+@fraiseql.type(requires_role="admin")
+class AdminDashboard:
+    total_users: int
+    revenue: float
+
 @fraiseql.query(
     sql_source="v_user",
-    requires_role="admin"
+    requires_role="admin",
 )
 def all_users() -> list[User]:
     """Only admins can list all users."""
-    pass
 
 @fraiseql.mutation(
     sql_source="fn_delete_user",
-    requires_scope="admin:delete_user"
+    requires_scope="admin:delete_user",
 )
 def delete_user(id: ID) -> bool:
     """Requires admin:delete_user scope."""
-    pass
 ```
 
----
+{/* source: crates/fraiseql-cli/src/schema/converter/queries.rs:L158 — requires_role flows from intermediate to QueryDefinition */}
+{/* source: crates/fraiseql-cli/src/schema/converter/types.rs:L40 — requires_role on type-level fields */}
 
-## Authorization Policies (TOML-driven)
+### Authorization policies (TOML-driven)
 
-For query-scoped and row-level authorization that doesn't fit field annotations, FraiseQL supports TOML-configured policies using the Elo expression language.
+For query-scoped and row-level authorization that does not fit a single annotation, FraiseQL accepts TOML-configured policies. The shapes live in the CLI's `[security.*]` block and are compiled into the schema; the server reads them from `schema.compiled.json` at startup.
 
-### [security] — default policy
+{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L7-L34 — SecuritySettings with rules + policies + field_auth */}
 
-```toml
-[security]
-default_policy = "authenticated"  # or "public"
-```
+```toml title="fraiseql.toml — TOML-driven authorization (compile-step)"
+[fraiseql.security]
+default_policy = "authenticated"   # "authenticated" | "public"
 
-### [[security.rules]] — Elo expression rules
-
-```toml
 [[security.rules]]
 name              = "owner_only"
 rule              = "user.id == object.owner_id"
 description       = "User can only access their own data"
 cacheable         = true
 cache_ttl_seconds = 300
-```
 
-### [[security.policies]] — RBAC/ABAC policies
-
-```toml
 [[security.policies]]
 name              = "admin_only"
-type              = "rbac"         # rbac | abac | custom | hybrid
+type              = "rbac"          # "rbac" | "abac" | "custom" | "hybrid"
 roles             = ["admin"]
-strategy          = "any"          # any | all | exactly
+strategy          = "any"           # "any" | "all" | "exactly"
 cache_ttl_seconds = 600
-```
 
-### [[security.field_auth]] — per-field policy binding
-
-```toml
 [[security.field_auth]]
 type_name  = "User"
 field_name = "email"
 policy     = "admin_only"
 ```
 
-### RBAC Management API
+The fields above are the verified accepted shape at the frozen SHA. Adding unknown keys at the CLI compile step raises a hard "unknown field" error (the CLI's TOML schema uses `deny_unknown_fields`).
 
-Roles, permissions, and assignments can be managed at runtime via the built-in REST API:
+{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L9 — SecuritySettings serde(default, deny_unknown_fields) */}
+{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L60-L70 — AuthorizationRule deny_unknown_fields */}
+{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L73-L80 — AuthorizationPolicy deny_unknown_fields */}
 
+## RBAC management API
+
+When `admin_token` is set on `ServerConfig`, the binary mounts a small REST router for runtime role / permission / user-role-assignment management. The router is at `/api/` (not `/api/rbac/` — that prefix appeared in earlier docs and does not match the framework). Every route is gated by a bearer-token middleware that compares the request's `Authorization: Bearer <admin_token>` against the configured value.
+
+{/* source: crates/fraiseql-server/src/server/routing/extensions.rs:L160-L174 — RBAC router mounted under admin_token guard; route_layer applies bearer_auth_middleware */}
+{/* source: crates/fraiseql-server/src/api/rbac_management.rs:L117-L135 — rbac_management_router routes */}
+
+### Routes
+
+```text
+POST   /api/roles                                Create role
+GET    /api/roles                                List roles
+GET    /api/roles/{role_id}                      Get role
+PUT    /api/roles/{role_id}                      Update role
+DELETE /api/roles/{role_id}                      Delete role
+
+POST   /api/permissions                          Create permission
+GET    /api/permissions                          List permissions
+GET    /api/permissions/{permission_id}          Get permission
+DELETE /api/permissions/{permission_id}          Delete permission
+
+POST   /api/user-roles                           Assign role to user
+GET    /api/user-roles                           List user-role assignments
+DELETE /api/user-roles/{user_id}/{role_id}       Revoke role from user
+
+GET    /api/audit/permissions                    Query permission access audit logs
 ```
-POST   /api/rbac/roles
-GET    /api/rbac/roles
-POST   /api/rbac/permissions
-GET    /api/rbac/permissions
-POST   /api/rbac/assignments
-GET    /api/rbac/assignments
-```
 
-<Aside type="caution" title="RBAC endpoints require admin_token">
-The RBAC management endpoints are protected by a bearer token — not OIDC. You must set
-`admin_token` in `fraiseql.toml` (or the `FRAISEQL_ADMIN_TOKEN` environment variable).
+{/* source: crates/fraiseql-server/src/api/rbac_management.rs:L117-L135 — routes list */}
 
-**If `admin_token` is not configured, the RBAC management API is disabled entirely** —
-the endpoints are not registered and return 404. This is an all-or-nothing guard: either
-the endpoints exist and are protected, or they do not exist.
+### `admin_token` gating
 
-Always set `admin_token` to a strong random value (≥ 32 characters) in production.
+The router is mounted only when `admin_token` is set; without it, the framework logs a startup error (`RBAC Management API disabled — admin_token is not set`) and the routes are never registered (requests return 404). When `admin_token` is set, the bearer-token middleware enforces the token on every request; misses are counted against `admin_auth_max_failures` (default applies) for the lockout circuit.
+
+{/* source: crates/fraiseql-server/src/server/routing/extensions.rs:L160-L179 — admin_token Some/None branches with route mounting and error log */}
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L194-L207 — admin_api_enabled + admin_token doc comments */}
+
+<Aside type="caution" title="admin_token grants destructive operations">
+The RBAC routes share the bearer-token gate with `reload-schema`, `cache/clear`, and other admin operations on the server. Use a 32+ character random token, store it only as `${FRAISEQL_ADMIN_TOKEN}` (env-var substitution from TOML), and gate the routes at a reverse proxy in addition to the bearer-token check. If you need read-only access for monitoring tools, set `admin_readonly_token` separately to a different token and restrict `admin_token` to write operations.
 
 ```toml
 [server]
+admin_api_enabled = true
 admin_token = "${FRAISEQL_ADMIN_TOKEN}"
+# admin_readonly_token = "${FRAISEQL_ADMIN_RO_TOKEN}"  # optional split
 ```
 </Aside>
 
----
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L209-L220 — admin_readonly_token doc comment */}
 
-## Row-Level Filtering
+## Other security subsystems
 
-Use `inject=` on `@fraiseql.query` or `@fraiseql.mutation` to inject JWT claims directly into the SQL call, without a middleware layer:
+The remaining security topics live on dedicated pages. Each one carries its own caveats and configuration reference; the entries below name the canonical owner.
 
-```python
-@fraiseql.query(
-    sql_source="v_post",
-    inject={"author_id": "jwt:sub"}
-)
-def my_posts() -> list[Post]:
-    """Returns only posts owned by the current user."""
-    pass
-```
+<CardGrid>
+  <Card title="Authentication" icon="approve-check">
+    [Building → Authentication](/building/authentication) — `[auth]` OIDC, `[auth_hs256]`, PKCE, `/auth/me`, token revocation, and all 11 security caveats. This is the authoritative page for the auth surface.
+  </Card>
+  <Card title="OAuth providers" icon="external">
+    [OAuth providers](/features/oauth-providers) — per-provider OIDC config (Auth0, Keycloak, Okta, Cognito, Azure AD) and the provider constructors at `OidcConfig::auth0` / `::keycloak` / `::okta` / `::cognito` / `::azure_ad`.
+  </Card>
+  <Card title="Encryption" icon="seti:lock">
+    [Encryption](/features/encryption) — `fraiseql-secrets` Rust crate, AES-256-GCM, Vault / env / file key backends. Configured under `[security.state_encryption]` for OAuth state and PKCE blobs.
+  </Card>
+  <Card title="Audit logging" icon="document">
+    [Audit logging](/features/audit-logging) — `[security.enterprise] audit_logging_enabled` plus the `audit-syslog` / `audit-webhook` Cargo features. Audit log DDL is operator-owned, not auto-created.
+  </Card>
+  <Card title="Rate limiting" icon="setting">
+    [Rate limiting](/features/rate-limiting) — global token bucket plus per-auth-endpoint dispatchers. FW-24 brute-force-protection drop is documented inline on the rate-limiting page.
+  </Card>
+  <Card title="Server-side injection" icon="shield">
+    [Server-side injection](/features/server-side-injection) — `inject={"key": "jwt:claim"}` reference; the row-filtering and tenant-isolation primitive used across the security surface.
+  </Card>
+</CardGrid>
 
-FraiseQL passes `author_id` as a parameter to the view. The view can use it in a `WHERE` clause:
+### Quick mention — error sanitization, query complexity, CORS
 
-```sql
-CREATE VIEW v_post AS
-SELECT
-    p.id,
-    jsonb_build_object(
-        'id',    p.id,
-        'title', p.title,
-        'body',  p.body
-    ) AS data
-FROM tb_post p
-WHERE p.fk_user = (current_setting('fraiseql.author_id'))::bigint;
-```
+These three controls are covered for completeness because they often surface in security reviews; their canonical home is the [TOML configuration reference](/reference/toml-config).
 
-`inject=` only supports `jwt:<claim>` values. Compile-time validation rejects invalid formats.
+- **Error sanitization** — `[security.error_sanitization]` is disabled by default. Enable it in production so `DatabaseError` and `InternalServerError` codes are replaced with a generic message; `VALIDATION_ERROR`, `NOT_FOUND`, `FORBIDDEN`, `UNAUTHENTICATED`, and `RATE_LIMITED` are never sanitized because clients need them to act on errors.
 
-See [Server-Side Injection](/features/server-side-injection) for the full reference.
+  {/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L42-L52 — error_sanitization: Option<ErrorSanitizationTomlConfig> */}
 
----
+- **Query complexity** — `[fraiseql.validation]` caps query depth (`max_query_depth`, default 10). The 1,000-variable-per-request limit is a hard runtime constant; requests exceeding it are rejected with `VALIDATION_ERROR` before execution.
 
-## Multi-Tenancy
+  {/* source: crates/fraiseql-cli/src/config/toml_schema/server_settings.rs:L49 — ValidationConfig deny_unknown_fields */}
 
-The same `inject=` pattern applies for tenant isolation:
+- **CORS** — `[server.cors]` on `ServerConfig`, not `[security.cors]`. Never use wildcard origins when `credentials = true`.
 
-```python
-@fraiseql.query(
-    sql_source="v_order",
-    inject={"org_id": "jwt:org_id"}
-)
-def orders() -> list[Order]:
-    pass
-```
+  {/* source: crates/fraiseql-server/src/server_config/mod.rs:L41 — ServerConfig struct (cors lives on server, not security) */}
 
-See [Multi-Tenancy](/guides/multi-tenancy) for the full guide including PostgreSQL RLS patterns.
+## Authorization error responses
 
----
+When a client lacks the required role or scope, FraiseQL returns a structured GraphQL error. The codes are stable; clients should switch on `extensions.code`, not on the message.
 
-## Error Sanitization
-
-<Aside type="note">
-Available in v2.1.0.
-</Aside>
-
-By default, FraiseQL returns raw error messages. Enable sanitization in production to prevent SQL errors and stack traces from reaching clients.
-
-```toml
-[security.error_sanitization]
-enabled                     = true   # disabled by default
-hide_implementation_details = true   # default: true when enabled
-sanitize_database_errors    = true   # default: true when enabled
-custom_error_message        = "An internal error occurred"
-```
-
-`ValidationError`, `Forbidden`, and `NotFound` codes are **never sanitized** — clients need these to act on errors. Only `InternalServerError` and `DatabaseError` codes are replaced with the `custom_error_message`.
-
-### Error codes reference
-
-All errors include an `extensions` object clients can switch on:
-
-```json
-{
-  "errors": [{
-    "message": "...",
-    "extensions": {
-      "code": "VALIDATION_ERROR",
-      "statusCode": 400
-    }
-  }]
-}
-```
-
-| `extensions.code` | Sanitizable | When returned | Client action |
-|---|---|---|---|
-| `VALIDATION_ERROR` | No | Invalid query input | Fix and retry |
-| `NOT_FOUND` | No | Resource does not exist | Handle gracefully |
-| `FORBIDDEN` | No | Missing scope or role | Show auth error |
-| `UNAUTHENTICATED` | No | Missing or invalid JWT | Redirect to login |
-| `RATE_LIMITED` | No | Token bucket exhausted | Retry after `Retry-After` header |
-| `DATABASE_ERROR` | Yes | DB constraint or connection failure | Show generic error |
-| `INTERNAL_SERVER_ERROR` | Yes | Unclassified server fault | Show generic error |
-| `TIMEOUT` | Yes | Request exceeded timeout | Retry or reduce query scope |
-
-<Aside type="caution">
-`[security.error_sanitization]` is **disabled by default**. Without it, raw database error messages and internal details reach clients. Enable it in every production deployment.
-</Aside>
-
----
-
-## Rate Limiting
-
-<Aside type="note">
-Available in v2.1.0.
-</Aside>
-
-```toml
-[security.rate_limiting]
-enabled             = true
-requests_per_second = 100
-burst_size          = 200
-```
-
-FraiseQL applies a global token bucket to all requests and per-endpoint limits to auth routes (`/auth/start`, `/auth/callback`, `/auth/refresh`, `/auth/logout`). The current implementation is in-memory per instance.
-
-See [Rate Limiting](/features/rate-limiting) for the full configuration reference.
-
----
-
-## Query Complexity Limits
-
-FraiseQL enforces hard limits on query complexity to prevent abuse:
-
-| Limit | Value | Configurable |
-|-------|-------|-------------|
-| Max query depth | 10 | Yes (`[validation] max_query_depth`) |
-| Max aliases | 30 | Yes (`[validation] max_aliases`) |
-| Max variables per request | 1,000 | No (hard constant) |
-
-The variables limit counts top-level keys in the `variables` JSON object. Requests exceeding 1,000 variables are rejected with a `VALIDATION_ERROR` before execution. This is not configurable — if your use case requires more than 1,000 variables, restructure the query to use fewer parameterized inputs (e.g., pass an array instead of individual variables).
-
----
-
-## API Keys
-
-<Aside type="note">
-Available in v2.1.0.
-</Aside>
-
-For service-to-service authentication where JWT is impractical, FraiseQL supports static API keys stored hashed in the database. Keys are issued once (plaintext returned at creation, never stored) and validated on every request.
-
-```toml
-[security.api_keys]
-enabled        = true
-header         = "X-API-Key"    # HTTP header to read the key from
-hash_algorithm = "sha256"       # "sha256" is the supported value
-storage        = "postgres"     # "postgres" (production) or "env" (CI only)
-```
-
-See [Authentication](/guides/authentication#api-key-authentication) for the database schema and key issuance mutations.
-
----
-
-## Token Revocation
-
-<Aside type="note">
-Available in v2.1.0.
-</Aside>
-
-Revoke JWTs before their `exp` claim expires — for logout, security incidents, or key rotation.
-
-```toml
-[security.token_revocation]
-enabled     = true
-backend     = "redis"   # "redis" (recommended) or "postgres"
-require_jti = true      # reject JWTs without a jti claim
-fail_open   = false     # deny requests if revocation store is unreachable
-```
-
-When enabled, two endpoints become available:
-- `POST /auth/revoke` — revoke the caller's own token (self-logout)
-- `POST /auth/revoke-all` — revoke all tokens for a user (requires `admin:revoke` scope)
-
-See [Authentication](/guides/authentication) for the full revocation workflow.
-
----
-
-## OAuth State Security
-
-### State encryption
-
-<Aside type="note">
-Available in v2.1.0.
-</Aside>
-
-Encrypts OAuth state blobs stored between `/auth/start` and `/auth/callback`, preventing tampering.
-
-```toml
-[security.state_encryption]
-enabled    = true
-algorithm  = "chacha20-poly1305"  # or "aes-256-gcm"
-key_source = "env"
-key_env    = "STATE_ENCRYPTION_KEY"
-```
-
-Generate a key:
-
-```bash
-openssl rand -hex 32
-```
-
-Set the result in your environment as `STATE_ENCRYPTION_KEY` (64-character hex string encoding a 32-byte key).
-
-<Aside type="caution">
-If `enabled = true` and the `key_env` variable is not set, **the server refuses to start**. This is intentional — silently running without encryption would defeat the purpose of enabling it.
-
-Set `enabled = false` explicitly in CI and local dev environments that do not need state encryption. Do not rely on the env var being absent.
-</Aside>
-
-### PKCE
-
-<Aside type="note">
-Available in v2.1.0.
-</Aside>
-
-<Aside type="caution">
-PKCE requires `[security.state_encryption]` to also be enabled. If `pkce.enabled = true` and `state_encryption.enabled = false`, the engine emits a startup warning: "PKCE state will be stored unencrypted."
-</Aside>
-
-```toml
-[security.pkce]
-enabled               = true
-code_challenge_method = "S256"  # or "plain" (warns at startup in non-dev)
-state_ttl_secs        = 600
-# redis_url = "${REDIS_URL}"    # required for multi-replica deployments
-```
-
-<Aside type="caution">
-In multi-replica deployments, PKCE state is stored in memory per process by default. A user's `/auth/start` may hit replica A while `/auth/callback` hits replica B — causing a silent auth failure. Set `redis_url` and enable the `redis-pkce` Cargo feature to share state across replicas.
-</Aside>
-
-### OIDC client identity
-
-To use PKCE browser login flows, configure your OIDC provider client identity in `[security.pkce]`:
-
-```toml
-[security.pkce]
-issuer_url   = "https://accounts.google.com"
-client_id    = "my-fraiseql-client"
-redirect_uri = "https://api.example.com/auth/callback"
-```
-
-The OIDC client secret is never stored in `fraiseql.toml`. Provide it at runtime via the `OIDC_CLIENT_SECRET` environment variable (or whichever name your identity provider uses).
-
----
-
-## Audit Logging
-
-Enable the audit log via enterprise flags:
-
-```toml
-[security.enterprise]
-audit_logging_enabled = true
-audit_log_backend     = "postgresql"   # "postgresql" | "syslog" | "file"
-```
-
-Create an audit table in PostgreSQL:
-
-```sql
-CREATE TABLE ta_audit_log (
-    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    timestamp  TIMESTAMPTZ DEFAULT NOW(),
-    user_id    UUID,
-    operation  TEXT        NOT NULL,
-    query_name TEXT,
-    variables  JSONB,
-    ip_address INET,
-    user_agent TEXT,
-    duration_ms INTEGER,
-    success    BOOLEAN,
-    error_message TEXT
-);
-```
-
----
-
-## CORS
-
-CORS is configured under `[server.cors]`, not `[security.cors]`:
-
-```toml
-[server.cors]
-origins     = ["https://app.example.com", "http://localhost:3000"]
-credentials = true
-```
-
-<Aside type="caution">
-Never use wildcard origins when `credentials = true`. This creates a significant security vulnerability.
-</Aside>
-
----
-
-## SQL Row-Level Security (PostgreSQL)
-
-FraiseQL works with PostgreSQL RLS policies. Use `inject=` to pass JWT claims, then reference them in your RLS policy function:
-
-```sql
--- Enable RLS on the table
-ALTER TABLE tb_post ENABLE ROW LEVEL SECURITY;
-
--- Users can only see their own posts
-CREATE POLICY post_owner_policy ON tb_post
-    FOR ALL
-    USING (fk_user = current_user_pk());
-
--- Helper function
-CREATE FUNCTION current_user_pk() RETURNS BIGINT AS $$
-BEGIN
-    RETURN current_setting('app.current_user_pk')::BIGINT;
-END;
-$$ LANGUAGE plpgsql;
-```
-
----
-
-## Security Checklist
-
-### Authentication
-- [ ] JWT secrets are 256+ bits (`openssl rand -hex 32`)
-- [ ] Tokens expire appropriately (30 min – 1 hour)
-- [ ] Failed login rate limiting enabled
-
-### Authorization
-- [ ] All mutations require authentication
-- [ ] Sensitive fields protected by `requires_scope`
-- [ ] Row-level filtering via `inject=` or PostgreSQL RLS
-
-### Error handling
-- [ ] `[security.error_sanitization]` enabled in production
-- [ ] Stack traces not exposed to clients
-
-### Infrastructure
-- [ ] TLS at load balancer or via `[server.tls]`
-- [ ] CORS configured via `[server.cors]` (not wildcard)
-- [ ] Rate limiting enabled via `[security.rate_limiting]`
-
-### OAuth (if using)
-- [ ] `[security.state_encryption]` enabled
-- [ ] `STATE_ENCRYPTION_KEY` env var set in all environments where `enabled = true`
-- [ ] `enabled = false` explicit in CI/test config (not relying on env var absence)
-- [ ] `[security.pkce]` enabled with `code_challenge_method = "S256"`
-
----
-
-## Authorization Error Responses
-
-When a client lacks the required role or scope, FraiseQL returns a structured GraphQL error:
-
-**Missing authentication:**
-```json
+```json title="Missing authentication"
 {
   "errors": [{
     "message": "Authentication required",
@@ -537,8 +276,7 @@ When a client lacks the required role or scope, FraiseQL returns a structured Gr
 }
 ```
 
-**Missing role/scope:**
-```json
+```json title="Missing role / scope"
 {
   "errors": [{
     "message": "Access denied: role 'viewer' cannot access field 'User.email'",
@@ -552,62 +290,65 @@ When a client lacks the required role or scope, FraiseQL returns a structured Gr
 }
 ```
 
----
-
-## Testing Security
+## Testing the security path
 
 <Steps>
 
-1. **Test field-level authorization:**
+1. **Field-level scope enforcement:**
+
    ```bash
    curl -X POST http://localhost:8080/graphql \
-     -H "Content-Type: application/json" \
      -H "Authorization: Bearer $USER_TOKEN" \
-     -d '{"query": "{ user(id: \"user-123\") { name salary } }"}'
+     -H "Content-Type: application/json" \
+     -d '{"query":"{ user(id:\"user-123\") { name salary } }"}'
    ```
 
    Expected: `salary` returns `null` with a `FORBIDDEN` error entry.
 
-2. **Test admin-only query with regular token:**
+2. **Type-level role enforcement:**
+
    ```bash
    curl -X POST http://localhost:8080/graphql \
-     -H "Content-Type: application/json" \
      -H "Authorization: Bearer $USER_TOKEN" \
-     -d '{"query": "{ allUsers { id name } }"}'
+     -H "Content-Type: application/json" \
+     -d '{"query":"{ allUsers { id name } }"}'
    ```
 
    Expected: `FORBIDDEN` error, no data.
 
-3. **Test expired token:**
-   ```bash
-   curl -X POST http://localhost:8080/graphql \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer $EXPIRED_TOKEN" \
-     -d '{"query": "{ me { email } }"}'
-   ```
+3. **RBAC management API auth:**
 
-   Expected: `UNAUTHENTICATED` error with `"token expired"` message.
-
-4. **Test row-level filtering:**
    ```bash
-   # User A's token — should only return User A's posts
-   curl -X POST http://localhost:8080/graphql \
-     -H "Authorization: Bearer $USER_A_TOKEN" \
-     -d '{"query": "{ myPosts { title } }"}'
+   # Without admin_token — 401
+   curl -fsS http://localhost:8080/api/roles
+   # With admin_token — 200
+   curl -fsS http://localhost:8080/api/roles \
+     -H "Authorization: Bearer $FRAISEQL_ADMIN_TOKEN"
    ```
 
 </Steps>
 
-## Next Steps
+## Known issues
+
+| ID | Symptom | Workaround |
+|---|---|---|
+| FW-24 [#356](https://github.com/fraiseql/fraiseql/issues/356) | Brute-force protection silently dropped (`failed_login_*` accepted by CLI but ignored by server). | Enforce at reverse proxy. See [Rate limiting](/features/rate-limiting) and [Auth caveat 6](/building/authentication#6-fw-24-356--brute-force-protection-silently-dropped-security). |
+| FW-25 [#357](https://github.com/fraiseql/fraiseql/issues/357) | `[token_revocation] backend = "postgres"` silently downgrades. | Use `backend = "redis"`. See [Auth caveat 7](/building/authentication#7-fw-25-357--token-revocation-backend--postgres-silently-downgrades-regression). |
+| FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) (**critical**) | `/auth/revoke*` unauthenticated. | Reverse-proxy gate or do not mount revocation. See [Auth caveat 2](/building/authentication#2-fw-26-358--authrevoke-and-authrevoke-all-are-unauthenticated-critical). |
+| FW-27 [#359](https://github.com/fraiseql/fraiseql/issues/359) | HS256 `audience` not enforced. | Set `[auth_hs256] audience` regardless. See [Auth caveat 3](/building/authentication#3-fw-27-359--hs256-audience-is-not-enforced-by-the-framework-security). |
+| FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) | PKCE warns and continues without state encryption. | Configure `[security.state_encryption]` before enabling PKCE. See [Auth caveat 4](/building/authentication#4-fw-28-360--pkce-warns-but-continues-without-state-encryption-security). |
+| FW-29 [#361](https://github.com/fraiseql/fraiseql/issues/361) | JWKS stale cache after IdP rotation. | Restart replicas after key rotation; tighten `jwks_cache_ttl_secs`. See [Auth caveat 5](/building/authentication#5-fw-29-361--jwks-hot-rotate-window-equals-the-cache-ttl-security). |
+
+## Next steps
 
 <CardGrid>
-  <Card title="Server-Side Injection" icon="shield">
-    [Server-Side Injection](/features/server-side-injection) — inject= full reference
+  <Card title="Authentication" icon="approve-check">
+    [Authentication](/building/authentication) — the full auth surface, all 11 caveats, the migration callout.
   </Card>
-  <Card title="Rate Limiting" icon="setting">
-    [Rate Limiting](/features/rate-limiting) — token bucket configuration
+  <Card title="Multi-tenancy" icon="seti:db">
+    [Multi-tenancy](/building/multi-tenancy) — tenant isolation patterns and the `tenant_id` JWT-claim dispatch path.
   </Card>
-  <Card title="Multi-Tenancy" icon="rocket">
-    [Multi-Tenancy](/guides/multi-tenancy) — tenant isolation patterns
+  <Card title="Server-side injection" icon="shield">
+    [Server-side injection](/features/server-side-injection) — `inject={"sql_param": "jwt:claim"}` reference.
   </Card>
 </CardGrid>

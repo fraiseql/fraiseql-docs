@@ -1,0 +1,60 @@
+=================================================================
+ Phase 03 / Cycle 2 RED — proper [storage.<name>] TOML repro
+ Date: 2026-05-29T20:46:19Z
+ Frozen FraiseQL SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+ Image: fraiseql-docs-test-fraiseql:latest (CARGO_FEATURES NO aws-s3)
+=================================================================
+
+## Overlay applied (baseline + [storage.docs_test] s3-shape from
+## scripts/docs-test/configs/overlays/storage-s3.toml, validated against
+## RuntimeConfig.storage HashMap (config/mod.rs:L73-L74) and the
+## create_backend dispatch (storage/backend/mod.rs:L431-L451))
+#
+# <!-- source: crates/fraiseql-server/src/server_config/defaults.rs:L95-L105 -->
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30
+[storage.docs_test]
+backend  = "s3"
+bucket   = "fraiseql-docs-test"
+region   = "us-east-1"
+endpoint = "http://minio:9000"
+
+## Observation 1 — /health 200, server boots clean
+{"status":"healthy","database":{"connected":true,"database_type":"PostgreSQL","active_connections":0,"idle_connections":4},"version":"2.3.2","schema_hash":"316c9100f7a872c8c411033ac2a00066"}
+## Observation 2 — storage routes 404 across the board even though
+## [storage.docs_test] is the canonical-shape config block
+
+GET /storage/v1/list/docs_test → HTTP 404
+PUT /storage/v1/object/docs_test/test.txt → HTTP 404
+
+## Container log grep -iE 'storage|with_storage' (post-boot):
+  - no 'Storage API mounted at /storage/v1/' line
+  - no 'Storage initialized' line
+  - no warning about ignored [storage] section either
+
+## Root cause (read at frozen SHA, no edits made):
+ 1. The binary's main.rs L25-L33 deserializes ServerConfig
+    (server_config/mod.rs:L41) — a flat-key struct without a
+    'storage' field.
+ 2. The HashMap-shaped storage config lives on RuntimeConfig
+    (config/mod.rs:L60-L120 — fields: server, database, storage,
+    files, auth, observers...) which the binary never instantiates.
+ 3. Server::with_storage(backend) is the only way to wire the
+    backend, per builder.rs:L583-L588. The binary never calls it.
+ 4. Therefore both /storage/v1/* (server/routes/storage/mod.rs)
+    and fraiseql_storage::storage_router are unreachable in the
+    off-the-shelf binary.
+
+## Implication for the docs page:
+ - Posture A (binary-as-shipped): the page must document that
+   storage requires a host binary or library use, and document the
+   library API (with_storage + create_backend + StorageRouteState
+   or fraiseql_storage::StorageState). Same shape as Cycle 1's
+   library-API pivot for multi-tenancy.
+ - Posture B (feature-request): file a framework issue against
+   ~/code/fraiseql asking that the binary's ServerConfig either
+   embeds [storage.<name>] / [files.<name>] fields and auto-wires
+   them, or that the binary deserialize RuntimeConfig instead.
+   GREEN Writer recommends (A) per the Cycle 1 precedent, with a
+   '## Known issues' block pointing at the new issue.

@@ -1,0 +1,32 @@
+{
+  "_comment": "Compiled schema for `pages/authentication.docs-test.sh` PostgreSQL iteration.",
+  "_comment_2": "Hand-written to give fraiseql-server a non-empty schema so it boots cleanly under the authentication overlay. The docs-test only exercises /health and the HS256 auth path against /graphql (introspection), plus static source-greps for FW-24..FW-29 symptoms — no real data reads required. The schema deliberately does NOT carry `security.token_revocation` / `security.api_keys` / `security.pkce` blocks: the docs-test asserts the FW-26 (#358) anonymous-revoke symptom via a STATIC source-grep at the frozen SHA, not a live HTTP probe. Loading those blocks would mount the actual routes, which the harness does not need to drive to validate the documented symptom shape.",
+  "_source": "src/content/docs/building/authentication.md — User type used as a placeholder identity-row shape.",
+  "_format_source": "crates/fraiseql-core/src/schema/compiled/schema.rs:L67-L150 (CompiledSchema struct).",
+  "_query_format_source": "crates/fraiseql-core/src/schema/compiled/query.rs:L46-L120 (QueryDefinition struct).",
+  "_type_format_source": "crates/fraiseql-core/src/schema/graphql_type_defs.rs:L42-L102 (TypeDefinition struct).",
+  "_baseline_example": "scripts/docs-test/fixtures/postgres/_smoke.compiled.json — used as the shape reference (Cycle 5 smoke).",
+  "_note_on_auth_section": "There is no top-level `auth` block on the compiled schema — `[auth]` and `[auth_hs256]` live on ServerConfig directly. `[security.*]` blocks land here under `security.additional[\"<subsystem>\"]`. This fixture intentionally omits them; the overlay carries `[auth_hs256]` direct-TOML which is enough to exercise the documented HS256 path.",
+
+  "types": [
+    {
+      "name": "User",
+      "sql_source": "v_user_placeholder",
+      "jsonb_column": "data",
+      "fields": [
+        {"name": "id",    "field_type": "ID",     "nullable": false},
+        {"name": "sub",   "field_type": "String", "nullable": false},
+        {"name": "email", "field_type": "String", "nullable": true}
+      ],
+      "description": "A user identity (placeholder; the docs-test does not read from this view)."
+    }
+  ],
+  "queries": [],
+  "mutations": [],
+  "subscriptions": [],
+  "enums": [],
+  "input_types": [],
+  "interfaces": [],
+  "unions": [],
+  "directives": []
+}

@@ -1,0 +1,266 @@
+=================================================================
+ Phase 03 / Cycle 3 RED — stale observers [[handlers]] TOML repro
+ Date: 2026-05-29T22:21:52Z
+ Frozen FraiseQL SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461
+ Image: fraiseql-docs-test-fraiseql:latest built with default CARGO_FEATURES
+   (arrow,observers,observers-nats,observers-enterprise,rest,redis-pkce,
+    redis-apq,redis-rate-limiting)
+=================================================================
+
+This transcript reproduces the failure modes of the four existing observer
+pages (`/features/observers`, `/building/observers`, `/building/observer-
+webhook-patterns`, `/operations/observer-runbook`) against the v2.3.2
+binary by feeding the binary a TOML config that mirrors the page-documented
+shape verbatim, then observing what the binary actually does.
+
+## Overlay applied (mirrors features/observers.mdx L24-L29 + building/observers.mdx L50-L67)
+
+bind_addr = "0.0.0.0:8080"
+database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"
+schema_path = "/etc/fraiseql/schema.compiled.json"
+cors_enabled = true
+cors_origins = ["http://localhost:8080"]
+health_path = "/health"
+playground_enabled = false
+metrics_enabled = false
+admin_api_enabled = false
+introspection_enabled = false
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30
+
+# === verbatim from features/observers.mdx + building/observers.mdx ===
+[observers]
+enabled   = true
+backend   = "redis"
+redis_url = "redis://redis:6379"
+nats_url  = "nats://nats:4222"
+
+[[observers.handlers]]
+name        = "welcome-email"
+event       = "user.created"
+action      = "webhook"
+webhook_url = "http://example.invalid/welcome"
+retry_strategy = "exponential"
+max_retries    = 3
+
+## Observation 1 — server BOOTED HEALTHY despite `backend`/`redis_url`/`nats_url`/`[[handlers]]`
+##                  being silent-swallow keys against ServerConfig.
+
+`./docs-test.sh up --profile fraiseql` returned exit 0. Container went
+Healthy. Log shows ONE attempt at `Initializing observer runtime` —
+no parse error, no "unknown field 'backend'", no "unknown field 'handlers'":
+
+  fraiseql-1 | 2026-05-29T22:21:52.527452Z  INFO  Initializing observer PostgreSQL pool min=2 max=5 timeout_secs=10
+  fraiseql-1 | 2026-05-29T22:21:52.550105Z  INFO  Initializing observer runtime
+  fraiseql-1 | 2026-05-29T22:21:52.551691Z  INFO  Observer runtime attached to AppState for health probes
+  fraiseql-1 | 2026-05-29T22:21:52.562926Z  INFO  Observer management, runtime health, and DLQ delivery status endpoints enabled path="/api/observers"
+  fraiseql-1 | 2026-05-29T22:21:52.565495Z  INFO  Starting observer runtime...
+  fraiseql-1 | 2026-05-29T22:21:52.566269Z  INFO  Starting observer runtime...
+  fraiseql-1 | 2026-05-29T22:21:52.568221Z ERROR  Failed to start observer runtime: Database error: error returned from database: relation "tb_observer" does not exist
+  fraiseql-1 | 2026-05-29T22:21:52.568443Z  WARN  Server will continue without observers
+
+The binary's `ServerConfig` parser silently ignores `backend`, `redis_url`,
+`nats_url`, and the `[[observers.handlers]]` array-of-tables — none of those
+keys exist on `ObserverConfig` (`crates/fraiseql-server/src/server_config/
+observers.rs:L99-L130`). `ServerConfig` carries no `#[serde(deny_unknown_
+fields)]` attribute (`server_config/mod.rs:L40-L42`), so unknown TOML keys
+are dropped on the floor with no diagnostic. This is the same
+silent-swallow class as FW-7 (`/features/file-storage` Cycle 2 RED).
+
+## Observation 2 — observer DEFINITIONS are loaded from the DATABASE, not TOML.
+
+The frozen-SHA binary's observer runtime calls
+`self.repository.list(...)` against `tb_observer` at startup
+(`crates/fraiseql-server/src/observers/runtime.rs:L189-L221`). The Cycle-2
+docs-test PostgreSQL fixture has no `tb_observer` table, so the boot path
+errors `relation "tb_observer" does not exist`. The
+`[[observers.handlers]]` array-of-tables documented in all four current
+pages is NOT the runtime configuration surface — it does not produce a
+single registered observer. Observers must be installed in
+`tb_observer` (the schema is at
+`crates/fraiseql-observers/migrations/06_create_observer_management.sql`
+in the framework tree, not bundled with the binary or auto-applied).
+
+## Observation 3 — `[[observers.handlers]]` shape ONLY exists in fraiseql-cli's
+##                  config-validation schema, not in fraiseql-server's runtime config.
+
+  $ git -C ~/code/fraiseql show d0a4ed4ec:crates/fraiseql-cli/src/config/toml_schema/observers.rs
+
+  pub struct ObserversConfig {
+      pub enabled:   bool,
+      pub backend:   String,
+      pub redis_url: Option<String>,
+      pub nats_url:  Option<String>,
+      pub handlers:  Vec<EventHandler>,    // <-- matches docs
+  }
+  pub struct EventHandler {
+      pub name:           String,
+      pub event:          String,
+      pub action:         String,
+      pub webhook_url:    Option<String>,
+      pub retry_strategy: Option<String>,
+      pub max_retries:    Option<u32>,
+      pub description:    Option<String>,
+  }
+
+  $ git -C ~/code/fraiseql show d0a4ed4ec:crates/fraiseql-server/src/server_config/observers.rs
+
+  pub struct ObserverConfig {
+      pub enabled: bool,
+      pub poll_interval_ms: u64,
+      pub batch_size: usize,
+      pub channel_capacity: usize,
+      pub auto_reload: bool,
+      pub reload_interval_secs: u64,
+      pub pool: ObserverPoolConfig,
+  }
+
+`fraiseql-cli`'s `ObserversConfig` is a *validation type* used by
+`fraiseql-cli compile`'s TOML-schema validator. `fraiseql-server` reads its
+own `ObserverConfig` shape at startup and consumes a completely different
+set of fields. The two structures share neither `backend` nor `handlers`.
+
+## Observation 4 — route mounting is inconsistent.
+
+  $ curl http://localhost:8080/api/observers
+  HTTP/1.1 500
+  {"error":"Database error: error returned from database: relation \"tb_observer\" does not exist"}
+
+  $ curl http://localhost:8080/api/observers/dlq
+  HTTP/1.1 200
+  {"items":[],"total":0,"limit":50,"offset":0}
+
+  $ curl http://localhost:8080/api/observers/runtime/health
+  HTTP/1.1 404
+
+  $ curl http://localhost:8080/runtime/health     ← actual route
+  HTTP/1.1 503
+  {"errors":0,"events_processed":0,"last_checkpoint":0,"observer_count":0,"running":false}
+
+`observer_runtime_routes` is `app.merge(...)` at the router ROOT, not nested
+under `/api/observers` like the other observer routers
+(`crates/fraiseql-server/src/server/routing/observers.rs:L46-L62`). The
+runbook page's status-endpoint advice — referencing `fraiseql_observer_*`
+metric labels and the runtime CLI commands — does not match this layout.
+
+## Observation 5 — `/health` reports `status: degraded`, NOT `healthy`,
+##                  when the observer subsystem failed to start.
+
+  $ curl http://localhost:8080/health
+  {"status":"degraded",
+   "database":{"connected":true,"database_type":"PostgreSQL",...},
+   "observers":{"running":false,"pending_events":0},
+   "version":"2.3.2","schema_hash":"316c9100f7a872c8c411033ac2a00066"}
+
+The four pages do not document this degraded-state contract or the
+`tb_observer` schema-bootstrap requirement.
+
+## Observation 6 — `fraiseql-cli observer dlq list` etc. (referenced
+##                  throughout /operations/observer-runbook) DO NOT EXIST.
+
+`fraiseql-cli`'s `Cargo.toml` (`crates/fraiseql-cli/Cargo.toml`) does NOT
+depend on `fraiseql-observers`; the CLI binary has no `observer`
+subcommand at all. The CLI surface lives in `fraiseql-observers/src/cli/`
+behind the `cli` feature gate, exposed as a separate
+`fraiseql-observers` binary (CLI app name in `clap`:
+`#[command(name = "fraiseql-observers")]`).
+
+Even where the CLI exists, the `dlq list` / `show` / `stats` / `retry`
+handlers in `crates/fraiseql-observers/src/cli/commands/dlq.rs:L38-L80`
+return HARD-CODED MOCK JSON, not real DLQ contents — observer IDs
+`obs-webhook`/`obs-email`/`obs-slack` are baked into the source. The
+runbook's CLI workflows are inoperable on the frozen SHA.
+
+## Observation 7 — `[observers.pool]` IS a real field.
+
+The runbook is partially correct: `ObserverPoolConfig` does exist
+(`crates/fraiseql-server/src/server_config/observers.rs:L51-L65`,
+defaults at L68-L80). The frozen-SHA boot log confirms:
+
+  fraiseql-1 | INFO Initializing observer PostgreSQL pool min=2 max=5 timeout_secs=10
+
+So `[observers.pool] min_connections / max_connections / acquire_timeout_secs`
+are valid. The four pages either don't document this section or document it
+adjacent to invalid TOML.
+
+## Observation 8 — backend list in CHANGELOG / Cargo.toml says
+##                  postgres / nats / in_memory, NOT redis / postgresql / mysql / in-memory.
+
+The pages list five "backends": `in-memory`, `nats`, `redis`,
+`postgres`/`postgresql`, `mysql`. The framework's `TransportKind` enum
+(`crates/fraiseql-observers/src/config/transport.rs:L15-L42`) has THREE
+variants: `Postgres` (default), `Nats`, `InMemory`. Redis is a CACHE /
+JOB-QUEUE / DEDUP / LEASE backend, not an event-transport backend
+(`crates/fraiseql-observers/Cargo.toml:L52-L68`). MySQL appears only as
+a *bridge* (MySQL → NATS), not as a standalone event transport
+(`crates/fraiseql-observers/src/transport/mysql_bridge.rs:L1-L31`).
+
+## Summary of contradictions per page
+
+- `/features/observers.mdx`
+  - L24-L29 `[observers] backend = "redis"` block: silently ignored (Obs. 1).
+  - L40 "at-least-once delivery": confirmable (`retry.rs:L17-L80`).
+  - L44 "distributed lease" claim: real but feature-gated
+    (`redis-lease` not enabled in default CARGO_FEATURES; lease is
+    `in_process` unless `postgres`/`redis-lease` is wired —
+    `crates/fraiseql-observers/src/listener/lease.rs:L1-L18`).
+  - L62-L65 "FraiseQL server registers listeners at startup and routes
+    each event to matching observers": the binary does this only if
+    `tb_observer` exists (Obs. 2) — undocumented.
+
+- `/building/observers.mdx`
+  - L50-L67 `[observers]` + `[[observers.handlers]]`: silently ignored
+    (Obs. 1, Obs. 3).
+  - L40-L43 architecture diagram showing TOML → handlers: factually
+    wrong (Obs. 2).
+
+- `/building/observer-webhook-patterns.mdx`
+  - L36-L60 `[observers] backend = "nats"|"redis"|"postgres"`:
+    silently ignored (Obs. 1) — only Postgres-NOTIFY is the live transport
+    on the frozen SHA without the `observers-nats` feature; with it
+    `TransportConfig::transport` may be set, but NOT through the documented
+    `[observers] backend = ...` key.
+  - L68-L78 event-payload shape `fraiseql.order.created`: cannot be
+    verified against the binary without an installed `tb_observer` row
+    (Obs. 2).
+
+- `/operations/observer-runbook.mdx`
+  - L41-L62 alert rules: metric names appear in
+    `crates/fraiseql-observers/src/metrics/registry.rs` (need to spot-check;
+    most likely real).
+  - L67-L71 `fraiseql-cli observer status`: does not exist (Obs. 6).
+  - L120-L171 `fraiseql-cli observer dlq list|show|retry|remove`: do not
+    exist; if you build the `fraiseql-observers` CLI binary separately, the
+    handlers return hard-coded mock JSON (Obs. 6).
+  - L94-L100 `max_dlq_size` callout: real field on `ObserverRuntimeConfig`
+    (`crates/fraiseql-observers/src/config/runtime.rs:L55-L67`) — but on
+    the *library-API* runtime config, NOT on the binary's `[observers]`
+    section. Same library-vs-binary gap as Cycle 1 / Cycle 2.
+
+## What the GREEN Writer must do
+
+1. Replace `[[observers.handlers]]` array-of-tables prose with the binary's
+   actual `[observers]` schema: `enabled`, `poll_interval_ms`, `batch_size`,
+   `channel_capacity`, `auto_reload`, `reload_interval_secs`,
+   `[observers.pool]` (sub-table).
+2. Document the DB-driven observer model: observers live in `tb_observer`,
+   not TOML. The migration is at
+   `crates/fraiseql-observers/migrations/06_create_observer_management.sql`
+   and is NOT auto-applied by the binary.
+3. Document the `POST /api/observers` HTTP API for creating observers
+   (route mounting: `crates/fraiseql-server/src/observers/routes.rs:L34-L51`).
+4. Document the route-mount inconsistency: `/runtime/health` (root) vs.
+   `/api/observers/*` — and file FW-13 (this) if not already filed.
+5. Document that `fraiseql-cli` has no observer commands. The
+   `fraiseql-observers` CLI binary returns mocked data — runbook usage
+   patterns need a rewrite or a `## Known issues` block.
+6. Use the **library-API framing (option A)** consistent with Cycle 1 /
+   Cycle 2 GREEN: the binary auto-wires observer routes, but the
+   user-facing TOML config the docs advertise (`backend`/`handlers`)
+   is the `fraiseql-cli compile`-time validation schema, NOT the runtime
+   schema — they share a name but not a contract.
+
+=================================================================
+ End of transcript.
+=================================================================

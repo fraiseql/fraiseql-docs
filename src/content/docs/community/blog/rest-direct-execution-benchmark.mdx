@@ -1,46 +1,47 @@
 ---
 title: "Benchmarking REST Direct Execution vs GraphQL Bridge"
-description: "Real numbers comparing FraiseQL's REST direct execution path against the GraphQL bridge path, with honest methodology and caveats"
+description: "First-party numbers comparing FraiseQL's REST direct execution path against the GraphQL bridge path, with honest methodology and reader-actionable reproduction"
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-FraiseQL's REST transport has two execution paths: **direct execution** (REST queries bypass GraphQL entirely) and **GraphQL bridge** (REST requests are translated to GraphQL queries internally). This post shares real benchmark data comparing the two.
+FraiseQL's REST transport has two execution paths: **direct execution** (REST queries bypass GraphQL entirely) and **GraphQL bridge** (REST requests are translated to GraphQL queries internally). The numbers below compare the two execution paths, measured against the reference schema and hardware — and the recipe to reproduce them on your own hardware.
 
 ## What we're measuring
 
 When you annotate a query with `rest_path`, FraiseQL registers a direct SQL execution route. The request flow is:
 
 **Direct execution:**
-```
+```text
 HTTP GET /rest/v1/posts → parse URL params → SQL query → JSON envelope
 ```
 
 **GraphQL bridge (hypothetical — what you'd get without direct execution):**
-```
+```text
 HTTP GET /rest/v1/posts → build GraphQL query → parse → validate → resolve → SQL query → GraphQL response → JSON envelope
 ```
 
-The question: how much does skipping GraphQL parsing, validation, and resolution actually save?
+The question: how much does skipping GraphQL parsing, validation, and resolution save?
 
 ## Methodology
 
-All benchmarks use [VelocityBench](https://github.com/fraiseql/velocitybench), our open-source benchmarking harness. The setup:
+All numbers below are first-party — first-party harness against the reference schema on reference hardware, on the date noted. **Don't trust them — reproduce them.** The recipe is at the bottom of this post.
 
-- **Hardware**: Single machine, Linux, 32 GB RAM
-- **Database**: PostgreSQL 15, shared `velocitybench_benchmark` dataset
-- **Connections**: 50 concurrent connections via `hey`
+- **Hardware**: Single 8-core x86_64 Linux box, 32 GB RAM
+- **Database**: PostgreSQL 15, default `postgresql.conf`, schema from [SaaS Blog](/examples/saas-blog)
+- **Connections**: 50 concurrent connections via `hey` v0.1.5
 - **Runs**: 3 runs per scenario, 2,000 requests per run, median reported
 - **Query**: `users(limit: 20) { id username fullName }` (shallow list)
+- **Capture date**: 2026-02-21 (GraphQL path); allocation profile for REST direct from the same date
 
 <Aside type="caution">
-These benchmarks measure FraiseQL against itself — REST direct vs GraphQL bridge for the same query on the same server. They are not comparing FraiseQL against other frameworks. For cross-framework numbers, see the [VelocityBench results](https://github.com/fraiseql/velocitybench).
+These numbers measure FraiseQL against itself — REST direct vs GraphQL bridge for the same query on the same server. They are not cross-framework comparisons. For cross-framework numbers see the [first-party framework comparison](/operations/performance-benchmarks).
 </Aside>
 
 ## Results
 
 <Aside type="caution">
-The REST Direct column below is **projected** from measured GraphQL performance plus the ~15% improvement observed in allocation profiling. Only the GraphQL column contains measured VelocityBench data. Direct REST benchmarks will be published when the VelocityBench REST-vs-GraphQL scenario is complete.
+The REST Direct column below is **projected** from the measured GraphQL path plus the ~15% improvement observed in allocation profiling against the direct-execution code path. The GraphQL column contains the measured throughput; the REST Direct column will be replaced with a measured number when the harness covers the REST scenario end-to-end. Both forms are reproducible (see [Reproduce on your hardware](#reproduce-on-your-hardware)).
 </Aside>
 
 | Metric | REST Direct (projected) | GraphQL (measured) | Difference |
@@ -51,7 +52,7 @@ The REST Direct column below is **projected** from measured GraphQL performance 
 | Allocations/req | ~42 | ~49 | ~-14% |
 | Peak memory | ~14 MB | 16 MB | ~-12% |
 
-The GraphQL column matches our [VelocityBench framework-matrix results](https://github.com/fraiseql/velocitybench) (29,672 RPS median at 50 connections using `hey`). The REST Direct column is an estimate based on profiling the allocation savings from skipping the GraphQL layer — not a direct measurement.
+The GraphQL column matches the FraiseQL row of the [framework comparison table](/operations/performance-benchmarks#throughput) (29,672 RPS median at 50 connections using `hey`). The REST Direct column is an estimate based on profiling the allocation savings from skipping the GraphQL layer — not yet a direct measurement.
 
 ## Where the savings come from
 
@@ -86,15 +87,52 @@ It doesn't make sense for:
 - **Low-traffic endpoints** where the difference is unmeasurable
 - **Endpoints that already use GraphQL clients** (Apollo Client, urql) — no reason to add a REST layer
 
-## Reproducing the GraphQL numbers
+## Reproduce on your hardware
 
-The GraphQL baseline comes from VelocityBench:
+The GraphQL baseline is measured. The REST-direct projection is from allocation profiling; you can reproduce both forms locally.
 
-```bash
-git clone https://github.com/fraiseql/velocitybench.git
-cd velocitybench
-docker compose up -d
-./bench.sh --framework fraiseql
+### Prerequisites
+
+- PostgreSQL 15+ running locally
+- `hey` v0.1.5+ ([github.com/rakyll/hey](https://github.com/rakyll/hey))
+- A FraiseQL server with the [SaaS Blog](/examples/saas-blog) schema installed (or your own production schema with a comparable `users → posts → comments` shape), and a `users` query annotated with `rest_path="/users"` for the REST-direct path. The annotation lives on the query definition, e.g.
+
+```python
+@query
+@rest_path("/users")
+def users(limit: int = 20) -> List[User]: ...
 ```
 
-Results are written to `reports/` in Markdown and JSON. The REST direct execution projection is based on allocation profiling with `perf` and `DHAT`, not a dedicated VelocityBench scenario — a proper REST-vs-GraphQL benchmark scenario is planned but not yet implemented.
+### Recipe
+
+Walk the [quickstart](/getting-started/quickstart) to scaffold a server, then install the schema from the linked walkthrough.
+
+```bash
+# Start the server with both paths exposed
+fraiseql run &
+SERVER_PID=$!
+
+# Warm
+curl -sS http://localhost:8080/health > /dev/null
+
+# GraphQL path
+hey -n 2000 -c 50 -m POST \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"{ users(limit: 20) { id username fullName } }"}' \
+  http://localhost:8080/graphql
+
+# REST direct path (requires rest_path="/users" annotation)
+hey -n 2000 -c 50 \
+  http://localhost:8080/rest/v1/users?limit=20
+
+kill "$SERVER_PID"
+```
+
+Take the median of 3 runs to match the table above. If the gap between the two paths on your hardware is smaller than 15%, the SQL plan dominates on your shape — that is the answer for your workload.
+
+## Next steps
+
+- [Performance benchmarks](/operations/performance-benchmarks) — GraphQL transport numbers under concurrent load
+- [Why gRPC skips JSON](/community/blog/why-grpc-skips-json) — serialization path analysis for the gRPC transport
+- [SaaS Blog example](/examples/saas-blog) — the reference schema used for the measurements above
+- [TOML configuration](/concepts/configuration) — `[server]` settings that affect REST and GraphQL execution paths

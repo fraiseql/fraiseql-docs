@@ -1,0 +1,74 @@
+# File-storage overlay for the FraiseQL docs-test harness.
+#
+# Loaded by scripts/docs-test/pages/file-storage.docs-test.sh as a full
+# `fraiseql.toml` (NOT a partial overlay — the runtime image's startup loads
+# a single TOML, not a layered config). The content mirrors baseline.toml
+# with one addition: a structurally-valid `[storage.docs_test]` block that
+# matches the schema of `RuntimeConfig.storage: HashMap<String, StorageConfig>`
+# from `crates/fraiseql-server/src/config/mod.rs:L113-L114` + the field set
+# from `:L395-L425`.
+#
+# Why this overlay exists even though FW-7 / #334 means the binary doesn't
+# consume `[storage.<name>]`: the docs-test script asserts that every
+# /storage/v1/* route returns 404 from the off-the-shelf binary regardless
+# of TOML — i.e. the gap is binary-wiring, not TOML-shape. The overlay
+# proves that the TOML SHAPE the page documents is structurally consumable
+# by `serde::Deserialize`; the 404s prove the gap is downstream (the binary
+# never calls `Server::with_storage` or `ServerSubsystemsBuilder::with_storage`).
+#
+# When Phase 09 lands #334 and the binary wires the subsystem, this overlay
+# will become the bring-up surface for the documented happy-path test;
+# until then it's the structural-validity proof.
+#
+# All keys derived from `~/code/fraiseql@d0a4ed4ec` (the frozen SHA). The
+# `<!-- source: ... -->` HTML-comment citations live inside `#` TOML
+# comments so `toml::from_str` ignores them.
+
+bind_addr = "0.0.0.0:8080"
+
+database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"
+
+schema_path = "/etc/fraiseql/schema.compiled.json"
+
+cors_enabled = true
+cors_origins = ["http://localhost:8080"]
+
+health_path = "/health"
+
+playground_enabled = false
+metrics_enabled = false
+admin_api_enabled = false
+introspection_enabled = false
+
+# ── Storage backend (structurally valid against `StorageConfig` ────────────
+# Maps to `RuntimeConfig.storage: HashMap<String, StorageConfig>`. The
+# binary does NOT consume this field at the frozen SHA — that's FW-7 #334.
+# Setting the block proves the TOML SHAPE is parseable; the docs-test
+# script then asserts the documented FW-7 symptom (every /storage/v1/*
+# returns 404 regardless).
+#
+# Backend selection: "s3" with MinIO endpoint. Matches the storage-s3.toml
+# overlay shape so the harness can converge to one storage overlay shape
+# when FW-7 fix lands.
+#
+# Cargo-feature dependency: the S3 backend is gated behind `fraiseql-storage`'s
+# `aws-s3` feature. The Cycle 2 image is NOT built with this feature; once
+# FW-7 fix lands the docs-test image must rebuild with
+# `CARGO_FEATURES=...,aws-s3` for this overlay to drive real S3 traffic.
+# Until then, the field set is structurally-valid-but-unwired.
+#
+# <!-- source: crates/fraiseql-server/src/config/mod.rs:L113-L114 -->
+# <!-- source: crates/fraiseql-server/src/config/mod.rs:L395-L425 -->
+# <!-- source: crates/fraiseql-storage/src/backend/mod.rs:L448-L457 -->
+
+[storage.docs_test]
+backend          = "s3"
+bucket           = "fraiseql-docs-test"
+region           = "us-east-1"
+endpoint         = "http://minio:9000"
+max_upload_bytes = 5242880   # 5 MiB; consumed by legacy StorageRouteState only
+
+# ── Pool sizing (inherits baseline) ──────────────────────────────────────────
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30

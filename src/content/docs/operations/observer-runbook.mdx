@@ -5,6 +5,14 @@ description: How to operate, size, monitor, and recover the FraiseQL observer ru
 
 import { Aside } from '@astrojs/starlight/components';
 
+:::note[Page scope]
+This page is the **how-to-run-in-production** leg of the four-page observers cluster. It covers Prometheus alert rules, sizing the worker pool and DLQ, recovery playbooks for partial failure, and the day-2 operations of the observer subsystem. For the **what-it-is** (architecture, action types, security caveats including the critical FW-20 + FW-21 combination), see [Observers (Features)](/features/observers). For the **how-to-install** (`tb_observer` bootstrap, `POST /api/observers`), see [Observers (Building)](/building/observers). For the **subscriber-side receiver patterns** (downstream services consuming FraiseQL's outbound webhooks), see [Observer and webhook patterns](/building/observer-webhook-patterns).
+:::
+
+:::caution[Stale until next cycle — full rewrite deferred]
+This page's body refers to `fraiseql-cli observer ...` subcommands. At v2.3.2 the `fraiseql-cli` binary **has no `observer` subcommand** — the standalone `fraiseql-observers` CLI binary exists separately, and its DLQ subcommands return hard-coded mock JSON (FW-14 [#341](https://github.com/fraiseql/fraiseql/issues/341)). Use the HTTP API at `/api/observers/dlq` instead. The body also discusses `[observers] backend = "redis"|"nats"` which is silently dropped by the binary (FW-15 [#342](https://github.com/fraiseql/fraiseql/issues/342) + FW-23 [#350](https://github.com/fraiseql/fraiseql/issues/350)). The full rewrite is deferred to a later Phase 03 cycle once the upstream framework decisions land; treat the body as aspirational and use [Observers (Features)](/features/observers) plus the HTTP API at [Route mount paths](/features/observers#route-mount-paths) as the source of truth at v2.3.2.
+:::
+
 The FraiseQL observer runtime runs **inside the server process** as an embedded subsystem. It has its own transport layer (Redis, NATS, PostgreSQL, or in-memory), a configurable thread pool, a dead letter queue, and a high-availability lease coordinator. This runbook covers what to do when things go wrong.
 
 ## Health Signals
@@ -225,7 +233,7 @@ RUST_LOG=fraiseql_observers=trace ./fraiseql-server --config fraiseql.toml
 
 ### Useful Log Patterns
 
-```
+```text
 # Event lifecycle
 observer: received event
 observer: dispatching to handler
@@ -389,7 +397,10 @@ VACUUM ANALYZE observer_idempotency_keys;
 
 ---
 
-## See Also
+## Next steps
 
-- [Observer Concepts](/concepts/observers) — how the observer runtime works
-- [TOML Configuration: \[observers\]](/reference/toml-config#observers) — full parameter reference
+- [Observers (Features)](/features/observers) — what observers are, action types, security caveats (FW-18 / FW-19 / FW-20 / FW-21 / FW-22), and the F056 atomicity guarantee.
+- [Observers (Building)](/building/observers) — bootstrapping `tb_observer` and registering observers at runtime.
+- [Observer and webhook patterns (Building)](/building/observer-webhook-patterns) — subscriber-side receiver patterns; how downstream services consume FraiseQL's outbound webhooks.
+- [Performance benchmarks](/operations/performance-benchmarks) — throughput numbers relevant to observer pipeline sizing.
+- [TOML Configuration: \[observers\]](/reference/toml-config#observers) — full parameter reference.
