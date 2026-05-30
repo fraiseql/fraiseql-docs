@@ -7650,3 +7650,20 @@ Unchanged. G1 closed, G2 default-hold at `d0a4ed4ec`, G7 resolved, G8 resolved. 
 #### Pointer to next persona
 
 **Style Auditor (Sonnet 4.6)** OR **Cleanup (Sonnet 4.6)** for Phase 03 close. The two nits above (1× `secret` → `secret_env` in commented illustrative block; 4× bare code fences) are style-band only and ideal for the phase-close Style Audit pass. After Style Audit + Cleanup → Phase 03 close → Phase 04 kickoff per the cluster inventory partition plan.
+
+---
+
+### Phase 03 / Cycle 7c close — Cleanup (Sonnet 4.6) — 2026-05-30
+
+- **Build state:** `bun run check` 0 errors / 0 warnings / 60 hints (pre-existing baseline, unchanged). `bun run build` exit 0 — 205 pages, 281 HTML files, strip-source-citations 223 stripped, Pagefind index clean.
+- **Archaeology grep on 5 vs/* pages:** `grep -inE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" src/content/docs/community/vs/*.mdx` → **0 hits.**
+- **No Style Auditor edits to apply:** Cycle N Style Auditor will run after this close on ALL Phase 03 pages (Cycles 1–7c batch read).
+- **Phase 03 doc updated:** `_internal/.plan/.phases/phase-03-critical-rewrites.md` `## Pages completed` section appended with 5 entries:
+  - `/community/vs/hasura` (Cycle 7c — POLISH + auth pivot + G11)
+  - `/community/vs/hasura-sqlserver` (Cycle 7c — POLISH + G11)
+  - `/community/vs/apollo` (Cycle 7c — POLISH + G11)
+  - `/community/vs/prisma` (Cycle 7c — POLISH + G11)
+  - `/community/vs/postgrest` (Cycle 7c — POLISH + G11 + archaeology fix)
+- **No new framework bugs filed.**
+- **Open gates:** unchanged — G1 closed, G2 default-hold at `d0a4ed4ec`, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted and applied.
+- **Pointer — Style Auditor (Sonnet 4.6) — Cycle N** on ALL Phase 03 pages produced across Cycles 1, 2, 3, 4, 5, 6, 7a, 7b, 7c. Per methodology § 2, Style Auditor reads every page in one context window + produces `_internal/.plan/style-audits/phase-03.md` edit list. The two Reviewer nits from Cycle 7c review (`hasura.mdx:L109` `secret` → `secret_env` in commented HS256 block; `hasura.mdx:L118,L261,L609` + `prisma.mdx:L25` bare code fences) are the known nits to address. Style Auditor may find additional drift across the full 34-page Phase 03 corpus.

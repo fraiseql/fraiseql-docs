@@ -307,6 +307,11 @@ orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle
 - `/concepts/how-it-works` (Cycle 7b — verified-clean, no change)
 - `/concepts/developer-owned-sql` (Cycle 7b — verified-clean, no change)
 - `/concepts/schema` (Cycle 7b — verified-clean, no change)
+- `/community/vs/hasura` (Cycle 7c — POLISH + auth pivot + G11)
+- `/community/vs/hasura-sqlserver` (Cycle 7c — POLISH + G11)
+- `/community/vs/apollo` (Cycle 7c — POLISH + G11)
+- `/community/vs/prisma` (Cycle 7c — POLISH + G11)
+- `/community/vs/postgrest` (Cycle 7c — POLISH + G11 + archaeology fix)
 
 ## Framework bugs filed
 
