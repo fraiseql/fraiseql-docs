@@ -5555,3 +5555,82 @@ Unchanged. G1 closed, G2 default-hold, G7 resolved.
 **Writer (Opus 4.7)** for Phase 03 / Cycle 5 — quickstart 3 SQL bugs (`/getting-started/quickstart.mdx` L156 SQLite `json()`, L184 MSSQL `JSON_QUERY`, L167+L179 MSSQL `WITH SCHEMABINDING` view-on-view). Per sweep matrix this is Phase 03 scope. Cycle 5 is substantively simpler than 1–4 (3 mechanical SQL fixes vs. substantive rewrites).
 
 ---
+
+### Phase 03 / Cycle 5 GREEN — Writer (Opus 4.7) — 2026-05-30
+
+Combined RED+GREEN (small surface — 3 documented SQL dialect bugs caught by Phase 00 / Cycle 5 smoke). Page-side fixes only; no framework code touched; no harness fixtures touched. Each fix's `{/* source: ... */}` citation points at the existing smoke-fixture DEVIATION comment block that proves the bug.
+
+#### Per-fix before / after
+
+1. **SQLite v_post — outer `json_object` re-parses inner view JSON** (`src/content/docs/getting-started/quickstart.mdx` SQLite tab, was L155 of the original page).
+   - Before: `'author', vu.data`
+   - After:  `'author', json(vu.data)`
+   - Citation: `{/* source: scripts/docs-test/fixtures/sqlite/_smoke.sql:L51-L69 — DEVIATION: SQLite returns json_object output as TEXT; ... */}`
+   - Smoke fixture DEVIATION block re-greped: `fixtures/sqlite/_smoke.sql:L52-L57` (deviation prose) + L65 (the `json(vu.data)` line). Both at the cited range.
+
+2. **MSSQL v_user + v_post — drop `WITH SCHEMABINDING` (view-on-view)** (SQL Server tab, was L167 + L179 of the original page).
+   - Before: `CREATE VIEW dbo.v_user WITH SCHEMABINDING AS …` and same for `v_post`.
+   - After:  `CREATE VIEW dbo.v_user AS …` and `CREATE VIEW dbo.v_post AS …` (no `WITH SCHEMABINDING`).
+   - Citation: header citation on the v_user block points at `fixtures/mssql/_smoke.sql:L18-L23` (the file-header DEVIATION explaining why SCHEMABINDING is incompatible when `v_post` references `v_user`).
+   - Smoke fixture confirms: `fixtures/mssql/_smoke.sql:L18-L23` (header DEVIATION) + L62 + L74 (inline DEVIATION markers at the two view definitions).
+
+3. **MSSQL v_post — `JSON_QUERY()` wraps nested-JSON column** (SQL Server tab, was L184 of the original page).
+   - Before: `SELECT p.id, p.title, p.content, vu.data AS author FOR JSON PATH, WITHOUT_ARRAY_WRAPPER`
+   - After:  `SELECT p.id, p.title, p.content, JSON_QUERY(vu.data) AS author FOR JSON PATH, WITHOUT_ARRAY_WRAPPER`
+   - Citation: `{/* source: scripts/docs-test/fixtures/mssql/_smoke.sql:L73-L89 — DEVIATION 1: SCHEMABINDING dropped (view-on-view); DEVIATION 2: vu.data is NVARCHAR(MAX) holding JSON text — FOR JSON serialises it as a string literal unless wrapped in JSON_QUERY() ... */}`
+   - Smoke fixture confirms: `fixtures/mssql/_smoke.sql:L74-L79` (deviation prose) + L84 (the `JSON_QUERY(vu.data) AS author` line). Both at the cited range.
+
+#### Known issues / FW-2 cross-link added
+
+Added an `Aside type="caution" title="Server adapter coverage"` block immediately after the Step 2 per-DB tabs (right above Step 3). Body acknowledges that the page's per-DB SQL is verified against each engine, but the `fraiseql-server` binary only routes PostgreSQL end-to-end today, and cross-links [fraiseql#327](https://github.com/fraiseql/fraiseql/issues/327) as "the regression signal that unblocks the binary-driven multi-DB happy path" (avoiding `Phase N` archaeology per the prior Cycles 2/3/4 close pattern). The caveat is paired with a `{/* source: scripts/docs-test/fixtures/postgres/_smoke.sql + fixtures/{mysql,sqlite,mssql}/_smoke.sql — ... fraiseql#327 (FW-2) */}` citation.
+
+This is the only non-SQL edit and matches the orchestrator brief's "cross-link FW-2 in a Known issues block".
+
+#### Smoke harness re-run
+
+`scripts/docs-test/pages/_smoke.docs-test.sh` exit code after the fixes: **0**.
+
+Per-DB timings (cold start, `./docs-test.sh down --volumes` before run):
+- postgres: 17.76 s
+- mysql:    13.79 s
+- sqlite:    4.55 s
+- mssql:    10.98 s
+- total:    47.10 s (budget: <240 s)
+
+Each DB block passed all four assertions (schema installed, `data.posts` is array, length = 1, `post[0].title` + `post[0].author.name`).
+
+Note for the next persona: the smoke continued to pass because the fixtures already encoded the corrected forms (Phase 00 / Cycle 5 captured them as DEVIATIONS). The page now matches the verified fixture form; the smoke is a regression gate against the page silently drifting back.
+
+#### Build verification
+
+- `bun run build` → exit 0, 205 pages, 14.99 s.
+- Strip integration log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments` — three source-citation comments added by this cycle were stripped from `dist/` HTML.
+- `grep -rE '<!--\s*source:' dist/` → 0 matches. Posture B leak-free.
+- Rendered-page sanity: `grep` on `dist/getting-started/quickstart/index.html` shows `json(vu.data)` × 1, `JSON_QUERY(vu.data)` × 1, `WITH SCHEMABINDING` × 0, `issues/327` × 1.
+
+#### Archaeology grep
+
+`git grep -nE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" src/content/docs/getting-started/quickstart.mdx` → one pre-existing hit at L32, a Cycle-4 (install matrix) source-citation comment referencing the framework's `releasing.md:L625-L645` "Phase 4 Later" item (Homebrew). That's a citation *about* the framework's own roadmap, not docs-overhaul archaeology. Not introduced by this cycle; left untouched.
+
+#### Anti-scope
+
+- No other quickstart edits — text outside Step 2's per-DB tabs and the new Aside is untouched.
+- No framework code (`~/code/fraiseql`) edits.
+- No harness fixture edits (`scripts/docs-test/fixtures/{sqlite,mssql,postgres,mysql}/_smoke.sql` untouched — they already had the corrected forms as DEVIATIONS).
+- No new framework bugs filed. The 3 SQL bugs were always doc-side dialect mistakes (the framework never claimed responsibility for the page's SQL); FW-2 #327 already exists and is the appropriate cross-link.
+- No `Phase N` close-statement archaeology (the Aside body uses "the regression signal that unblocks the binary-driven multi-DB happy path" per the brief's pattern).
+- PostgreSQL + MySQL tabs untouched — neither has a documented bug; both smoke-pass against the existing page text.
+
+#### Push status / CI
+
+To be captured in the commit that closes this entry. Branch: `phase-03/critical-rewrites`. The next handoff append (or the Reviewer's first read) should add the CI run URL.
+
+#### Pointer to next persona
+
+**Source-Citation Verifier (Sonnet 4.6)** in parallel with **Reviewer (Opus 4.7)**.
+
+Verifier brief: 3 new citations to verify. Each cites a `scripts/docs-test/fixtures/{sqlite,mssql}/_smoke.sql` line range. Re-grep at the live tree (these are docs-side citations, not framework — no frozen-SHA `git show` needed) and confirm each DEVIATION block exists at the cited range with the cited prose.
+
+Reviewer brief: small-surface change (3 SQL fixes + 1 Aside). The 15-point checklist re-runs but the high-value items are #2 WRONG-DB PATHS (now each DB's tab matches a smoke-verified DEVIATION form), #6 DEAD LINKS (the new `https://github.com/fraiseql/fraiseql/issues/327` link), and #11 ERROR-PATH COVERAGE (no regression — Step 6's error sample is unchanged). The cycle should close to **Cleanup (Sonnet 4.6)** for the phase-doc `## Pages completed` append (`/getting-started/quickstart` Cycle 5 — closed YYYY-MM-DD), then onto Cycle 6 (Phase-01 Cycle-4 deferral classes).
+
+---
