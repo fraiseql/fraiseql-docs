@@ -6408,3 +6408,93 @@ Commit `30feeae` pushed to `origin/phase-03/critical-rewrites`. Branch is now 1 
 #### Pointer
 
 **Writer (Opus 4.7)** for Phase 03 / Cycle 7 — auth/security cluster + concepts pass + comparisons (~22 sweep-matrix rows; the largest remaining cycle). Reads this handoff and the phase-03 doc before proceeding.
+
+---
+
+### Phase 03 / Cycle 7 RED — Writer (Opus 4.7) — 2026-05-30
+
+#### Scope
+
+RED-only inventory + partition plan for the largest remaining cycle: ~22 sweep-matrix rows (7 auth/security cluster + 9 concepts + 5 `/community/vs/*`). Brief defined three sub-cycle proposals (7a/7b/7c) to avoid a naive full-Writer-RED + full-Writer-GREEN per page (which would blow the Phase 03 budget). This Writer-RED produces inventory only — no page rewrites, no framework edits, no bug filings.
+
+#### Inventory artefact
+
+`_internal/.plan/.phases/cycle-07-cluster-inventory.md` (21 distinct page files; `/concepts/mutations` ≡ `/features/mutations` under Option A IA, so brief's "~22 rows" maps to 21 unique pages).
+
+#### Bucket totals
+
+- **Security cluster (7 pages):** REWRITE = 2 (`/features/security`, `/features/oauth-providers`); POLISH = 5 (`/features/encryption`, `/features/audit-logging`, `/features/rate-limiting`, `/features/server-side-injection`, `/features/mutations`); DEFER = 0.
+- **Concepts (9 pages):** REWRITE = 1 (`/concepts/configuration`); POLISH = 7 (why-fraiseql, how-it-works, cqrs, developer-owned-sql, view-composition, type-system, schema); DEFER = 1 (`/concepts/elo-validation` — borderline; rolls into 7b POLISH batch as single slug-fix line).
+- **`/community/vs/*` (5 pages):** REWRITE = 0; POLISH = 5.
+- **Grand total: REWRITE = 3, POLISH = 17 (+1 if elo rolled in = 18), DEFER = 1 (or 0 if elo rolled in).**
+
+#### Top 3 surprises during triage
+
+1. **`/features/oauth-providers` directly contradicts the just-shipped `/building/authentication`.** L26-28 contains a top-of-page caution Aside claiming **"FraiseQL does not have an `[auth]` TOML section — it causes a hard parse error."** This is provably wrong at frozen SHA `d0a4ed4ec`: `crates/fraiseql-server/src/server_config/hs256.rs:L14` documents `[auth_hs256]` as *mutually exclusive with `[auth]` (OIDC)*, and `OidcConfig::validate()` refuses to boot when `[auth] audience` is unset. A reader hitting oauth-providers first will believe `[auth]` is invalid; hitting `/building/authentication` after will see `[auth]` as REQUIRED for production OIDC. The contradiction is severe enough to bump this page from POLISH to REWRITE.
+
+2. **`/concepts/configuration` has the same `[auth]` contradiction.** L8-10 top-of-page Aside lists `[auth]` among sections that "cause a hard parse error at `fraiseql compile`." L129 explicitly states "There are no `[auth]`, `[logging]`, `[graphql]`, or `[metrics]` sections." Both claims are wrong at v2.3.2. This is the only concepts page that needs a substantive rewrite — the other 8 concept pages are POLISH-scope slug-fixes.
+
+3. **`/features/rate-limiting` documents the wrong field names for brute-force protection AND fails to surface FW-24.** L65-L70 documents `failed_login_max_requests = 5` and `failed_login_window_secs = 3600`. The actual CLI schema field names are `failed_login_max_attempts` and `failed_login_lockout_secs` (`crates/fraiseql-cli/src/config/toml_schema/security.rs:L181-L249`). AND those fields are silently dropped by the server runtime per FW-24 [#356] — brute-force protection is a no-op at v2.3.2. The page is wrong on field names AND fails to warn readers that the feature doesn't work. Needs the FW-24 caveat box mirrored from `/building/authentication` caveat 6.
+
+#### Proposed partition
+
+| Sub-cycle | Pages | Scope | Writer-Opus | Bug-Finder-Opus | Reviewer-Opus | Expected new FW bugs |
+|-----------|-------|-------|-------------|-----------------|----------------|----------------------|
+| 7a | 3 | REWRITE | 3 (per-page) | 1 (consolidated) | 3 (per-page) | 0-2 |
+| 7b | 13 | POLISH (concepts + security) | 1 (batch session) | 0 | 1 (batch) | 0 |
+| 7c | 5 | POLISH (vs/*) | 1 (batch session) | 0 | 1 (batch) | 0 |
+| **Total** | **21** | — | **5 Writer-Opus** | **1 Bug-Finder-Opus** | **5 Reviewer-Opus** | **0-2** |
+
+**7a pages:** `/features/security` (hub-vs-detail decision per G9 below), `/features/oauth-providers` (corrects the `[auth] = parse error` falsehood), `/concepts/configuration` (corrects "no `[auth]` section" falsehood).
+
+**7b pages (POLISH batch — ≤10-line patches each):**
+- Concepts: why-fraiseql, how-it-works, cqrs, developer-owned-sql, view-composition, type-system, schema, elo-validation.
+- Security: encryption, audit-logging, rate-limiting (+ FW-24 caveat), server-side-injection, mutations (auth section 2-line repivot to `[auth]` / `[auth_hs256]` + scope statement re: adding-mutations overlap).
+
+**7c pages (POLISH batch):** hasura, hasura-sqlserver, apollo (+ `@fraiseql.subscription` verify), prisma, postgrest. Mostly `/guides/performance-benchmarks` → `/operations/performance-benchmarks` slug-fixes.
+
+#### Novel gate candidates
+
+Three candidates surfaced; each has an orchestrator-driveable default recommendation if no human gate is surfaced.
+
+- **G9 — hub-vs-detail boundary for `/features/security`.** After `/building/authentication` Cycle 4 LEADs with FW-24..FW-29 caveats, what's left for `/features/security`?
+  - **G9a — thin hub:** lists each subsystem + 1-para link-outs.
+  - **G9b — substantive "all-in-one" reference:** expands every security topic on one page.
+  - **G9c — split:** `/features/security` keeps JWT verification + RBAC management API; de-scopes the rest with cross-links.
+  - **Recommendation: G9c.** Aligns with IA's hub-and-spoke pattern. Orchestrator-driveable.
+
+- **G10 — Python decorator scope alignment across the cluster.** Cycles 1-4 were TOML-LEAD (operator concerns); Cycle 7 POLISH pages are Python-decorator-LEAD (developer concerns). Should 7b/7c repivot to TOML-LEAD, or preserve decorators?
+  - **Recommendation: preserve.** Python decorators are correct at frozen SHA (real authoring layer, verified via converter tests + executor docs comments). Repivoting would expand 7b/7c from POLISH to REWRITE. The TOML/decorator split is defensible on operator/developer-concern axis. Orchestrator-driveable.
+
+- **G11 — comparison-page tone & freshness commitment.** vs/* pages contain time-bound disclaimers ("Pricing accurate as of February 2026"). Maintain forever, or accept point-in-time snapshots?
+  - **Recommendation: accept as point-in-time.** Add inline "Snapshot as of <month-year> @ FraiseQL v2.3.2" line per page. Phase 10 Final Reviewer sweeps for newly-outdated comparisons.
+
+#### Orchestrator-default recommendation
+
+If no human gate is surfaced on G9 / G10 / G11:
+
+1. Orchestrator accepts G9c + G10 preserve + G11 point-in-time.
+2. Drives 7a → 7b → 7c sequentially.
+3. **7a parallelism:** 3 Writer-Opus subagents can run in parallel (different pages) IF the orchestrator commits to a deterministic cross-link wiring after all three are written (security hub references oauth-providers and configuration; latter two should land first or the hub-page rewrite needs a follow-on cross-link patch).
+4. **Bug-Finder-Opus consolidated** across 7a's 3 pages (FW-3 RBAC + FW-24..FW-29 auth already cover most of the surface; one new finding around `[security.error_sanitization]` default-disabled posture or `[server.cors]` wildcard is plausible).
+5. CI green per sub-cycle before next starts.
+6. Style Auditor at Cycle 7 close (or rolls to scheduled Cycle 8 phase-close audit).
+
+If the user wants to formally surface G9 / G10 / G11 as gates: writer marks Phase 03 status `[?]` after this RED commit; otherwise orchestrator proceeds with defaults.
+
+#### Anti-scope confirmed
+
+- No edits to `src/content/docs/`.
+- No edits to `~/code/fraiseql`.
+- No framework bugs filed.
+- No amend.
+- No push to `main`.
+
+#### Pointer
+
+**Orchestrator** — resolve G9 / G10 / G11 (accept defaults or surface to user). On resolution, dispatch:
+
+1. **Writer-Opus (per-page) + Bug-Finder-Opus (consolidated)** for 7a (3 REWRITE pages).
+2. **Writer-Opus (batch) → Reviewer-Opus (batch) → Cleanup-Sonnet** for 7b (13 POLISH pages).
+3. **Writer-Opus (batch) → Reviewer-Opus (batch) → Cleanup-Sonnet** for 7c (5 POLISH vs/* pages).
+
