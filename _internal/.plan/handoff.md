@@ -7013,3 +7013,37 @@ PR #14 HEAD: `8d05401` (Cycle 7b GREEN). `pre-commit.ci - pr` continues to flake
 #### Pointer to next personas
 
 **Verifier (Sonnet 4.6, light load)** — re-grep the 3 new citations at frozen SHA (FW-24 pair on rate-limiting; SQLite caveat on server-side-injection). The rest of the touched pages either lost or had no citations; nothing else to verify beyond the new additions. **Reviewer (Opus 4.7, 15-point on the batch)** — per the brief, may sample N pages rather than walking all 13; sample priorities: rate-limiting (highest stakes; FW-24 caveat + field names), mutations (auth section pivot), audit-logging (operator-managed copy correction). Concepts pages are all single-line slug-fix patches; one sampled concept page suffices for the consistency check.
+
+---
+
+### Phase 03 / Cycle 7b verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-30
+
+#### New citations: 3/3 PASS
+
+1. **`features/rate-limiting.mdx` — citation 1** `{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L209-L212 */}`
+   - `git show d0a4ed4:crates/fraiseql-cli/src/config/toml_schema/security.rs | sed -n '209,212p'` → fields `failed_login_max_attempts: u32` and `failed_login_lockout_secs: u64` present with doc comments "Failed login attempts before lockout" / "Duration of failed-login lockout in seconds". Prose claims CLI TOML accepts these fields. ✅ PASS.
+
+2. **`features/rate-limiting.mdx` — citation 2** `{/* source: crates/fraiseql-server/src/middleware/rate_limit/config.rs:L7-L52 */}`
+   - `git show d0a4ed4:crates/fraiseql-server/src/middleware/rate_limit/config.rs | sed -n '1,60p'` → `RateLimitingSecurityConfig` struct at L8-L52 has no `failed_login_*` fields (confirms the FW-24 caveat that brute-force lockout fields are present in CLI schema but absent from the server runtime mirror, making them a no-op at v2.3.2). ✅ PASS.
+
+3. **`features/server-side-injection.mdx` — citation 3** `{/* source: crates/fraiseql-core/src/schema/compiled/mutation.rs:L60-L62 */}`
+   - `git show d0a4ed4:crates/fraiseql-core/src/schema/compiled/mutation.rs | sed -n '55,70p'` → verbatim text at L62-L63: "Works on PostgreSQL, SQL Server, and MySQL. SQLite has no stored-routine mechanism and will return an error if inject is configured on a mutation." Prose cites this exact SQLite caveat. ✅ PASS.
+
+#### Spot-checks on retained citations (5 samples, `concepts/configuration.mdx`)
+
+- `concepts/configuration.mdx:16` → `server_config/mod.rs:L41` → `pub struct ServerConfig` declared at L41. ✅
+- `concepts/configuration.mdx:17` → `cli/src/config/mod.rs:L21` → `#[serde(default, deny_unknown_fields)]` on `TomlProjectConfig` at L21. ✅
+- `concepts/configuration.mdx:74` → `toml_schema/security.rs:L7-L34` → `SecuritySettings` struct with all sub-system fields. ✅
+- `concepts/configuration.mdx:51` → `server_config/mod.rs:L293-L307` → `pub auth: Option<OidcConfig>` with OIDC doc comment + TOML example in range. ✅
+- `concepts/configuration.mdx:95` → `toml_schema/mod.rs:L62-L165` → `TomlSchema` struct with all top-level sections (federation, security, observers, caching, etc.) in range. ✅
+
+All 5 spot-checks PASS.
+
+#### Posture B leak scan
+
+- `bun run build` → exit 0, 205 pages, strip-source-citations integration: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → **0 hits**. ✅
+
+#### Verdict: PASS
+
+New citations: 3/3. Retained spot-checks: 5/5. Posture B leak scan: 0 leaks. No kick-back warranted. Handoff to **Reviewer (Opus 4.7)** for the 15-point checklist on the POLISH batch.
