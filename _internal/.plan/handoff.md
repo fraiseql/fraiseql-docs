@@ -7667,3 +7667,38 @@ Unchanged. G1 closed, G2 default-hold at `d0a4ed4ec`, G7 resolved, G8 resolved. 
 - **No new framework bugs filed.**
 - **Open gates:** unchanged — G1 closed, G2 default-hold at `d0a4ed4ec`, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted and applied.
 - **Pointer — Style Auditor (Sonnet 4.6) — Cycle N** on ALL Phase 03 pages produced across Cycles 1, 2, 3, 4, 5, 6, 7a, 7b, 7c. Per methodology § 2, Style Auditor reads every page in one context window + produces `_internal/.plan/style-audits/phase-03.md` edit list. The two Reviewer nits from Cycle 7c review (`hasura.mdx:L109` `secret` → `secret_env` in commented HS256 block; `hasura.mdx:L118,L261,L609` + `prisma.mdx:L25` bare code fences) are the known nits to address. Style Auditor may find additional drift across the full 34-page Phase 03 corpus.
+
+---
+
+### Phase 03 / Cycle N audit — Style Auditor (Sonnet 4.6) — 2026-05-30
+
+**Pages audited:** 34 (all Phase 03 pages, Cycles 1–7c)
+**Total edits flagged:** 62
+**Severity distribution:** high: 3 | medium: 30 | low: 29
+**Audit file:** `_internal/.plan/style-audits/phase-03.md`
+
+**Summary of findings:**
+
+- **High (3):** `description` field exceeds 155 chars on `building/authentication.md` (160), `features/oauth-providers.mdx` (164), `concepts/configuration.mdx` (180).
+- **Medium (30):** 25 bare code fences across 12 pages (ASCII diagrams, output blocks, config snippets — all need language tags); 6 first-person "we/our" voice violations concentrated in performance benchmarks and blog pages; observer action-type count error at `features/observers.mdx:177` ("Three" should be "Four"); `secret` → `secret_env` fix at `community/vs/hasura.mdx:109` (Cycle 7c nit); 3 missing `## Next steps` blocks on example pages; `features/rate-limiting.mdx:36` "just means" forbidden-word hedge.
+- **Low (29):** 17 × `## Next Steps` (capital S) → `## Next steps` across Cycle 7b/7c pages; 5 more missing `## Next steps` on blog/support/runbook pages; citation range tightening (rate-limiting.mdx:71); FW-24 table duplication (rate-limiting.mdx:158-159); quickstart L195 long sentence + L199 citation placement; exclamation mark in support.mdx.
+
+**Top 5 most-repeated violations:**
+1. Bare code fences (25 instances, 12 pages)
+2. `## Next Steps` casing (17 instances, Cycle 7b/7c pages)
+3. Missing `## Next steps` block (8 pages)
+4. First-person "we/our" (6 instances, benchmarks + blog pages)
+5. `description` > 155 chars (3 pages)
+
+**Terminology-drift findings:**
+- Transport vs backend (observers): `building/observers.mdx` and `building/observer-webhook-patterns.mdx` stale body text uses `backend = "nats/redis/postgres"` for what is correctly `TransportKind` on the primary page. Both carry explicit scope-caution disclaimers — full rewrite deferred, no inline fix required now.
+- `secret` vs `secret_env` at `community/vs/hasura.mdx:109`: fix required (Cycle 7c nit).
+- `tenant_id` / `fk_customer_org`, `auth` / `authentication`, FW-N cross-ref style: all consistent, no drift.
+
+**What to do next — Cleanup (Sonnet 4.6):**
+Apply every entry in `_internal/.plan/style-audits/phase-03.md` mechanically. Priority order:
+1. High — trim 3 `description` fields to ≤155 chars.
+2. Medium — add language tags to 25 bare code fences; fix voice/forbidden-word instances; fix observer count at observers.mdx:177; fix hasura.mdx:109 `secret` → `secret_env`; add `## Next steps` blocks where missing.
+3. Low — normalise 17 × `## Next Steps` headings; remaining low-priority tweaks.
+
+After Cleanup, mark Phase 03 status `[x] Complete` in the phase file and hand off to Phase 04.
