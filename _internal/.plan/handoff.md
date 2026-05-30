@@ -5634,3 +5634,59 @@ Verifier brief: 3 new citations to verify. Each cites a `scripts/docs-test/fixtu
 Reviewer brief: small-surface change (3 SQL fixes + 1 Aside). The 15-point checklist re-runs but the high-value items are #2 WRONG-DB PATHS (now each DB's tab matches a smoke-verified DEVIATION form), #6 DEAD LINKS (the new `https://github.com/fraiseql/fraiseql/issues/327` link), and #11 ERROR-PATH COVERAGE (no regression — Step 6's error sample is unchanged). The cycle should close to **Cleanup (Sonnet 4.6)** for the phase-doc `## Pages completed` append (`/getting-started/quickstart` Cycle 5 — closed YYYY-MM-DD), then onto Cycle 6 (Phase-01 Cycle-4 deferral classes).
 
 ---
+
+### Phase 03 / Cycle 5 verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-30
+
+**Verdict: PASS.** All 3 citations verified. Posture B leak-free. FW-2 Aside present.
+
+#### Citation 1 — SQLite nested-JSON bug
+
+- **Annotation (page L147):** `{/* source: scripts/docs-test/fixtures/sqlite/_smoke.sql:L51-L69 — DEVIATION: SQLite returns json_object output as TEXT; the outer json_object embeds vu.data as an escaped JSON string unless wrapped in json(...) to re-parse it as a nested object. */}`
+- **Fixture check:** `scripts/docs-test/fixtures/sqlite/_smoke.sql:L51-L69` read directly.
+  - L51: `-- source: src/content/docs/getting-started/quickstart.mdx:L148-L161`
+  - L52–57: DEVIATION block — prose matches annotation exactly ("json_object output as TEXT", "escaped JSON string", `json(...)`).
+  - L65: `'author',  json(vu.data)` — the corrected form the annotation claims.
+- **Result: PASS.**
+
+#### Citation 2 — MSSQL SCHEMABINDING incompatibility (header DEVIATION)
+
+- **Annotation (page L165):** `{/* source: scripts/docs-test/fixtures/mssql/_smoke.sql:L18-L23 — DEVIATION: SCHEMABINDING requires referenced views to also be schema-bound; v_post references v_user, so SCHEMABINDING is dropped here. */}`
+- **Fixture check:** `scripts/docs-test/fixtures/mssql/_smoke.sql:L18-L23` read directly.
+  - L18–23: `-- IMPORTANT — page-vs-fixture deviation:` block. Prose states SCHEMABINDING requires referenced base tables to be schema-bound and is incompatible with `v_post` referencing `v_user`; fixture drops SCHEMABINDING. Annotation prose matches.
+  - Inline DEVIATION markers at L62 (`-- DEVIATION: dropped SCHEMABINDING (see header).`) and L74 (`-- DEVIATION 1: dropped SCHEMABINDING`) corroborate the header claim.
+- **Spot-check (random nearby DEVIATION):** L62 independently verified via `sed -n '60,65p'` — `-- DEVIATION: dropped SCHEMABINDING (see header).` at the expected offset.
+- **Result: PASS.**
+
+#### Citation 3 — MSSQL JSON_QUERY nested-JSON bug
+
+- **Annotation (page L177):** `{/* source: scripts/docs-test/fixtures/mssql/_smoke.sql:L73-L89 — DEVIATION 1: SCHEMABINDING dropped (view-on-view); DEVIATION 2: vu.data is NVARCHAR(MAX) holding JSON text — FOR JSON serialises it as a string literal unless wrapped in JSON_QUERY() to mark the column as already-JSON. */}`
+- **Fixture check:** `scripts/docs-test/fixtures/mssql/_smoke.sql:L73-L89` read directly.
+  - L73: source comment referencing `quickstart.mdx:L178-L189`.
+  - L74–79: DEVIATION 1 (SCHEMABINDING) + DEVIATION 2 prose — "vu.data is NVARCHAR(MAX) holding JSON text" / "FOR JSON serialises it as a string literal unless wrapped in JSON_QUERY()" — annotation prose matches.
+  - L84: `JSON_QUERY(vu.data) AS author` — the corrected form the annotation claims.
+- **Result: PASS.**
+
+#### Smoke-fixture spot-check (independent offset confirmation)
+
+Independently verified that MSSQL fixture's inline DEVIATION at L62 reads `-- DEVIATION: dropped SCHEMABINDING (see header).` via direct `sed` call — confirms offsets in the file have not shifted since the DEVIATION blocks were authored.
+
+#### Posture B leak scan
+
+- `bun run build` → exit 0, 208 pages, 15.46 s. Strip integration log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → 0 matches.
+- Posture B: clean.
+
+#### FW-2 Aside presence and link shape
+
+- `<Aside type="caution" title="Server adapter coverage">` present at `quickstart.mdx:L195`.
+- Body cross-links `[fraiseql#327](https://github.com/fraiseql/fraiseql/issues/327)`.
+- URL shape: `https://github.com/fraiseql/fraiseql/issues/327` — valid GitHub issue URL form (owner/repo/issues/number). Shape check: PASS.
+
+#### Anti-scope confirmed
+
+- No edits to `src/content/docs/` (Posture B; citations stay in source).
+- No citation stripping (Posture B).
+- No amends.
+- No push to `main`.
+
+---
