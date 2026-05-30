@@ -1,5 +1,8 @@
 # Phase 08: Sweep, link audit, SDK reconciliation
 
+> **PAUSED 2026-05-30 at Phase 03 close.** This phase is blocked on the framework team shipping the 54-issue roadmap (29 FW-bug fixes #326-#361 + 25 enhancements #366-#391). See `_internal/.plan/framework-roadmap-mapping.md` for the per-phase dependency table + the new pages this phase will absorb when the framework state settles. Resume entry condition: the framework SHA bump (G2) completes + the per-phase dependencies in the mapping doc are shipped.
+
+
 ## Objective
 
 Re-walk every remaining doc page that hasn't been touched by phases 03–07, verify it against the v2.3.2 framework, fix what's wrong, link it into the new content, regenerate screenshots, and reconcile the SDK status tables with `roadmap.md`.

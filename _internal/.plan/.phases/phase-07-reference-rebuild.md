@@ -1,5 +1,8 @@
 # Phase 07: Reference rebuild — CLI, TOML, operators
 
+> **PAUSED 2026-05-30 at Phase 03 close.** This phase is blocked on the framework team shipping the 54-issue roadmap (29 FW-bug fixes #326-#361 + 25 enhancements #366-#391). See `_internal/.plan/framework-roadmap-mapping.md` for the per-phase dependency table + the new pages this phase will absorb when the framework state settles. Resume entry condition: the framework SHA bump (G2) completes + the per-phase dependencies in the mapping doc are shipped.
+
+
 ## Objective
 
 Rebuild three reference pages from source: the CLI reference (currently ~6 subcommands documented; reality is ~24), the TOML configuration reference (currently ~30% of the actual surface), and the operators reference (missing v2.3 network operators, ltree operators, and camelCase normalization).

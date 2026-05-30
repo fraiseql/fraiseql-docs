@@ -7821,3 +7821,49 @@ Before merging PR #14, verify:
 #### Pointer to next
 
 Phase 04 (new features part 1: Studio, Functions WASM, Realtime subsystem) — orchestrator kickoff per cluster inventory partition plan. PR #14 ready-for-review decision left to the human.
+
+---
+
+### Pause — docs-overhaul on hold pending framework v2.4 shipment — 2026-05-30
+
+User has tasked the framework team with addressing the full 54-issue roadmap (29 FW-bug fixes #326-#361 + 25 enhancements #366-#391) upstream. The docs-overhaul pauses at Phase 03 close until the framework state has settled, then resumes against the new framework surface.
+
+#### Why pause
+
+Writing docs against features that don't yet exist produces stale-on-arrival pages — exactly the failure mode Phase 03 was correcting. Phases 04-08 will absorb the 25 new roadmap enhancements (vector types, streaming, MCP, auth extensions, SAML/SCIM, memory subsystem, schema versioning, zero-downtime deploys, cost estimation, `fraiseql doctor`, `fraiseql watch`, view-composition linter, codegen, CDC outbound, multi-DB feature parity, Studio UI). Trying to write those docs against the current v2.3.2 surface would burn effort that gets re-done once v2.4 ships.
+
+Pausing preserves the Phase 03 work (35 pages shipped) and pre-positions Phases 04-10 to resume against the post-roadmap framework rather than the pre-roadmap one.
+
+#### Plan adaptations this commit makes
+
+1. **New consolidating doc** `_internal/.plan/framework-roadmap-mapping.md` — the 54-issue inventory + per-phase dependency table + re-triage protocol when resuming.
+2. **README.md status board** — Phases 04-10 flipped from `[ ]` (not started) to `[!]` (blocked on framework shipment). Effort proxies updated to reflect the absorbed roadmap (was ~17, now ~19).
+3. **Phase doc pause notices** — phase-04 / phase-05 / phase-06 / phase-07 / phase-08 docs each get a 1-paragraph banner immediately under the H1 declaring the pause + pointing at the mapping doc.
+4. **Phase 09 rescope** — major rescope to "reconcile-against-the-fixed-framework" rather than "Framework Bug-Fixer". Effort drops from 1.0 to 0.5. Framework Bug-Fixer persona retired for this phase; Cleanup + Verifier + Reviewer cover the reconciliation. Original Phase 09 text preserved for context with a `> RESCOPED` banner.
+5. **Phase 10** — unchanged shape; the eternal-sunshine cleanup happens regardless of framework changes.
+
+#### Resume conditions (must all hold)
+
+1. Framework ships the release that closes the 54-issue roadmap. Likely versioned as v2.4 (substantial surface change vs v2.3.2).
+2. G2 (SHA bump) human gate triggered: `scripts/docs-test/FRAISEQL_SHA` updated to the new SHA.
+3. Re-triage protocol from `framework-roadmap-mapping.md § Re-triage protocol when resuming` is executed before any Phase 04+ persona invocation. Specifically:
+   - Phase 03's 35 shipped pages re-checked for FW-N `## Known issues` removal + citation drift.
+   - Sweep matrix refreshed with the new roadmap pages.
+   - Methodology amendments applied (Phase 09 rescope per above).
+
+#### Partial-resume option
+
+If only a subset of the 54 issues ships, the per-phase dependency tables in `framework-roadmap-mapping.md` make it possible to resume per-phase rather than waiting for the full roadmap. Example: if `[memory]` subsystem (#389), social OAuth (#368), and SAML/SCIM (#381) all ship but vector types (#386) doesn't, Phase 05 can run (auth extensions, social, SAML/SCIM, memory) while Phase 04 stays blocked on the vector / streaming / MCP combination.
+
+#### State at pause
+
+- **Branch:** `between-phases/framework-roadmap-pause` (this branch). Phase 03 close branch `phase-03/critical-rewrites` HEAD `6419c8c` still has PR #14 in draft awaiting human merge.
+- **Frozen FraiseQL SHA:** `d0a4ed4ec1770c70707f68fd9019f2b561d87461` (v2.3.2). Will bump at resume.
+- **Pages shipped (Phase 03):** 35. See `phase-03-critical-rewrites.md § Pages completed`.
+- **Framework issues open:** 29 bugs + 25 enhancements = 54.
+- **Open gates:** G2 (expected next trigger), G3 / G4 / G5 (downstream).
+- **Closed gates:** G1 (Option A IA, Phase 01), G7 (Posture B uniformity, Phase 03 / Cycle 1), G8 (Cycle-4 deferral classes, Phase 03 / Cycle 6), G9c / G10 / G11 (orchestrator-defaulted in Phase 03 / Cycle 7a).
+
+#### Pointer
+
+When the user returns: read `_internal/.plan/framework-roadmap-mapping.md` first, run the re-triage protocol step-by-step, then resume from Phase 04 (or whichever phase the partial-resume gate clears first).

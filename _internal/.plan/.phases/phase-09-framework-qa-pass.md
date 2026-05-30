@@ -1,5 +1,7 @@
 # Phase 09: Framework QA pass
 
+> **RESCOPED 2026-05-30 at Phase 03 close.** The framework team is addressing the 54-issue roadmap (29 FW-bug fixes #326-#361 + 25 enhancements #366-#391) upstream during the docs-overhaul pause. Phase 09 was originally the "Framework Bug-Fixer persona" phase where docs work surfaced bugs that got fixed inside Phase 09 itself. With the bug-fix work happening upstream, Phase 09 shrinks from a fix-the-framework phase to a **reconcile-against-the-fixed-framework** phase. The original text below is preserved for context; the **Reconciliation rescope** section at the bottom is operative when the docs-overhaul resumes.
+
 ## Objective
 
 Close out — fix, accept, or formally document — every framework issue surfaced by the documentation overhaul in phases 00–08. This is the phase where the docs effort pays its full dividend: the docs site becomes the QA mirror of the framework, not just a passive description.
@@ -186,3 +188,68 @@ This phase exercises the harness heavily — every fix has a docs-test reproduct
 ## Accepted limitations
 
 *(append per the report)*
+
+---
+
+## Reconciliation rescope (2026-05-30 — operative when the docs-overhaul resumes)
+
+The original Phase 09 shape (Framework Bug-Fixer persona writing Rust fixes inside the docs-overhaul plan) is **superseded**. The framework team is fixing the 29 FW-bugs + landing the 25 roadmap enhancements upstream during the docs-overhaul pause. When Phase 09 runs, the framework state is already settled.
+
+### New objective
+
+For each of the 54 framework issues catalogued in `framework-roadmap-mapping.md`:
+1. **Verify the fix / feature landed** as the framework team's release notes claim.
+2. **Reconcile the docs**: remove `## Known issues` blocks for closed bugs; add prose for newly-shipped features that didn't get covered in their owning phase.
+3. **Close the audit trail** — every docs page that referenced an FW-N issue either (a) no longer references it because the bug closed + the row was removed, or (b) explicitly cites it as an accepted limitation with the issue's current status.
+
+### Revised success criteria
+
+- [ ] For each of FW-1..FW-29:
+  - If closed by framework PR: corresponding `## Known issues` block removed from the affected docs page(s). Verified by `git grep "<issue-link>" src/content/docs/`.
+  - If still open as accepted limitation: the `## Known issues` block restated against the issue's current status; the linked GH issue includes a comment confirming the accept-and-document decision.
+  - If closed as wrong: docs page prose corrected, issue closed with rationale.
+- [ ] For each of #366..#391 (25 roadmap enhancements):
+  - If shipped: covered in the owning phase's docs (per `framework-roadmap-mapping.md` per-phase tables). Phase 09 verifies coverage; doesn't write the coverage itself.
+  - If deferred / dropped by the framework team: removed from the per-phase tables; docs page expectations updated to match.
+- [ ] `framework-qa-report.md` produced summarising:
+  - Bugs fixed (FraiseQL PR links).
+  - Bugs that became accepted limitations (with rationale).
+  - Enhancements that shipped (with coverage page links).
+  - Enhancements that deferred (with disposition).
+- [ ] Docs build is clean (no broken cross-links to closed issues; no leftover citation drift).
+- [ ] Cycle 5 Reviewer Item-11 carry-forward (exact `rustc` error quote in `migrations/upgrading/v2-2-to-v2-3.mdx`) — addressed against the current framework toolchain.
+
+### Personas
+
+The original "Framework Bug-Fixer (Opus 4.7)" persona is **retired** for this phase. The work fits the **Cleanup (Sonnet 4.6)** + **Verifier (Sonnet 4.6)** scope:
+
+- **Cleanup** removes / updates `## Known issues` blocks and applies the per-page reconciliation edits.
+- **Verifier** confirms the framework state matches the docs' claims (re-grep framework source at the new frozen SHA for every cited line range that's still in the docs).
+- **Reviewer (Opus 4.7)** does the 15-point pass on any page that received a substantive edit.
+
+### Gates
+
+- **G3** (Phase 09 ship-readiness severity threshold) — preserved. The human decides whether any remaining accepted limitations are severe enough to block Phase 10. With most bugs fixed upstream, G3 is expected to be low-friction.
+- **G4** (each framework PR merge as a human gate) — preserved but **retrospective**: the gate fires when the framework team merges each PR upstream, not when the docs-overhaul produces it. Docs records the merge in `framework-qa-report.md` rather than originating it.
+
+### Cycles
+
+Reconciliation has natural cycle granularity per **Phase 03 page** (since Phase 03 is the dense origin of FW-bugs):
+
+- Cycle 1: multi-tenancy reconciliation (FW-3..FW-6).
+- Cycle 2: file-storage reconciliation (FW-1, FW-7..FW-12).
+- Cycle 3: observers reconciliation (FW-13..FW-23).
+- Cycle 4: authentication reconciliation (FW-24..FW-29).
+- Cycle 5: phase-02 / phase-04-08 page reconciliation (any framework changes that hit non-Phase-03 pages).
+- Cycle 6: enhancement-coverage audit + `framework-qa-report.md` + phase close.
+
+Per-cycle effort is low — these are typed-out cross-link + Known-Issues-block removals, not substantive rewrites. Estimate: 0.5 effort proxy total (down from the original 1.0).
+
+### Carry-forwards into Phase 09 from Phase 03
+
+- INFRA-1 (`demo.fraiseql.dev` TLS SAN) — actually Phase 10, not 09; documented here for traceability.
+- Cycle 5 Reviewer item 11 (`v2-2-to-v2-3.mdx` exact rustc error quote) — Phase 09 work.
+
+### Resume entry condition
+
+Phase 09 starts after Phases 04-08 close + the framework team has shipped the v2.4 (or whichever) release with the 54-issue roadmap resolved. See `framework-roadmap-mapping.md § Re-triage protocol when resuming` for the step-by-step.

@@ -43,15 +43,19 @@ the bump decision belongs to Phase 09 or Phase 10. See
 | 01 | `phase-01-triage-and-ia.md`                | Stale-fact sweep, sidebar IA (G1), link audit, sweep matrix    | 1.0 | `[x]`  | G1 (resolved 2026-05-29 → Option A) |
 | 02 | `phase-02-migration-and-changelog.md`      | Release-notes hub, v2.0→v2.3 migration pages, breaking matrix  | 1.0 | `[x]`  | — |
 | 03 | `phase-03-critical-rewrites.md`            | multi-tenancy, file-storage, observers, authentication         | 2.0 | `[x]`  | — |
-| 04 | `phase-04-new-features-part1.md`           | Studio, Functions (WASM), Realtime subsystem                   | 2.0 | `[ ]`  | — |
-| 05 | `phase-05-new-features-part2.md`           | Auth extensions, LTree, partial-period, native aggregations    | 2.0 | `[ ]`  | — |
-| 06 | `phase-06-transport-and-protocol.md`       | REST, MCP, federation mTLS, schema integrity, trusted docs     | 1.5 | `[ ]`  | — |
-| 07 | `phase-07-reference-rebuild.md`            | CLI, TOML, operators                                           | 2.0 | `[ ]`  | — |
-| 08 | `phase-08-sweep-and-link-audit.md`         | Remaining feature pages, SDK reconciliation, screenshots       | 1.5 | `[ ]`  | — |
-| 09 | `phase-09-framework-qa-pass.md`            | Close/accept every framework bug surfaced during phases 00–08  | 1.0 | `[ ]`  | **G3, G4** |
-| 10 | `phase-10-finalize.md`                     | Archaeology removal, build perf, redirect map, launch          | 1.0 | `[ ]`  | **G5** |
+| 04 | `phase-04-new-features-part1.md`           | Studio, Functions (WASM), Realtime, Vector, Streaming, MCP     | 2.5 | `[!]`  | — |
+| 05 | `phase-05-new-features-part2.md`           | Auth extensions, social OAuth, SAML/SCIM, Memory, LTree, etc.  | 2.5 | `[!]`  | — |
+| 06 | `phase-06-transport-and-protocol.md`       | REST, MCP (if not in 04), federation mTLS, CDC-outbound        | 1.5 | `[!]`  | — |
+| 07 | `phase-07-reference-rebuild.md`            | CLI, TOML, operators, vector-types, schema-versioning, async   | 2.5 | `[!]`  | — |
+| 08 | `phase-08-sweep-and-link-audit.md`         | Remaining feature pages, SDK reconciliation, screenshots       | 2.0 | `[!]`  | — |
+| 09 | `phase-09-framework-qa-pass.md`            | **Reconcile** docs against framework fixes (rescoped — see phase doc) | 0.5 | `[!]`  | **G3, G4** |
+| 10 | `phase-10-finalize.md`                     | Archaeology removal, build perf, redirect map, launch          | 1.0 | `[!]`  | **G5** |
 
-**Effort total:** ~17 (content-volume proxy; not wall-clock).
+**Effort total:** ~19 (content-volume proxy; not wall-clock). Up from ~17 pre-pause because Phases 04-07 absorb the 25 roadmap enhancements (`#366..#391`) the framework team is shipping.
+
+**Pause status (2026-05-30):** Phases 04-10 are blocked (`[!]`) pending the framework team's shipment of the 54-issue roadmap (29 FW-bug fixes + 25 enhancements). See `_internal/.plan/framework-roadmap-mapping.md` for the per-phase dependency map + the re-triage protocol to follow when resuming.
+
+The expected G2 SHA bump (frozen SHA `d0a4ed4ec` → next stable, likely v2.4) is the gating event for resume. Phase 03 (closed) remains the last `[x]` until the bump lands.
 
 See `methodology.md § 2` for the gate definitions and `personas.md § Human gates register` for the resolution protocol.
 
