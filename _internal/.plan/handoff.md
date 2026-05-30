@@ -7497,3 +7497,156 @@ Unchanged. G1 closed, G2 default-hold, G7 resolved, G8 resolved. G9c/G10/G11 orc
 #### Pointer
 
 Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 7c — once CI green on this commit. Reviewer's APPROVE on items 1-15 will be on the 10 PASS + 3 NEW-VERIFIED citations.
+
+---
+
+### Phase 03 / Cycle 7c review — Reviewer (Opus 4.7) — 2026-05-30
+
+#### Scope
+
+15-point adversarial review of the 5 `/community/vs/*` comparison pages on PR #14 (draft) at HEAD `7586b3e` (post-orchestrator-citation-fix). Sampled 3 pages per the orchestrator brief:
+
+- `community/vs/hasura.mdx` — `[auth]` TOML pivot to canonical OIDC.
+- `community/vs/apollo.mdx` — subscription decorator example.
+- `community/vs/postgrest.mdx` — archaeology fix + citation density + post-orchestrator `grpc` feature fix.
+
+Frozen FraiseQL SHA: `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. Working dir: `/home/lionel/code/fraiseql-docs/` (Reviewer fresh checkout at HEAD `7586b3e`).
+
+#### CI re-confirmation
+
+Run `26679661150` on `7586b3e`: https://github.com/fraiseql/fraiseql-docs/actions/runs/26679661150 — **conclusion: success**. All 6 jobs green:
+
+| Job | Conclusion |
+|-----|-----------|
+| `discover pages and frozen SHA` | success |
+| `page-test (_smoke)` | success |
+| `page-test (file-storage)` | success |
+| `page-test (observers)` | success |
+| `page-test (multi-tenancy)` | success |
+| `page-test (authentication)` | success |
+
+(vs/* pages are POLISH-only per the Cycle 7 RED partition plan; no `*.docs-test.sh` companions, no new CI jobs.) `pre-commit.ci` ERROR remains (Phase-10 deferred — unchanged).
+
+#### Citation re-greps at frozen SHA `d0a4ed4e`
+
+Reviewer re-greped 8 citations (5+ required, including the 3 orchestrator-fixed ones). All resolve.
+
+| # | Page | Citation | Re-grep result |
+|---|------|----------|----------------|
+| 1 | `hasura-sqlserver.mdx:L17` | `crates/fraiseql-db/src/dialect/sqlserver.rs` (orchestrator Fix 1) | PASS — file present (blob `706c32bab93b7f6...`); `pub struct SqlServerDialect` + `impl SqlDialect` at L7-L17; module doc-comment `//! SQL Server SQL dialect implementation.` |
+| 2 | `hasura-sqlserver.mdx:L18` | `crates/fraiseql-db/src/sqlserver/adapter.rs` (orchestrator Fix 2) | PASS — file present; module doc-comment `//! SQL Server database adapter implementation.`; uses `bb8_tiberius::ConnectionManager` + `tiberius::Config` (MSSQL driver stack) |
+| 3 | `postgrest.mdx:L14` + `:L29` | `crates/fraiseql-server/Cargo.toml` — `grpc` feature (orchestrator Fix 3) | PASS — `crates/fraiseql-server/Cargo.toml:L161` `grpc = ["dep:tonic", "dep:prost", "dep:prost-reflect", "dep:http-body", "dep:http-body-util"]`. Prose at `postgrest.mdx:L29` reads "requires `grpc` feature flag" — corrected. |
+| 4 | `apollo.mdx:L14` | `sdks/official/fraiseql-python/src/fraiseql/decorators.py:L985` | PASS — L984-L987 carries `>>> @fraiseql.subscription(entity_type="Order", topic="order_created")` docstring example; decorator signature at L958 (`def subscription(...)`). Page example uses `entity_type="User", topic="user_created"` — same valid decorator surface. |
+| 5 | `apollo.mdx:L15` | `crates/fraiseql-core/src/runtime/subscription/manager.rs` | PASS — module present; uses `DashMap` + `tokio::sync::broadcast`; `SubscriptionManager` per-connection limit constant present. |
+| 6 | `hasura.mdx:L14,L113` | `crates/fraiseql-core/src/config/auth.rs:L8` | PASS — `pub struct AuthConfig` at L8 (struct begins L8 with `#[serde(default)]` at L7). |
+| 7 | `hasura.mdx:L15` | `crates/fraiseql-cli/src/config/toml_schema/security.rs:L1` | PASS — module doc-comment at L1: `//! Security configuration types for `[security.*]` and `[auth]` TOML sections.` |
+| 8 | `hasura.mdx:L114` | `crates/fraiseql-server/src/server_config/hs256.rs` | PASS — `Hs256Config` struct at L25 with doc-comment "Loaded from the `[auth_hs256]` section of `fraiseql.toml`. Mutually exclusive with `[auth]` (OIDC)." |
+
+3 orchestrator-fixed citations: **all PASS at frozen SHA**. Total Reviewer re-grep: 8/8.
+
+#### G11 inline date tag verification (all 5 vs/* pages)
+
+`grep -nE "2026-05-30|FraiseQL v2\.3\.2" src/content/docs/community/vs/*.mdx` returns the canonical `Comparison snapshot as of 2026-05-30 against FraiseQL v2.3.2 (frozen SHA d0a4ed4e) ...` framing on **5/5 pages**:
+
+| Page | Line | Framing |
+|------|------|---------|
+| `apollo.mdx` | L9 | `<Aside type="caution">` G11 standard form |
+| `hasura.mdx` | L9 | `<Aside type="caution">` G11 + Pricing caveat L41 reaffirms 2026-05-30 |
+| `hasura-sqlserver.mdx` | L9 | `<Aside type="caution">` G11 standard form |
+| `postgrest.mdx` | L9 | `<Aside type="caution">` G11 adapted from prior "March 2026" disclaimer |
+| `prisma.mdx` | L9 | `<Aside type="caution">` G11 standard form |
+
+G11 default applied uniformly. 5/5.
+
+#### Consistency check vs canonical `building/authentication.md` (Cycle 4 + 7a)
+
+Hasura.mdx's TOML `[auth]` snippet at L102-L110:
+
+- `[auth]` primary block uses `issuer = "..."` and `audience = "..."` — **matches canonical** (`authentication.md:L136-L138`).
+- Commented `[auth_hs256]` sibling uses `secret = "${JWT_SECRET}"` — **does not match** canonical `secret_env = "FRAISEQL_HS256_SECRET"` field at `authentication.md:L150-L153` (`Hs256Config::secret_env: String` at `hs256.rs:L31`, not `secret`).
+
+Severity: **non-blocking nit**. The block is commented out, framed as illustrative ("Or HS256 for integration testing — see `/building/authentication`"), and explicitly redirects the reader to the canonical page. Reader using the comparison page as a Hasura→FraiseQL migration prompt will land on `/building/authentication` for the real syntax. Recommend Style Auditor at phase close consider standardising the commented sibling to `secret_env = "JWT_SECRET"` for canonical-shape parity.
+
+#### Cycle-specific adversarial test — Hasura user evaluating FraiseQL
+
+Read `hasura.mdx` as a Hasura operator. Findings:
+
+1. **OIDC config snippet (L92-L111)** — accurate. `[auth] issuer/audience` is the v2.3.2 canonical auto-wired OIDC path. The `# OIDC authentication (auto-wired from [auth] at boot)` comment aligns with `authentication.md` caveat 1 ("always configure `[auth]` or `[auth_hs256]` before exposing the binary to any non-localhost network").
+2. **Concept Mapping table (L48-L57)** — accurate. Track table → `v_*` view, Permissions YAML → PostgreSQL RLS, Event triggers → Observers, Actions → SQL functions + mutations, Remote schemas → Federation, Computed fields → SQL view expressions. Matches canonical `multi-tenancy.md` + `observers.mdx` + `building/migrations/from-hasura.mdx`.
+3. **RESTified Endpoints disclaimer (L37, L43)** — accurate as of 2026-05-30; Hasura's RESTified Endpoints do wrap saved GraphQL queries, no OpenAPI spec, no HTTP status-code mapping. Verifiable on hasura.io/docs.
+4. **Migration path** — `/building/migrations/from-hasura` resolves (`find src/content/docs -path "*/building/migrations/from-hasura.*"` → `src/content/docs/building/migrations/from-hasura.mdx` exists). Linked 5 times across the page (L665, L678, L680, L703, plus implicit via "step-by-step migration guide").
+5. **Observer-syntax `<Aside>` warnings (L198-L200, L296-L298, L618-L620)** — three callouts already flag the `[[observers.rules]]` illustrative-vs-canonical discrepancy with explicit redirect to `/reference/toml-config#observers`. This is correct: the rules/actions nesting is illustrative, the handlers form is canonical, and the page does not mislead a reader who actually configures observers.
+6. **Quick Test snippet (L443-L489)** — accurate. Hasura console URL + manual track-table workflow vs FraiseQL TOML+Python is a fair comparison.
+
+Verdict on adversarial test: **no factual rebut**. The page is honest about FraiseQL's framing, accurate on Hasura's current state, and routes the reader to the canonical authentication / migration / observer references for production-shape syntax.
+
+#### Posture B leak scan
+
+`bun run build` exit 0, 205 pages built, 281 HTML files. Strip integration log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments.`
+
+`grep -rE '<!--\s*source:|\{/\* source:' dist/` → **0 hits.**
+`grep -rE '<!--\s*source:|\{/\* source:' dist/community/vs/` → **0 hits.**
+Per-page leak count across all 5 `dist/community/vs/<slug>/index.html` → **0 each.**
+
+Posture B: **leak-free.**
+
+#### Item 12 grep result
+
+`grep -inE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" src/content/docs/community/vs/*.mdx` → **0 hits.**
+
+Cycle 7c specifically replaced the prior `postgrest.mdx:L39` Full-text-search row `Coming soon` → `Not exposed on REST surface at v2.3.2` — confirmed at L39 of the current page. Archaeology-free.
+
+#### 15-point adversarial checklist
+
+| # | Item | Verdict | Justification |
+|---|------|---------|---------------|
+| 1 | VERSION DRIFT | ✅ | All 5 pages explicitly tag "FraiseQL v2.3.2 (frozen SHA d0a4ed4e)"; CLI flag in `hasura.mdx:L671` (`fraiseql run --config`) verified by the existing Cycle-4 + 7a canonical pages; `grpc` feature corrected from `grpc-transport` to match `fraiseql-server/Cargo.toml:L161`. |
+| 2 | WRONG-DB PATHS | ✅ | `postgrest.mdx:L32` lists "PostgreSQL, MySQL, SQLite, SQL Server" + `hasura-sqlserver.mdx` is itself the multi-DB framing. No silent PostgreSQL assumption in the 3 sampled pages. |
+| 3 | FEATURE-FLAG OMISSIONS | ✅ | `postgrest.mdx:L29` explicitly names `grpc` feature flag for gRPC transport (post-orchestrator fix). No other feature-gated paths claimed without flag. |
+| 4 | SECURITY-DEFAULT REGRESSIONS | ✅ | `grep -nE "require_auth = false|cors\.origins.*\*|expose_claims" src/content/docs/community/vs/*.mdx` → 0 hits. No insecure defaults shown. `hasura.mdx [auth]` config wires OIDC, not anonymous. |
+| 5 | SDK DIVERGENCE | ✅ | Python, TypeScript, Go SDK snippets shown in `hasura.mdx` Tabs L137-L172 — all three SDKs are "Functional" status per roadmap (verified at Cycle 7a). |
+| 6 | DEAD LINKS | ✅ | All sampled internal slugs resolve via `find`: `/getting-started/first-api`, `/operations/performance-benchmarks`, `/building/migrations/from-hasura`, `/building/migrations/from-apollo`, `/building/migrations/from-postgrest`, `/concepts/how-it-works`, `/reference/toml-config`, `/community/vs/apollo`. `bun run build` clean. |
+| 7 | UNDEFINED SYMBOLS | ✅ | Every cited symbol re-greped at frozen SHA: `AuthConfig`, `Hs256Config`, `SqlServerDialect`, MSSQL adapter, `grpc` cargo feature, `@fraiseql.subscription`, `rest_path`/`rest_method`, `SubscriptionManager` — all present. |
+| 8 | COPY-PASTE FROM PRIOR VERSION | ⚠️ → ✅ | Bare-fence carryover at `hasura.mdx:L118,L261,L609` and `prisma.mdx:L25` (4 instances) — pre-existing in pre-Cycle-7c content per `git diff 534eb2b..7586b3e`. Cycle 7c did **not** introduce these. Non-blocking style nit for Style Auditor at phase close. Stale auth phrasing pre-Cycle-7c (`JWT_SECRET via env var, no [auth] section`) was the explicit substantive correction this cycle; replaced with canonical `[auth] issuer/audience`. ✅ for this cycle's scope. |
+| 9 | CONDITIONAL CAVEATS | ✅ | Three `<Aside type="caution">` callouts on `hasura.mdx` explicitly caveat the illustrative-vs-production observer syntax. G11 date-tag is itself a conditional caveat. |
+| 10 | RLS / SECURITY INTERACTIONS | ✅ | `hasura.mdx:L52` "Permissions (YAML) → PostgreSQL Row-Level Security" surfaces the RLS map. `postgrest.mdx:L89` "API surface is defined in the database" → RLS subject. No JWT-context interaction without auth callout. |
+| 11 | ERROR-PATH COVERAGE | ✅ | `hasura.mdx:L107` HS256 mutual-exclusion warning ("Or HS256 for integration testing — see /building/authentication") inherits the canonical caveat surface. Page is a comparison page, not a failure-mode page — error reproduction lives on the linked canonical pages. Acceptable per § 5 item 11 for comparison-page genre. |
+| 12 | ARCHAEOLOGY-FREE | ✅ | `grep -inE "TODO|FIXME|XXX|HACK|Phase [0-9]+|coming soon|WIP" src/content/docs/community/vs/*.mdx` → **0 hits.** |
+| 13 | SOURCE CITATIONS RESOLVE | ✅ | 8/8 Reviewer-sampled citations PASS (see §). Verifier's 13/13 (10 prior PASS + 3 NEW-VERIFIED after orchestrator path fix) re-confirmed. |
+| 14 | NO PERSONA SELF-REFERENCE | ✅ | `grep -nE "as an AI\|persona\|<system" src/content/docs/community/vs/*.mdx` → 0 hits. No leaked persona-prompt artifacts. |
+| 15 | DARK MODE | ✅ | Starlight default `<Aside type="caution">` + standard tables/code-blocks already verified dark-mode-clean in prior cycles (Cycle 1-7b). No custom CSS introduced this cycle. |
+
+**Score: 15/15 PASS.** No ❌. One non-blocking nit on item 8 (pre-existing bare fences, out of 7c scope).
+
+#### Findings
+
+**Blocking ❌:** none.
+
+**Non-blocking nits** (for Style Auditor at phase close):
+
+1. `hasura.mdx:L109` commented HS256 block uses `secret = "${JWT_SECRET}"` — canonical field is `secret_env = "FRAISEQL_HS256_SECRET"`. The block is illustrative + commented + explicitly redirects to `/building/authentication`. Recommend canonical-shape alignment at Style Audit, not a 7c kick-back.
+2. Bare opening code fences (4 instances: `hasura.mdx:L118,L261,L609`; `prisma.mdx:L25`) — pre-existing, not introduced by 7c. Recommend Style Auditor add appropriate language tags (`yaml`, etc.) at phase close.
+
+#### Anti-scope (confirmed)
+
+- No edits to `src/content/docs/` this session.
+- No edits to `~/code/fraiseql`.
+- No amend.
+- No push to `main`.
+- Reviewer did not fix any finding (per persona forbidden list).
+
+#### Open framework bugs
+
+Unchanged from Cycle 7c GREEN close. FW-1 through FW-29 status as recorded.
+
+#### Open gates
+
+Unchanged. G1 closed, G2 default-hold at `d0a4ed4ec`, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted. G11 verified applied uniformly on 5/5 vs/* pages.
+
+#### Verdict
+
+**APPROVE.** 15/15 checklist PASS. CI green. 8/8 Reviewer-sampled citations resolve at frozen SHA, including all 3 orchestrator-fixed. Posture B leak-free. Item 12 archaeology-free. Adversarial Hasura-user read raises no factual rebut. Two non-blocking style nits documented for the Style Auditor at phase close.
+
+#### Pointer to next persona
+
+**Style Auditor (Sonnet 4.6)** OR **Cleanup (Sonnet 4.6)** for Phase 03 close. The two nits above (1× `secret` → `secret_env` in commented illustrative block; 4× bare code fences) are style-band only and ideal for the phase-close Style Audit pass. After Style Audit + Cleanup → Phase 03 close → Phase 04 kickoff per the cluster inventory partition plan.
