@@ -4921,3 +4921,109 @@ Next session: **Bug-Finder (Opus 4.7)** for Phase 03 / Cycle 4. Read this entry 
 
 After Bug-Finder closes → Writer (Opus 4.7) returns for the GREEN draft per the (A) HYBRID library-API framing recommendation above, with the `## Security caveats` LEAD block as item 1 on the page.
 
+
+### Phase 03 / Cycle 4 RED — Bug-Finder (Opus 4.7) — 2026-05-30
+
+**Cycle 4 page:** `src/content/docs/building/authentication.mdx` rewrite against v2.3.2 framework code at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+**Posture:** Bug-Finder closes the RED phase. Four new framework bugs filed (FW-26..FW-29 / issues #358–#361). Page is not yet drafted — Writer-GREEN next.
+
+#### Per-class outcome (adversarial-classes coverage matrix)
+
+| # | Class | Outcome | Evidence |
+|---|-------|---------|----------|
+| 1 | Algorithm-confusion (HS256 → RS256) | NEGATIVE | `oidc/token.rs:L363` enforces `config.allowed_algorithms.contains(&alg_str)`; `default_algorithms()` returns `["RS256"]` (`providers.rs:L152-L154`). HS256 against an RS256-only validator is rejected with `SecurityError::InvalidTokenAlgorithm`. Page must surface the default + warn operators not to widen the allowlist to include `HS256` from a JWKS-only setup. |
+| 2 | Revoked-token cross-backend replay | NEGATIVE | Memory backend lost on restart is expected (in-process). Redis backend (`token_revocation.rs:L399-L437`) survives restart. FW-25 (#357) already filed for the `postgres` silent-downgrade case; do NOT refile. |
+| 3 | PKCE state encryption bypass | **POSITIVE** (FW-28 / #360) | `pkce_store_from_schema` only warns; PKCE routes mount and serve traffic with no encryption. Writer-RED candidate #5 ("PKCE refuses without state encryption") is the OPPOSITE of framework behaviour. See `authentication.bug-3.sh`. |
+| 4 | Brute-force circumvent | NEGATIVE (already FW-24 / #356) | Confirmed at RED-evidence transcript Observation 7; do NOT refile. |
+| 5 | Cookie injection under RFC 6265 | NEGATIVE | `routes/auth.rs:L233-L237` escapes `\` and `"` per RFC 6265 quoted-string rules; `__Host-access_token` is hard-coded with `Path=/; HttpOnly; Secure; SameSite=Strict` and NO `Domain=`. Header injection via OIDC ID-token claim (e.g. `name` with embedded CRLF) cannot leak into the Set-Cookie value because the value is URL-safe-base64 (no `\r\n` possible) wrapped in quotes. Page must warn that an operator reverse-proxy MUST NOT rewrite cookie attrs. |
+| 6 | JWKS hot-rotate | **POSITIVE** (FW-29 / #361) | `detect_key_rotation` only warns; cache stays valid until TTL. Stolen-key replay window = up to `jwks_cache_ttl_secs` (default 300s) AFTER IdP rotation. See `authentication.bug-4.sh`. |
+| 7 | Anonymous auth admin endpoints | **POSITIVE** (FW-26 / #358) | `/auth/revoke` and `/auth/revoke-all` mounted WITHOUT auth middleware. Anyone can revoke any harvested JWT or wipe every session for any `sub`. Same FW-21 class as observers admin API (#348). See `authentication.bug-1.sh`. |
+| 8 | Token-revocation backend asymmetry | NEGATIVE (already FW-25 / #357) | Memory vs Redis TTL parity confirmed (both honour `ttl_secs` argument from `revoke()`). Postgres silent downgrade already filed. |
+| 9 | Malformed JWK handling | NEGATIVE | `jwk_to_decoding_key` (`jwks.rs:L235-L256`) returns `SecurityError::InvalidToken` gracefully for missing `n`/`e` or unsupported `kty`. No crash, no panic, no log-spam. `MAX_JWKS_RESPONSE_BYTES = 1 MiB` cap also prevents allocation bombs. |
+| 10 | `__Host-` Domain= scope enforcement | NEGATIVE | Framework cookie value is hard-coded without `Domain=`; RFC 6265 browser-side rejection of `Domain=` on `__Host-` prefix is browser territory, not server. Page must warn the operator's reverse-proxy is not allowed to inject `Domain=`. |
+| 11 | `/auth/me` claim leak via `expose_claims` | NEGATIVE (page-content support, not a bug) | `email` and `display_name` are ALWAYS-included unconditionally (matches doc comment at `routes/auth.rs:L432-L460`). Operator footgun: `expose_claims = ["password"]` against a token carrying `password` does return it — the page must call this out as operator responsibility, not a framework bug. |
+| 12 | Omitted `audience` validation | NEGATIVE for OIDC; **POSITIVE for HS256** (FW-27 / #359) | OIDC's `OidcConfig::validate()` (`providers.rs:L290-L310`) REJECTS boot without `audience`. HS256 has no such guard — `Hs256Config.audience` is `Option<String>` with `#[serde(default)]`, no `validate()` method, and `AuthMiddleware` silently skips `set_audience` when None. Cross-service token confusion attack open for the shared-secret HS256 path. See `authentication.bug-2.sh`. |
+
+**Coverage: 12/12 classes attempted. Positive findings: 4 new (FW-26, FW-27, FW-28, FW-29). FW-24/FW-25 not re-filed per instruction. Negative findings: 8 — captured above as page-content support for the LEAD security-caveats block (where the framework's defence-in-depth needs surfacing rather than fixing).**
+
+#### Bug scripts produced
+
+- `scripts/docs-test/bugs/authentication.bug-1.sh` (FW-26, #358) — `/auth/revoke` and `/auth/revoke-all` anonymous force-logout primitive.
+- `scripts/docs-test/bugs/authentication.bug-2.sh` (FW-27, #359) — HS256 boots without audience; cross-service token confusion.
+- `scripts/docs-test/bugs/authentication.bug-3.sh` (FW-28, #360) — PKCE warns-and-continues with no state encryption; doc claim vs framework reality drift.
+- `scripts/docs-test/bugs/authentication.bug-4.sh` (FW-29, #361) — JWKS hot-rotate stolen-key replay window equals cache TTL after IdP rotation.
+
+All four scripts `set -euo pipefail`, exit 1 on bug reproduce, exit 0 if framework behaviour shifts away, exit 2 on env problem. Each is self-contained (greps the frozen SHA in-tree) — no Docker stack required to demonstrate the static-source bug shape. Live HTTP repro instructions appear in the trailing comment block of each.
+
+#### Issues filed
+
+- **FW-26 ([#358](https://github.com/fraiseql/fraiseql/issues/358))** — `/auth/revoke` and `/auth/revoke-all` unauthenticated. Severity: security (critical). Same class as FW-21 (#348).
+- **FW-27 ([#359](https://github.com/fraiseql/fraiseql/issues/359))** — HS256 missing-audience boot accepted; cross-service token confusion. Severity: regression (security). Asymmetric defence vs OIDC's mandatory-audience path.
+- **FW-28 ([#360](https://github.com/fraiseql/fraiseql/issues/360))** — PKCE warns-and-continues without state encryption. Severity: regression (security) — doc-vs-code claim drift. Invalidates Writer-RED security-caveats candidate #5.
+- **FW-29 ([#361](https://github.com/fraiseql/fraiseql/issues/361))** — JWKS hot-rotate stolen-key replay window. Severity: regression (security). `detect_key_rotation` only logs; cache stays valid until TTL.
+
+All four rows added to `_internal/.plan/framework-qa-triage.md` (FW-26..FW-29).
+
+#### (A) HYBRID library-API vs (B) feature-request framing recommendation
+
+**Confirmation: (A) HYBRID library-API framing with `## Security caveats` LEAD block.** Writer-RED's recommendation stands, but the LEAD block needs the additions below.
+
+Reasoning:
+- The bugs found do not change the underlying framework-shape conclusion: `[auth]` / `[auth_hs256]` are direct-from-TOML; `[security.*]` requires compile-step. (A) HYBRID is still the right framing.
+- The four positive findings ALL belong in the LEAD `## Security caveats` block. They are not workarounds — they are operator-must-know caveats about the framework's current security posture at this SHA.
+
+**Push-back on Writer-RED security-caveats candidate #5 (PKCE):** the Writer-RED handoff (line 4888) asserts "PKCE refuses to function without state encryption" and cites `builder.rs:L362-L369`. That citation actually covers PKCE-without-`[auth]` — not PKCE-without-state-encryption. The GREEN draft MUST replace candidate #5 with the FW-28 reality: PKCE WARNS, then continues; the outbound state token is the raw internal lookup key when state_encryption is None.
+
+#### Revised security-caveats LEAD block — concrete recommendations for GREEN
+
+Writer-GREEN should reframe the LEAD block as ≥ 10 numbered caveats (Cycle-3 precedent: 8 caveats; Cycle 4 needs more):
+
+1. **Anonymous baseline** (from Writer-RED #1) — off-the-shelf binary serves `/graphql` and `/studio` unauthenticated. `*_require_auth` flags only enforce when an OIDC/HS256 validator is present. (No FW row — this is design-by-default, page-content territory.)
+2. **Compiled-schema indirection** (from Writer-RED #2) — `[security.*]` requires `fraiseql-cli compile` to take effect.
+3. **Brute-force protection silently absent** (FW-24 / #356) — `failed_login_max_attempts` / `failed_login_lockout_secs` dropped.
+4. **Token revocation `postgres` silently downgrades** (FW-25 / #357).
+5. **PKCE warns-and-continues without state encryption** (FW-28 / #360) — REPLACES Writer-RED candidate #5. Outbound state token is the raw internal lookup key in this posture.
+6. **`/auth/revoke` and `/auth/revoke-all` are unauthenticated** (FW-26 / #358) — operator MUST deploy reverse-proxy auth gate, OR not mount revocation at all.
+7. **HS256 audience is NOT enforced** (FW-27 / #359) — operator MUST set `[auth_hs256] audience = "..."`; framework does not.
+8. **JWKS hot-rotate stolen-key replay window = up to `jwks_cache_ttl_secs` after IdP rotation** (FW-29 / #361) — operator MUST restart replicas after rotating a compromised key on the IdP side.
+9. **OIDC `audience` is REQUIRED** (from Writer-RED #6) — `OidcConfig::validate()` refuses boot without it. This one's actually enforced; page must say so to balance the doc.
+10. **Algorithm allowlist defaults to `["RS256"]`** (from Writer-RED #7) — algorithm-confusion mitigation is on by default; do NOT widen.
+11. **`X-Forwarded-For` trust requires `trusted_proxy_cidrs`** (from Writer-RED #8).
+12. **`/auth/me` always-fields are unconditional** (Bug-Finder observation, page-content territory) — `email` and `display_name` are always-included regardless of `expose_claims`. Operator footgun: `expose_claims = ["password"]` against a token carrying `password` returns it. This isn't a framework bug, but the page must warn operators.
+
+#### Security-critical findings count + severity distribution
+
+- **Total positive findings this cycle: 4 (FW-26..FW-29).**
+- **Severity distribution:**
+  - **security (critical): 1** — FW-26 (#358), anonymous revoke (matches FW-21 / FW-20 from Cycle 3).
+  - **regression (security): 3** — FW-27 (#359), FW-28 (#360), FW-29 (#361).
+- **Plus Writer-RED filings (cycle precedent): 2** — FW-24 (#356) regression, FW-25 (#357) regression.
+- **Total Cycle-4 framework bugs: 6.** Comparable to Cycle 3 (10 bugs filed; 8 in caveats LEAD), Cycle 2 (5 bugs), Cycle 1 (4 bugs).
+
+The LEAD `## Security caveats` block needs to surface ≥ 4 framework bugs as bullet items (FW-24/25/26/27/28/29 — 6 in total). The Cycle-3 precedent (8 caveats, observers page) is the right size envelope. Writer-GREEN should keep the block tightly numbered, link to each issue, and avoid burying the FW-26 critical in the middle of the list — put it third or earlier (after the two "no-op silent" framework bugs).
+
+#### Cross-checks against existing FW rows (no duplicates)
+
+- FW-3 / FW-7 / FW-15 / FW-23 class: CLI/server schema split. FW-24 + FW-25 already cover this for auth. Bug-Finder did NOT file a fifth same-class row.
+- FW-21 class: anonymous admin endpoints. FW-26 is the auth-side equivalent; cross-linked in the issue body and in the triage row.
+- FW-8 / FW-20 class: critical security bypass. FW-26 is the next entry in that lineage.
+
+#### Anti-scope confirmation
+
+- ✅ No edits to `~/code/fraiseql`.
+- ✅ No edits to `src/content/docs/` this commit.
+- ✅ No page draft.
+- ✅ Did NOT re-file FW-24 (#356) or FW-25 (#357).
+- ✅ No security-cluster pages touched.
+
+#### Pointer
+
+Next session: **Writer (Opus 4.7) GREEN** for Phase 03 / Cycle 4. Read this entry + the Writer-RED entry above. The GREEN draft should:
+
+1. Follow the (A) HYBRID library-API framing per Writer-RED's recommendation, confirmed by Bug-Finder.
+2. Open with a 10-to-12-item `## Security caveats` LEAD block per the revised list above.
+3. REPLACE Writer-RED security-caveats candidate #5 with the FW-28 reality (PKCE warns-and-continues — not refuses).
+4. Cite each of FW-24..FW-29 by issue number in the relevant section + the LEAD block.
+5. Surface the algorithm-allowlist default (`["RS256"]`) and the OIDC audience-mandatory check as defenses-the-framework-does-enforce — to balance the page against the four "framework doesn't enforce" caveats.
+6. Show one HS256 walk-through with `audience = "..."` set (and explain that the operator's job, not the framework's, to set it).
