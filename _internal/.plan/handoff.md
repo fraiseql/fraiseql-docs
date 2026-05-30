@@ -7372,7 +7372,7 @@ Unchanged. G1 closed, G2 default-hold at `d0a4ed4ec`, G7 resolved, G8 resolved. 
 
 #### CI URL
 
-(To be captured after `git push` and CI run start; will be appended via follow-on commit per § 6.1 "CI is the only GREEN gate".)
+Run `26679519922` on `571dbf6`: https://github.com/fraiseql/fraiseql-docs/actions/runs/26679519922 (status: pending at handoff write; Reviewer will read final pass/fail from CI per § 6.1).
 
 #### Commit SHA + push status
 
