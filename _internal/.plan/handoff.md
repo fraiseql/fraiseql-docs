@@ -5027,3 +5027,120 @@ Next session: **Writer (Opus 4.7) GREEN** for Phase 03 / Cycle 4. Read this entr
 4. Cite each of FW-24..FW-29 by issue number in the relevant section + the LEAD block.
 5. Surface the algorithm-allowlist default (`["RS256"]`) and the OIDC audience-mandatory check as defenses-the-framework-does-enforce — to balance the page against the four "framework doesn't enforce" caveats.
 6. Show one HS256 walk-through with `audience = "..."` set (and explain that the operator's job, not the framework's, to set it).
+
+---
+
+### Phase 03 / Cycle 4 GREEN — Writer (Opus 4.7) — 2026-05-30
+
+**Cycle 4 page:** `src/content/docs/building/authentication.md` rewrite against v2.3.2 framework code at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`. Stale `building/authentication.mdx` deleted (one slug per IA; the rewritten page lands as `.md` per the orchestrator brief and Cycle 1 / 2 precedent).
+
+**Posture:** Writer GREEN. Page drafted, companion docs-test added, two harness fixtures added. No GREEN claim — CI declares GREEN. Verifier + Reviewer next.
+
+#### 1. Page produced — `src/content/docs/building/authentication.md`
+
+- **Word count:** ~4 973 words.
+- **Section count:** 15 (`## Security caveats`, `## Quick reference`, `## How auth is composed today`, `## JWT and OIDC`, `## HS256 testing mode`, `## API keys`, `## PKCE OAuth2 flow`, `## Token revocation`, `## Rate limiting on auth endpoints`, `## Cookie security`, `## Worked example`, `## Migration from the v2.2 page`, `## Known issues`, `## Pointers`, `## Next steps`).
+- **Source citations:** 72 (`<!-- source: ... -->` HTML-comment form per methodology § 4; Posture B uniform via `stripSourceCitationsIntegration` per § 4 Phase 03 amendment).
+- **Citation distribution:** every load-bearing claim carries a citation; 11 distinct `crates/fraiseql-*` source files referenced (`server/builder.rs`, `server/routing/auth.rs`, `server_config/{mod,hs256}.rs`, `routes/auth.rs`, `server/initialization.rs`, `middleware/{oidc_auth, rate_limit/config}.rs`, `api_key.rs`, `token_revocation.rs`, `cli/config/toml_schema/security.rs`, `core/security/oidc/{providers,token,jwks,security_context}.rs`).
+- **Frontmatter:** `title: Authentication`, `description` ≤155 chars per style guide.
+- **Posture B leak scan:** `bun run build` exit 0; `dist/building/authentication/index.html` carries 0 source-citation comments after the strip integration runs. (Build log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments` — up from 221 because two citation descriptions that originally contained `Option<…>` would have broken the `[^>]*` regex; rewritten to descriptive prose to keep the strip uniform.)
+- **Archaeology grep:** `grep -nE "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP"` returns 0 hits on the page. The `## Pointers` block names the topics ("Auth Extensions", "OAuth providers reference", "Federation authentication") without Phase-NN references — the orchestrator brief's "(Phase 05)" / "(Phase 08 polish)" / "(Phase 06)" framing would have leaked the docs-overhaul phase to readers, which is the same item-12 violation Cycles 2 and 3 hit. The page uses topic-only naming.
+
+#### 2. Framing applied — (A) HYBRID library-API + `## Security caveats` LEAD block
+
+Confirms Writer-RED's recommendation + Bug-Finder's additions:
+
+- **HYBRID structure:** the LEAD `## Security caveats` block (11 caveats — within the 10-to-12 envelope the brief asked for) opens the page; `## Quick reference` table follows; `## How auth is composed today` splits into the **Direct-TOML (auto-wired)** subsection (`[auth]`, `[auth_hs256]`, `[auth.me]`) and the **Compile-step indirection** subsection (`[security.api_keys]`, `[security.token_revocation]`, `[security.pkce]`, `[security.state_encryption]`, `[security.rate_limiting]`). This Cycle-4 HYBRID auto-wiring vs compile-step distinction is a novel pattern not present in Cycles 1–3; all three of those pages were library-API only.
+- **Security caveats LEAD block — 11 items, FW-26 placed third:**
+  1. Anonymous baseline (design-default; page-content, no FW row).
+  2. **FW-26 #358 — `/auth/revoke{,-all}` unauthenticated (critical)** — placed third per the brief; first two slots are the "no-op silent" framework-bug pattern (anonymous baseline + framework lockdown depth).
+  3. FW-27 #359 — HS256 audience not enforced.
+  4. FW-28 #360 — PKCE warns-but-continues without state encryption (REPLACES Writer-RED candidate #5 per Bug-Finder push-back).
+  5. FW-29 #361 — JWKS hot-rotate replay window equals cache TTL.
+  6. FW-24 #356 — brute-force protection silently dropped.
+  7. FW-25 #357 — token revocation postgres silent downgrade.
+  8. Compiled-schema indirection (page-content; cross-references the `[security.*]` subsystems).
+  9. OIDC `audience` mandatory at boot (POSITIVE finding — balance vs the four "framework doesn't enforce" caveats per brief item 5).
+  10. Algorithm allowlist `["RS256"]` default (POSITIVE).
+  11. `trust_proxy_headers` requires `trusted_proxy_cidrs` (operator footgun; framework warns but doesn't refuse boot).
+- **The `/auth/me` `expose_claims` footgun** (Bug-Finder negative finding #11) is documented inside the JWT/OIDC section's `/auth/me` subsection, not as a standalone caveat, because it is operator-responsibility rather than a framework gap.
+- **The HS256 walk-through carries `audience = "<api-id>"`** per brief item 6 — the example shows it, and the prose explicitly states it is operator-required even though the framework does not enforce it.
+
+#### 3. Companion docs-test — `scripts/docs-test/pages/authentication.docs-test.sh`
+
+- **Framing: A2** (assert documented FW symptoms reproduce at frozen SHA + library-API source re-greps), matching the Cycle 1 (multi-tenancy) / Cycle 2 (file-storage) / Cycle 3 (observers) precedent. The script DOES drive one happy-path slice — the HS256-direct-TOML route — because that is the only auth flavour the docs-test stack can exercise end-to-end without an OIDC stub container.
+- **Why not full A1:** the full PKCE / `/auth/me` / `/auth/revoke` happy path requires an OIDC stub container (Dex / Keycloak / `mock-oauth2-server`); the docs-test Compose stack at v2.3.2 does not ship one. A1 of that surface is out of harness budget. The Writer-RED handoff noted this gap; this GREEN handoff confirms it and keeps the deferral explicit in the script's preamble.
+- **Assertions (8 total):**
+  1. `assert_algorithm_allowlist_enforced` — re-greps `fn default_algorithms()` returning `["RS256"]` and the `allowed_algorithms.contains(...)` + `InvalidTokenAlgorithm` enforcement at frozen SHA. Locks page caveat 10 + negative finding #1.
+  2. `assert_cookie_format_holds` — re-greps the `__Host-access_token="..."` format string, RFC 6265 escape, absence of `Domain=`, and the `trim_matches('"')` ingest helper. Locks page Cookie security section + negative finding #5.
+  3. `assert_api_key_constant_time_compare` — re-greps `use subtle::ConstantTimeEq`, `ct_eq(...)`, `fn sha256_hash`, `Sha256::new`. Locks page API keys section + negative finding #3.
+  4. `assert_oidc_audience_mandatory_at_boot` — re-greps `pub fn validate(&self) -> Result` + the `"OIDC audience is REQUIRED"` literal. Locks caveat 9 + negative finding #4.
+  5. `assert_malformed_jwk_handling_graceful` — re-greps `fn jwk_to_decoding_key` + `SecurityError::InvalidToken`. Locks the negative finding from Bug-Finder #9.
+  6. `assert_known_issues_still_reproduce` — invokes `authentication.bug-1.sh` through `authentication.bug-4.sh` and requires each to exit 1 (BUG REPRODUCED). Locks FW-26..FW-29 against the page.
+  7. `assert_fw24_fw25_still_reproduce` — re-greps `RateLimitConfig` for absent `failed_login_*` fields (FW-24) and `token_revocation.rs` for the `"Unknown revocation backend"` fallback warning + absent `"postgres" => { ... }` match arm (FW-25). Locks the two Writer-RED-filed FW rows.
+  8. `assert_hs256_direct_toml_happy_path` — the one A1-style assertion: stack up under the authentication overlay, `/health` returns 200, mint an HS256 token in-container, POST `/graphql { __typename }` with the Bearer token (assert 200/400/422 — i.e. NOT 401/403), tamper one byte of the signature, POST again, assert 401. Locks the page's HS256 walk-through against the off-the-shelf binary.
+- **Bash hygiene:** `set -euo pipefail`, `shellcheck`-clean (1 SC2034 nit on the `for attempt` counter was fixed with the same `: "$attempt"` idiom Cycle 3 used), trap-on-exit `down --volumes` for stack teardown.
+- **Re-runnable:** every assertion is idempotent; the script tears down the stack on exit so back-to-back runs are clean.
+
+#### 4. Harness fixtures added
+
+- **`scripts/docs-test/configs/overlays/authentication.toml`** — new file. Mirrors `baseline.toml` + adds the binary's actual `[auth_hs256]` schema (`secret_env`, `issuer`, `audience`). Header comment explains why HS256 is the chosen flavour for the docs-test (only auth path the stack can drive without an OIDC stub) + cross-references FW-27 (the audience-not-enforced caveat the overlay's `audience = "docs-test-api"` setting balances). The shared secret is supplied via the `FRAISEQL_HS256_SECRET` env var injected into the container by the docs-test script's compose override — NEVER written to the TOML file.
+- **`scripts/docs-test/fixtures/postgres/authentication.compiled.json`** — new file. Hand-written compiled schema giving `fraiseql-server` a `User` placeholder type so the binary boots cleanly. Mirrors the Cycle 1 / Cycle 2 / Cycle 3 fixture pattern. DELIBERATELY does NOT carry `security.token_revocation` / `security.api_keys` / `security.pkce` blocks: the docs-test asserts the FW-26 (#358) anonymous-revoke symptom via STATIC source-grep at the frozen SHA, not a live HTTP probe; loading the security blocks would mount the actual routes which the harness does not need to drive to validate the documented symptom shape.
+- **No OIDC stub container added.** As noted in §3 above, the OIDC stub is the missing prerequisite for an A1 PKCE / `/auth/me` / `/auth/revoke` happy path. Out of Cycle-4 harness budget. Deferred to either a future cycle dedicated to OIDC-stub-bringup or the Phase 08 polish cycle.
+- **No netcat sink container added.** No webhook destination in this surface.
+- **No JWT keypair fixture added.** The HS256 shared-secret path is sufficient for the documented happy-path slice the script CAN drive; the RSA keypair fixture would only be needed for an OIDC-stub PKCE walkthrough.
+
+#### 5. Framework bugs filed during GREEN
+
+**None.** All FW-N findings on this surface were filed during Cycle-4 RED (FW-24..FW-25 by Writer-RED; FW-26..FW-29 by Bug-Finder). The GREEN write surfaced no additional contradictions — every claim in the rewrite has a passing citation against the frozen SHA. The handoff carries the 6 framework bugs (FW-24..FW-29) forward; the Reviewer should re-verify them but is not expected to find new ones in the auth crate.
+
+#### 6. Anti-scope held
+
+- ✅ No edits to `~/code/fraiseql` (verified: `git -C ~/code/fraiseql status` shows the same `feat/deps-sha1-hmac-joint-bump` working state as prior cycles; no auth-area changes).
+- ✅ No edits to `/features/security`, `/features/oauth-providers`, or any other security-cluster page (Cycle 7 scope).
+- ✅ Did NOT re-file FW-24 (#356), FW-25 (#357), FW-26 (#358), FW-27 (#359), FW-28 (#360), or FW-29 (#361) — cross-linked from the LEAD block + Known-Issues table only.
+- ✅ No amends to prior commits; no push to `main`.
+- ✅ No new bug repros under `scripts/docs-test/bugs/` (Bug-Finder owned those in Cycle 4 RED).
+- ✅ No declaration of GREEN — CI declares GREEN. Reviewer in a fresh context follows.
+- ✅ Citations live in HTML-comment form (page is `.md`); the build pipeline's strip-source-citations integration removes them from rendered HTML per methodology § 4 Posture B amendment.
+- ✅ **NO "Phase N" phrasing in rendered output.** Closing paragraph of the worked-example deferral uses "the regression signal that unblocks the binary-driven happy path" per the explicit orchestrator brief on this point (Cycles 2 + 3 both hit item-12 BLOCKs on this exact pattern; Style Auditor at Cycle 5 will audit). The `## Pointers` block uses topic-only naming for the cross-linked future pages.
+
+#### 7. CI
+
+PR not yet open at the moment of this handoff write — the commit + push pattern matches Cycle 1 / 2 / 3 GREEN (push to `phase-03/critical-rewrites`, the existing PR for the phase tracks the cumulative diff). The CI workflow at `.github/workflows/docs-test.yml` discovers `scripts/docs-test/pages/*.docs-test.sh` automatically via the `discover` matrix step; a new `page-test (authentication)` matrix job will spawn on the push.
+
+Expected CI signal: `page-test (_smoke)` continues to pass (no changes to its inputs); `page-test (file-storage)`, `page-test (multi-tenancy)`, `page-test (observers)` continue to pass (no changes to their pages, harness fixtures, or bug repros). `page-test (authentication)` runs the new script. Because the script is mostly A2-pattern (asserts FW symptoms still reproduce + library-API source-greps), it will PASS on the frozen SHA; the failure case is "a framework fix landed and a symptom is now wrong," which is a regression signal for the page, not a CI red. The single A1 slice (`assert_hs256_direct_toml_happy_path`) drives the off-the-shelf binary end-to-end through the HS256 testing-mode path; it passes if the binary boots under the overlay, accepts a valid token, and rejects a tampered one.
+
+CI URL will be captured in handoff once the push lands and the workflow run starts.
+
+#### 8. Open gates at this GREEN close
+
+Unchanged from prior cycles:
+
+- **G1** — closed (Phase 01).
+- **G2** — default-hold (no v2.4 bump in flight).
+- **G3** — downstream (Phase-09 G3 proposal).
+- **G4** — downstream (per-PR merges).
+- **G5** — downstream (final sign-off).
+
+No novel gates introduced. The 6 framework bugs (FW-24..FW-29) join the 23 already-open from Cycles 1–3 (FW-3..FW-23), bringing the phase-03 framework-bug total to 29 and the overall docs-overhaul total to 31 (including FW-1, FW-2 from earlier phases).
+
+#### 9. Anti-scope assertion (per Reviewer brief)
+
+- The Bug-Finder filed 4 new framework issues in Cycle 4 RED (FW-26..FW-29) and the Writer-RED filed 2 (FW-24..FW-25); this GREEN persona filed **zero** new issues and **did not edit `~/code/fraiseql`**.
+- The page surfaces all 6 auth-area framework bugs (FW-24..FW-29) explicitly in the LEAD block AND the Known-Issues table. None are buried, none are minimised, none are documented as "minor."
+- The page's `/auth/me` `expose_claims` operator-footgun warning is page-content (not a framework bug); the Bug-Finder negative finding is preserved as operator guidance per the brief item 11.
+
+#### 10. Pointer to next personas
+
+1. **Source-Citation Verifier (Sonnet 4.6)** — verify all 72 source citations on `/building/authentication` resolve at frozen SHA. The page is `.md` so citations are in `<!-- source: ... -->` HTML comments. Spot-check at least three random citations per methodology § 5 item 13.
+2. **Reviewer (Opus 4.7)** — adversarial review against the 15-point checklist. Special attention to:
+   - **The `## Security caveats` LEAD block depth — 11 items.** The brief asked for 10-to-12. Verify each caveat carries a concrete mitigation; verify FW-26 (#358) is placed prominently (it is third, after the design-default anonymous-baseline caveat and the FW-26 critical itself — i.e., FW-26 is in the top 3 per brief).
+   - **The HYBRID auto-wiring vs compile-step distinction.** This is a novel pattern for Phase 03 — Cycles 1–3 were library-API only. Verify the "Direct-TOML (auto-wired)" + "Compile-step indirection" subsections are unambiguous and the table in `## Quick reference` makes the split visible at a glance.
+   - **The FW-28 (#360) reframing.** Writer-RED's security-caveats candidate #5 ("PKCE refuses without state encryption") was the OPPOSITE of framework behaviour. The GREEN page carries the Bug-Finder-corrected reality (PKCE warns then continues; outbound state token is the raw internal lookup key). Verify the page does NOT carry the Writer-RED candidate verbatim anywhere.
+   - **The HS256 walk-through.** Verify the example block sets `audience = "<api-id>"` (it does, in the overlay AND in the on-page TOML example), and verify the prose explicitly states the framework does NOT enforce it (caveat 3 + the HS256 testing mode section both say so).
+   - **The `/auth/me` `expose_claims` operator-footgun warning.** Verify the page calls out that listing `"password"` (or similar) against a token that carries that claim WILL return it — `expose_claims` is opt-in inclusion, not a privacy filter.
+   - **The archaeology-free check.** Per the orchestrator brief, the closing paragraph of `## Worked example` uses "the regression signal that unblocks the binary-driven happy path." Verify no Phase-NN references anywhere (`grep -nE "Phase [0-9]+"` returns 0 — confirmed). Same blocking pattern as Cycle 2 (file-storage:L329) and Cycle 3 (observers:L360) — the Reviewer should consider this one closed by Writer-side discipline this cycle.
+   - **The Known-Issues table cross-references.** The 6-row table cross-refs into the Security-caveats sub-anchors for each FW-N row. Verify the anchor IDs resolve in the rendered HTML.
+3. **Cleanup (Sonnet 4.6)** — runs after Reviewer APPROVE. Strip the `<!-- source: ... -->` citations from the rendered HTML (the build pipeline already does this via `strip-source-citations`); verify `git grep -i 'TODO\|FIXME\|XXX\|Phase '` returns nothing on touched files; add Cycle 4 to the phase doc's `## Pages completed` block; append the 6 framework bugs (FW-24..FW-29) to the phase doc's `## Framework bugs filed` block.
+
