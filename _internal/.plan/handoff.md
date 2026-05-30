@@ -7047,3 +7047,151 @@ All 5 spot-checks PASS.
 #### Verdict: PASS
 
 New citations: 3/3. Retained spot-checks: 5/5. Posture B leak scan: 0 leaks. No kick-back warranted. Handoff to **Reviewer (Opus 4.7)** for the 15-point checklist on the POLISH batch.
+
+---
+
+### Phase 03 / Cycle 7b review — Reviewer (Opus 4.7) — 2026-05-30
+
+Adversarial 15-point review on the POLISH batch (10 changed pages of 13 scoped). Working from `/home/lionel/code/fraiseql-docs/` on `phase-03/critical-rewrites @ 40ed085`. Frozen FraiseQL SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461` re-read directly from `~/code/fraiseql` (frozen object cat-file confirmed).
+
+#### CI re-confirmation
+
+Run `26678922445` on `40ed085`: **6/6 jobs SUCCESS** — `discover pages and frozen SHA`, `page-test (_smoke)`, `page-test (authentication)`, `page-test (file-storage)`, `page-test (multi-tenancy)`, `page-test (observers)`. `pre-commit.ci` ERROR (Phase-10 deferral, non-blocking per methodology § 6.1's "load-bearing checks" framing). Independently re-verified via `gh run view 26678922445 --json conclusion,headSha,url`. URL: https://github.com/fraiseql/fraiseql-docs/actions/runs/26678922445
+
+#### Sampling approach
+
+Per the brief: 4 pages sampled at depth + spot-checks across the remaining 6. Concepts pages are single-line slug-fix patches per the Writer's per-page outcomes table — one sampled concept (cqrs.mdx) confirms the pattern.
+
+- **`/features/rate-limiting`** — full review (highest stakes; FW-24 caveat + field-name correction).
+- **`/features/mutations`** — full review (auth-section pivot to `[auth]` / `[auth_hs256]`).
+- **`/features/audit-logging`** — full review (operator-managed schema copy correction + GH-pinned link).
+- **`/features/server-side-injection`** — full review (SQLite caveat citation).
+- **`/concepts/cqrs`** — sampled for slug-fix consistency.
+
+#### Citation re-greps (5 conducted; 5/5 PASS)
+
+1. **`features/rate-limiting.mdx:70` cite `crates/fraiseql-cli/src/config/toml_schema/security.rs:L209-L212`** — `git show d0a4ed4:.../security.rs | sed -n '209,212p'` returns the 4-line block: doc-comment "Failed login attempts before lockout" + `pub failed_login_max_attempts: u32` + doc-comment "Duration of failed-login lockout in seconds" + `pub failed_login_lockout_secs: u64`. Range precise and source-true. ✅
+
+2. **`features/rate-limiting.mdx:71` cite `crates/fraiseql-server/src/middleware/rate_limit/config.rs:L7-L52`** — `git show d0a4ed4:.../rate_limit/config.rs | sed -n '1,55p'` returns `pub struct RateLimitingSecurityConfig` (L9-L52) with fields: `enabled`, `requests_per_second`, `burst_size`, `auth_start_*`, `auth_callback_*`, `auth_refresh_*`, `requests_per_second_per_user`, `redis_url`, `trust_proxy_headers`, `trusted_proxy_cidrs`. **No `failed_login_*` fields.** Whole-server grep `git grep failed_login d0a4ed4 -- crates/fraiseql-server/src/` → 0 hits in src/ (only `tests/` references — using the differently-named `failed_login_max_requests` from `fraiseql-auth::RateLimitingSettings` which is never instantiated by `fraiseql-server`). FW-24 caveat is sourcing-true. ✅
+
+3. **`features/server-side-injection.mdx:134` cite `crates/fraiseql-core/src/schema/compiled/mutation.rs:L60-L62`** — `git show d0a4ed4:.../mutation.rs | sed -n '55,70p'` returns the doc-comment block at L61-L62 verbatim: "Works on PostgreSQL, SQL Server, and MySQL. SQLite has no stored-routine mechanism and will return an error if inject is configured on a mutation." Page quotes this string in the cited Aside. ✅
+
+4. **Retained spot-check: `features/audit-logging.mdx:164` GH-pinned link `production-security-checklist.md`** — `git show d0a4ed4:docs/guides/production-security-checklist.md | head -5` returns the file (`# Production Security Checklist`). Link resolves at frozen SHA. ✅
+
+5. **Retained spot-check: feature flags — `redis-rate-limiting` / `audit-syslog` / `audit-webhook` Cargo features** — `git show d0a4ed4:crates/fraiseql-server/Cargo.toml | grep redis-rate-limiting` → `redis-rate-limiting = ["redis"]` at L183. `git show d0a4ed4:crates/fraiseql-core/Cargo.toml | grep audit-` → `audit-syslog = ["dep:hostname"]` at L125 + `audit-webhook = []` at L127. All three feature gates exist verbatim. ✅
+
+#### Consistency check vs `building/authentication.md` (canonical)
+
+- **`/features/rate-limiting` FW-24 caveat box (L65-L72)** mirrors `building/authentication.md` caveat 6 (L56-L63) in shape, severity, and mitigation. Same framing ("brute-force protection silently dropped at v2.3.2"), same FW-24/#356 number, same `fraiseql-auth::AuthRateLimiters` sibling-crate observation, same edge-side mitigation ("enforce at reverse proxy / CDN layer"). The rate-limiting page also cross-links explicitly to `/building/authentication#6-fw-24-356--brute-force-protection-silently-dropped-security` at L68. ✅ Caveat is consistent.
+  - Nit: rate-limiting cites the narrower `L209-L212` while authentication.md cites `L181-L249`. Both ranges are valid (and contain the fields). The narrower citation is arguably more precise for a "fields exist verbatim" claim.
+
+- **`/features/mutations` auth section (L290-L292)** uses `[auth]` (OIDC) / `[auth_hs256]` (HS256) verbatim, references "auto-wired on `ServerConfig`" (matches authentication.md L6: "auto-wires `[auth]` (OIDC) and `[auth_hs256]` directly from `ServerConfig`"), and cross-links to `/building/authentication` for the canonical caveat LEAD. Zero stale `JWT_SECRET` / `JWT_ALGORITHM` env-var mentions remain in the auth section. ✅
+
+#### Sampled concept page consistency
+
+**`/concepts/cqrs.mdx`:** the single touched line is `L1085: [Mutations](/features/mutations) — Write operations in detail`. Target slug resolves at `src/content/docs/features/mutations.mdx`. Page is otherwise unchanged (1-line diff in 7b POLISH commit). Slug fix valid per Phase 01 IA Option A. ✅
+
+#### Cycle-specific adversarial test (FW-24 caveat accuracy + field-name correction)
+
+Reviewer brief asked: the rate-limiting page now claims `failed_login_max_attempts` is the field. Verify via `git -C ~/code/fraiseql show d0a4ed4ec:crates/fraiseql-cli/src/config/security.rs` AND cross-verify FW-24 (CLI accepts but server drops).
+
+Actual file path at frozen SHA is `crates/fraiseql-cli/src/config/toml_schema/security.rs` (not `config/security.rs`). Verified there at L209-L212: `failed_login_max_attempts: u32` + `failed_login_lockout_secs: u64`. Defaults at L243-L244: `failed_login_max_attempts: 10`, `failed_login_lockout_secs: 900` — matches the page's "Default Values" table (L158-L159) and the page-prose at L81. ✅ Field names AND defaults correct.
+
+FW-24 caveat accuracy: the rate-limiting page's claim that the server runtime mirror has neither field is true at frozen SHA (citation 2 verified). The page's claim about the sibling crate `fraiseql-auth::AuthRateLimiters` is also true — the sibling has `RateLimitingSettings.failed_login_max_requests` / `failed_login_window_secs` (DIFFERENT field names from the CLI schema) but `fraiseql-server` does not use either type (`git grep AuthRateLimiters d0a4ed4 -- crates/fraiseql-server/` → 0 hits in src/). **Brute-force lockout via `[security.rate_limiting]` is verifiably a no-op at v2.3.2.** The caveat box and the mitigation pointer are correct in fact and well-targeted at the reader's likely path. ✅
+
+#### Posture B leak-free verification
+
+Fresh `bun run build`: exit 0, **205 pages**, strip integration log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`. `grep -rE '<!--\s*source:|\{/\* source:' dist/ | wc -l` → **0 hits**. ✅
+
+#### Item 12 archaeology grep (cycle-specific)
+
+```
+grep -nE "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP" \
+  src/content/docs/features/encryption.mdx \
+  src/content/docs/features/audit-logging.mdx \
+  src/content/docs/features/rate-limiting.mdx \
+  src/content/docs/features/server-side-injection.mdx \
+  src/content/docs/features/mutations.mdx \
+  src/content/docs/concepts/cqrs.mdx \
+  src/content/docs/concepts/why-fraiseql.mdx \
+  src/content/docs/concepts/view-composition.mdx \
+  src/content/docs/concepts/type-system.mdx \
+  src/content/docs/concepts/elo-validation.mdx
+```
+
+Result: **0 hits** across all 10 touched files. ✅
+
+#### Cross-link target resolution (Item 6)
+
+All 9 unique target slugs verified to exist via `find src/content/docs -name "<slug>.*"`:
+`features/mutations` → `.mdx`, `operations/performance-benchmarks` → `.mdx`, `building/schema-design` → `.mdx`, `building/custom-scalars` → `.mdx`, `building/multi-tenancy` → `.md`, `building/authentication` → `.md`, `building/testing` → `.mdx`, `operations/deployment-guide` → `.mdx`, `operations/performance` → `.mdx`. ✅
+
+#### 15-point adversarial checklist
+
+| # | Item | Verdict | One-line justification |
+|---|------|---------|------------------------|
+| 1 | VERSION DRIFT | ✅ | Only `v2.1.0` (historical "since" marker on audit exporters) and `v2.3.2` (current frozen SHA) appear; both source-true. |
+| 2 | WRONG-DB PATHS | ✅ | audit-logging shows DDL tabs PG/MySQL/SQLite/MSSQL; server-side-injection explicitly calls out SQLite caveat with citation; mutations page calls out PG syntax with cross-link to `/databases/` for other engines. |
+| 3 | FEATURE-FLAG OMISSIONS | ✅ | `redis-rate-limiting` cited at L9, L128, L305, L338 of rate-limiting; `audit-syslog` / `audit-webhook` cited at audit-logging L141, L148, L149, L155-L158 — all flags real at frozen SHA. |
+| 4 | SECURITY-DEFAULT REGRESSIONS | ✅ | Rate-limiting `enabled = false` is documented as default and the page explicitly says "Rate limiting is **disabled by default**. Enable it explicitly in production." (L21). `trust_proxy_headers = false` default is documented with explicit "only when … behind a trusted reverse proxy" guard (L33, L116, L153). |
+| 5 | SDK DIVERGENCE | ✅ | mutations.mdx shows Python (Functional per roadmap) and TypeScript (Beta per roadmap) — TypeScript decorator example is illustrative and matches the documented SDK shape. Rate-limiting has JS/Python/Go retry-client examples (all standard HTTP clients, not branded FraiseQL SDKs). |
+| 6 | DEAD LINKS | ✅ | All 9 unique target slugs from the 7b POLISH slug-fix set resolve (verified above). |
+| 7 | UNDEFINED SYMBOLS | ✅ | `failed_login_max_attempts`, `failed_login_lockout_secs`, `RateLimitingSecurityConfig`, `RateLimitConfig`, `auth_start_*`, `requests_per_second_per_user`, `trust_proxy_headers`, `redis_url`, `[auth]`, `[auth_hs256]`, `ServerConfig`, `requires_role`, `requires_scope`, `jwt:sub`, `mutation_response`, `fn_*` — all verified at frozen SHA. |
+| 8 | COPY-PASTE FROM PRIOR VERSION | ✅ | mutations.mdx L292 the legacy `JWT_SECRET` / `JWT_ALGORITHM` env-var framing was REPLACED with `[auth]` / `[auth_hs256]` direct-TOML phrasing (verified via `git diff 6e9d9a0 8d05401 -- src/content/docs/features/mutations.mdx`). No leftover stale carryover detected on sampled pages. |
+| 9 | CONDITIONAL CAVEATS | ✅ | Rate-limiting's FW-24 caveat box explicitly states the "this works only when X" inverse (does NOT work at v2.3.2); server-side-injection's SQLite-unsupported caveat is in an `<Aside type="note">` with source citation. |
+| 10 | RLS / SECURITY INTERACTIONS | ✅ | server-side-injection's `inject={"owner_id": "jwt:sub"}` page documents the RLS-substitute pattern at L110-L129; explicitly cites the `WHERE author_id = $1` substitution. Rate-limiting's `trust_proxy_headers` discussion at L106-L120 calls out the IP-spoofing risk explicitly. |
+| 11 | ERROR-PATH COVERAGE | ✅ | Rate-limiting shows the exact 429 response body (L184-L196) with the literal `RATE_LIMITED` extension code; mutations page (sampled at L290+) references the error envelope shape via cross-link to `/building/authentication`. |
+| 12 | ARCHAEOLOGY-FREE | ✅ | Grep above returns 0 hits across all 10 touched files. |
+| 13 | SOURCE CITATIONS RESOLVE | ✅ | 5 re-greps PASS (above); Verifier's prior 3/3 PASS recorded in handoff. |
+| 14 | NO PERSONA SELF-REFERENCE | ✅ | `grep -nE "as an AI\|persona"` on 10 touched files → 0 hits. |
+| 15 | DARK MODE | ✅ | Starlight default theme; no custom CSS in the diff; build clean; HTML output well-formed (sampled via spot-grep on rendered `dist/features/rate-limiting/index.html`). No contrast regressions introduced. |
+
+**Total: 15/15 PASS.**
+
+#### Adversarial deep-dive notes (non-blocking)
+
+- **Audit-logging "operator-managed" vs framework `migrations/0010_audit_log.sql`:** the framework ships an `audit_log` reference migration at `crates/fraiseql-server/migrations/0010_audit_log.sql` (note: `audit_log`, NOT `tb_audit_log`). The migration uses different columns than the page's documented DDL. The page's `tb_audit_log` schema is correctly framed as operator-managed: (a) it carries the `tb_` convention that no framework-shipped migration uses; (b) the framework does not auto-apply its own `0010_audit_log.sql` against user databases; (c) the documented schema has additional columns (`tenant_id`, `request_id`, `duration_ms`) the framework migration lacks. The "operator-managed" copy correction is accurate AND the column shape is plausibly the intended target for the framework's INSERT path (verified via spot-check of the page's PG/MySQL/SQLite/MSSQL DDL tabs — the column set is internally consistent across engines).
+
+- **`fraiseql-auth::RateLimitingSettings` (different field names) vs CLI schema** — the rate-limiting page does NOT mention this sibling crate's `failed_login_max_requests` / `failed_login_window_secs` naming. This is correct silence: the sibling type is unused by the server, and surfacing its existence would confuse the reader. The page sticks to the CLI schema's canonical `failed_login_max_attempts` / `failed_login_lockout_secs` names — which is what `fraiseql-cli compile` accepts.
+
+- **Spot-check of `features/encryption.mdx` (not in the deep-sample set)** — `git diff 6e9d9a0 8d05401 -- src/content/docs/features/encryption.mdx` shows a 6-line patch: stale `/guides/deployment` → `/operations/deployment-guide` slug fix (3 occurrences) and added Next-Steps cross-link to `/building/authentication`. Both target slugs resolve. No version-drift or undefined-symbol risk.
+
+#### Findings — blocking ❌
+
+**None.**
+
+#### Findings — non-blocking nits
+
+- **Nit 1 (rate-limiting.mdx:71):** the citation range `L7-L52` covers the entire `RateLimitingSecurityConfig` declaration including the `trusted_proxy_cidrs` field at the tail. A more precise range for the "no `failed_login_*` fields" claim would terminate at L40 (where the struct closes before the `trusted_proxy_cidrs` block). Range is correct in scope (the field is verifiably absent across the full struct); just slightly wider than the minimum needed. Cosmetic; non-blocking.
+
+- **Nit 2 (rate-limiting.mdx:158-159):** the "Default Values" table entries for `failed_login_max_attempts` / `failed_login_lockout_secs` could optionally cross-reference the same FW-24 #356 issue once instead of twice (the parenthetical is repeated verbatim in both rows). Cosmetic; non-blocking.
+
+- **Nit 3 (mutations.mdx:9):** the top-of-page Aside instructs readers to consult `/databases/` for MySQL/SQLite/MSSQL syntax. Verified that `src/content/docs/databases/` exists at this branch (`find src/content/docs/databases -type f | head` returns files). Slug intent satisfied.
+
+- **Nit 4 (Style/voice):** rate-limiting.mdx L36 says "Override … when the default is too permissive — for example, on public-facing APIs where 'authenticated' just means 'has an account.'" The word "just" is a style-guide-disfavored hedge (§ 9 "No 'easily' / 'simply' / 'just'"). Cosmetic; Style Auditor at phase close can clean. Non-blocking.
+
+#### PR review posted
+
+No line-level ❌ findings to post. Verdict APPROVE recorded against PR #14 via `gh pr review 14 --approve` (see below).
+
+#### Open gates after this entry
+
+Unchanged from Cycle 7a close: G1 closed, G2 default-hold at `d0a4ed4ec1770c70707f68fd9019f2b561d87461`, G7 resolved, G8 resolved. G9c/G10/G11 orchestrator-defaulted. G3 / G4 / G5 downstream.
+
+#### Anti-scope confirmed
+
+- No edits to `src/content/docs/`.
+- No edits to `~/code/fraiseql`.
+- No new framework bugs filed.
+- No amend.
+- No push to `main`.
+
+#### Verdict: APPROVE (15/15)
+
+CI green. Citations 5/5 verified. Posture B leak-free. FW-24 caveat sourcing-true and consistent with `building/authentication.md` canonical shape. Mutations auth-section pivot complete (`JWT_SECRET` legacy framing removed; `[auth]` / `[auth_hs256]` consistent). Audit-logging copy correction accurate (operator-managed schema, framework does not auto-create `tb_audit_log`). Server-side-injection SQLite caveat citation source-true. All 10 touched files clean on archaeology + version-drift + dead-link + undefined-symbol axes.
+
+#### Pointer to next persona
+
+**Style Auditor (Sonnet 4.6)** OR **Cleanup (Sonnet 4.6)** for Cycle 7b close. The nits above are style-band only and best rolled into the phase-close style audit; no blocking content kick-back. After Cleanup, the orchestrator can either dispatch Writer-Opus for **Cycle 7c** (the 5 vs/* comparison pages) or proceed to **Phase 03 close → Phase 04 kickoff** per the cluster inventory plan.
+
+
