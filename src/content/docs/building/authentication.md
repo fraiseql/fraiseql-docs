@@ -1,6 +1,6 @@
 ---
 title: Authentication
-description: Configure JWT/OIDC, HS256 testing, API keys, PKCE, token revocation, and rate limiting against the v2.3.2 framework — with the security caveats reality requires
+description: Configure JWT/OIDC, HS256, API keys, PKCE, token revocation, and auth rate limiting at v2.3.2 — with all security caveats
 ---
 
 FraiseQL ships multiple authentication mechanisms in a single binary: an OIDC validator for production JWTs, an HS256 validator for integration testing, an API-key authenticator for service-to-service traffic, a PKCE OAuth2 flow with HttpOnly cookies, and a token-revocation manager. The off-the-shelf `fraiseql-server` binary auto-wires `[auth]` (OIDC) and `[auth_hs256]` directly from `ServerConfig`; every other auth subsystem — API keys, token revocation, PKCE, state encryption, per-endpoint rate limiting — lives behind the `fraiseql-cli compile` step that produces `schema.compiled.json`, and is consumed from `security.additional[...]` at startup. **Read [Security caveats](#security-caveats) before exposing any auth route to the public internet**; six framework issues are open at v2.3.2, two of them critical, and the v2.3 surface ships several security controls that exist in the CLI schema but are silently dropped by the server runtime.
@@ -395,7 +395,7 @@ The CLI schema also accepts `failed_login_max_attempts` and `failed_login_lockou
 
 The PKCE callback handler sets the cookie with the exact attribute string:
 
-```
+```text
 __Host-access_token="<token-escaped>"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=<expires_in or 300>
 ```
 

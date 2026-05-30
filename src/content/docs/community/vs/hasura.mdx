@@ -106,7 +106,7 @@ audience = "your-api-id"
 
 # Or HS256 for integration testing — see /building/authentication
 # [auth_hs256]
-# secret = "${JWT_SECRET}"
+# secret_env = "FRAISEQL_HS256_SECRET"
 # audience = "your-api-id"
 ```
 
@@ -115,7 +115,7 @@ audience = "your-api-id"
 
 ### Hasura: Console + YAML + Database Metadata
 
-```
+```yaml
 # config.yaml
 version: 3
 metadata_directory: metadata
@@ -258,7 +258,7 @@ Built-in actions for webhooks, Slack, and email. No external services required.
 
 ### Hasura
 
-```
+```yaml
 # actions.yaml
 - name: processOrder
   definition:
@@ -606,7 +606,7 @@ FraiseQL equivalent:
 ### Step 3: Migrate Actions to Observers
 
 Hasura Action:
-```
+```json
 - name: processPayment
   definition:
     kind: synchronous
@@ -690,7 +690,7 @@ Both are excellent tools. Choose based on your team's preferences and requiremen
 
 ---
 
-## Next Steps
+## Next steps
 
 <CardGrid>
   <Card title="Build Your First API" icon="rocket">

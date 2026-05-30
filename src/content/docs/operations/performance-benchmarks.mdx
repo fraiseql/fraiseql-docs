@@ -7,7 +7,7 @@ import { Aside, CardGrid, Card, Tabs, TabItem } from '@astrojs/starlight/compone
 
 When Rolls-Royce was asked about the horsepower of their engine, the answer was "sufficient." That is also the honest answer for FraiseQL's throughput.
 
-The numbers below come from our own harness against the schema in [SaaS Blog](/examples/saas-blog) and a small subset of comparable framework configurations. They put FraiseQL in the same performance tier as the fastest GraphQL frameworks available. The gap to the leader is within run-to-run noise. Chasing that gap is not the point.
+The numbers below come from a first-party harness against the schema in [SaaS Blog](/examples/saas-blog) and a small subset of comparable framework configurations. They put FraiseQL in the same performance tier as the fastest GraphQL frameworks available. The gap to the leader is within run-to-run noise. Chasing that gap is not the point.
 
 **The point is where the complexity lives.**
 
@@ -17,7 +17,7 @@ The numbers below come from our own harness against the schema in [SaaS Blog](/e
 
 Every figure on this page is from a single hardware profile and a single workload. **Don't trust them — reproduce them.** The reproduction recipe at the bottom of the page is `hey` against the schema and queries described in [SaaS Blog](/examples/saas-blog), running against a local PostgreSQL 15.
 
-If you run them and get different numbers, your hardware / connection pool / query shape is different from ours — that is the answer to your throughput question, not these tables.
+If you run them and get different numbers, your hardware / connection pool / query shape is different from the reference hardware — that is the answer to your throughput question, not these tables.
 
 ---
 
@@ -241,3 +241,10 @@ If your Q1 RPS is ≥80% of the table above and your Q3 p99 stays within 20% of 
     [SaaS Blog](/examples/saas-blog) — the schema and queries the numbers above are measured against
   </Card>
 </CardGrid>
+
+## Next steps
+
+- [SaaS Blog example](/examples/saas-blog) — the reference schema and queries used to produce the numbers on this page
+- [TOML configuration](/concepts/configuration) — connection pool size, query timeout, and cache settings that affect throughput
+- [Rate limiting](/features/rate-limiting) — per-user and global throttles that shape load profiles
+- [Observer runbook](/operations/observer-runbook) — operational patterns for the event pipeline under load

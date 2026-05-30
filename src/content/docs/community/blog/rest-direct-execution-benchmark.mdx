@@ -5,27 +5,27 @@ description: "First-party numbers comparing FraiseQL's REST direct execution pat
 
 import { Aside } from '@astrojs/starlight/components';
 
-FraiseQL's REST transport has two execution paths: **direct execution** (REST queries bypass GraphQL entirely) and **GraphQL bridge** (REST requests are translated to GraphQL queries internally). This post shares the numbers we measured comparing the two — and the recipe to reproduce them on your own hardware.
+FraiseQL's REST transport has two execution paths: **direct execution** (REST queries bypass GraphQL entirely) and **GraphQL bridge** (REST requests are translated to GraphQL queries internally). The numbers below compare the two execution paths, measured against the reference schema and hardware — and the recipe to reproduce them on your own hardware.
 
 ## What we're measuring
 
 When you annotate a query with `rest_path`, FraiseQL registers a direct SQL execution route. The request flow is:
 
 **Direct execution:**
-```
+```text
 HTTP GET /rest/v1/posts → parse URL params → SQL query → JSON envelope
 ```
 
 **GraphQL bridge (hypothetical — what you'd get without direct execution):**
-```
+```text
 HTTP GET /rest/v1/posts → build GraphQL query → parse → validate → resolve → SQL query → GraphQL response → JSON envelope
 ```
 
-The question: how much does skipping GraphQL parsing, validation, and resolution actually save?
+The question: how much does skipping GraphQL parsing, validation, and resolution save?
 
 ## Methodology
 
-All numbers below are first-party — our harness against our schema on our hardware, on the date noted. **Don't trust them — reproduce them.** The recipe is at the bottom of this post.
+All numbers below are first-party — first-party harness against the reference schema on reference hardware, on the date noted. **Don't trust them — reproduce them.** The recipe is at the bottom of this post.
 
 - **Hardware**: Single 8-core x86_64 Linux box, 32 GB RAM
 - **Database**: PostgreSQL 15, default `postgresql.conf`, schema from [SaaS Blog](/examples/saas-blog)
@@ -129,3 +129,10 @@ kill "$SERVER_PID"
 ```
 
 Take the median of 3 runs to match the table above. If the gap between the two paths on your hardware is smaller than 15%, the SQL plan dominates on your shape — that is the answer for your workload.
+
+## Next steps
+
+- [Performance benchmarks](/operations/performance-benchmarks) — GraphQL transport numbers under concurrent load
+- [Why gRPC skips JSON](/community/blog/why-grpc-skips-json) — serialization path analysis for the gRPC transport
+- [SaaS Blog example](/examples/saas-blog) — the reference schema used for the measurements above
+- [TOML configuration](/concepts/configuration) — `[server]` settings that affect REST and GraphQL execution paths

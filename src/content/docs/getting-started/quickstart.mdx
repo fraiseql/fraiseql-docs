@@ -192,11 +192,11 @@ Create SQL views that follow the `.data` JSONB pattern. Each view has an `id` co
 
 Apply these views to your database (or use `confiture build` — see [🍯 Confiture](/confiture)).
 
+{/* source: scripts/docs-test/fixtures/postgres/_smoke.sql + fixtures/{mysql,sqlite,mssql}/_smoke.sql — per-DB view SQL verified against each engine via pages/_smoke.docs-test.sh; server binary adapter limitation tracked in fraiseql#327 (FW-2). */}
+
 <Aside type="caution" title="Server adapter coverage">
 The per-DB view SQL above is verified against each engine. At the time of writing, the `fraiseql-server` binary itself only routes PostgreSQL end-to-end — the MySQL, SQLite, and SQL Server adapters exist in `fraiseql-db` but are not wired into the server's adapter factory. Track the regression signal that unblocks the binary-driven multi-DB happy path in [fraiseql#327](https://github.com/fraiseql/fraiseql/issues/327).
 </Aside>
-
-{/* source: scripts/docs-test/fixtures/postgres/_smoke.sql + fixtures/{mysql,sqlite,mssql}/_smoke.sql — per-DB view SQL verified against each engine via pages/_smoke.docs-test.sh; server binary adapter limitation tracked in fraiseql#327 (FW-2). */}
 
 ## Step 3: Define Your GraphQL Schema
 
@@ -363,7 +363,7 @@ fraiseql run
 
 You should see:
 
-```
+```text
 ✓ Compiled 2 types → mapped to SQL views
 ✓ Built query executor
 → GraphQL API running at http://localhost:8080/graphql
@@ -485,7 +485,7 @@ The `fraiseql.toml` in this guide is a minimal development configuration. Before
 and rate limiting. Always use `ServerConfig::from_file("fraiseql.toml")` in production.
 :::
 
-## Next Steps
+## Next steps
 
 - [Your First API](/getting-started/first-api) — Build a complete blog API with 🍯 Confiture
 - [Developer-Owned SQL](/concepts/developer-owned-sql) — Why you write the views

@@ -1,6 +1,6 @@
 ---
 title: OAuth Providers
-description: Configure OIDC providers (Auth0, Keycloak, Okta, Cognito, Azure AD, generic OIDC) via the `[auth]` TOML section, with the per-provider constructors that populate it
+description: Configure OIDC providers (Auth0, Keycloak, Okta, Cognito, Azure AD) at v2.3.2 — constructors, claim extraction, RLS session variables
 ---
 
 import { Aside, Tabs, TabItem, Steps, CardGrid, Card } from '@astrojs/starlight/components';
@@ -361,7 +361,7 @@ The OAuth flow itself — authorization code exchange, token issuance, refresh �
 | FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) | PKCE with `state_encryption` disabled warns once and continues; `state` token is the raw lookup key. | Configure `[security.state_encryption]` before enabling PKCE. See [Authentication caveat 4](/building/authentication#4-fw-28-360--pkce-warns-but-continues-without-state-encryption-security). |
 | FW-29 [#361](https://github.com/fraiseql/fraiseql/issues/361) | JWKS cache holds rotated-out keys for up to `jwks_cache_ttl_secs` (default 300 s). Stolen-key replay window equals the TTL. | Restart replicas after rotating a compromised key at the IdP; tighten `jwks_cache_ttl_secs` if the IdP supports it. See [Authentication caveat 5](/building/authentication#5-fw-29-361--jwks-hot-rotate-window-equals-the-cache-ttl-security). |
 
-## Next Steps
+## Next steps
 
 <CardGrid>
   <Card title="Authentication" icon="approve-check">

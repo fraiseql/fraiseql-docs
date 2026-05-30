@@ -42,7 +42,7 @@ the bump decision belongs to Phase 09 or Phase 10. See
 | 00 | `phase-00-foundation.md`                   | Container harness, CI gating, style guide, SHA freeze, plan-into-repo move | 2.0 | `[x]`  | G2 (contingent) |
 | 01 | `phase-01-triage-and-ia.md`                | Stale-fact sweep, sidebar IA (G1), link audit, sweep matrix    | 1.0 | `[x]`  | G1 (resolved 2026-05-29 → Option A) |
 | 02 | `phase-02-migration-and-changelog.md`      | Release-notes hub, v2.0→v2.3 migration pages, breaking matrix  | 1.0 | `[x]`  | — |
-| 03 | `phase-03-critical-rewrites.md`            | multi-tenancy, file-storage, observers, authentication         | 2.0 | `[~]`  | — |
+| 03 | `phase-03-critical-rewrites.md`            | multi-tenancy, file-storage, observers, authentication         | 2.0 | `[x]`  | — |
 | 04 | `phase-04-new-features-part1.md`           | Studio, Functions (WASM), Realtime subsystem                   | 2.0 | `[ ]`  | — |
 | 05 | `phase-05-new-features-part2.md`           | Auth extensions, LTree, partial-period, native aggregations    | 2.0 | `[ ]`  | — |
 | 06 | `phase-06-transport-and-protocol.md`       | REST, MCP, federation mTLS, schema integrity, trusted docs     | 1.5 | `[ ]`  | — |
@@ -73,6 +73,7 @@ Phases 04, 05, 06 can run in parallel if multiple writers are available — they
 - **Phase 00** — 2026-05-28 — container harness (Compose + Dockerfile + storage sidecars + operator CLI + smoke + CI), style guide check-in, docs-page PR template, frozen FraiseQL SHA. PR #11 (draft until human marks ready-for-review). Final cycle commit: see Phase 00 / Cycle 9 close entry in `_internal/.plan/handoff.md`.
 - **Phase 01** — 2026-05-29 — triage and IA. Version-string sweep, stray-syntax sweep, internal link audit (0 dead links), external link audit (66 audited, 22 must-fix mechanically applied, 4 deferral groups to Phase 02/03), Homebrew claim verified absent and removed, sidebar redrawn to **Option A** (10 audience-grouped top-levels + Examples as 11th visible — G1 resolved), 76 page moves with 76 Astro `redirects` entries, sweep matrix authored at `src/content/docs/_internal/_sweep-matrix.md` (172 page rows + 2 framework-bug rows + 9 cross-phase rows + 4 deferral-class rows). Methodology § 4 amended to accept the `{/* source: ... */}` JSX comment form for `.mdx` (MDX 3 incompatibility). PR #12 (draft until human marks ready-for-review). Final cycle commit: see Phase 01 / Cycle 7 close entry in `_internal/.plan/handoff.md`.
 - **Phase 02** — 2026-05-29 — release notes + migration guides. 5 release-notes pages (`release-notes/index.mdx`, `v2-0.mdx`, `v2-1.mdx`, `v2-2.mdx`, `v2-3.mdx`), 3 upgrade guides (`migrations/upgrading/index.mdx` + `v2-1-to-v2-2.mdx` + `v2-2-to-v2-3.mdx`), cross-link integration into `index.mdx` and `building/migrations/index.mdx`, style audit clean (17 edits). PR #13 (draft). 7 cycles + close. Final style-audit + phase-close commit: `10d7d2e`. Framework issues filed: 0. Gate G2 (SHA bump) default-hold continues.
+- **Phase 03** — 2026-05-30 — critical rewrites. 34 pages across 8 cycles (Cycle 0–7c) + close + style audit. Framework issues: FW-3 through FW-29 (27 new; 29 total with FW-1 + FW-2). PR #14 (draft). Final style-audit commit: see Phase 03 close entry in handoff.md.
 
 ## Filed framework bugs
 

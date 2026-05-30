@@ -71,7 +71,7 @@ The `Email` action variant deserialises from `ActionConfig` and dispatches throu
 
 An observer is a row in the `tb_observer` PostgreSQL table that maps an `(entity_type, event_type)` pair to one or more actions. When a tracked entity row is INSERTed, UPDATEed, or DELETEed, the runtime publishes a CDC event to `tb_entity_change_log`, the matcher resolves the observers that subscribe to that pair, and each observer's actions execute through the executor with retry / DLQ behaviour configured per action.
 
-```
+```text
 mutation → tb_entity_change_log → ChangeLogListener → matcher → executor → action(s)
                                                                                  ↓ on failure
                                                                             retry → DLQ
@@ -174,7 +174,7 @@ The binary builds a server-local `ObserverRuntimeConfig` (not the library type) 
 
 ## Action types
 
-`ActionConfig` is a `#[non_exhaustive]` tagged union (tag = `"type"`, snake_case). Four variants ship: `Webhook`, `Slack`, `Email` (stub — FW-22), and an internal NATS-publish path. Three additional variants exist as stubs: `Sms`, `Push`, `Search`, `Cache`. The `non_exhaustive` attribute is a forward-compatibility guarantee for the framework, **not** a user-pluggable hook — operators cannot register a custom action type from outside the crate.
+`ActionConfig` is a `#[non_exhaustive]` tagged union (tag = `"type"`, snake_case). Four variants ship: `Webhook`, `Slack`, `Email` (stub — FW-22), and an internal NATS-publish path. Four additional variants exist as stubs: `Sms`, `Push`, `Search`, `Cache`. The `non_exhaustive` attribute is a forward-compatibility guarantee for the framework, **not** a user-pluggable hook — operators cannot register a custom action type from outside the crate.
 
 {/* source: crates/fraiseql-observers/src/config/runtime.rs:L260-L350 — ActionConfig tagged union */}
 {/* source: crates/fraiseql-observers/src/config/runtime.rs:L262 — #[non_exhaustive] attribute */}

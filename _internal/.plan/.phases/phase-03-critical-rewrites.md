@@ -265,16 +265,18 @@ Each page goes through a fresh-context review:
 
 - [ ] Not started
 - [ ] RED in progress
-- [~] GREEN in progress
+- [ ] GREEN in progress
 - [ ] REFACTOR in progress
 - [ ] CLEANUP in progress
-- [ ] Complete
+- [x] Complete
 
 Opened 2026-05-29 against `main@9b512aa` (Phase 02 squash). Branch `phase-03/critical-rewrites`.
+Closed 2026-05-30 — Style Auditor (Sonnet 4.6) + Cleanup (Sonnet 4.6). 62 style edits applied, build clean (205 pages, 0/0/60), PR #14 draft.
 
 ## Owner
 
 orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle.
+Phase close: Cleanup (Sonnet 4.6) — 2026-05-30.
 
 ## Pages completed
 
