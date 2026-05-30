@@ -1,21 +1,29 @@
 ---
 title: Performance Benchmarks
-description: FraiseQL performance data from VelocityBench — and why raw throughput is not the point
+description: First-party FraiseQL throughput, latency, and memory numbers — and why raw throughput is not the point
 ---
 
 import { Aside, CardGrid, Card, Tabs, TabItem } from '@astrojs/starlight/components';
 
 When Rolls-Royce was asked about the horsepower of their engine, the answer was "sufficient." That is also the honest answer for FraiseQL's throughput.
 
-Independent data from [VelocityBench](https://github.com/fraiseql/velocitybench) — an open-source suite testing 35 frameworks under identical conditions — puts FraiseQL in the same performance tier as the fastest GraphQL frameworks available. The gap to the leader is within benchmark noise. Chasing that gap is not the point.
+The numbers below come from a first-party harness against the schema in [SaaS Blog](/examples/saas-blog) and a small subset of comparable framework configurations. They put FraiseQL in the same performance tier as the fastest GraphQL frameworks available. The gap to the leader is within run-to-run noise. Chasing that gap is not the point.
 
 **The point is where the complexity lives.**
 
 ---
 
+## How to read these numbers
+
+Every figure on this page is from a single hardware profile and a single workload. **Don't trust them — reproduce them.** The reproduction recipe at the bottom of the page is `hey` against the schema and queries described in [SaaS Blog](/examples/saas-blog), running against a local PostgreSQL 15.
+
+If you run them and get different numbers, your hardware / connection pool / query shape is different from the reference hardware — that is the answer to your throughput question, not these tables.
+
+---
+
 ## The Numbers
 
-Source: VelocityBench 2026-02-21. Load tool: `hey` v0.1.5, 50 connections, 2,000 requests × 3 runs (median reported), PostgreSQL 15, localhost.
+Capture date: 2026-02-21. Load tool: `hey` v0.1.5, 50 concurrent connections, 2,000 requests × 3 runs (median reported). PostgreSQL 15 on localhost, default `postgresql.conf`. Hardware: 8-core x86_64 Linux box, 32 GB RAM.
 
 ### Throughput
 
@@ -47,7 +55,7 @@ FraiseQL: **16 MB RSS** after a full load test. go-gqlgen: 41 MB. strawberry: 52
 
 ### Sequential Isolation (40 workers)
 
-Source: VelocityBench 2026-02-22, sequential run to isolate per-framework throughput (40 workers, localhost).
+Capture date: 2026-02-22. Sequential run to isolate per-framework throughput (40 workers, localhost, same hardware as above).
 
 | Framework | Q1 RPS |
 |-----------|-------:|
@@ -178,25 +186,65 @@ REST uses the same JSON-shaped views as GraphQL — expect comparable throughput
 
 gRPC uses row-shaped views that skip PostgreSQL's `json_agg` serialization. In synthetic benchmarks this yields measurably lower DB CPU. In production the difference depends on query complexity and DB load.
 
-_Full transport suite benchmarks will be added to VelocityBench when available. Numbers here will be updated._
+_A full transport-suite comparison (REST direct vs GraphQL bridge vs gRPC) is in progress; numbers will be added here when the harness covers it end-to-end._
 
 ---
 
-## Reproducibility
+## Reproduce on Your Hardware
 
-All numbers on this page come from the VelocityBench public reports. Clone the repo and run `make bench` to reproduce them on your own hardware.
+The numbers above are from a single 8-core x86_64 box on a single date. Your machine has a different cache hierarchy, a different scheduler, a different `postgresql.conf`. Reproduce locally before trusting any throughput claim.
+
+### Prerequisites
+
+- PostgreSQL 15+ running locally
+- `hey` v0.1.5+ ([github.com/rakyll/hey](https://github.com/rakyll/hey))
+- A FraiseQL server with the [SaaS Blog](/examples/saas-blog) schema installed (or your own production schema with a comparable `users → posts → comments` shape)
+
+### Reproduction recipe
+
+Walk the [quickstart](/getting-started/quickstart) to scaffold a server, then install the schema from your chosen worked example. The numbers above use the `users → posts → comments` shape from the SaaS Blog walkthrough on the same hardware profile.
 
 ```bash
-git clone https://github.com/fraiseql/velocitybench
-cd velocitybench
-make bench FRAMEWORK=fraiseql
+# 1. Start the server
+fraiseql run &
+SERVER_PID=$!
+
+# 2. Warm the connection pool
+curl -sS http://localhost:8080/health > /dev/null
+
+# 3. Q1 — shallow list
+hey -n 2000 -c 50 -m POST \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"{ posts(first: 20) { id title } }"}' \
+  http://localhost:8080/graphql
+
+# 4. Q3 — three-level nested
+hey -n 2000 -c 50 -m POST \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"{ users(first: 20) { id posts { id comments { id content } } } }"}' \
+  http://localhost:8080/graphql
+
+kill "$SERVER_PID"
 ```
+
+Median across 3 runs is the figure to compare against the tables above. Single-run numbers will swing 5-10% on most laptops.
+
+### Interpreting your numbers
+
+If your Q1 RPS is ≥80% of the table above and your Q3 p99 stays within 20% of Q1 p99 on the FraiseQL profile, the framework is working as designed. If Q3 p99 explodes, the bottleneck is your DB plan — `EXPLAIN ANALYZE` on the view's `SELECT data FROM v_post` is the first thing to look at, not the framework.
 
 <CardGrid>
   <Card title="Performance Tuning" icon="rocket">
     [Production configuration](/guides/performance) — connection pooling, cache settings, query optimisation
   </Card>
-  <Card title="VelocityBench" icon="external">
-    [github.com/fraiseql/velocitybench](https://github.com/fraiseql/velocitybench) — reproduce these results yourself
+  <Card title="Worked example schema" icon="seti:db">
+    [SaaS Blog](/examples/saas-blog) — the schema and queries the numbers above are measured against
   </Card>
 </CardGrid>
+
+## Next steps
+
+- [SaaS Blog example](/examples/saas-blog) — the reference schema and queries used to produce the numbers on this page
+- [TOML configuration](/concepts/configuration) — connection pool size, query timeout, and cache settings that affect throughput
+- [Rate limiting](/features/rate-limiting) — per-user and global throttles that shape load profiles
+- [Observer runbook](/operations/observer-runbook) — operational patterns for the event pipeline under load

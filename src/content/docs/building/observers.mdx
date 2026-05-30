@@ -5,6 +5,14 @@ description: Trigger side effects after mutations — send emails, update projec
 
 import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
+:::note[Page scope]
+This page is the **how-to-install** leg of the four-page observers cluster. It covers bootstrapping `tb_observer`, applying `migrations/06_create_observer_management.sql`, registering observers via `POST /api/observers`, and wiring an authenticating reverse proxy in front of the management API. For the **what-it-is** (architecture, action types, security caveats, the FW-20 + FW-21 critical combination), see [Observers (Features)](/features/observers). For the **subscriber-side receiver patterns** (downstream services consuming FraiseQL's outbound webhooks), see [Observer and webhook patterns](/building/observer-webhook-patterns). For the **operating-in-production** runbook (alerts, sizing, recovery), see [Observer operations runbook](/operations/observer-runbook).
+:::
+
+:::caution[Stale until next cycle — full rewrite deferred]
+This page's body still describes the Python `@observer` decorator + `actions=[slack(), email()]` kwargs, which **do not exist** in the `fraiseql` Python package at v2.3.2. The full rewrite is deferred to a later Phase 03 cycle once FW-13 [#340](https://github.com/fraiseql/fraiseql/issues/340), FW-14 [#341](https://github.com/fraiseql/fraiseql/issues/341), and FW-15 [#342](https://github.com/fraiseql/fraiseql/issues/342) are decided upstream. Until then, **treat the body as aspirational** and use [Observers (Features)](/features/observers) as the source of truth at v2.3.2. The Phase 03 / Cycle 3 scope is the primary page rewrite plus this scope-statement disambiguation across all four observer pages.
+:::
+
 Observers are actions that run after a mutation completes successfully. The mutation commits to the database first, then FraiseQL dispatches configured observer actions. This means observers cannot roll back the write — they are for side effects: sending emails, updating projection tables, publishing events, calling webhooks.
 
 This guide builds directly on the blog API from [Your First API](/getting-started/first-api) — users, posts, and comments.
@@ -29,7 +37,7 @@ The FraiseQL Python SDK has no runtime component. There is no `@fraiseql.observe
 
 ## Architecture
 
-```
+```text
 schema.py           fraiseql compile       Rust runtime
 ─────────────────   ──────────────────►   ────────────────────────────
 @fraiseql.type          schema.json           mutation executes
@@ -524,7 +532,7 @@ RUST_LOG=debug fraiseql run
 
 With debug logging enabled, every observer invocation prints to stdout:
 
-```
+```text
 [observer] createUser fired → welcome-email
 [observer] welcome-email: dispatching webhook to https://email-svc/hooks/fraiseql
 [observer] welcome-email: completed in 142ms (status=200)
@@ -545,3 +553,9 @@ RUST_LOG=debug fraiseql run 2>&1 | grep "req_01HV3KQBN7"
 - [Advanced Patterns](/guides/advanced-patterns) — Audit trails, versioning, soft deletes
 - [Webhooks](/features/webhooks) — Push events to external systems
 - [Subscriptions](/features/subscriptions) — Real-time push to clients via WebSocket
+
+## See also
+
+- [Observers (Features)](/features/observers) — what observers are, action types, security caveats (FW-18 / FW-19 / FW-20 / FW-21 / FW-22), and the F056 atomicity guarantee.
+- [Observer and webhook patterns (Building)](/building/observer-webhook-patterns) — subscriber-side receiver patterns; how downstream services consume FraiseQL's outbound webhooks.
+- [Observer operations runbook (Operations)](/operations/observer-runbook) — running observers in production; alert rules, sizing, recovery.

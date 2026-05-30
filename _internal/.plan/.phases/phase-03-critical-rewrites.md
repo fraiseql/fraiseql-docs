@@ -268,16 +268,83 @@ Each page goes through a fresh-context review:
 - [ ] GREEN in progress
 - [ ] REFACTOR in progress
 - [ ] CLEANUP in progress
-- [ ] Complete
+- [x] Complete
+
+Opened 2026-05-29 against `main@9b512aa` (Phase 02 squash). Branch `phase-03/critical-rewrites`.
+Closed 2026-05-30 — Style Auditor (Sonnet 4.6) + Cleanup (Sonnet 4.6). 62 style edits applied, build clean (205 pages, 0/0/60), PR #14 draft.
 
 ## Owner
 
-*(unclaimed)*
+orchestrator (Cycle 0 / branch + status flip); Writer Opus 4.7 onwards per cycle.
+Phase close: Cleanup (Sonnet 4.6) — 2026-05-30.
 
 ## Pages completed
 
-*(append slugs as cycles close)*
+- `/building/multi-tenancy` (Cycle 1 — closed 2026-05-29)
+- `/features/file-storage` (Cycle 2 — closed 2026-05-30)
+- `/features/observers` (Cycle 3 — closed 2026-05-30; + scope statements on `/building/observers`, `/building/observer-webhook-patterns`, `/operations/observer-runbook` — no body rewrite, full rewrites deferred to Phase 08 polish)
+- `/building/authentication` (Cycle 4 — closed 2026-05-30)
+- `/getting-started/quickstart` (Cycle 5 — closed 2026-05-30; 3 SQL dialect fixes + FW-2 cross-link Aside)
+- `/examples/index` (Cycle 6 — closed 2026-05-30; G8a A2 rewrite)
+- `/examples/saas-blog` (Cycle 6 — G8a A2)
+- `/examples/realtime-collaboration` (Cycle 6 — G8a A2)
+- `/examples/mobile-analytics-backend` (Cycle 6 — G8a A2)
+- `/operations/performance-benchmarks` (Cycle 6 — G8b B2 + schema-substrate pivot)
+- `/community/blog/rest-direct-execution-benchmark` (Cycle 6 — G8b B2 + rest_path annotation)
+- `/community/blog/why-grpc-skips-json` (Cycle 6 — VelocityBench leftover cleanup)
+- `/community/support` (Cycle 6 — G8d 1-line)
+- `/features/security` (Cycle 7a — G9c hub split)
+- `/features/oauth-providers` (Cycle 7a — REWRITE for [auth] contradiction)
+- `/concepts/configuration` (Cycle 7a — REWRITE for [auth] contradiction)
+- `/features/encryption` (Cycle 7b — POLISH)
+- `/features/audit-logging` (Cycle 7b — POLISH)
+- `/features/rate-limiting` (Cycle 7b — POLISH + FW-24 caveat + field-name correction)
+- `/features/server-side-injection` (Cycle 7b — POLISH)
+- `/features/mutations` (Cycle 7b — POLISH + auth pivot)
+- `/concepts/why-fraiseql` (Cycle 7b — slug fix)
+- `/concepts/cqrs` (Cycle 7b — slug fix)
+- `/concepts/view-composition` (Cycle 7b — slug fixes)
+- `/concepts/type-system` (Cycle 7b — slug fix)
+- `/concepts/elo-validation` (Cycle 7b — slug fix)
+- `/concepts/how-it-works` (Cycle 7b — verified-clean, no change)
+- `/concepts/developer-owned-sql` (Cycle 7b — verified-clean, no change)
+- `/concepts/schema` (Cycle 7b — verified-clean, no change)
+- `/community/vs/hasura` (Cycle 7c — POLISH + auth pivot + G11)
+- `/community/vs/hasura-sqlserver` (Cycle 7c — POLISH + G11)
+- `/community/vs/apollo` (Cycle 7c — POLISH + G11)
+- `/community/vs/prisma` (Cycle 7c — POLISH + G11)
+- `/community/vs/postgrest` (Cycle 7c — POLISH + G11 + archaeology fix)
 
 ## Framework bugs filed
 
-*(this phase is the most likely source of framework bugs — RLS edge cases, observer DLQ corner cases, auth misconfiguration that the framework should refuse to start with)*
+- FW-3 [#330](https://github.com/fraiseql/fraiseql/issues/330) — off-the-shelf binary does not wire `TenantExecutorRegistry`/`TenantExecutorFactory`/`DomainRegistry`/`TenantAuditLog`; RBAC bootstrap crash when `admin_api_enabled = true` or non-empty `admin_token`
+- FW-4 [#331](https://github.com/fraiseql/fraiseql/issues/331) — WebSocket subscription endpoint drops JWT `tenant_id` claim and disables strict cross-source validation
+- FW-5 [#332](https://github.com/fraiseql/fraiseql/issues/332) — GraphQL handler collapses `ServiceUnavailable { retry_after }` into `ErrorCode::Forbidden` (HTTP 403), losing `Retry-After` header for suspended tenants
+- FW-6 [#333](https://github.com/fraiseql/fraiseql/issues/333) — `X-Tenant-ID` validator allows `-` (hyphen) but schema-isolation validator rejects it; keys with `-` silently fail schema provisioning in `schema` mode
+- FW-7 [#334](https://github.com/fraiseql/fraiseql/issues/334) — binary doesn't auto-wire `[storage.<name>]` TOML; every `/storage/v1/*` request returns 404 regardless of config
+- FW-8 [#335](https://github.com/fraiseql/fraiseql/issues/335) — (CRITICAL) signed-URL replay / no-auth presign: `presign_handler` performs no RLS/metadata check — anonymous 24h presigned URLs
+- FW-9 [#336](https://github.com/fraiseql/fraiseql/issues/336) — cross-bucket isolation: modern routes don't forward `bucket_name` to backend — key collisions across buckets
+- FW-10 [#337](https://github.com/fraiseql/fraiseql/issues/337) — MIME confusion / stored XSS: `get_handler` serves verbatim `Content-Type`, no `nosniff`, no `Content-Disposition`, no magic-byte check
+- FW-11 [#338](https://github.com/fraiseql/fraiseql/issues/338) — unbounded upload body: `default_max_request_body_bytes = 1_048_576` applied globally; full buffering before rejection
+- FW-12 [#339](https://github.com/fraiseql/fraiseql/issues/339) — LIKE injection in list: `metadata::list` interpolates `prefix` into `LIKE` with no ESCAPE clause
+- FW-13 [#340](https://github.com/fraiseql/fraiseql/issues/340) — `/runtime/health` mounted at root instead of `/api/observers/runtime/*`
+- FW-14 [#341](https://github.com/fraiseql/fraiseql/issues/341) — observers CLI DLQ subcommands return hard-coded mock JSON
+- FW-15 [#342](https://github.com/fraiseql/fraiseql/issues/342) — TOML schema split (CLI validation vs server runtime); runtime silently swallows the CLI shape
+- FW-16 [#343](https://github.com/fraiseql/fraiseql/issues/343) — unbounded DLQ growth (`InMemoryDlq` Vec)
+- FW-17 [#344](https://github.com/fraiseql/fraiseql/issues/344) — DLQ double-replay race
+- FW-18 [#345](https://github.com/fraiseql/fraiseql/issues/345) — no HMAC signing primitives in observer crate
+- FW-19 [#346](https://github.com/fraiseql/fraiseql/issues/346) — payload PII leak via webhook URL/headers/body logged at INFO
+- FW-20 [#347](https://github.com/fraiseql/fraiseql/issues/347) — (CRITICAL) `FRAISEQL_OBSERVERS_ALLOW_INSECURE=true` disables all SSRF guards
+- FW-21 [#348](https://github.com/fraiseql/fraiseql/issues/348) — (CRITICAL) anonymous observer admin API
+- FW-22 [#349](https://github.com/fraiseql/fraiseql/issues/349) — EmailAction stub — returns success without sending
+- FW-23 [#350](https://github.com/fraiseql/fraiseql/issues/350) — transport silently ignored regardless of feature flag
+- FW-24 [#356](https://github.com/fraiseql/fraiseql/issues/356) — `[security.rate_limiting].failed_login_max_attempts` / `failed_login_lockout_secs` silently dropped: CLI schema accepts both fields; server-runtime `RateLimitingSecurityConfig` mirror omits them — brute-force protection is no-op
+- FW-25 [#357](https://github.com/fraiseql/fraiseql/issues/357) — `[security.token_revocation] backend = "postgres"` silent downgrade: `revocation_manager_from_schema` has no `"postgres" =>` match arm; falls through to `"Unknown revocation backend"` warn and memory backend
+- FW-26 [#358](https://github.com/fraiseql/fraiseql/issues/358) — (CRITICAL) anonymous `/auth/revoke` and `/auth/revoke-all` endpoints: `mount_auth_routes` merges revocation routes without an `oidc_auth_middleware` layer — any unauthenticated caller can revoke any token
+- FW-27 [#359](https://github.com/fraiseql/fraiseql/issues/359) — HS256 audience claim not enforced: `build_hs256_auth` only calls `with_audience` when `hs.audience.is_some()`; omitting `audience` in `[auth_hs256]` accepts tokens with any `aud` claim
+- FW-28 [#360](https://github.com/fraiseql/fraiseql/issues/360) — PKCE warns but continues without state encryption: `pkce_store_from_schema` emits `warn!` when `state_encryption` is `None` then proceeds; PKCE flow runs without state encryption
+- FW-29 [#361](https://github.com/fraiseql/fraiseql/issues/361) — JWKS hot-rotate window equals cache TTL: `get_decoding_key` returns cached key on cache hit without upstream consult; key rotation is invisible during the TTL window (default 300 s)
+
+## Carry-forwards
+
+- **INFRA-1** — `demo.fraiseql.dev` TLS SAN mismatch. The subdomain cert does not cover `demo.fraiseql.dev`; `curl` returns SSL error (SAN mismatch), and `fraiseql.dev/graphql` serves HTML, not an API endpoint. Surfaced in Phase 01 / Cycle 4 external-link audit (deferred). Confirmed still present in Phase 03 / Cycle 6 Reviewer drop-scan. This is a Phase 10 finalisation item (infra fix to the live deployment); no docs-side workaround is available. Pages that previously linked to `demo.fraiseql.dev` were patched to remove the link in Phase 01. Future phases must not re-introduce links to this domain until the TLS issue is resolved.

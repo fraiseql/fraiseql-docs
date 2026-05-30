@@ -1,5 +1,8 @@
 # Phase 06: Transport and protocol
 
+> **PAUSED 2026-05-30 at Phase 03 close.** This phase is blocked on the framework team shipping the 54-issue roadmap (29 FW-bug fixes #326-#361 + 25 enhancements #366-#391). See `_internal/.plan/framework-roadmap-mapping.md` for the per-phase dependency table + the new pages this phase will absorb when the framework state settles. Resume entry condition: the framework SHA bump (G2) completes + the per-phase dependencies in the mapping doc are shipped.
+
+
 ## Objective
 
 Document the wire-level and protocol-level features that ship in v2.3 but have zero docs-site coverage: REST transport, Model Context Protocol (MCP), federation mTLS, federation plan visualisation, schema integrity (SHA-256 hash + `strict_integrity`), and Trusted Documents (query allowlisting).

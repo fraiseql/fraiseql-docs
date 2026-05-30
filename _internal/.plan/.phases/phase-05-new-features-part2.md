@@ -1,5 +1,8 @@
 # Phase 05: New feature docs (part 2) — Auth extensions, LTree, aggregates
 
+> **PAUSED 2026-05-30 at Phase 03 close.** This phase is blocked on the framework team shipping the 54-issue roadmap (29 FW-bug fixes #326-#361 + 25 enhancements #366-#391). See `_internal/.plan/framework-roadmap-mapping.md` for the per-phase dependency table + the new pages this phase will absorb when the framework state settles. Resume entry condition: the framework SHA bump (G2) completes + the per-phase dependencies in the mapping doc are shipped.
+
+
 ## Objective
 
 Document the remaining v2.2 / v2.3 user-facing feature surfaces that have no current docs: Auth Extensions (Phase 13 — magic links, TOTP, social, account linking, anonymous sessions, SMS OTP), LTree hierarchies, partial-period aggregates, native aggregation columns, three-state CRUD update semantics, `computed=True` field marker, `not_found` mutation error status, session variables via `set_config()`, and the schema metadata endpoint.

@@ -1,0 +1,42 @@
+{
+  "_comment": "Compiled schema for `pages/multi-tenancy.docs-test.sh` PostgreSQL iteration.",
+  "_comment_2": "Hand-written to give fraiseql-server a non-empty schema so it boots cleanly under the multi-tenancy overlay. The docs-test only exercises /health, /graphql `{ __typename }`, and admin REST — no real data reads required.",
+  "_source": "src/content/docs/building/multi-tenancy.md — Project type as the row-mode worked example.",
+  "_format_source": "crates/fraiseql-core/src/schema/compiled/schema.rs:L67-L150 (CompiledSchema struct).",
+  "_query_format_source": "crates/fraiseql-core/src/schema/compiled/query.rs:L46-L120 (QueryDefinition struct).",
+  "_type_format_source": "crates/fraiseql-core/src/schema/graphql_type_defs.rs:L42-L102 (TypeDefinition struct).",
+  "_baseline_example": "scripts/docs-test/fixtures/postgres/_smoke.compiled.json — used as the shape reference (Cycle 5 smoke).",
+  "_note_on_tenancy_section": "We do NOT populate `security.tenancy` here. The docs-test verifies the off-the-shelf binary's behaviour at the frozen SHA — namely that multi-tenant mode is not wired regardless of TOML (#330). Populating `security.tenancy.mode = \"row\"` here would not flip the binary into multi-tenant mode; that requires AppState builders the binary doesn't call.",
+
+  "types": [
+    {
+      "name": "Project",
+      "sql_source": "v_project",
+      "jsonb_column": "data",
+      "fields": [
+        {"name": "id",        "field_type": "ID",     "nullable": false},
+        {"name": "name",      "field_type": "String", "nullable": false},
+        {"name": "tenant_id", "field_type": "String", "nullable": false}
+      ],
+      "description": "A tenant-scoped project."
+    }
+  ],
+  "queries": [
+    {
+      "name": "projects",
+      "return_type": "Project",
+      "returns_list": true,
+      "nullable": false,
+      "sql_source": "v_project",
+      "jsonb_column": "data",
+      "arguments": []
+    }
+  ],
+  "mutations": [],
+  "subscriptions": [],
+  "enums": [],
+  "input_types": [],
+  "interfaces": [],
+  "unions": [],
+  "directives": []
+}

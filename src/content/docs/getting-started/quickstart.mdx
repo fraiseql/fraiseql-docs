@@ -144,6 +144,7 @@ Create SQL views that follow the `.data` JSONB pattern. Each view has an `id` co
     FROM tb_user u;
     ```
 
+    {/* source: scripts/docs-test/fixtures/sqlite/_smoke.sql:L51-L69 — DEVIATION: SQLite returns json_object output as TEXT; the outer json_object embeds vu.data as an escaped JSON string unless wrapped in json(...) to re-parse it as a nested object. */}
     ```sql title="db/schema/02_read/v_post.sql"
     CREATE VIEW v_post AS
     SELECT
@@ -152,7 +153,7 @@ Create SQL views that follow the `.data` JSONB pattern. Each view has an `id` co
             'id', p.id,
             'title', p.title,
             'content', p.content,
-            'author', vu.data
+            'author', json(vu.data)
         ) AS data
     FROM tb_post p
     JOIN tb_user u ON u.pk_user = p.fk_user
@@ -161,9 +162,9 @@ Create SQL views that follow the `.data` JSONB pattern. Each view has an `id` co
   </TabItem>
 
   <TabItem label="SQL Server">
+    {/* source: scripts/docs-test/fixtures/mssql/_smoke.sql:L18-L23 — DEVIATION: SCHEMABINDING requires referenced views to also be schema-bound; v_post references v_user, so SCHEMABINDING is dropped here. */}
     ```sql title="db/schema/02_read/v_user.sql"
-    CREATE VIEW dbo.v_user
-    WITH SCHEMABINDING AS
+    CREATE VIEW dbo.v_user AS
     SELECT
         u.id,
         (
@@ -173,13 +174,13 @@ Create SQL views that follow the `.data` JSONB pattern. Each view has an `id` co
     FROM dbo.tb_user u;
     ```
 
+    {/* source: scripts/docs-test/fixtures/mssql/_smoke.sql:L73-L89 — DEVIATION 1: SCHEMABINDING dropped (view-on-view); DEVIATION 2: vu.data is NVARCHAR(MAX) holding JSON text — FOR JSON serialises it as a string literal unless wrapped in JSON_QUERY() to mark the column as already-JSON. */}
     ```sql title="db/schema/02_read/v_post.sql"
-    CREATE VIEW dbo.v_post
-    WITH SCHEMABINDING AS
+    CREATE VIEW dbo.v_post AS
     SELECT
         p.id,
         (
-            SELECT p.id, p.title, p.content, vu.data AS author
+            SELECT p.id, p.title, p.content, JSON_QUERY(vu.data) AS author
             FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
         ) AS data
     FROM dbo.tb_post p
@@ -190,6 +191,12 @@ Create SQL views that follow the `.data` JSONB pattern. Each view has an `id` co
 </Tabs>
 
 Apply these views to your database (or use `confiture build` — see [🍯 Confiture](/confiture)).
+
+{/* source: scripts/docs-test/fixtures/postgres/_smoke.sql + fixtures/{mysql,sqlite,mssql}/_smoke.sql — per-DB view SQL verified against each engine via pages/_smoke.docs-test.sh; server binary adapter limitation tracked in fraiseql#327 (FW-2). */}
+
+<Aside type="caution" title="Server adapter coverage">
+The per-DB view SQL above is verified against each engine. At the time of writing, the `fraiseql-server` binary itself only routes PostgreSQL end-to-end — the MySQL, SQLite, and SQL Server adapters exist in `fraiseql-db` but are not wired into the server's adapter factory. Track the regression signal that unblocks the binary-driven multi-DB happy path in [fraiseql#327](https://github.com/fraiseql/fraiseql/issues/327).
+</Aside>
 
 ## Step 3: Define Your GraphQL Schema
 
@@ -356,7 +363,7 @@ fraiseql run
 
 You should see:
 
-```
+```text
 ✓ Compiled 2 types → mapped to SQL views
 ✓ Built query executor
 → GraphQL API running at http://localhost:8080/graphql
@@ -478,7 +485,7 @@ The `fraiseql.toml` in this guide is a minimal development configuration. Before
 and rate limiting. Always use `ServerConfig::from_file("fraiseql.toml")` in production.
 :::
 
-## Next Steps
+## Next steps
 
 - [Your First API](/getting-started/first-api) — Build a complete blog API with 🍯 Confiture
 - [Developer-Owned SQL](/concepts/developer-owned-sql) — Why you write the views

@@ -5,7 +5,14 @@ description: How FraiseQL compares to Apollo GraphQL Server
 
 import { CardGrid, Card, Tabs, TabItem, Aside, Steps } from '@astrojs/starlight/components';
 
+<Aside type="caution">
+Comparison snapshot as of 2026-05-30 against FraiseQL v2.3.2 (frozen SHA `d0a4ed4e`) and Apollo Server / Apollo Federation's then-current stable releases. Verify current Apollo state at [apollographql.com](https://www.apollographql.com/).
+</Aside>
+
 Apollo is the most popular GraphQL framework. Here's how FraiseQL differs — and when each is the right choice.
+
+{/* source: sdks/official/fraiseql-python/src/fraiseql/decorators.py:L985 — `@fraiseql.subscription(entity_type=..., topic=...)` decorator example in module docstring */}
+{/* source: crates/fraiseql-core/src/runtime/subscription/manager.rs — runtime subscription manager (entity → topic dispatch) */}
 
 ## The Fundamental Difference
 
@@ -444,7 +451,7 @@ class CreateUserInput:
 | Learning curve | Low | High |
 
 <Aside type="note">
-Performance comparisons in this page reflect architectural differences — FraiseQL executes pre-built SQL views while Apollo resolvers generate queries at runtime. Actual numbers depend on hardware, database size, query complexity, and resolver implementation. See [Performance Benchmarks](/guides/performance-benchmarks) for controlled benchmark results.
+Performance comparisons in this page reflect architectural differences — FraiseQL executes pre-built SQL views while Apollo resolvers generate queries at runtime. Actual numbers depend on hardware, database size, query complexity, and resolver implementation. See [Performance Benchmarks](/operations/performance-benchmarks) for controlled benchmark results.
 </Aside>
 
 ## Multi-Transport Support
@@ -663,7 +670,7 @@ body = "Hi {name}, thanks for signing up."
 
 They're not needed. Delete them.
 
-Migrating from Apollo? See the [step-by-step migration guide](/migrations/from-apollo).
+Migrating from Apollo? See the [step-by-step migration guide](/building/migrations/from-apollo).
 
 ## Summary
 
@@ -676,17 +683,17 @@ Apollo gives you more control. FraiseQL gives you less code.
 
 ---
 
-## Next Steps
+## Next steps
 
 <CardGrid>
   <Card title="Build Your First API" icon="rocket">
     Get a working GraphQL API in minutes. [Quick Start Guide](/getting-started/first-api)
   </Card>
   <Card title="Performance Benchmarks" icon="bars">
-    See how FraiseQL performs compared to Apollo with real numbers. [View Benchmarks](/guides/performance-benchmarks)
+    See how FraiseQL performs compared to Apollo with real numbers. [View Benchmarks](/operations/performance-benchmarks)
   </Card>
   <Card title="Migrate from Apollo" icon="right-arrow">
-    Step-by-step guide to moving your existing Apollo API. [Migration Guide](/migrations/from-apollo)
+    Step-by-step guide to moving your existing Apollo API. [Migration Guide](/building/migrations/from-apollo)
   </Card>
   <Card title="How FraiseQL Works" icon="information">
     Understand the compiled, database-first architecture. [Core Concepts](/concepts/how-it-works)

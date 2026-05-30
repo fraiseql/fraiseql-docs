@@ -1,5 +1,8 @@
 # Phase 04: New feature docs (part 1) — Studio, Functions, Realtime
 
+> **PAUSED 2026-05-30 at Phase 03 close.** This phase is blocked on the framework team shipping the 54-issue roadmap (29 FW-bug fixes #326-#361 + 25 enhancements #366-#391). See `_internal/.plan/framework-roadmap-mapping.md` for the per-phase dependency table + the new pages this phase will absorb when the framework state settles. Resume entry condition: the framework SHA bump (G2) completes + the per-phase dependencies in the mapping doc are shipped.
+
+
 ## Objective
 
 Document three flagship v2.3 subsystems that have **zero** current coverage: the Studio admin dashboard, the `fraiseql-functions` WASM trigger system, and the Realtime subsystem internals (beyond the existing subscriptions protocol page).

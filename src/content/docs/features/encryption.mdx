@@ -200,7 +200,7 @@ Response:
 
 Meanwhile, the raw database row stores only ciphertext:
 
-```
+```text
 pk_user | id       | identifier | email                                      | ssn
 --------+----------+------------+--------------------------------------------+--------------------------------------------
 1       | a1b2c3.. | alice      | dGhpcyBpcyBiYXNlNjQgZW5jb2RlZCBjaXBoZXJ0  | bm9uY2UrcGF5bG9hZCthdXRodGFn
@@ -312,14 +312,18 @@ class User:
 
 The `encrypted=True` parameter does not exist in `fraiseql.field()`. The encrypted-at-rest configuration is separate from the access-control annotation and is set in the compiled schema, not in the Python decorator.
 
-## Next Steps
+## Next steps
 
 <CardGrid>
   <Card title="Security" icon="shield">
     [Security](/features/security) — Authentication and field-level access control
   </Card>
 
+  <Card title="Authentication" icon="approve-check-circle">
+    [Authentication](/building/authentication) — JWT, OIDC, and the `[security.*]` compile-step indirection that owns `key_reference`
+  </Card>
+
   <Card title="Deployment" icon="rocket">
-    [Deployment](/guides/deployment) — Production key management
+    [Deployment](/operations/deployment-guide) — Production key management
   </Card>
 </CardGrid>

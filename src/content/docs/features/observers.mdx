@@ -1,559 +1,422 @@
 ---
 title: Observers
-description: Event-driven logic with webhooks, email, and Slack actions
+description: Database-event observers — webhook, Slack, email, NATS — with retry, DLQ, and the security caveats at v2.3.2
 ---
 
-import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components';
 
-Observers provide **event-driven logic** for your FraiseQL API. They react to database changes and trigger actions like webhooks, emails, or Slack notifications.
+FraiseQL ships an observer runtime as the `fraiseql-observers` crate. The `fraiseql-server` binary auto-instantiates the runtime when the `observers` Cargo feature is built in, mounts the management HTTP API at `/api/observers`, and polls the `tb_entity_change_log` table for INSERT / UPDATE / DELETE events. Each event is matched against rows in the `tb_observer` table and dispatched through the registered actions (webhook, Slack, email stub, future variants) with retry and an in-process dead-letter queue. The runtime is auto-wired, but **the v2.3.2 surface ships with two critical security regressions and four operational regressions documented below — read [Security caveats](#security-caveats) before exposing the management API to any caller**, then see [Known issues](#known-issues) for the operational gaps.
 
-<Aside type="caution">
-**Observer configuration is TOML-only.** The Python `@observer`, `webhook()`, `email()`, `slack()`, and `RetryConfig` APIs shown in older examples do not exist in the `fraiseql` Python package. Observers are configured entirely via `fraiseql.toml` and the Rust server. The Python package is for schema definition only.
-</Aside>
+{/* source: crates/fraiseql-server/src/server/builder.rs:L343-L346 — Server::from_executor calls init_observer_runtime unconditionally when feature = "observers" */}
+{/* source: crates/fraiseql-server/src/server/extensions.rs:L362-L389 — init_observer_runtime composition */}
+{/* source: crates/fraiseql-server/src/server/routing/observers.rs:L18-L66 — add_observer_routes mount */}
+{/* source: crates/fraiseql-observers/src/lib.rs:L1-L45 — crate-level architecture rustdoc */}
 
-## Why Observers?
+## Security caveats
 
-Traditional approaches to post-mutation logic:
-- **Application code**: Business logic scattered across services
-- **Database triggers**: Limited to SQL, hard to debug
-- **Message queues**: Infrastructure complexity
+Eight framework issues are open against the v2.3.2 observer surface; four are security-class and the remaining four are operational regressions covered under [Known issues](#known-issues). **Do not expose the observer management API or the runtime routes to the public internet without the mitigations below.** The combination of FW-20 and FW-21 below is a one-step path to IAM-credential exfiltration on a cloud-hosted deployment.
 
-Observers centralize event-driven logic in your `fraiseql.toml` configuration:
+### FW-20 [#347](https://github.com/fraiseql/fraiseql/issues/347) + FW-21 [#348](https://github.com/fraiseql/fraiseql/issues/348) — anonymous admin API + SSRF-bypass env var (critical, combined)
 
-```toml
-# fraiseql.toml — configure observer backend
+FW-21 [#348](https://github.com/fraiseql/fraiseql/issues/348) — every observer management endpoint accepts anonymous requests at v2.3.2. The router takes no `auth::Claims` extractor, performs no `state.rbac.can_*` check, and the binary mounts the routes unconditionally when the `observers` feature is built in. `POST /api/observers` creates an observer, `POST /runtime/reload` reloads the runtime, `POST /api/observers/dlq/{id}/retry` re-fires a failed event, `DELETE /api/observers/{id}` removes one, all without authentication.
+
+{/* source: crates/fraiseql-server/src/server/routing/observers.rs:L18-L66 — routes mounted unconditionally when observers feature is built in */}
+{/* source: crates/fraiseql-server/src/observers/routes.rs — handler signatures take no auth extractor */}
+
+FW-20 [#347](https://github.com/fraiseql/fraiseql/issues/347) — the SSRF allowlist in `validate_outbound_url` (which rejects loopback, RFC 1918, link-local, CGNAT, and ULA destinations on every webhook URL) has a global kill-switch: `FRAISEQL_OBSERVERS_ALLOW_INSECURE=true` disables every guard in nine call sites and emits a one-shot WARN at startup. There is no production-mode safeguard, no per-environment refusal, no `RUST_LOG` audit on subsequent uses.
+
+{/* source: crates/fraiseql-observers/src/actions.rs:L33-L80 — validate_outbound_url + FRAISEQL_OBSERVERS_ALLOW_INSECURE kill-switch */}
+{/* source: crates/fraiseql-observers/src/actions.rs:L25-L28 — INSECURE_WARN_ONCE: Once */}
+
+**Combined exploitation path** (no authentication required at v2.3.2):
+
+1. Attacker `POST /api/observers` to register a new observer with `action = "webhook"` and `url = "http://169.254.169.254/latest/meta-data/iam/security-credentials/"` (the AWS EC2 instance metadata endpoint; analogous URLs exist on GCP, Azure, and DigitalOcean).
+2. Operator (or attacker via a triggering mutation) causes the matching entity event to fire.
+3. The webhook action fetches the IAM credentials and POSTs them at the destination of the attacker's choice via subsequent retries or a second observer.
+
+The SSRF allowlist is the only guard preventing step 1 from succeeding. With `FRAISEQL_OBSERVERS_ALLOW_INSECURE=true` set anywhere in the environment, that guard is silently removed.
+
+**Mitigations (apply all three at v2.3.2):**
+
+- Gate `/api/observers/*` and `/runtime/*` behind an authenticating reverse proxy (mTLS, OIDC, or a known-key header check) so the framework's missing auth gate is closed at the network layer. Treat the management API as a privileged plane.
+- Never set `FRAISEQL_OBSERVERS_ALLOW_INSECURE=true` in any environment with network reachability to RFC 1918 / link-local addresses, including local dev where a stray `export` can leak into a deployment.
+- Restrict the observer management API to a VPN-only network or a private subnet at v2.3.2. Re-evaluate when FW-20 + FW-21 land upstream.
+
+### FW-18 [#345](https://github.com/fraiseql/fraiseql/issues/345) — webhook payloads are not signed (no HMAC)
+
+`WebhookAction::execute` POSTs the rendered body with no signature. The crate has zero hits for `hmac`, `signature`, `X-Webhook-Signature`, or `X-FraiseQL-Signature`, and pulls no `hmac` dependency (the `sha2` import is for cache-key hashing only). Webhook receivers cannot cryptographically verify the request originated from FraiseQL.
+
+{/* source: crates/fraiseql-observers/src/actions.rs:L240-L320 — WebhookAction::execute sends unsigned POST */}
+{/* source: crates/fraiseql-observers/Cargo.toml — no hmac dep at frozen SHA */}
+
+**Mitigation:** terminate webhook subscriptions at an authenticating gateway that injects a bearer token or re-signs the body with a key the destination knows. Do not rely on origin-IP allowlisting alone — FW-20 + FW-21 above plus a public network give an attacker the ability to send any payload from any address the framework reaches.
+
+### FW-19 [#346](https://github.com/fraiseql/fraiseql/issues/346) — webhook URL, headers, and body logged at INFO (PII / bearer-token leak)
+
+Four `info!` log lines on every webhook dispatch expose the full webhook URL, the entire `HashMap<String, String>` headers map (verbatim `Debug` format — including `Authorization: Bearer …` and `X-API-Key: …` if the operator put them there), the raw body template, and the rendered JSON body. There is no redact / mask helper, no env-var toggle, no feature-flag gate. Centralised log aggregators ingest every event payload at the default INFO level.
+
+{/* source: crates/fraiseql-observers/src/actions.rs:L254-L290 — four info! lines on every webhook dispatch */}
+
+**Mitigation:** set `RUST_LOG=fraiseql_server=warn,fraiseql_observers=warn` in production so the INFO-level lines do not write. Do not interpolate PII into webhook URLs or header values, even if the destination requires a bearer token — emit the bearer at the gateway layer instead so the framework never sees it.
+
+### FW-22 [#349](https://github.com/fraiseql/fraiseql/issues/349) — `EmailAction` is a stub that reports success
+
+The `Email` action variant deserialises from `ActionConfig` and dispatches through `EmailAction::execute`, but the executor returns `Ok(())` without sending an email. No SMTP connection, no MX lookup, no message construction. Observability counters increment as if delivery succeeded; `fraiseql_observer_action_executed_total` shows 100 % delivery, `fraiseql_observer_action_errors_total` stays at zero, and the DLQ stays empty. Silent failure with green metrics.
+
+{/* source: crates/fraiseql-observers/src/actions.rs — EmailAction::execute returns Ok without sending */}
+
+**Mitigation:** until fixed, route email notifications through a webhook handler to a real email gateway (Resend, SendGrid, Postmark, Mailgun, or an internal SMTP relay). Do not configure `action = "email"` in any production observer at v2.3.2.
+
+## Mental model
+
+An observer is a row in the `tb_observer` PostgreSQL table that maps an `(entity_type, event_type)` pair to one or more actions. When a tracked entity row is INSERTed, UPDATEed, or DELETEed, the runtime publishes a CDC event to `tb_entity_change_log`, the matcher resolves the observers that subscribe to that pair, and each observer's actions execute through the executor with retry / DLQ behaviour configured per action.
+
+```text
+mutation → tb_entity_change_log → ChangeLogListener → matcher → executor → action(s)
+                                                                                 ↓ on failure
+                                                                            retry → DLQ
+```
+
+{/* source: crates/fraiseql-observers/src/lib.rs:L1-L45 — architecture overview */}
+{/* source: crates/fraiseql-observers/src/listener/change_log.rs:L1 — PG poll loop entrypoint */}
+{/* source: crates/fraiseql-observers/src/executor/dispatch.rs:L1-L60 — dispatch path */}
+
+The runtime is composed of seven primary subsystems, all visible in the crate's `lib.rs` module rustdoc: `listener` (CDC poll + lease), `matcher` (Elo condition evaluator + `entity_type_index`), `executor` (dispatch + retry + DLQ), `actions` (webhook / Slack / email / future variants), `job_queue` (async worker pool), `metrics` (Prometheus registry), and `transport` (Postgres LISTEN/NOTIFY, NATS, or in-memory bridge). The off-the-shelf binary wires the Postgres transport by default; the others require Cargo features and library-API composition (see [Backends and transports](#backends-and-transports) below — FW-23 silently disables the TOML transport selector).
+
+## How observers are composed today
+
+Two configuration shapes coexist at v2.3.2 and **they describe different things** — read this section before writing any `fraiseql.toml` against the older docs.
+
+### The binary's `[observers]` TOML — runtime knobs only
+
+The `fraiseql-server` binary's `ObserverConfig` exposes runtime knobs only. There is no `backend`, no `redis_url`, no `nats_url`, no `[[observers.handlers]]` array-of-tables. Unknown keys are silently dropped because `ServerConfig` does not carry `#[serde(deny_unknown_fields)]`. See FW-15 [#342](https://github.com/fraiseql/fraiseql/issues/342) under [Known issues](#known-issues).
+
+{/* source: crates/fraiseql-server/src/server_config/observers.rs:L94-L130 — ObserverConfig field set */}
+{/* source: crates/fraiseql-server/src/server_config/mod.rs:L40-L42 — ServerConfig lacks deny_unknown_fields */}
+
+```toml title="fraiseql.toml — what the binary actually consumes at v2.3.2"
 [observers]
-backend   = "redis"      # "in-memory" | "postgres" | "redis" | "nats"
-redis_url = "${REDIS_URL}"
-# nats_url = "${NATS_URL}"
+enabled              = true     # default true; set false to disable the subsystem
+poll_interval_ms     = 100      # default 100 ms; how often the listener polls tb_entity_change_log
+batch_size           = 100      # default 100; max events per poll iteration
+channel_capacity     = 1000     # default 1000; in-process event channel size
+auto_reload          = true     # default true; reload observer set on schedule
+reload_interval_secs = 60       # default 60; reload schedule
+
+[observers.pool]
+min_connections      = 2        # default 2; min PG connections in the observer pool
+max_connections      = 5        # default 5; max PG connections in the observer pool
+acquire_timeout_secs = 10       # default 10; timeout when checking out a connection
 ```
 
-Observer actions (webhooks, Slack) are wired up in your schema configuration. See the sections below for each action type.
+{/* source: crates/fraiseql-server/src/server_config/observers.rs:L42-L130 — ObserverConfig + ObserverPoolConfig */}
 
-### Observer lifecycle
+### Observer definitions live in the database, not TOML
 
-<Aside type="note">
-Observers run **asynchronously by default** — the mutation returns to the client immediately and observer actions fire in the background (fire-and-forget). Because observers are TOML-configured (not SDK-defined), synchronous observer behavior is not available as a decorator parameter. Use synchronous observers sparingly; they add latency to every matching mutation.
-</Aside>
+Observer subscriptions (entity, event, condition, actions, retry config) are rows in the `tb_observer` table. The migration `06_create_observer_management.sql` is **not** auto-applied by the binary; the docs-test transcript captures the boot-time error `relation "tb_observer" does not exist` when the schema is missing, and `/health` returns `{"status":"degraded","observers":{"running":false,...}}`.
 
-<Aside type="note">
-Observer actions use **at-least-once delivery**. Your webhook endpoints and action handlers must be idempotent — the same event may be delivered more than once after crashes or network partitions. Use a unique event ID (available in the webhook payload) to deduplicate. For exactly-once delivery semantics, route events through [NATS JetStream](/features/nats) instead.
-</Aside>
+{/* source: crates/fraiseql-observers/migrations/06_create_observer_management.sql — tb_observer schema, not auto-applied */}
+{/* source: _internal/.plan/red-evidence/phase-03-cycle-03-stale-observer-toml.transcript:L60 — relation "tb_observer" does not exist on cold boot */}
+{/* source: _internal/.plan/red-evidence/phase-03-cycle-03-stale-observer-toml.transcript:L150-L154 — /health degraded shape */}
 
-<Aside type="note">
-In multi-replica deployments, FraiseQL uses a **distributed lease** to ensure only one instance processes each CDC stream at a time. If the active instance crashes, the lease expires and another instance takes over — at-least-once delivery still applies near the handover boundary, but the same event is not processed by all replicas simultaneously. The lease backend is selected from `[observers]`: `postgres` uses a PostgreSQL session advisory lock (no extra infrastructure), `redis` uses an atomic TTL-based lock. The default in-process backend does not coordinate across replicas.
-</Aside>
+Observers are installed at runtime through the HTTP API at `POST /api/observers`. The body shape lives in `crates/fraiseql-server/src/observers/handlers.rs`:
 
-## Observer Anatomy
-
-An observer consists of:
-
-1. **Entity**: The table/type being watched
-2. **Event**: INSERT, UPDATE, or DELETE
-3. **Condition**: When to trigger (optional Elo expression)
-4. **Actions**: What to do when triggered (webhook, Slack)
-
-Observers are configured in `fraiseql.toml`. Database change events are delivered via PostgreSQL `LISTEN`/`NOTIFY` — the FraiseQL server registers listeners at startup and routes each event to matching observers.
-
-```toml
-# Example observer configuration in fraiseql.toml
-[observers]
-backend   = "redis"
-redis_url = "${REDIS_URL}"
+```bash title="install an observer via the HTTP API"
+curl -X POST http://localhost:8080/api/observers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "order_high_value_webhook",
+    "entity_type": "Order",
+    "event_type": "INSERT",
+    "condition": "total > 1000",
+    "actions": [
+      {
+        "type": "webhook",
+        "url_env": "HIGH_VALUE_WEBHOOK_URL",
+        "headers": {"X-Source": "fraiseql"},
+        "body_template": "{\"order_id\": \"{{id}}\", \"total\": {{total}}}"
+      }
+    ],
+    "retry": {"max_attempts": 3, "backoff_strategy": "exponential", "initial_delay_ms": 100, "max_delay_ms": 30000}
+  }'
 ```
 
-Each observer action (webhook, Slack) is registered in your schema configuration file alongside your type definitions. The condition uses the same Elo expression syntax as custom scalar validation (see [Elo Validation Language](/concepts/elo-validation)).
+{/* source: crates/fraiseql-server/src/observers/handlers.rs — POST /api/observers request body shape */}
+{/* source: crates/fraiseql-server/src/server/routing/observers.rs:L43-L46 — observer_routes nested under /api/observers */}
 
-## Events
+### The CLI's `[[observers.handlers]]` — validation-only, never executed
 
-FraiseQL observers react to three event types, delivered via PostgreSQL `LISTEN`/`NOTIFY`:
+`fraiseql-cli`'s `ObserversConfig` has a different shape: `backend: String`, `redis_url: Option<String>`, `nats_url: Option<String>`, and a `handlers: Vec<EventHandler>` array. This shape is consumed by `fraiseql-cli compile` for TOML-schema validation; the running server never sees it. Setting `[[observers.handlers]]` in the TOML the server reads is a no-op (FW-23 [#350](https://github.com/fraiseql/fraiseql/issues/350)).
 
-### INSERT
+{/* source: crates/fraiseql-cli/src/config/toml_schema/observers.rs:L1-L55 — CLI validation shape, NOT the runtime shape */}
+{/* source: _internal/.plan/red-evidence/phase-03-cycle-03-stale-observer-toml.transcript:L85-L122 — side-by-side comparison */}
 
-Triggered when a new record is created. The event payload contains the new record's data.
+## Backends and transports
 
-```
-Entity: User
-Event:  INSERT
-→ Delivers new user data to configured webhook/Slack actions
-```
+`TransportKind` (the library-API enum) has three variants: `Postgres` (default), `Nats`, and `InMemory`. Redis is **not** an event transport — it backs the observer cache, dedup, job queue, and lease subsystems. MySQL appears only as a one-way bridge (MySQL CDC → NATS), not a standalone event transport.
 
-### UPDATE
+{/* source: crates/fraiseql-observers/src/config/transport.rs:L15-L26 — TransportKind variants */}
+{/* source: crates/fraiseql-observers/Cargo.toml:L52-L68 — redis used for caching/dedup/queue/lease, not transport */}
+{/* source: crates/fraiseql-observers/src/transport/mysql_bridge.rs:L1-L31 — MySQL-to-NATS bridge only */}
 
-Triggered when a record is modified. The condition can use `field.changed()` syntax to filter on specific field transitions:
+| Transport | Default | Cargo feature | What the off-the-shelf binary does |
+|---|---|---|---|
+| `Postgres` (LISTEN/NOTIFY on `tb_entity_change_log`) | yes | none beyond `observers` | Wired unconditionally as `ChangeLogListener` at startup |
+| `Nats` (JetStream consumer) | no | `observers-nats` (server) + library composition | The `[observers]` TOML has no `transport` field; FW-23 below silently keeps the Postgres listener |
+| `InMemory` (in-process channel) | no | library composition only | Not selectable from the binary |
 
-```
-Condition: status.changed() && status == 'shipped'
-→ Fires only when the status field transitions to 'shipped'
-```
+{/* source: crates/fraiseql-server/Cargo.toml:L171-L176 — observers / observers-nats / observers-enterprise feature flags */}
+{/* source: crates/fraiseql-observers/Cargo.toml:L52-L68 — feature flag matrix */}
 
-**Change detection in conditions:**
-- `field.changed()` — True if the field value changed in this event
-- `field.old` — Previous value (available in condition context for UPDATE events)
-- `field.new` — New value (same as `field` in condition context)
+The binary builds a server-local `ObserverRuntimeConfig` (not the library type) in `init_observer_runtime` and **unconditionally** constructs a `ChangeLogListener` regardless of feature flags, env vars, or TOML keys (FW-23 [#350](https://github.com/fraiseql/fraiseql/issues/350)). To use the NATS transport, embed `fraiseql-observers` directly in a host binary and call the library API.
 
-### DELETE
+{/* source: crates/fraiseql-server/src/server/extensions.rs:L362-L389 — init_observer_runtime hard-wires PG listener */}
 
-Triggered when a record is removed. The event payload contains the deleted record's data.
+## Action types
 
-## Conditions
+`ActionConfig` is a `#[non_exhaustive]` tagged union (tag = `"type"`, snake_case). Four variants ship: `Webhook`, `Slack`, `Email` (stub — FW-22), and an internal NATS-publish path. Four additional variants exist as stubs: `Sms`, `Push`, `Search`, `Cache`. The `non_exhaustive` attribute is a forward-compatibility guarantee for the framework, **not** a user-pluggable hook — operators cannot register a custom action type from outside the crate.
 
-Conditions filter which events trigger an observer. They use the Elo expression language with `&&` (AND) and `||` (OR) logical operators:
-
-### Simple Comparisons
-
-```text
-total > 1000
-status == 'active'
-is_premium == true
-```
-
-### Change Detection
-
-```text
-# Field changed to specific value
-status.changed() && status == 'shipped'
-
-# Field changed from specific value
-status.old == 'pending' && status == 'approved'
-
-# Any change to field
-email.changed()
-```
-
-### Complex Logic
-
-```text
-# Multiple conditions
-total > 1000 && is_premium == true
-
-# OR conditions
-status == 'failed' || retry_count > 3
-
-# Field comparisons
-quantity > min_quantity
-```
-
-## Actions
+{/* source: crates/fraiseql-observers/src/config/runtime.rs:L260-L350 — ActionConfig tagged union */}
+{/* source: crates/fraiseql-observers/src/config/runtime.rs:L262 — #[non_exhaustive] attribute */}
 
 ### Webhook
 
-The webhook action sends an HTTP POST to a configured URL. It supports custom headers and Mustache-style body templates:
-
-**Template variables:**
-- `{{field_name}}` — Mustache-style field substitution in body templates
-- `{{_json}}` — Complete record as JSON
-
-**Supported configuration:**
-- `url` — Hardcoded URL
-- `url_env` — URL from environment variable (preferred for secrets)
-- `headers` — Custom HTTP headers (use env var references for tokens)
-- `body_template` — Mustache template; if omitted, the raw event data is sent
-
-#### Webhook payload format
-
-When no `body_template` is specified, FraiseQL sends a standard JSON payload to the webhook URL:
-
 ```json
-// Webhook payload received by your endpoint
 {
-  "event": "INSERT",
-  "table": "tb_order",
-  "timestamp": "2026-02-25T10:00:00Z",
-  "data": {
-    "new": {
-      "id": "order-123",
-      "status": "confirmed",
-      "total": 99.99,
-      "user_id": "user-456"
-    },
-    "old": null
-  }
+  "type": "webhook",
+  "url_env": "MY_WEBHOOK_URL",
+  "headers": {"X-Source": "fraiseql"},
+  "body_template": "{\"id\": \"{{id}}\", \"total\": {{total}}}"
 }
 ```
 
-For UPDATE events, `"old"` contains the previous field values and `"new"` contains the updated values. For DELETE events, `"new"` is `null` and `"old"` contains the deleted record. The `"timestamp"` field is a stable event ID you can use for deduplication.
+The webhook action POSTs the rendered body to the configured URL. A `Mustache`-style template renders `{{field_name}}` substitutions against the event payload. The default HTTP timeout is 30 seconds (`DEFAULT_WEBHOOK_TIMEOUT_SECS`). Outbound URLs are validated against an SSRF allowlist (`validate_outbound_url`) on every dispatch — see [Security caveats](#security-caveats) for the FW-20 kill-switch that disables the allowlist globally.
 
-### Email
+{/* source: crates/fraiseql-observers/src/actions.rs:L20-L23 — DEFAULT_WEBHOOK_TIMEOUT_SECS = 30 */}
+{/* source: crates/fraiseql-observers/src/actions.rs:L33-L80 — validate_outbound_url + SSRF allowlist */}
+{/* source: crates/fraiseql-observers/src/ssrf.rs:L1 — DNS resolve and re-check */}
 
-The email action sends messages via SMTP using the [lettre](https://github.com/lettre/lettre) crate. It supports TLS, SMTP authentication, and configurable sender/recipient addresses.
+The retry policy is configured per observer (not per action) via the `retry` field on the observer row. Supported strategies: `Exponential` (default), `Linear`, `Fixed`. Each strategy applies ±25 % jitter and saturating arithmetic. Non-2xx responses are classified: 4xx (except 429) → permanent → DLQ, 5xx and 429 → transient → retry.
 
-**Supported configuration:**
-- `from` — Sender email address
-- `to` — Recipient email address(es)
-- `subject` — Subject line with `{field_name}` substitution
-- `body_template` — Body text with `{field_name}` substitution
-- `smtp_host` or `smtp_host_env` — SMTP server hostname
-- `smtp_port` — SMTP port (default: 587)
-- `smtp_user_env` — SMTP username from environment variable
-- `smtp_password_env` — SMTP password from environment variable
-- `tls` — `"required"` (default), `"opportunistic"`, or `"none"`
+{/* source: crates/fraiseql-observers/src/config/runtime.rs:L232-L239 — BackoffStrategy variants */}
+{/* source: crates/fraiseql-observers/src/executor/retry.rs:L80-L120 — jitter + saturating arithmetic */}
+{/* source: crates/fraiseql-observers/src/actions.rs:L185-L205 — permanent vs transient classification */}
 
 ### Slack
 
-The Slack action sends a message to a Slack webhook URL. Configure the webhook URL via an environment variable and specify the message template:
-
-**Supported configuration:**
-- `webhook_url` or `webhook_url_env` — Slack incoming webhook URL
-- `channel` — Slack channel (`#channel-name`)
-- `message` — Message text with `{field_name}` substitution
-
-Messages support standard Slack formatting (`:emoji:`, `*bold*`, `_italic_`).
-
-## Retry Configuration
-
-The observer system uses **at-least-once delivery**. When a webhook action fails (non-2xx response or network error), it is retried with backoff. Retry behavior is configured per-observer in your schema configuration:
-
-**Retry options:**
-- `max_attempts`: Maximum retry count (default: 3)
-- `backoff_strategy`: `"fixed"`, `"linear"`, or `"exponential"`
-- `initial_delay_ms`: First retry delay in milliseconds
-- `max_delay_ms`: Maximum delay between retries
-
-Because delivery is at-least-once, your webhook endpoints should be **idempotent** — the same event may arrive more than once after a crash or network partition. Use the event's unique ID from the payload for deduplication.
-
-### Dead-Letter Queue (DLQ) cap
-
-Events that exhaust all retry attempts are moved to the dead-letter queue for manual inspection. By default the DLQ is unbounded. In long-running deployments where failures are sustained (e.g. a downstream webhook is down for hours), the DLQ can grow large.
-
-Set `max_dlq_size` in `[observers]` to cap it:
-
-```toml
-[observers]
-backend      = "redis"
-redis_url    = "${REDIS_URL}"
-max_dlq_size = 1000   # drop newest entry + emit metric when cap reached
+```json
+{
+  "type": "slack",
+  "webhook_url_env": "SLACK_WEBHOOK_URL",
+  "channel": "#sales",
+  "message_template": "High-value order from {{customer_email}}: ${{total}}"
+}
 ```
 
-When the cap is reached, the **newest** incoming DLQ entry is dropped (the oldest entries are preserved for inspection) and the `fraiseql_observer_dlq_overflow_total` counter increments. Alert on that counter to detect sustained downstream failures.
+The Slack action is a specialised webhook with channel + message-template support. It shares the same SSRF allowlist, the same 30-second timeout, and the same retry / DLQ path as `Webhook`.
 
-<Aside type="caution">
-`max_dlq_size = 0` is rejected at startup — use `null` / omit the field to keep the DLQ unbounded.
-</Aside>
+{/* source: crates/fraiseql-observers/src/config/runtime.rs:L260-L350 — ActionConfig::Slack variant */}
 
-For complete configuration reference including sizing parameters, see
-[TOML Configuration: \[observers\]](/reference/toml-config#observers).
+### Email — stub at v2.3.2
 
-## Complete Example
-
-Here is an e-commerce observer setup showing the TOML configuration and corresponding Python schema types:
-
-**`fraiseql.toml`** — configure the observer backend:
-
-```toml
-[observers]
-backend   = "redis"
-redis_url = "${REDIS_URL}"
+```json
+{
+  "type": "email",
+  "to": "ops@example.com",
+  "subject_template": "Order {{id}} confirmed",
+  "body_template": "Customer: {{customer_email}}\nTotal: {{total}}"
+}
 ```
 
-**`schema.py`** — define the GraphQL types (observer actions are wired separately in schema configuration):
+`EmailAction::execute` returns `Ok(())` without sending mail. See FW-22 [#349](https://github.com/fraiseql/fraiseql/issues/349) under [Security caveats](#security-caveats) for the mitigation (route through a webhook to a real email gateway).
 
-```python
-import fraiseql
-from fraiseql.scalars import ID, DateTime
+### Internal NATS publish
 
-@fraiseql.type
-class Order:
-    id: ID
-    customer_email: str
-    status: str
-    total: float
-    created_at: DateTime
+When the library-side composition wires the NATS transport, the executor publishes each matched event to a subject derived from the observer definition. This is **not** an `ActionConfig` variant — it is part of the transport layer, configured via `TransportConfig` in `ObserverRuntimeConfig`, not via the observer row.
 
-@fraiseql.type
-class Payment:
-    id: ID
-    order_id: ID
-    amount: float
-    status: str
-    processed_at: DateTime | None
+{/* source: crates/fraiseql-observers/src/transport/nats.rs:L1 — NATS subject publish path */}
+{/* source: crates/fraiseql-observers/src/config/runtime.rs:L13-L73 — ObserverRuntimeConfig.transport */}
+
+## Lifecycle: subscription → dispatch → retry → DLQ
+
+1. **Subscribe.** `POST /api/observers` writes a row to `tb_observer`. The runtime's `auto_reload` loop picks it up on the next `reload_interval_secs` boundary (default 60 seconds), or call `POST /runtime/reload` to force an immediate reload.
+2. **Mutate.** Any mutation that touches a tracked entity writes a row to `tb_entity_change_log` via the entity-changelog trigger.
+3. **Listen.** `ChangeLogListener` polls `tb_entity_change_log` every `poll_interval_ms` (default 100 ms), draining up to `batch_size` (default 100) rows per iteration.
+4. **Match.** The matcher resolves the `(entity_type, event_type)` pair against the `entity_type_index` ArcSwap snapshot, evaluating each candidate observer's `condition` against the event payload through the Elo DSL evaluator.
+5. **Dispatch.** Each matched observer's actions are queued on the in-process channel (capacity `channel_capacity`, default 1000). The `OverflowPolicy::Drop` default (library-side) drops events when the channel is full and increments `fraiseql_observer_backlog_size`.
+6. **Execute.** Worker tasks pull from the channel and call each `ActionConfig`'s executor. Each action runs to completion or to its configured retry budget.
+7. **Retry.** Failed dispatches re-queue with the `RetryConfig`'s backoff strategy until `max_attempts` is reached (default 3).
+8. **DLQ.** Events that exhaust their retries land in the in-process `InMemoryDlq`, exposed at `GET /api/observers/dlq`. **The DLQ is unbounded** (FW-16 [#343](https://github.com/fraiseql/fraiseql/issues/343)) and lost on process restart.
+
+{/* source: crates/fraiseql-server/src/observers/runtime.rs:L189-L221 — repository.list(...) at boot */}
+{/* source: crates/fraiseql-server/src/observers/runtime.rs:L451-L515 — process_event sequential per batch */}
+{/* source: crates/fraiseql-observers/src/listener/change_log.rs:L1 — poll loop */}
+{/* source: crates/fraiseql-observers/src/executor/dispatch.rs:L1-L60 — dispatch path */}
+{/* source: crates/fraiseql-observers/src/executor/retry.rs:L1-L80 — retry strategies */}
+{/* source: crates/fraiseql-observers/src/traits.rs — DeadLetterQueue trait */}
+{/* source: crates/fraiseql-server/src/observers/runtime.rs:L687-L772 — InMemoryDlq implementation */}
+
+Two concurrent DLQ retry handlers on the same item double-fire the action — `POST /api/observers/dlq/{id}/retry` does not serialise (FW-17 [#344](https://github.com/fraiseql/fraiseql/issues/344)). See [Known issues](#known-issues).
+
+## `entity_type_index` atomicity (F056)
+
+The matcher's `(entity_type, event_type) → [observer_id]` lookup table is held in an `Arc<ArcSwap<HashMap<...>>>`. Reload republishes the whole map via a single atomic `store(Arc::new(new_map))`; readers do `.load().get(...)` on a snapshot Arc. A concurrent CDC dispatch observes either the pre-reload generation or the post-reload generation atomically — never a partial or empty index. This is the F056 guarantee.
+
+{/* source: crates/fraiseql-server/src/observers/runtime.rs:L18 — use arc_swap::ArcSwap */}
+{/* source: crates/fraiseql-server/src/observers/runtime.rs:L139 — entity_type_index field */}
+{/* source: crates/fraiseql-server/src/observers/runtime.rs:L164 — Arc::new(ArcSwap::from_pointee(HashMap::new())) */}
+{/* source: crates/fraiseql-server/src/observers/runtime.rs:L300 — store(Arc::new(...)) on initial load */}
+{/* source: crates/fraiseql-server/src/observers/runtime.rs:L673 — store(Arc::new(...)) on reload */}
+{/* source: CHANGELOG.md:L347-L358 — F006/F007/F008/F013/F048/F056/F057 batch */}
+
+:::note[Brief generation skew on reload — page-level guidance, not a bug]
+The sibling `matcher: Arc<RwLock<Option<EventMatcher>>>` and `executor: Arc<RwLock<Option<Arc<ObserverExecutor>>>>` are written sequentially during reload (matcher first, then executor, then the `entity_type_index` ArcSwap). An in-flight dispatch can observe (new matcher, old executor) for a brief window — but each component is internally consistent and the dispatch path does not cross-validate them, so reload-during-dispatch is at worst a one-event "generation skew" and never a panic or a lost event. The F056 atomicity guarantee covers the index lookup; matcher/executor pairs are not lock-free but are individually consistent.
+:::
+
+{/* source: crates/fraiseql-server/src/observers/runtime.rs:L130-L145 — matcher / executor RwLock fields beside the entity_type_index ArcSwap */}
+
+## Worker panic propagation (F014)
+
+The async worker pool catches panics at the `JoinHandle` layer. When a worker task panics, `handle_join_outcome` matches `JoinError::is_panic()`, logs at `error!` with `worker=` / `error=` fields, increments `fraiseql_observer_job_failed_total{error="panic"}`, and the executor loop continues. The runtime does not deadlock; the next event in the queue dispatches normally.
+
+{/* source: crates/fraiseql-observers/src/job_queue/executor.rs:L129-L188 — JoinSet::spawn + handle_join_outcome */}
+{/* source: crates/fraiseql-observers/src/job_queue/executor.rs:L168-L195 — JoinError::is_panic() → error! + metric */}
+{/* source: CHANGELOG.md:L226-L228 — F014 entry */}
+
+## Cross-instance HA via `observers-enterprise`
+
+The `observers-enterprise` server feature pulls `fraiseql-observers/{enterprise, nats}`. The `enterprise` bundle on the crate side is `["checkpoint", "dedup", "caching", "queue", "search", "metrics"]`; `caching` transitively pulls `redis`, which makes the `redis-lease` backend available. With the `redis-lease` backend wired in a host binary, multiple FraiseQL replicas coordinate so only one instance drives the listener at a time — the lease holder polls CDC, dispatches actions, and writes checkpoints; on lease loss (TTL expiry, network partition, or graceful release), another replica takes over.
+
+{/* source: crates/fraiseql-server/Cargo.toml:L175 — observers-enterprise = ["observers", "fraiseql-observers/enterprise", "fraiseql-observers/nats"] */}
+{/* source: crates/fraiseql-observers/Cargo.toml:L57 — enterprise = ["checkpoint", "dedup", "caching", "queue", "search", "metrics"] */}
+{/* source: crates/fraiseql-observers/src/listener/lease.rs:L1-L18 — in-process, postgres advisory lock, redis SET NX EX */}
+
+Without `redis-lease` or the Postgres advisory-lock backend wired by the host binary, the default lease is in-process — every replica's runtime polls and dispatches independently, and any event is processed once per replica. At-least-once delivery still holds within a single replica; cross-replica deduplication requires the `dedup` feature plus a Redis instance.
+
+## Route mount paths
+
+Five observer-related route trees are mounted by the binary when the `observers` feature is built in. **Four are under `/api/observers`; one is at the router root** — a layout inconsistency tracked as FW-13 [#340](https://github.com/fraiseql/fraiseql/issues/340).
+
+| Mount | Path | Purpose |
+|---|---|---|
+| `app.nest("/api/observers", observer_routes(...))` | `GET\|POST\|PUT\|DELETE /api/observers[...]` | Observer CRUD against `tb_observer` |
+| `app.nest("/api/observers", observer_changelog_routes(...))` | `GET /api/observers/changelog`, `GET\|PUT /api/observers/checkpoint/{id}` | Changelog read + checkpoint persistence |
+| `app.nest("/api/observers", observer_dlq_routes(...))` | `GET /api/observers/dlq`, `POST /api/observers/dlq/{id}/retry`, `POST /api/observers/dlq/retry-all`, `DELETE /api/observers/dlq/{id}` | DLQ inspection + retry |
+| `app.nest("/api/observers", observer_dlq_routes(...))` (same router) | `GET /api/observers/delivery/health` | DLQ delivery health summary |
+| `app.merge(observer_runtime_routes(...))` | `GET /runtime/health`, `POST /runtime/reload` | Runtime status + force-reload — mounted at root, **not** under `/api/observers` |
+
+{/* source: crates/fraiseql-server/src/server/routing/observers.rs:L18-L66 — exact mount layout */}
+
+The `runtime` routes are reachable at `GET /runtime/health` and `POST /runtime/reload`, not `/api/observers/runtime/*`. The cycle-3 RED transcript captures the 404 against the latter and the 503 (degraded) against the former when `tb_observer` is missing.
+
+{/* source: _internal/.plan/red-evidence/phase-03-cycle-03-stale-observer-toml.transcript:L126-L145 — route-mount mismatch observation */}
+
+## Health signals
+
+The runtime exposes Prometheus metrics at the same `/metrics` endpoint as the rest of the server. Key labels:
+
+| Metric | Notes |
+|---|---|
+| `fraiseql_observer_events_processed_total{status}` | Counter; `status` is `success` or `failure` |
+| `fraiseql_observer_events_failed_total` | Counter; events that exhausted retries |
+| `fraiseql_observer_action_executed_total` | Counter; individual action invocations |
+| `fraiseql_observer_action_errors_total` | Counter; action invocations that returned an error |
+| `fraiseql_observer_action_duration_seconds` | Histogram; per-action latency |
+| `fraiseql_observer_backlog_size` | Gauge; in-process channel fill level |
+| `fraiseql_observer_dlq_items` | Gauge; current DLQ depth |
+| `fraiseql_observer_job_queue_depth` | Gauge; async job queue depth |
+| `fraiseql_observer_job_failed_total{error}` | Counter; `error="panic"` covers F014 worker panics |
+
+{/* source: crates/fraiseql-observers/src/metrics/registry.rs — metric registration */}
+
+The `/health` endpoint returns one of two shapes:
+
+```json title="healthy runtime"
+{"status":"healthy","database":{"connected":true,...},
+ "observers":{"running":true,"pending_events":0},
+ "version":"2.3.2","schema_hash":"..."}
 ```
 
-The observer actions (high-value order webhook, order-shipped Slack message, payment-failed webhook) are registered via your schema configuration file alongside your type definitions. Each observer maps an entity + event + condition to one or more webhook or Slack actions.
-
-## Delivery Guarantees and CheckpointStrategy
-
-The observer system uses **at-least-once delivery** by default — the same event may be dispatched more than once after a crash or restart. For most side effects (sending a notification, calling a webhook) this is acceptable because the action is idempotent or the duplicate is harmless.
-
-| Strategy | Behaviour | Use when |
-|----------|-----------|----------|
-| `AtLeastOnce` (default) | Event may be processed more than once | Action is idempotent (update a read model, send a metric, post to Slack) |
-| `EffectivelyOnce` | Deduplication via an idempotency table | Action must not execute twice (charge a card, send an email, credit an account) |
-
-### AtLeastOnce (default)
-
-No configuration needed. Observers that send Slack notifications, update read models, or fire webhooks that are idempotent by design use this strategy:
-
-```python
-# AtLeastOnce — default, no extra configuration
-@fraiseql.subscription(
-    entity_type="Order",
-    topic="order.created",
-    operation="create"
-)
-def notify_fulfillment(order: Order) -> None:
-    """Notifies the fulfillment system. Webhook is idempotent."""
-    pass
+```json title="degraded runtime (tb_observer missing)"
+{"status":"degraded","database":{"connected":true,...},
+ "observers":{"running":false,"pending_events":0},
+ "version":"2.3.2","schema_hash":"..."}
 ```
 
-### EffectivelyOnce
+{/* source: _internal/.plan/red-evidence/phase-03-cycle-03-stale-observer-toml.transcript:L150-L154 — degraded /health shape */}
+{/* source: _internal/.plan/red-evidence/phase-03-cycle-03-stale-observer-toml.transcript:L60-L62 — boot-time error when tb_observer missing */}
 
-For non-idempotent actions, configure an idempotency table. FraiseQL records a row before executing the action; duplicate events are detected and skipped via `ON CONFLICT DO NOTHING`:
+## Worked example
 
-```python
-# EffectivelyOnce — deduplication via idempotency table
-@fraiseql.subscription(
-    entity_type="Order",
-    topic="order.created",
-    operation="create",
-    checkpoint=fraiseql.EffectivelyOnce(
-        idempotency_table="billing_observer_keys"
-    )
-)
-def charge_customer(order: Order) -> None:
-    """Charges the customer. Must not execute twice."""
-    pass
+The companion script `scripts/docs-test/pages/observers.docs-test.sh` documents the intended host-binary flow:
+
+1. Bring up FraiseQL + PostgreSQL with the observers overlay; apply `migrations/06_create_observer_management.sql` so `tb_observer` and the DLQ schema exist.
+2. Confirm `/health` flips from `degraded` to `healthy`; `GET /runtime/health` returns 200 with `running=true`.
+3. `POST /api/observers` with a webhook observer pointing at a netcat sink in the test container.
+4. Trigger the source event via a tracked mutation.
+5. Verify the webhook payload reaches the sink.
+6. Kill the sink; verify retries; verify DLQ accumulates the failed event.
+
+At v2.3.2 the script does **not** drive the documented end-to-end happy path because FW-23 silently keeps the Postgres listener and FW-15 splits the TOML between CLI validation and runtime knobs. The script asserts the documented FW symptoms (FW-13, FW-14, FW-15, FW-16, FW-17, FW-18, FW-19, FW-22, FW-23) still reproduce against the frozen SHA, plus re-greps the library-API recipe at the cited line ranges so the page's claims stay locked. When the framework fixes ship and the binary wires the dispatch flow, the script's "still broken" assertions flip and the test fails loudly — the regression signal that unblocks the binary-driven happy path.
+
+```bash title="Expected — admin API accepts anonymous request (FW-21)"
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -X POST "http://127.0.0.1:8080/api/observers" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"t","entity_type":"x","event_type":"INSERT","actions":[]}'
+# 201 (created — no auth required at v2.3.2)
 ```
 
-The idempotency table is created automatically on first startup if it does not exist. Its schema:
+## Migration from the pre-v2.3 page
 
-```sql
-CREATE TABLE billing_observer_keys (
-    listener_id  TEXT        NOT NULL,
-    event_key    TEXT        NOT NULL,
-    processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (listener_id, event_key)
-);
-```
+:::caution[Previous version: the Python `@observer` decorator and `actions=[slack(), email()]` kwargs do not exist]
+The pre-v2.3 revision of this page documented a Python `@fraiseql.observer` decorator with `entity=`, `event=`, `condition=`, and `actions=[slack(...), email(...), webhook(...)]` keyword arguments, plus a `RetryConfig` Python class. **None of those symbols exist in the `fraiseql` Python package at v2.3.2.** The Python SDK is schema-authoring only — it defines GraphQL types, queries, and mutations and exports them to JSON. Observer registration, retry, DLQ, and dispatch are entirely Rust-runtime concerns, reached either through `POST /api/observers` (production) or by embedding `fraiseql-observers` in a host binary (library API).
+:::
 
-Old rows accumulate over time and must be pruned by a cleanup job. See the [Observer Operations Runbook](/operations/observer-runbook#idempotency-table-operations) for cleanup strategies and retention policies.
+What changed:
 
-### Rust API
+- `@fraiseql.observer(...)` decorator → **gone**. Use `POST /api/observers` to register observers at runtime, or write rows directly to `tb_observer`.
+- `actions=[slack("#sales", "..."), email(...), webhook(...)]` Python helpers → **gone**. Use the JSON `actions` array on the observer body with `type: "webhook" | "slack" | "email"` (note: `email` is a stub — FW-22).
+- `RetryConfig(max_attempts=5, backoff="exponential", initial_delay_ms=100)` Python class → **gone**. Use the JSON `retry` object on the observer body with the same field names.
+- The TOML keys `[observers] backend = "redis"`, `redis_url = "..."`, `nats_url = "..."`, and `[[observers.handlers]]` are **silently ignored** by the binary. They match the `fraiseql-cli compile`-time validation schema, not the running server's runtime schema (FW-15 + FW-23 below).
+- `pg_notify('fraiseql_changes', ...)` LISTEN/NOTIFY framing → mostly correct, but the actual mechanism polls `tb_entity_change_log` rather than receiving LISTEN events directly. The default `poll_interval_ms` is 100 ms.
 
-`CheckpointStrategy` is also available directly from the `fraiseql_observers` crate for embedding FraiseQL observers in a custom Rust application:
+## Known issues
 
-```rust
-use fraiseql_observers::{CheckpointStrategy, ListenerConfig};
+Eleven framework bugs are open against the v2.3.2 observer surface. The four security-class ones are detailed under [Security caveats](#security-caveats); the rest are operational regressions.
 
-// Default: fast, no deduplication
-let strategy = CheckpointStrategy::AtLeastOnce;
+| ID | Class | Symptom | Workaround |
+|---|---|---|---|
+| FW-13 [#340](https://github.com/fraiseql/fraiseql/issues/340) | qol | Observer runtime health / reload routes mounted at root (`/runtime/*`) instead of under `/api/observers/runtime/*`, contrary to other observer routes. | Document the root mount paths explicitly (this page does — see [Route mount paths](#route-mount-paths)). Operators must reach `GET /runtime/health` at root. |
+| FW-14 [#341](https://github.com/fraiseql/fraiseql/issues/341) | regression | The `fraiseql-cli` binary has no `observer` subcommand; the standalone `fraiseql-observers` CLI binary returns hard-coded mock JSON for DLQ subcommands. | Use the HTTP API at `/api/observers/dlq` instead of CLI commands. See the [Observer runbook](/operations/observer-runbook) for the `curl`-driven replacement flow. |
+| FW-15 [#342](https://github.com/fraiseql/fraiseql/issues/342) | regression | TOML schema is split between `fraiseql-cli` (validation, with `backend`/`handlers`) and `fraiseql-server` (runtime, with `poll_interval_ms`/`pool`); the runtime silently swallows the validation-side fields because `ServerConfig` lacks `deny_unknown_fields`. | Write `fraiseql.toml` against the runtime shape ([documented above](#the-binarys-observers-toml--runtime-knobs-only)). Install observers via `POST /api/observers`. |
+| FW-16 [#343](https://github.com/fraiseql/fraiseql/issues/343) | regression | `InMemoryDlq` grows unbounded; the documented `max_dlq_size` cap is exposed only on the library-side `ObserverRuntimeConfig`, not on the binary's `ObserverConfig`. `mark_retry_failed` silently `items.retain()`-removes the failed item — operators lose audit on retry failures. | Monitor `fraiseql_observer_dlq_items` externally; alert and drain via `DELETE /api/observers/dlq/{id}` when depth grows. Do not rely on `max_dlq_size` in TOML. |
+| FW-17 [#344](https://github.com/fraiseql/fraiseql/issues/344) | regression | Two concurrent `POST /api/observers/dlq/{id}/retry` calls on the same item both succeed at `dlq.get(id)`, both call `executor.process_event(...)`, both attempt `dlq.remove(id)`. The downstream webhook fires twice. At-least-once contract slips to at-least-twice in the retry race case. | Serialise DLQ retry calls externally (a single operator process invoking the endpoint), or wait for the framework fix before exposing `/api/observers/dlq/{id}/retry` to multiple consumers. |
+| FW-18 [#345](https://github.com/fraiseql/fraiseql/issues/345) | security | Webhook payloads are not HMAC-signed; receivers cannot verify origin. See [Security caveats](#fw-18-345--webhook-payloads-are-not-signed-no-hmac). | Terminate webhook subscriptions at an authenticating gateway. |
+| FW-19 [#346](https://github.com/fraiseql/fraiseql/issues/346) | security | Webhook URL, headers, and rendered body logged at INFO; PII + bearer-token leak via application logs. See [Security caveats](#fw-19-346--webhook-url-headers-and-body-logged-at-info-pii--bearer-token-leak). | `RUST_LOG=fraiseql_server=warn,fraiseql_observers=warn` in production. |
+| FW-20 [#347](https://github.com/fraiseql/fraiseql/issues/347) | security (critical) | `FRAISEQL_OBSERVERS_ALLOW_INSECURE=true` disables every SSRF guard in nine call sites; one-shot WARN at startup is the only signal. See [Security caveats](#fw-20-347--fw-21-348--anonymous-admin-api--ssrf-bypass-env-var-critical-combined). | Never set in any environment with network access to RFC 1918 / link-local addresses. |
+| FW-21 [#348](https://github.com/fraiseql/fraiseql/issues/348) | security (critical) | Observer admin API (`POST /api/observers`, `/runtime/reload`, `/dlq/*`) accepts anonymous requests. See [Security caveats](#fw-20-347--fw-21-348--anonymous-admin-api--ssrf-bypass-env-var-critical-combined). | Gate `/api/observers/*` and `/runtime/*` behind an authenticating reverse proxy or VPN-only network. |
+| FW-22 [#349](https://github.com/fraiseql/fraiseql/issues/349) | security | `EmailAction` is a stub that returns success without sending email; metrics show 100 % delivery. See [Security caveats](#fw-22-349--emailaction-is-a-stub-that-reports-success). | Route email through a webhook handler to a real email gateway. Do not use `action = "email"` at v2.3.2. |
+| FW-23 [#350](https://github.com/fraiseql/fraiseql/issues/350) | regression | Binary ignores `FRAISEQL_OBSERVER_TRANSPORT` and `[observers.transport]`; hard-wired to Postgres LISTEN/NOTIFY even with `observers-nats` feature compiled in. | Embed `fraiseql-observers` in a host binary and call the library API to select the NATS or InMemory transport. |
 
-// Effectively-once: records an idempotency key before processing
-let strategy = CheckpointStrategy::EffectivelyOnce {
-    idempotency_table: "fraiseql_observer_idempotency".to_string(),
-};
-```
+## See also
 
-| Method | Description |
-|--------|-------------|
-| `is_duplicate(pool, listener_id, key)` | Returns `true` if this event has already been processed |
-| `record_idempotency_key(pool, listener_id, key)` | Marks the event as processed (call before dispatching the action) |
+- [Observers (Building)](/building/observers) — how to install and bootstrap the observer subsystem against a fresh PostgreSQL database.
+- [Observer and webhook patterns (Building)](/building/observer-webhook-patterns) — subscriber-side receiver patterns; how downstream services consume FraiseQL's outbound webhooks.
+- [Observer operations runbook (Operations)](/operations/observer-runbook) — running observers in production; alert rules, sizing, recovery.
+- [NATS integration](/features/nats) — the NATS transport for cross-service event distribution.
+- [Multi-tenancy](/building/multi-tenancy) — JWT `tenant_id` claim extraction; the auth context that the framework does **not** yet apply to the observer admin API (FW-21).
 
-## Observer Log Output
-
-When `RUST_LOG=debug` is set, FraiseQL prints each observer invocation to stdout. Here is what firing the high-value order observer looks like:
-
-```
-[observer] on_high_value_order fired: Order{id=ord_123, total=1250.00}
-[observer] Sending Slack notification to #sales
-[observer] Slack notification delivered (channel=#sales, ts=1710509048.123456)
-[observer] on_high_value_order completed in 287ms
-```
-
-<Aside type="note">
-The email action uses SMTP via the `lettre` crate. For high-volume transactional email, consider routing through a webhook action to a dedicated email provider API (SendGrid, Resend, Postmark) instead of direct SMTP.
-</Aside>
-
-If an action fails, the log includes the error and retry schedule:
-
-```
-[observer] on_high_value_order fired: Order{id=ord_124, total=2400.00}
-[observer] Sending Slack notification to #sales
-[observer] Slack notification failed: connection timeout (attempt 1/3)
-[observer] Retrying in 200ms (exponential backoff)
-[observer] Slack notification delivered on attempt 2
-```
-
-## How Observers Work
-
-1. **Server startup**: FraiseQL registers PostgreSQL `LISTEN` listeners for database change events (not database triggers)
-2. **Write operation**: Mutation modifies a `tb_` table and emits a `pg_notify('fraiseql_changes', ...)` notification
-3. **Event received**: The FraiseQL server receives the notification via its LISTEN connection
-4. **Condition evaluation**: The observer's Elo condition is evaluated against the event data
-5. **Action dispatch**: Matching observers queue their actions for execution
-6. **Action execution**: Actions execute asynchronously with retry logic
-
-When multiple observers match the same event (same entity and event type), they execute in **definition order** — top-to-bottom as they appear in your schema file. This is deterministic and stable across deployments.
-
-The pipeline from trigger to execution:
-
-Observer execution pipeline
-
-```mermaid
-graph LR
-    A[GraphQL Mutation] --> B[Write to tb_* Table]
-    B --> C[pg_notify&#40;fraiseql_changes&#41;]
-    C --> D{Condition Met?}
-    D -->|Yes| E[Queue Actions]
-    D -->|No| F[Skip]
-    E --> G[Async Execution<br/>with Retry]
-```
-
-Each observer can dispatch one or more action types:
-
-Available action types
-
-```mermaid
-graph LR
-    O[Observer] --> W[Webhook<br/>HTTP POST]
-    O --> E[Email<br/>SMTP / SES]
-    O --> S[Slack<br/>Channel / DM]
-    O --> C[Custom<br/>Handler]
-```
-
-## Best Practices
-
-### Keep Conditions Simple
-
-Complex conditions are harder to debug. Prefer simple, readable conditions:
-
-```text
-# Good
-status == 'shipped'
-
-# Avoid — hard to read and debug
-status == 'shipped' && total > 100 && customer_type == 'premium'
-```
-
-For complex logic, create separate observers or use webhook endpoints that handle the routing logic.
-
-### Use Environment Variables
-
-Never hardcode secrets or URLs in your configuration. Reference environment variables in webhook URL and header settings:
-
-```text
-url_env = "WEBHOOK_URL"               # URL from environment variable
-headers.Authorization = "${API_TOKEN}" # Token from environment variable
-```
-
-### Handle Failures Gracefully
-
-Configure retry strategies based on whether your action is idempotent:
-
-- **Idempotent webhook** (safe to retry): `max_attempts = 5`, `backoff_strategy = "exponential"`
-- **Non-idempotent** (charge a card, send an SMS): `max_attempts = 1` to avoid duplicates
-
-## Verify It Works
-
-<Steps>
-
-1. **Configure the observer backend in `fraiseql.toml`**:
-   ```toml
-   [observers]
-   backend = "in-memory"  # Use in-memory for local testing
-   ```
-
-2. **Start a test webhook server** (in another terminal):
-   ```bash
-   # Using Python for quick testing
-   python3 -m http.server 3001 &
-   ```
-
-3. **Create a user to trigger the observer**:
-   ```bash
-   curl -X POST http://localhost:8080/graphql \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer $TOKEN" \
-     -d '{
-       "query": "mutation { createUser(input: { name: \"Test User\", email: \"test@example.com\" }) { id } }"
-     }'
-   ```
-
-4. **Check webhook was received**:
-   ```bash
-   # The webhook payload should appear in the http.server output:
-   # {"event": "INSERT", "table": "tb_user", "timestamp": "2024-01-15T10:30:00Z", "data": {"new": {...}}}
-   ```
-
-5. **Check observer logs** (if `RUST_LOG=debug` is set):
-   ```
-   [observer] User INSERT event received: id=550e8400-e29b-41d4-a716-446655440000
-   [observer] Sending webhook to http://localhost:3001/webhook
-   [observer] Webhook delivered (status=200)
-   ```
-
-6. **Test with conditions**: Configure an observer with `condition = "total > 100"` and verify that low-value orders do not trigger it.
-
-</Steps>
-
-## Troubleshooting
-
-### Observer Not Firing
-
-1. **Check entity name** matches the table name (case-sensitive):
-   ```python
-   entity="Order"  # Matches tb_order
-   ```
-
-2. **Verify the mutation actually modifies the table**:
-   - Observers only fire on INSERT/UPDATE/DELETE
-   - Read queries (SELECT) do not trigger observers
-
-3. **Check condition syntax**:
-   ```python
-   # Valid
-   condition="total > 100"
-   
-   # Invalid (no spaces around operator)
-   condition="total>100"
-   ```
-
-4. **Enable debug logging**:
-   ```bash
-   RUST_LOG=debug fraiseql run
-   ```
-
-### Webhook Not Received
-
-1. **Test the webhook endpoint directly**:
-   ```bash
-   curl -X POST http://your-webhook-url \
-     -H "Content-Type: application/json" \
-     -d '{"test": true}'
-   ```
-
-2. **Check network connectivity** from FraiseQL server:
-   ```bash
-   # On the FraiseQL server
-   curl -v http://your-webhook-url
-   ```
-
-3. **Review retry logs**:
-   ```
-   [observer] Webhook failed: connection timeout (attempt 1/3)
-   [observer] Retrying in 200ms
-   ```
-
-### Performance Issues
-
-If observers slow down mutations:
-
-1. **Use async execution** (default) — observers fire after the mutation response is sent, not before
-
-2. **Reduce action count** per observer — each action (webhook, Slack) adds latency
-
-3. **Move heavy processing to background jobs** via NATS JetStream
-
-## Next Steps
+## Next steps
 
 <CardGrid>
-  <Card title="Mutations" icon="pencil">
-    [Write operations that trigger observers](/concepts/mutations)
+  <Card title="Building observers" icon="setting">
+    [Install `tb_observer` and bootstrap the runtime](/building/observers)
   </Card>
-  <Card title="NATS Integration" icon="random">
-    [Route events through NATS JetStream for exactly-once delivery](/features/nats)
+  <Card title="Observer runbook" icon="open-book">
+    [Operate, size, and monitor in production](/operations/observer-runbook)
   </Card>
-  <Card title="Security" icon="shield">
-    [Secure observer webhook endpoints](/features/security)
+  <Card title="Webhook patterns" icon="puzzle">
+    [Subscriber-side receiver patterns](/building/observer-webhook-patterns)
   </Card>
 </CardGrid>

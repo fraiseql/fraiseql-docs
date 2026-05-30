@@ -1,0 +1,203 @@
+# Phase 03 / Cycle 1 RED — Two-tenant deployment reproduction (blocked)
+#
+# Persona: Writer (Opus 4.7)
+# Date: 2026-05-29
+# Frozen FraiseQL SHA: d0a4ed4ec1770c70707f68fd9019f2b561d87461 (v2.3.2)
+# Target page: /building/multi-tenancy
+#
+# Goal (Cycle-1 RED bullet 2): "Configure a two-tenant deployment via
+# `PUT /api/v1/admin/tenants/foo` and `bar`; issue queries through both
+# with the same JWT; observe behaviour."
+#
+# Status: BLOCKED in this RED pass. The off-the-shelf `fraiseql-server`
+# binary (frozen-SHA Cycle-2 image) cannot host the documented two-tenant
+# deployment workflow end-to-end. Two independent blockers:
+#
+#   BLOCKER #1 — Admin API path is not auto-wired by the binary.
+#       `crates/fraiseql-server/src/server/routing/state.rs:L10-L181`
+#       (`build_app_state()`) never installs a `TenantExecutorRegistry`, a
+#       `TenantExecutorFactory`, or a `DomainRegistry`. The admin tenant
+#       handlers (`crates/fraiseql-server/src/routes/api/tenant_admin.rs`
+#       L160-L283) require all three. Even if `admin_api_enabled = true` and
+#       `admin_token` is set, `PUT /api/v1/admin/tenants/foo` returns
+#       `404 multi-tenant mode not enabled` because
+#       `state.tenant_registry()` is `None`.
+#
+#       Reproduced under BLOCKER #1 below: a sidecar fraiseql-server with
+#       `admin_api_enabled = true` + `admin_token = "..."` boots, but fails
+#       startup with an unrelated RBAC-schema error (see BLOCKER #2). Even
+#       had it booted, the tenant admin path would 404.
+#
+#   BLOCKER #2 — `admin_api_enabled = true` requires RBAC schema
+#       initialization that fails on a clean Postgres database with a SQL
+#       syntax error from the docs-test schema fixture set.
+#
+#       Reproduced literally: setting `admin_api_enabled = true` (with
+#       `admin_token`) causes the server to bail at startup with
+#       `Configuration error: Failed to initialize RBAC schema: Query error:
+#       Schema creation failed: error returned from database: syntax error
+#       at or near "("`. This is a docs-harness fixture problem (the harness
+#       does not pre-seed an RBAC-compatible schema) NOT a framework bug.
+#       The Cycle-5 smoke fixture seeds a hand-rolled User/Post schema
+#       (`fixtures/postgres/_smoke.compiled.json`) that does not include
+#       the RBAC management bootstrap. The GREEN Writer / Cleanup will need
+#       to either:
+#           (a) ship a `multi-tenancy.toml` overlay that disables the RBAC
+#               management API path while still enabling tenant admin
+#               routes, OR
+#           (b) extend the harness with an `[rbac]` bootstrap fixture, OR
+#           (c) document the two-tenant deployment workflow as a
+#               library-level recipe (calling `with_tenant_registry` from a
+#               host binary that wraps `fraiseql-server`) rather than as a
+#               curl-against-the-binary recipe, which is what the existing
+#               framework integration test does
+#               (`crates/fraiseql-server/tests/multitenancy_test.rs`).
+#
+# Source citations:
+#   - tenant admin handler 404 path:
+#     crates/fraiseql-server/src/routes/api/tenant_admin.rs:L160-L283
+#   - registry default is None:
+#     crates/fraiseql-server/src/routes/graphql/app_state.rs:L101-L180
+#   - registry never installed by the binary:
+#     crates/fraiseql-server/src/server/routing/state.rs:L10-L181
+#   - integration test wires the registry programmatically:
+#     crates/fraiseql-server/tests/multitenancy_test.rs:L107-L130 (helper)
+#
+# Reproduction shell (run from ~/code/fraiseql-docs/scripts/docs-test):
+
+────────────────────────────────────────────────────────────────────────────
+
+# Step 1 — baseline binary (admin_api_enabled = false): 404 on every tenant
+# admin endpoint.
+
+$ curl -s -o /dev/null -w 'HTTP %{http_code}\n' \
+       -X GET http://localhost:8080/api/v1/admin/tenants
+HTTP 404
+
+$ curl -s -o /dev/null -w 'HTTP %{http_code}\n' \
+       -X PUT http://localhost:8080/api/v1/admin/tenants/foo \
+       -H 'Content-Type: application/json' \
+       -d '{"schema":{},"connection":{}}'
+HTTP 404
+
+# Same 404 for `bar`. The handler is not mounted at all because
+# `admin_api_enabled = false` short-circuits `mount_admin_api()`
+# (server/routing/admin.rs:L389-L489).
+
+────────────────────────────────────────────────────────────────────────────
+
+# Step 2 — sidecar binary with admin_api_enabled = true + admin_token set.
+
+$ cat > /tmp/tenancy-red-overlay.toml << 'EOF'
+bind_addr = "0.0.0.0:8080"
+database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"
+schema_path = "/etc/fraiseql/schema.compiled.json"
+cors_enabled = true
+cors_origins = ["http://localhost:8080"]
+health_path = "/health"
+playground_enabled = false
+metrics_enabled = false
+admin_api_enabled = true
+admin_token = "red-evidence-admin-token-do-not-ship"
+introspection_enabled = false
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30
+EOF
+
+$ docker run --rm \
+    --name fraiseql-red-tenancy \
+    --network fraiseql-docs-test_default \
+    -e FRAISEQL_ENV=development \
+    -e FRAISEQL_CONFIG=/etc/fraiseql/fraiseql.toml \
+    -e RUST_LOG=fraiseql_server=info,tower_http=info \
+    -v /tmp/tenancy-red-overlay.toml:/etc/fraiseql/fraiseql.toml:ro \
+    fraiseql-docs-test-fraiseql:latest
+
+INFO  fraiseql_server: FraiseQL Server v2.3.2
+INFO  fraiseql_server: Server configuration loaded
+                       bind_addr=0.0.0.0:8080
+                       database_url=postgresql://fraiseql:...@postgres:5432/fraiseql
+                       graphql_path=/graphql
+                       health_path=/health
+                       introspection_path=/introspection
+                       metrics_enabled=false
+INFO  fraiseql_server::schema::loader: Loading compiled schema
+                                       path=/etc/fraiseql/schema.compiled.json
+INFO  fraiseql_server::schema::loader: Schema loaded successfully
+                                       path=/etc/fraiseql/schema.compiled.json
+INFO  fraiseql_server: Compiled schema loaded successfully
+INFO  fraiseql_server: Initializing security configuration from schema
+WARN  fraiseql_server: Failed to load security config from schema, using defaults
+                      error=Configuration error: Missing security configuration in schema
+INFO  fraiseql_server: Initializing PostgreSQL connection pool
+                       pool_min_size=5 pool_max_size=20 pool_timeout_secs=30
+INFO  fraiseql_server: PostgreSQL adapter ready
+INFO  fraiseql_server: Initializing observer PostgreSQL pool min=2 max=5 timeout_secs=10
+INFO  fraiseql_server: Arrow Flight service initialized with real database adapter
+INFO  fraiseql_server::server::extensions: Observer runtime disabled
+INFO  fraiseql_server: FraiseQL Server 2.3.2 starting (HTTP + Arrow Flight)
+Error: Configuration error: Failed to initialize RBAC schema: Query error:
+       Schema creation failed: error returned from database: syntax error at or near "("
+
+────────────────────────────────────────────────────────────────────────────
+
+# Step 3 — what the framework's own multitenancy_test.rs does (library API):
+
+# crates/fraiseql-server/tests/multitenancy_test.rs:107-130 (helper)
+#
+#   fn make_multitenant_state() -> AppState<StubAdapter> {
+#       let state = AppState::new(Arc::new(Executor::new(
+#           CompiledSchema::default(),
+#           Arc::new(StubAdapter::new("default")),
+#       )));
+#       let registry = TenantExecutorRegistry::new(state.executor.clone());
+#       state.with_tenant_registry(Arc::new(registry))
+#   }
+#
+# Tests then call `registry.upsert("tenant-a", ...)` and
+# `registry.upsert("tenant-b", ...)` directly. There is NO HTTP-API surface
+# in those tests — they exercise the registry as a Rust API.
+
+────────────────────────────────────────────────────────────────────────────
+
+What this reproduction proves vs. what the Cycle-1 phase-doc claims:
+
+1. CONFIRMED at library level: `TenantExecutorRegistry::upsert(...)` is the
+   admission point for new tenants. The admin REST routes
+   (`PUT /api/v1/admin/tenants/{key}` etc.) are the HTTP facade for the same
+   operation (tenant_admin.rs:L160-L283 calls
+   `registry.upsert_with_quota(...)`).
+
+2. DRIFT vs. phase-doc Cycle-1 bullets — the admin REST API:
+       PUT/DELETE /api/v1/admin/tenants/{key}
+       GET        /api/v1/admin/tenants
+       GET        /api/v1/admin/tenants/{key}/health
+       PUT/DELETE /api/v1/admin/domains/{domain}
+       GET        /api/v1/admin/domains
+   is mounted by the binary's `mount_admin_api()` ONLY when:
+     (i)  `admin_api_enabled = true` AND `admin_token` is set, AND
+     (ii) `AppState::tenant_registry` is `Some(...)`.
+
+   Condition (ii) is never satisfied by the binary at the frozen SHA. The
+   Writer GREEN draft must either pivot to "library API + host binary"
+   framing or block on a framework feature request.
+
+3. DRIFT vs. phase-doc Cycle-1 bullet "v2.3 hardening additions":
+   `TenancyConfig` / `TenancyMode` settings live on the *compiled schema*
+   (`security.tenancy` block — security_config.rs:L113-L186), NOT on the
+   server TOML. They are produced by `fraiseql-cli compile` from
+   `[fraiseql.tenancy]` in `fraiseql.toml`. The docs-test image does NOT
+   ship the `fraiseql` CLI binary (see `Dockerfile.fraiseql`'s
+   `CARGO_FEATURES` block which builds `fraiseql-server` only). The GREEN
+   Writer must show this via either (a) a hand-rolled compiled schema with
+   `security.tenancy.mode = "row"`, (b) a sidecar CLI container, or
+   (c) document the CLI's output shape without a runnable exercise.
+
+4. Additional framework finding to surface to Bug-Finder (next session):
+   `admin_api_enabled = true` causes startup failure when the database does
+   not have the RBAC management schema. This was observed against the
+   docs-test Postgres fixture in this RED pass. May be a docs-harness
+   fixture gap, may be a framework bug (server should not refuse to boot
+   when RBAC bootstrap fails — degrade RBAC routes only). Bug-Finder owns
+   the call.

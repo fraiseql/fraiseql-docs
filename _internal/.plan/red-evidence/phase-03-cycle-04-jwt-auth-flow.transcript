@@ -1,0 +1,258 @@
+# Phase 03 / Cycle 4 — Writer RED — Live HS256 + auth-endpoint probing
+
+Date: 2026-05-30
+SHA:  d0a4ed4ec1770c70707f68fd9019f2b561d87461
+Stack: `bash scripts/docs-test/docs-test.sh up --profile postgres,fraiseql`
+       (Compose service `fraiseql` from `Dockerfile.fraiseql`, default features
+        include `auth`, +arrow,observers*,rest,redis-pkce,redis-apq,
+        redis-rate-limiting.)
+
+Compose service runs with the baked-in minimal compiled schema
+(`/etc/fraiseql/schema.compiled.json`) which has NO `security.*` block.  This
+is the "off-the-shelf binary + bare-bones TOML" reproduction surface.
+
+────────────────────────────────────────────────────────────────────────────────
+Test 1 — Baseline server (no TOML auth, no schema security block)
+────────────────────────────────────────────────────────────────────────────────
+
+  $ docker compose exec fraiseql sh -c \
+      'curl -sS -o /tmp/r -w "HTTP %{http_code}\n" -X POST \
+         http://127.0.0.1:8080/graphql \
+         -H "Content-Type: application/json" \
+         -d "{\"query\":\"{ __schema { types { name } } }\"}"; \
+       head -c 200 /tmp/r'
+
+  HTTP 200
+  {"data":{"__schema":{"description":"FraiseQL GraphQL Schema",...
+
+  → Anonymous introspection succeeds.  No bearer token required.  This is
+    expected from the off-the-shelf binary against the baked-in minimal schema
+    because neither `[auth]` nor `[auth_hs256]` are set, and the compiled
+    schema has no security block.  The page MUST teach the reader the
+    minimum-viable-secure starting point (HS256 testing mode at minimum).
+
+────────────────────────────────────────────────────────────────────────────────
+Test 2 — `/auth/me` endpoint NOT mounted on bare schema
+────────────────────────────────────────────────────────────────────────────────
+
+  $ curl -sS -o /tmp/r -w "HTTP %{http_code}\n" http://127.0.0.1:8080/auth/me
+  HTTP 404
+
+  → Mount logic (`crates/fraiseql-server/src/server/routing/auth.rs:L81-L101`)
+    requires BOTH an OIDC validator and `[auth.me] enabled = true` in the
+    compiled schema.  Neither is present → 404 (route not registered).
+
+────────────────────────────────────────────────────────────────────────────────
+Test 3 — PKCE `/auth/start` NOT mounted on bare schema
+────────────────────────────────────────────────────────────────────────────────
+
+  $ curl -sS -o /tmp/r -w "HTTP %{http_code}\n" http://127.0.0.1:8080/auth/start
+  HTTP 404
+
+  → Mount logic (`auth.rs:L25-L46`) requires both `pkce_store` AND
+    `oidc_server_client` from the compiled schema.  Bare schema → both
+    `None` → route not mounted.
+
+────────────────────────────────────────────────────────────────────────────────
+Test 4 — Token revocation `/auth/revoke` NOT mounted on bare schema
+────────────────────────────────────────────────────────────────────────────────
+
+  $ curl -sS -o /tmp/r -w "HTTP %{http_code}\n" -X POST \
+      http://127.0.0.1:8080/auth/revoke \
+      -H "Content-Type: application/json" -d '{"jti":"abc"}'
+  HTTP 404
+
+  → Mount logic (`auth.rs:L103-L114`) requires `revocation_manager`, which
+    `revocation_manager_from_schema` (`token_revocation.rs:L384-L437`) reads
+    from `schema.security.additional["token_revocation"]`.  Bare schema → None
+    → route not mounted.
+
+────────────────────────────────────────────────────────────────────────────────
+Test 5 — `[auth_hs256]` direct-TOML wiring DOES work (the bright spot)
+────────────────────────────────────────────────────────────────────────────────
+
+Overlay:
+
+  [auth_hs256]
+  secret_env = "FRAISEQL_HS256_SECRET"
+  issuer = "docs-test"
+  audience = "docs-test-api"
+
+Boot with overlay (against same baked-in minimal schema, no recompile):
+
+  $ docker compose exec fraiseql sh -c \
+      'export FRAISEQL_HS256_SECRET=docs-test-secret-key-32-bytes-min!! && \
+       /app/fraiseql-server --config /tmp/auth-hs256-test.toml >/tmp/server.log 2>&1 &
+       sleep 4
+       tail -30 /tmp/server.log'
+
+Server log excerpt:
+
+  2026-05-30T00:11:44 INFO fraiseql_server::server::builder:
+    Initializing HS256 authentication (local validation, no network)
+    secret_env=FRAISEQL_HS256_SECRET issuer=Some("docs-test")
+    audience=Some("docs-test-api")
+  2026-05-30T00:11:44 INFO fraiseql_server::server::routing::graphql:
+    GraphQL endpoint protected by HS256 authentication (GET and POST)
+    graphql_path=/graphql
+
+  → HS256 from TOML IS auto-wired by the off-the-shelf binary against the
+    bare schema.  This is the ONE auth subsystem that does not require
+    `fraiseql-cli compile` to take effect.  Confirms `[auth]` (OIDC) and
+    `[auth_hs256]` are read directly from `ServerConfig`
+    (`crates/fraiseql-server/src/server_config/mod.rs:L293-L327`), not from
+    the compiled schema's `security.additional`.
+
+────────────────────────────────────────────────────────────────────────────────
+Test 6 — Subsystem auto-wiring inventory (binary against bare schema)
+────────────────────────────────────────────────────────────────────────────────
+
+  Subsystem                       | Reads from              | Auto-wired by binary?
+  ──────────────────────────────  | ──────────────────────  | ─────────────────────
+  [auth] (OIDC)                   | ServerConfig (TOML)     | ✅ YES — direct
+  [auth_hs256] (HS256 testing)    | ServerConfig (TOML)     | ✅ YES — direct
+  [auth.me] (GET /auth/me)        | OidcConfig.me           | ✅ YES — direct
+                                  |   (rides on [auth])     |    (requires [auth])
+  [security.api_keys]             | schema.security.        | ⚠️ COMPILED-SCHEMA
+                                  |   additional["api_keys"]|    (needs `fraiseql-cli
+                                  |                         |     compile`)
+  [security.token_revocation]     | schema.security.        | ⚠️ COMPILED-SCHEMA
+                                  |   additional[...]       |
+  [security.pkce]                 | schema.security.        | ⚠️ COMPILED-SCHEMA
+                                  |   additional[...]       |    + state_encryption
+                                  |                         |      + [auth]
+  [security.state_encryption]     | schema.security.        | ⚠️ COMPILED-SCHEMA
+                                  |   additional[...]       |
+  [security.rate_limiting]        | schema.security.        | ⚠️ COMPILED-SCHEMA
+                                  |   additional[...]       |
+  Brute-force protection          | (NOT WIRED — see        | ❌ NOT REACHABLE via
+   (failed_login_max_attempts)    |  Observation 7)         |    [security.rate_limiting]
+                                  |                         |    on the off-the-shelf
+                                  |                         |    binary
+
+  Source-of-truth: `crates/fraiseql-server/src/server/builder.rs:L108-L128`
+  shows every subsystem call site at server construction.  `[auth]` and
+  `[auth_hs256]` paths (L307-L325) are reached BEFORE the schema's
+  `security.*` is consulted.  Everything else requires the cli-compile
+  indirection.
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 7 — Brute-force protection (failed_login_max_attempts) silently
+dropped on the server side
+────────────────────────────────────────────────────────────────────────────────
+
+The CLI TOML schema (`crates/fraiseql-cli/src/config/toml_schema/security.rs:
+L181-L249`) accepts:
+
+  [security.rate_limiting]
+  failed_login_max_attempts = 5
+  failed_login_lockout_secs = 3600
+
+But the server-side `RateLimitingSecurityConfig`
+(`crates/fraiseql-server/src/middleware/rate_limit/config.rs:L7-L52`) has NO
+`failed_login_*` fields.  When the CLI emits `schema.compiled.json` with
+those keys under `security.additional["rate_limiting"]`, the server's
+`serde_json::from_value::<RateLimitingSecurityConfig>` ignores them
+(serde's default behaviour — extra keys are dropped, not denied).  Brute-force
+protection via this TOML section is documentation-side promise the binary
+does NOT honour.
+
+Same FW-15 class as the observers CLI/runtime schema split.  Likely a
+**FW-N filing candidate**.  Cycle 4 Bug-Finder should reproduce by:
+
+  1. Compile a schema with `[security.rate_limiting] failed_login_max_attempts
+     = 1`.
+  2. Boot the binary with that schema.
+  3. Make 100 failed login attempts (e.g. POST /auth/start without
+     credentials, or POST /graphql with deliberately-bad bearer).
+  4. Confirm the binary does NOT lock out the offending IP / sub after the
+     first attempt.
+
+A separate `fraiseql-auth` crate has its own brute-force facility
+(`crates/fraiseql-auth/src/rate_limiting.rs:L530-L562` —
+`AuthRateLimiters.failed_logins`) but `fraiseql-server` never imports or
+instantiates it.  Whole-server grep:
+
+  $ git grep -n 'failed_logins\|AuthRateLimiter' \
+      d0a4ed4ec1770c70707f68fd9019f2b561d87461 -- 'crates/fraiseql-server/src/'
+  (no matches)
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 8 — Token revocation `backend = "postgres"` silently falls back
+to in-memory
+────────────────────────────────────────────────────────────────────────────────
+
+CLI TOML schema accepts `backend = "redis" | "postgres" | "memory"`
+(`crates/fraiseql-cli/src/config/toml_schema/security.rs:L466-L501`).  Server
+implementation supports only `memory` and `redis`
+(`crates/fraiseql-server/src/token_revocation.rs:L399-L435`); the `postgres`
+arm of the match would land in the "Unknown revocation backend" warning
+branch and fall back to in-memory.  Operator following the CLI-validated
+shape gets silent downgrade to single-instance ephemeral revocation.
+
+FW-N filing candidate — same FW-15 class (CLI/runtime schema split).
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 9 — Anonymous baseline = unauthenticated /graphql + /studio
+────────────────────────────────────────────────────────────────────────────────
+
+Test 1 above showed `/graphql` open without auth at the bare default config.
+Server log also showed `Studio admin dashboard mounted at /studio`
+unconditionally.  No `[auth]`-required gate by default.  For a reader who
+boots the binary against an empty schema, the security model is "anonymous
+GraphQL + anonymous Studio".
+
+This is structurally identical to FW-21 (anonymous observer admin API).  The
+GREEN page MUST lead with a `## Security caveats` block stating:
+
+  - Off-the-shelf `fraiseql-server` does NOT authenticate any endpoint by
+    default.  Configure `[auth_hs256]` (testing) or `[auth]` (OIDC) BEFORE
+    exposing the binary.
+  - `/studio`, GraphQL introspection, the GraphQL endpoint itself, the
+    metrics/admin/design API endpoints are all governed by
+    `introspection_require_auth` / `metadata_require_auth` etc., which
+    DEFAULT to `true` BUT only take effect when an OIDC validator is
+    present.  Without `[auth]` / `[auth_hs256]`, "require auth" is a no-op.
+  - Library-API framing: the page MUST recommend, for production, that the
+    host binary wrap `fraiseql-server` and explicitly compile a schema with
+    `[security.api_keys]`, `[security.token_revocation]`,
+    `[security.state_encryption]`, `[security.pkce]`, and
+    `[security.rate_limiting]`.
+
+  Server log (Test 5) shows the warnings the binary emits when the operator
+  has no OIDC:
+
+  WARN: subscription_require_auth is true but no OIDC configured —
+        subscriptions disabled
+  WARN: SECURITY: design_api_require_auth is true but no OIDC configured —
+        design API endpoints are DISABLED.  Configure an OIDC validator or
+        set design_api_require_auth = false (development only).
+  ERROR: RBAC Management API disabled — admin_token is not set. ...
+
+  These warnings exist for good reason and the page must reference them.
+
+────────────────────────────────────────────────────────────────────────────────
+Test coverage gap — OIDC PKCE flow against a stub IdP
+────────────────────────────────────────────────────────────────────────────────
+
+The docs-test compose stack does NOT include an OIDC stub container at
+this SHA.  Exercising the full PKCE flow end-to-end requires either:
+
+  (a) Adding an OIDC stub (Dex / Keycloak / mock-oauth2-server) to the
+      Compose stack under a new `oidc` profile.
+  (b) Substituting `[auth_hs256]` for the JWT-validation half of the flow
+      and proving PKCE state-encryption / S256 challenge / cookie set
+      paths via unit-test surface (`crates/fraiseql-auth/tests/
+      pkce_roundtrip_test.rs`, `crates/fraiseql-server/tests/security/
+      auth_pkce_flow_test.rs`).
+
+GREEN Writer / Cleanup must close this gap with option (a).  Bug-Finder
+should also attempt the full algorithm-confusion attack — easier with a
+stub IdP that can be coerced into signing with HS256.
+
+────────────────────────────────────────────────────────────────────────────────
+Tear-down
+────────────────────────────────────────────────────────────────────────────────
+
+  $ bash scripts/docs-test/docs-test.sh down
+  → green tear-down (no orphaned processes).

@@ -1,0 +1,67 @@
+# Multi-tenancy overlay for the FraiseQL docs-test harness.
+#
+# Loaded by scripts/docs-test/pages/multi-tenancy.docs-test.sh as a full
+# `fraiseql.toml` (NOT a partial overlay — the runtime image's startup loads
+# a single TOML, not a layered config). The content mirrors baseline.toml
+# with one addition: an explicit `admin_token` so the admin REST routes are
+# mounted at the binary level.
+#
+# Why this overlay exists even though FW-3 / #330 means the binary doesn't
+# wire the registry: the docs-test script asserts that the admin tenant API
+# returns 404 from the off-the-shelf binary regardless of TOML configuration.
+# That assertion is satisfied either way the route fails — by route-absent
+# 404 (no admin_token set, admin router not mounted) or by handler-short-
+# circuit 404 (admin_token set, handler returns "multi-tenant mode not
+# enabled" from `state.tenant_registry().ok_or_else(...)`). Both are valid
+# FW-3 symptoms from the reader perspective: "the admin tenant API is
+# unreachable on the off-the-shelf binary."
+#
+# This overlay takes the route-absent path (no `admin_token`). The original
+# draft set `admin_token` to force the handler-short-circuit shape, but the
+# clean docs-test Postgres rejects RBAC schema bootstrap with `Failed to
+# initialize RBAC schema: ... syntax error at or near "("` whenever
+# `admin_token` is present (irrespective of `admin_api_enabled`). The
+# container then CrashLoops and /health never reaches 200. This is the
+# inline sidenote on framework issue #330 — when Phase 09 either fixes the
+# bootstrap or adds an [rbac] override fixture under fixtures/postgres/,
+# this overlay can flip back to setting `admin_token` and prove the
+# handler-short-circuit shape directly. Until then the route-absent path
+# is the only way to keep the docs-test stack bootable.
+#
+# `admin_api_enabled` stays `false` for the same reason — toggling it true
+# also triggers the RBAC bootstrap path.
+#
+# All keys derived from `~/code/fraiseql@d0a4ed4ec` (the frozen SHA). The
+# `<!-- source: ... -->` HTML-comment citations live inside `#` TOML
+# comments so `toml::from_str` ignores them.
+
+bind_addr = "0.0.0.0:8080"
+
+database_url = "postgresql://fraiseql:fraiseql_docs_test@postgres:5432/fraiseql"
+
+schema_path = "/etc/fraiseql/schema.compiled.json"
+
+cors_enabled = true
+cors_origins = ["http://localhost:8080"]
+
+health_path = "/health"
+
+playground_enabled = false
+metrics_enabled = false
+admin_api_enabled = false
+introspection_enabled = false
+
+# ── Admin token ──────────────────────────────────────────────────────────────
+# Deliberately UNSET (see header). Setting `admin_token` triggers RBAC
+# schema bootstrap on the docs-test PG, which currently fails with
+# `syntax error at or near "("` and CrashLoops the container. The FW-3
+# docs-test assertion (admin tenant API returns 404) is satisfied by the
+# route-absent path regardless. When Phase 09 lands the RBAC fixture or
+# bootstrap fix, this overlay can flip back to setting `admin_token`.
+#
+# <!-- source: crates/fraiseql-server/src/server/routing/admin.rs:L389-L489 -->
+
+# ── Pool sizing (inherits baseline) ──────────────────────────────────────────
+pool_min_size = 5
+pool_max_size = 20
+pool_timeout_secs = 30

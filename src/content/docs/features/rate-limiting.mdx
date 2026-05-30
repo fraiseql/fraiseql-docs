@@ -33,7 +33,7 @@ burst_size                   = 200
 trust_proxy_headers          = false # set true only when behind a trusted reverse proxy
 ```
 
-**Per-user limit**: Authenticated users receive 10× the global rate by default. This reflects that authenticated requests are identifiable (abuse is traceable) and service accounts legitimately call at higher rates. Override with `requests_per_second_per_user` when the default is too permissive — for example, on public-facing APIs where "authenticated" just means "has an account."
+**Per-user limit**: Authenticated users receive 10× the global rate by default. This reflects that authenticated requests are identifiable (abuse is traceable) and service accounts legitimately call at higher rates. Override with `requests_per_second_per_user` when the default is too permissive — for example, on public-facing APIs where "authenticated" only means "has an account."
 
 ### Auth endpoint limits
 
@@ -62,12 +62,23 @@ auth_logout_window_secs    = 60
 
 ### Failed login protection
 
+<Aside type="danger">
+**FW-24 [#356](https://github.com/fraiseql/fraiseql/issues/356) — brute-force protection silently dropped at v2.3.2.** The CLI TOML schema `RateLimitingSecurityConfig` accepts `failed_login_max_attempts` and `failed_login_lockout_secs`; the server runtime mirror `RateLimitConfig` has neither field. Serde silently drops the keys. A whole-server grep for `failed_logins` returns zero hits — `fraiseql-auth::AuthRateLimiters` exists in a sibling crate but is never instantiated by `fraiseql-server`. Brute-force lockout via `[security.rate_limiting]` is a **no-op at v2.3.2**.
+
+**Mitigation:** enforce brute-force lockout at the reverse proxy or CDN layer until the field is wired in the server runtime. See [authentication caveat 6](/building/authentication#6-fw-24-356--brute-force-protection-silently-dropped-security).
+
+{/* source: crates/fraiseql-cli/src/config/toml_schema/security.rs:L209-L212 — CLI schema accepts failed_login_max_attempts / failed_login_lockout_secs */}
+{/* source: crates/fraiseql-server/src/middleware/rate_limit/config.rs:L7-L40 — server runtime mirror has no failed_login_* fields */}
+</Aside>
+
 ```toml
 [security.rate_limiting]
-enabled                  = true
-failed_login_max_requests = 5
-failed_login_window_secs  = 3600  # 1-hour lockout window
+enabled                    = true
+failed_login_max_attempts  = 5
+failed_login_lockout_secs  = 3600  # 1-hour lockout window
 ```
+
+The CLI accepts these fields, but they are no-ops at v2.3.2 per the caveat above. The defaults coded into the CLI schema are `failed_login_max_attempts = 10` and `failed_login_lockout_secs = 900` (15 minutes).
 
 ---
 
@@ -144,8 +155,10 @@ Set `FRAISEQL_REQUIRE_REDIS=1` in your deployment environment to make the server
 | `auth_callback_max_requests` | `10` | Per 60s window |
 | `auth_refresh_max_requests` | `20` | Per 300s window |
 | `auth_logout_max_requests` | `30` | Per 60s window |
-| `failed_login_max_requests` | `5` | Failed attempts before lockout |
-| `failed_login_window_secs` | `3600` | 1-hour lockout window |
+| `failed_login_max_attempts` | `10` | Failed attempts before lockout (accepted by CLI; silently dropped by server runtime — see FW-24 below) |
+| `failed_login_lockout_secs` | `900` | 15-minute lockout window (accepted by CLI; silently dropped — same, FW-24) |
+
+> **FW-24 [#356](https://github.com/fraiseql/fraiseql/issues/356)**: Both `failed_login_max_attempts` and `failed_login_lockout_secs` are accepted by the CLI schema but silently dropped by the server runtime at v2.3.2. Brute-force lockout is a no-op.
 
 ---
 
@@ -153,7 +166,7 @@ Set `FRAISEQL_REQUIRE_REDIS=1` in your deployment environment to make the server
 
 FraiseQL includes rate limit headers on all responses:
 
-```
+```text
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 95
 X-RateLimit-Reset: 1704067260
@@ -161,7 +174,7 @@ X-RateLimit-Reset: 1704067260
 
 When rate limited (HTTP 429):
 
-```
+```text
 HTTP/1.1 429 Too Many Requests
 Retry-After: 5
 X-RateLimit-Limit: 100
@@ -277,7 +290,7 @@ func executeWithRetry(query string, variables map[string]interface{}, maxRetries
 
 The following paths are always exempt from rate limiting:
 
-```
+```text
 GET /health   → always 200 OK
 GET /ready    → always 200 OK
 GET /metrics  → always 200 OK (Prometheus scrape endpoint)
@@ -302,7 +315,7 @@ Monitor rate limiting behaviour through HTTP response counters:
 
 ### Grafana queries
 
-```
+```text
 # 4xx response rate (includes rate-limited requests)
 rate(fraiseql_http_responses_4xx[5m])
 
@@ -330,19 +343,19 @@ rate(fraiseql_rate_limit_redis_errors_total[5m])
 
 Rate limiting applies per-transport. Metrics are tagged with the transport type (`graphql`, `rest`, `grpc`). By default, limits are shared across transports per client (same token bucket), so a client hitting rate limits on REST also counts toward their GraphQL quota. Per-transport limits can be configured if needed.
 
-## Next Steps
+## Next steps
 
 <CardGrid>
   <Card title="Security" icon="shield">
     [Security](/features/security) — Authentication and authorization
   </Card>
   <Card title="Authentication" icon="approve-check-circle">
-    [Authentication](/guides/authentication) — JWT, OIDC, and failed login protection
+    [Authentication](/building/authentication) — JWT, OIDC, and failed login protection
   </Card>
   <Card title="TOML Reference" icon="setting">
     [TOML Config](/reference/toml-config#securityrate_limiting) — Full field reference
   </Card>
   <Card title="Performance" icon="rocket">
-    [Performance](/guides/performance) — Optimization strategies
+    [Performance](/operations/performance) — Optimization strategies
   </Card>
 </CardGrid>

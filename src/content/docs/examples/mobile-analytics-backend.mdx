@@ -5,9 +5,7 @@ description: Build a high-performance analytics backend for mobile apps
 
 import { Tabs, TabItem, Aside, CardGrid, Card, Steps } from '@astrojs/starlight/components';
 
-A production-grade analytics backend handling millions of events from mobile apps.
-
-**Repository**: [github.com/fraiseql/examples/mobile-analytics-backend](https://github.com/fraiseql/examples/mobile-analytics-backend)
+This page walks through a production-grade analytics backend that ingests batches of events from mobile clients and rolls them up into daily metrics — all inside one SQL function. Every snippet below is the runnable form — copy into your own project, adjust the names, and you have the same pattern in your codebase. If you want a runnable scaffold first, walk the [quickstart](/getting-started/quickstart) and then return here.
 
 ## Features Demonstrated
 
@@ -392,45 +390,47 @@ SELECT cron.schedule(
 For archiving events before deletion, use a pg_cron job that copies rows to a cold-storage table or exports them via a separate ETL pipeline. This is outside FraiseQL's scope and should be handled by your data infrastructure.
 </Aside>
 
-## Getting Started
+## Walk the example end-to-end
 
 <Steps>
-1. **Clone the example**
+1. **Scaffold a project**
+
+   If you don't already have a FraiseQL project, walk the [quickstart](/getting-started/quickstart) first.
+
+2. **Install the schema above**
+
+   Apply the SQL from the [Data Model](#data-model) section in this page (tables, views, the `fn_track_events` function). Either via your migration tool or directly:
 
    ```bash
-   git clone https://github.com/fraiseql/examples/mobile-analytics-backend
-   cd mobile-analytics-backend
+   psql "$DATABASE_URL" -f schema.sql
    ```
 
-2. **Set up environment**
+3. **Compile the FraiseQL schema**
 
    ```bash
-   cp .env.example .env
-   uv sync
+   fraiseql compile
    ```
 
-3. **Start services**
-
-   ```bash
-   docker-compose up -d postgres redis nats
-   ```
-
-4. **Run migrations**
-
-   ```bash
-   fraiseql migrate
-   ```
-
-5. **Start FraiseQL server**
+4. **Start the server**
 
    ```bash
    fraiseql run
    ```
 
-6. **Generate test events**
+5. **Send a batch of events**
 
    ```bash
-   python scripts/generate_test_events.py
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query":"mutation{trackEvents(appId:\"app-uuid\",events:[{eventType:\"page_view\",sessionId:\"s1\",device:{},metadata:{}}]){success eventCount}}"}'
+   ```
+
+6. **Query the rolled-up metrics**
+
+   ```bash
+   curl -X POST http://localhost:8080/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query":"query{metrics(appId:\"app-uuid\",dateFrom:\"2026-05-01\",dateTo:\"2026-05-31\"){metricType value dimension date}}"}'
    ```
 </Steps>
 
@@ -456,3 +456,10 @@ For archiving events before deletion, use a pg_cron job that copies rows to a co
     Redis caching for aggregated metrics.
   </Card>
 </CardGrid>
+
+## Next steps
+
+- [Performance benchmarks](/operations/performance-benchmarks) — throughput numbers for high-ingest query shapes
+- [Rate limiting](/features/rate-limiting) — per-user and global limits for high-volume mobile traffic
+- [Audit logging](/features/audit-logging) — compliance and event trail for analytics pipelines
+- [SaaS Blog example](/examples/saas-blog) — multi-tenant patterns applicable to per-app analytics isolation
