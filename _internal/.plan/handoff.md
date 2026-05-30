@@ -6140,3 +6140,168 @@ On first invocation the Verifier found the remote branch was ahead of local — 
 - No push to `main`.
 
 ---
+
+### Phase 03 / Cycle 6 review — Reviewer (Opus 4.7) — 2026-05-30
+
+**Verdict: BLOCK.** 13/15 PASS, 2 ❌ on items 8 (COPY-PASTE FROM PRIOR VERSION) and 11 (ERROR-PATH COVERAGE — ×2 pages).
+
+#### CI re-confirmation
+
+- PR #14 head: `bfedd3a0e807f70f286ee3e612d107c2ee20ccf7` (Verifier commit on top of Writer-GREEN `1f03fc1`). Workflow run: [26676994035](https://github.com/fraiseql/fraiseql-docs/actions/runs/26676994035).
+- 6/6 docs-test jobs SUCCESS: `discover pages and frozen SHA`, `page-test (_smoke)`, `page-test (authentication)`, `page-test (file-storage)`, `page-test (multi-tenancy)`, `page-test (observers)`.
+- `pre-commit.ci - pr` ERROR (Phase-10 deferred per existing handoff convention; not a blocker).
+- Local sync: branch was 1 commit behind on initial check; `git pull --ff-only` brought local to `bfedd3a` (Verifier commit pushed earlier today). Review is against the actual pushed state, not against a stale local copy.
+
+#### Drop-scan results (against `bfedd3a`)
+
+- **G8a** — `git grep -nE "github.com/fraiseql/examples|fraiseql/examples\.git" src/content/docs/` → 1 hit in `src/content/docs/_internal/_sweep-matrix.md:402` only (internal planning row, does not ship). ✅ on shipping surface.
+- **G8b** — `git grep -niE "velocitybench" src/content/docs/` → 4 hits in `_internal/_sweep-matrix.md` (internal, does not ship) + **1 hit in `src/content/docs/community/blog/why-grpc-skips-json.mdx:113`** (SHIPS). ❌ on shipping surface — see Finding 3.
+- **G8d** — `git grep -n "status page coming soon" src/content/docs/` → 1 hit in `_internal/_sweep-matrix.md:59` (internal planning row, does not ship). ✅ on shipping surface.
+
+Additional out-of-brief-scope brand leftover: `src/pages/index.astro:359` (homepage hero) still says "Independent benchmarks via VelocityBench — publication in progress" — outside `src/content/docs/` so not flagged by the brief's drop-scan, but ships in `dist/index.html:130`. Flagged as a non-blocking nit; out of strict Cycle-6 scope but worth Cleanup attention.
+
+#### G8c not-touched verification
+
+`git diff main..HEAD --stat -- src/content/docs/playground.mdx src/content/docs/concepts/how-it-works.mdx src/content/docs/features/mutual-exclusivity.mdx src/content/docs/getting-started/quickstart.mdx src/content/docs/features/automatic-where.mdx src/content/docs/features/rich-filters.mdx`:
+
+- 5 of 6 unchanged.
+- `getting-started/quickstart.mdx` shows +13/-6 — but `git log` confirms the changes are from `cd3e753 docs(quickstart): Phase 03 / Cycle 5 GREEN — fix 3 SQL dialect bugs` (Cycle 5, not Cycle 6). ✅.
+
+#### G8d 1-line edit verification
+
+`src/content/docs/community/support.mdx:150` now reads:
+
+```
+- **Service announcements**: [GitHub Issues](https://github.com/fraiseql/fraiseql/issues) — file an issue with the `service` label, or check existing issues for outage / regression notices.
+```
+
+Matches proposed text from inventory § Follow-on. `grep -in "status page coming soon\|coming soon" src/content/docs/community/support.mdx` → 0 hits. GitHub Issues URL returns HTTP 200. ✅.
+
+#### G8a Class-A spot-check (4 pages)
+
+- **`examples/index.mdx`** — `**Repository**:` headers removed ✅; `git clone` blocks removed ✅; Fork CTA removed ✅; reads as tutorial-only ("Worked Examples" lede + "When to read which page" table + per-walkthrough cross-links + "Verifying your environment" with `/health` shape) ✅.
+- **`examples/saas-blog.mdx`** — `**Repository**:` L10 dropped ✅; old `git clone …/saas-blog` Steps block at L510-L628 now reads "Scaffold → install schema → compile → run → playground → 4 GraphQL mutations → verify tenant isolation → add tests" ✅.
+- **`examples/realtime-collaboration.mdx`** — `**Repository**:` L10 dropped ✅; Steps block at L430-L462 now reads "Scaffold → install schema → compile → run → subscribe → applyEdit" ✅.
+- **`examples/mobile-analytics-backend.mdx`** — `**Repository**:` L10 dropped ✅; Steps block at L395-L435 now reads "Scaffold → install schema → compile → run → trackEvents curl → metrics curl" ✅.
+
+Net: all 4 pages now read coherently as tutorial-only resources. No leftover "fork this repo" affordance.
+
+#### G8b Class-B spot-check (2 pages)
+
+- **`operations/performance-benchmarks.mdx`** — `velocitybench` URL refs removed ✅; frontmatter `description` reframed to "First-party FraiseQL throughput…" ✅; lede reframed to "The numbers below come from our own harness…" ✅; "Don't trust them — reproduce them" framing present ✅; `Reproduce on Your Hardware` section with `hey` + curl-warm + Q1 + Q3 + kill recipe present ✅. **❌ Recipe is not end-to-end executable — see Finding 1.**
+- **`community/blog/rest-direct-execution-benchmark.mdx`** — URL refs removed ✅; "First-party numbers" framing in frontmatter + lede + Methodology ✅; Caution Aside reframed to "first-party framework comparison" cross-link ✅; `Reproduce on your hardware` section with `hey` GraphQL + `hey` REST-direct recipe present ✅. **❌ Same defect as performance-benchmarks page — see Finding 2.**
+
+#### 15-point checklist walk
+
+```
+[✅] 1.  VERSION DRIFT — `v2.3.2` in examples/index.mdx:L132 matches Cargo.toml:L343 at frozen SHA. No other version refs on the 7 changed pages.
+[✅] 2.  WRONG-DB PATHS — All 7 pages explicit about PostgreSQL (examples pages call out PG features like RLS, pg_notify, materialized views; benchmark pages call out "PostgreSQL 15" in Prerequisites and capture date).
+[✅] 3.  FEATURE-FLAG OMISSIONS — No cargo-feature-gated behaviour claimed on the 7 changed pages. observers / federation references on examples/index.mdx are cross-links to dedicated pages that own the flag discipline.
+[✅] 4.  SECURITY-DEFAULT REGRESSIONS — saas-blog.mdx walks RLS-with-tenant-context as the production default; no `require_auth = false` / `cors = "*"` shown.
+[✅] 5.  SDK DIVERGENCE — Python SDK only (Functional per roadmap). No Go / Rust / TS / JVM SDK snippets on the 7 changed pages.
+[✅] 6.  DEAD LINKS — all 14 internal slugs referenced by the 7 changed pages resolve in dist/ (`getting-started/quickstart`, `building/multi-tenancy`, `building/authentication`, 3× `examples/*`, `features/observers`, `operations/performance-benchmarks`, `guides/performance`, `troubleshooting`, `troubleshooting/by-database/postgresql`, `getting-started/introduction`, `reference/graphql-api`, `deployment`). External: github.com/fraiseql/fraiseql/issues → 200; github.com/rakyll/hey → 200.
+[✅] 7.  UNDEFINED SYMBOLS — `fraiseql compile`, `fraiseql run`, `pg_notify`, `current_setting('app.tenant_id')`, `fn_track_events`, `v_post`, `tb_post`, `jsonb_build_object`, `rest_path` — all greppable in framework source at frozen SHA. No invented symbols.
+[❌] 8.  COPY-PASTE FROM PRIOR VERSION — `community/blog/why-grpc-skips-json.mdx:113` retains "VelocityBench results" link. The brief's `git grep -niE "velocitybench" src/content/docs/` says expect 0 hits; actual: 1 ship hit. See Finding 3.
+[✅] 9.  CONDITIONAL CAVEATS — performance-benchmarks.mdx L70 cache-on/cache-off regression Aside; L77-L79 explicit "in production … not measurable"; L195 "single 8-core x86_64 box on a single date" hardware caveat; L230 "single-run numbers will swing 5-10%" noise caveat.
+[✅] 10. RLS / SECURITY INTERACTIONS — saas-blog.mdx covers RLS policies + `SET app.tenant_id` + JWT-claim-driven tenant scoping in detail. Other 6 pages don't interact with RLS in their Cycle-6 surface.
+[❌] 11. ERROR-PATH COVERAGE — Both benchmark pages' reproduction recipes are NOT end-to-end executable. Schema citation (Mobile Analytics Backend) does not match the `hey` queries (SaaS Blog shape: `posts`, `users → posts → comments`, `users(limit: 20) { id username fullName }`). A reader who installs the cited schema gets GraphQL field-not-found errors. See Findings 1 and 2.
+[✅] 12. ARCHAEOLOGY-FREE — `grep -nE "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP" src/content/docs/examples/*.mdx src/content/docs/operations/performance-benchmarks.mdx src/content/docs/community/blog/rest-direct-execution-benchmark.mdx src/content/docs/community/support.mdx` → 0 hits.
+[✅] 13. SOURCE CITATIONS RESOLVE — 2 citations on the 7 changed pages, both re-greped at frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`: (a) `examples/index.mdx:L129` cites `Cargo.toml:L343` → `version = "2.3.2"` PASS; (b) `examples/index.mdx:L145` cites `scripts/docs-test/pages/_smoke.docs-test.sh:L237-L244` → 3 `assert_json_shape` lines matching prose JSON shape verbatim PASS. Adjacent random re-grep: `features/observers.mdx:L12` cites `crates/fraiseql-server/src/server/routing/observers.rs:L18-L66` → `add_observer_routes` at L20 PASS.
+[✅] 14. NO PERSONA SELF-REFERENCE — no "as an AI" / "as a docs agent" / leaked persona-prompt artifacts on the 7 changed pages.
+[✅] 15. DARK MODE — no CSS / contrast changes in Cycle 6 (Posture B citations are HTML-comment / JSX-comment only; rendered tokens are unchanged from Cycle 5). Inherits Cycle-5 dark-mode PASS.
+```
+
+Pass: 13 / 15. Fail: 2 (items 8 and 11).
+
+#### Cycle-specific adversarial: benchmark reproduction recipe reader-actionable?
+
+**No — critical defect on both pages.** The recipes were the cycle's stress point per the brief, and both ❌ on Item 11 for the same reason: schema citation ↔ `hey` query mismatch.
+
+`operations/performance-benchmarks.mdx`:
+- L18 substrate cite: `[Mobile Analytics Backend](/examples/mobile-analytics-backend)`.
+- L201 prerequisite cite: `[Mobile Analytics Backend]` schema.
+- L205 contradicts L201: "the `users → posts → comments` shape from the SaaS Blog walkthrough."
+- L218 `hey` Q1 query: `{ posts(first: 20) { id title } }` — SaaS Blog schema.
+- L224 `hey` Q3 query: `{ users(first: 20) { posts { comments } } }` — SaaS Blog schema.
+- L241 closing card: `[Mobile Analytics Backend](/examples/mobile-analytics-backend)` ("the schema and queries the numbers above are measured against").
+
+The Mobile Analytics walkthrough exposes `trackEvents(appId, events)` and `metrics(appId, dateFrom, dateTo)` — no `posts` / `users` / `comments`. A reader who installs the Mobile Analytics schema and runs `hey -d '{"query":"{ posts(first: 20) { id title } }"}'` gets a GraphQL error, not a benchmark.
+
+`community/blog/rest-direct-execution-benchmark.mdx`:
+- L31 / L98 / L102 cite Mobile Analytics Backend as the schema substrate.
+- L115 `hey` query: `{ users(limit: 20) { id username fullName } }` — does not exist in Mobile Analytics.
+- L98 also requires "a `users` query annotated with `rest_path=\"/users\"`" — page provides no inline example of the annotation; the reader has to invent it.
+
+Both pages need either (a) the schema citation pivoted to the SaaS Blog walkthrough (consistent with the actual `hey` queries) or (b) the `hey` queries rewritten against the Mobile Analytics surface (`metrics(appId: …, dateFrom: …, dateTo: …)` for the GraphQL path; `rest_path` on `metrics` for the REST-direct path). Pick one; the page must be internally consistent.
+
+#### Item 12 grep result
+
+```
+$ grep -nE "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP" \
+    src/content/docs/examples/*.mdx \
+    src/content/docs/operations/performance-benchmarks.mdx \
+    src/content/docs/community/blog/rest-direct-execution-benchmark.mdx \
+    src/content/docs/community/support.mdx
+$ echo $?
+1
+```
+
+**0 hits.** ✅.
+
+#### Posture B leak-free verification
+
+```
+$ bun run build
+… [build] 205 page(s) built in 15.12s
+… [fraiseql-docs:strip-source-citations] strip-source-citations: scanned 281 HTML files, modified 3, stripped 223 source-citation comments.
+$ grep -rE '<!--\s*source:|\{/\* source:' dist/
+$ echo $?
+0
+```
+
+**0 hits.** ✅. Strip integration log matches Verifier's reported counts.
+
+#### Findings — blocking
+
+**Finding 1 (❌ Item 11) — `src/content/docs/operations/performance-benchmarks.mdx`:** reproduction recipe schema citation ↔ `hey` query mismatch. See Cycle-specific adversarial above. Fix: pivot the schema citation to the SaaS Blog walkthrough (L18, L201, L205, L241), or rewrite the `hey` queries against the Mobile Analytics surface. Pages must be internally consistent.
+
+**Finding 2 (❌ Item 11) — `src/content/docs/community/blog/rest-direct-execution-benchmark.mdx`:** same defect. Plus a missing inline example of the required `rest_path="/users"` annotation (L98). Fix: same as Finding 1, plus add a minimal inline example of the `rest_path` annotation on a `users` query or link to the page that shows it.
+
+**Finding 3 (❌ Item 8) — `src/content/docs/community/blog/why-grpc-skips-json.mdx:113`:** VelocityBench brand leftover ships in dist. Drop scan failure. Fix: rewrite to "GraphQL performance data" (or similar) and link target `/operations/performance-benchmarks` (or drop the link if the new page doesn't cover the gRPC-vs-GraphQL comparison this page references). Inventory should be amended to flag this page in any future G8b-class sweep.
+
+#### Findings — non-blocking nits
+
+- **Nit 1:** `src/pages/index.astro:359` homepage hero still says "Independent benchmarks via VelocityBench — publication in progress." Outside `src/content/docs/` so not flagged by the brief's drop scan, but renders in `dist/index.html:130`. Out of strict Cycle-6 scope (Class B inventory covered `src/content/docs/` only). Cleanup or a follow-on cycle should pick this up.
+- **Nit 2:** `src/content/docs/_internal/_sweep-matrix.md` still shows `velocitybench` rows as `needs-rewrite` (L262, L359, L403) and the Cycle-4 deferral row A at L402. Internal-only; does not ship; but should be marked DONE/RESOLVED to reflect Cycle-6 outcome. Cleanup task.
+
+#### PR review posted
+
+Line-level review with all 3 blocking findings + 2 nits posted to PR #14 via `gh pr review 14 --comment`. Visible in the PR review tab (review #8 on the PR).
+
+#### Open gates after this entry
+
+- **G8 — RESOLVED** (Writer-GREEN applied A2 / B2 / C1 / accept per user decision). Quality of B2 / G8d applications is the subject of this review; the gate itself is resolved.
+- **G1 — closed** (Phase 01 close: sidebar IA Option A).
+- **G2 — default-hold** at frozen FraiseQL SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+- **G7 — resolved** (Posture B strip integration).
+- **G3 / G4 / G5** — downstream (unchanged).
+
+#### Anti-scope confirmed
+
+- No edits to `src/content/docs/` (Reviewer does not fix; Writer learns the gap).
+- No edits to `~/code/fraiseql`.
+- No new framework bugs filed (none surfaced this cycle).
+- No amend.
+- No push to `main`.
+
+#### Pointer to next persona
+
+**Writer (Opus 4.7)** — return to GREEN with fixes for the 3 blocking findings on the same branch (`phase-03/critical-rewrites`). Most-likely fix shape per finding:
+
+1. `operations/performance-benchmarks.mdx`: change L18 / L201 / L205 / L241 to cite the SaaS Blog walkthrough as the schema substrate (the `hey` queries already target that schema). The Mobile Analytics walkthrough remains cross-linked from `examples/index.mdx` but is not the substrate for the throughput numbers.
+2. `community/blog/rest-direct-execution-benchmark.mdx`: same pivot (L31 / L98 / L102). Add a 2-3 line `rest_path` annotation example inline at L98, or link to the page that owns it (likely `/building/rest-endpoints` if such exists, otherwise the REST transport page).
+3. `community/blog/why-grpc-skips-json.mdx:113`: rewrite "VelocityBench results" → "GraphQL performance data" (or similar) with link to `/operations/performance-benchmarks` (or drop the link entirely if the page doesn't carry that comparison).
+
+After Writer pushes the fixes, this Reviewer re-runs the 15-point checklist on the same 7 pages plus `why-grpc-skips-json.mdx` (a new addition to the review surface as of this entry). CI must remain green on the new HEAD before approval.
+
+---
