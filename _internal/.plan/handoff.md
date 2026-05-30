@@ -4772,3 +4772,152 @@ Bug-Finder adversarial classes for Cycle 4:
 - PKCE state encryption bypass.
 - Brute-force protection circumvention.
 - Cookie security under header injection.
+
+---
+
+### Phase 03 / Cycle 4 RED — Writer (Opus 4.7) — 2026-05-30
+
+**Cycle 4 page:** `src/content/docs/building/authentication.mdx` rewrite against the v2.3.2 framework code at the frozen SHA `d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+**Posture:** Writer RED only — no draft, no PR move, no GREEN claim. Cycle 4 runs Writer-RED → Bug-Finder → Writer-GREEN → Verifier+Reviewer → Cleanup.
+
+#### Framework-surface inventory at frozen SHA
+
+Authentication subsystems located, with file:line ranges captured for GREEN citations:
+
+- **OIDC `[auth]` TOML section** — server reads from `ServerConfig::auth` (`crates/fraiseql-server/src/server_config/mod.rs:L293-L307`); wired to `OidcValidator` at startup (`crates/fraiseql-server/src/server/builder.rs:L308-L319`). `OidcConfig` shape: `crates/fraiseql-core/src/security/oidc/providers.rs:L48-L143`. Per-provider constructors (Auth0/Keycloak/Okta/Cognito/AzureAD): `providers.rs:L172-L260`. Algorithm allowlist default `["RS256"]`: `providers.rs:L152-L154`. Algorithm enforcement at validation: `crates/fraiseql-core/src/security/oidc/token.rs:L363`. Default `jwks_cache_ttl_secs = 300` (5 min, S-class hardening): `providers.rs:L147-L150`.
+- **HS256 `[auth_hs256]` TOML section** (#217, v2.1.6) — shape: `crates/fraiseql-server/src/server_config/hs256.rs:L24-L39`. Wiring: `builder.rs:L19-L39` (`build_hs256_auth`). Mutually exclusive with `[auth]`. Secret sourced from env var named by `secret_env`.
+- **`[auth.me]` (GET /auth/me, #193, v2.1.5)** — shape: `crates/fraiseql-core/src/security/oidc/providers.rs:L13-L41` (`MeEndpointConfig`). Mount logic: `crates/fraiseql-server/src/server/routing/auth.rs:L81-L101`. Handler: `crates/fraiseql-server/src/routes/auth.rs:L432-L460`. Always-returned fields: `sub`, `user_id` (alias for `sub`), `expires_at`. Allowlisted extra claims via `expose_claims`. `email`/`display_name` auto-included when present.
+- **Nested JWT claims extraction (#246)** — `Claims::email()` / `Claims::name()` normalisers: `crates/fraiseql-auth/src/jwt/mod.rs:L401-L490`, `crates/fraiseql-core/src/security/auth_middleware/types.rs:L231-L320`. Azure AD `{"value": ...}` and OIDC `{"given": ..., "family": ...}` shapes flattened.
+- **RLS session-variable mappings (`jwt:email`, `jwt:name`, `jwt:display_name`)** — `crates/fraiseql-core/src/security/security_context.rs:L120-L130`.
+- **API key auth `[security.api_keys]`** — CLI shape: `crates/fraiseql-cli/src/config/toml_schema/security.rs:L358-L399`. Server wiring: `crates/fraiseql-server/src/api_key.rs:L237-L251` (`api_key_authenticator_from_schema`). Reads `schema.security.additional["api_keys"]`. Keys stored as SHA-256 hashes only (`sha256:` hex prefix); constant-time compare via `subtle::ConstantTimeEq`: `api_key.rs:L189-L196`. Static-keys-from-env or postgres-backed; only static-env path wired at this SHA.
+- **Token revocation `[security.token_revocation]`** — CLI shape: `crates/fraiseql-cli/src/config/toml_schema/security.rs:L463-L501`. Server wiring: `crates/fraiseql-server/src/token_revocation.rs:L384-L437` (`revocation_manager_from_schema`). Routes mounted: `crates/fraiseql-server/src/server/routing/auth.rs:L103-L114` (`POST /auth/revoke`, `POST /auth/revoke-all`). Backends actually implemented at this SHA: `memory`, `redis` (gated on `redis-rate-limiting` Cargo feature). `postgres` is documented by the CLI but silently downgrades — see FW-25 below.
+- **PKCE `[security.pkce]`** — CLI shape: `crates/fraiseql-cli/src/config/toml_schema/security.rs:L309-L340`. `S256` is `#[default]` (`CodeChallengeMethod::S256`): L313-L316. Server PKCE store wiring: `crates/fraiseql-server/src/server/builder.rs:L114-L121` (`pkce_store_from_schema`). Routes (`/auth/start`, `/auth/callback`) mounted only when BOTH `pkce_store` and `oidc_server_client` are present: `crates/fraiseql-server/src/server/routing/auth.rs:L25-L46`. Handlers: `crates/fraiseql-server/src/routes/auth.rs:L1-L260`. PKCE cleanup task every 5 min: `builder.rs:L378-L380`.
+- **State encryption `[security.state_encryption]`** — CLI shape: `crates/fraiseql-cli/src/config/toml_schema/security.rs:L284-L306`. Algorithm default `chacha20-poly1305`; alternative `aes-256-gcm`. Key source default `env` with `key_env = "STATE_ENCRYPTION_KEY"`. Server wiring: `crates/fraiseql-server/src/server/builder.rs:L108-L113` (`state_encryption_from_schema`). PKCE refuses to function without it (error logged when `pkce.enabled = true` but `[auth]` or state encryption is missing: `builder.rs:L362-L369`).
+- **Rate limiting `[security.rate_limiting]` (per-endpoint)** — CLI shape: `crates/fraiseql-cli/src/config/toml_schema/security.rs:L181-L249`. Server runtime mirror: `crates/fraiseql-server/src/middleware/rate_limit/config.rs:L7-L52`. Per-endpoint dispatch (auth_start / auth_callback / auth_refresh): `crates/fraiseql-server/src/middleware/rate_limit/in_memory.rs:L59-L100` and `redis.rs:L132-L165`. Wiring via `rate_limiter_from_schema`: `crates/fraiseql-server/src/server/initialization.rs:L186-L260`. `trust_proxy_headers` + `trusted_proxy_cidrs` for X-Forwarded-For trust (default `false`); operator warning when `trust_proxy_headers = true` and `trusted_proxy_cidrs` empty: `initialization.rs:L205-L213`.
+- **Cookie security (PKCE callback)** — `crates/fraiseql-server/src/routes/auth.rs:L220-L246`. Cookie format: `__Host-access_token="..."; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=…`. `Max-Age` default `300s` when `expires_in` absent. RFC 6265 quoting on the token (escape `\` and `"`): L233-L237.
+- **Cookie INGEST in OIDC middleware** — `crates/fraiseql-server/src/middleware/oidc_auth.rs:L41-L62` (`extract_access_token_cookie`). Prefer `Authorization: Bearer`; fall back to `__Host-access_token` cookie.
+
+#### Auto-wiring status (off-the-shelf binary, bare schema)
+
+Captured live in `_internal/.plan/red-evidence/phase-03-cycle-04-jwt-auth-flow.transcript`:
+
+| Subsystem | Wired from | Auto-wired by binary? |
+|-----------|-----------|------------------------|
+| `[auth]` (OIDC) | `ServerConfig` TOML | ✅ direct (Test 5 log line: "Initializing OIDC authentication") |
+| `[auth_hs256]` (HS256 testing) | `ServerConfig` TOML | ✅ direct (Test 5 log line: "Initializing HS256 authentication") |
+| `[auth.me]` (GET /auth/me) | rides on `[auth]` OIDC config | ✅ direct (requires `[auth]`) |
+| `[security.api_keys]` | `schema.security.additional["api_keys"]` | ⚠️ compiled-schema only (needs `fraiseql-cli compile`) |
+| `[security.token_revocation]` | `schema.security.additional["token_revocation"]` | ⚠️ compiled-schema only |
+| `[security.pkce]` | `schema.security.additional["pkce"]` + requires `[auth]` + `state_encryption` | ⚠️ compiled-schema only |
+| `[security.state_encryption]` | `schema.security.additional["state_encryption"]` | ⚠️ compiled-schema only |
+| `[security.rate_limiting]` (per-endpoint) | `schema.security.additional["rate_limiting"]` | ⚠️ compiled-schema only |
+| **Brute-force protection** (`failed_login_max_attempts`) | (NOT WIRED — see FW-24) | ❌ silently dropped |
+
+**Bottom line:** authentication on FraiseQL is a HYBRID: `[auth]`/`[auth_hs256]` are direct-from-TOML (the only auth subsystems Cycle 4 can demonstrate against the bare baseline schema); every other knob lives behind the `fraiseql-cli compile` → `schema.compiled.json` → `schema.security.additional[...]` indirection. Same structural shape Cycles 1, 2, 3 hit but with a partial direct-TOML escape hatch.
+
+#### Source-citation candidates for GREEN Writer
+
+Every file:line range listed in the framework-surface inventory above is a citation candidate. Highest-priority anchors for the page's load-bearing claims:
+
+1. JWT validation + alg allowlist enforcement → `oidc/token.rs:L363` + `oidc/providers.rs:L88-L92`.
+2. HS256 boot path → `server_config/hs256.rs:L24-L39` + `server/builder.rs:L19-L39`.
+3. `/auth/me` always-fields + `expose_claims` semantics → `routes/auth.rs:L432-L460`.
+4. PKCE S256 default → `toml_schema/security.rs:L313-L316`.
+5. Cookie `__Host-` + RFC 6265 quoting → `routes/auth.rs:L233-L246`.
+6. API key constant-time compare + SHA-256 only → `api_key.rs:L189-L196` + `:L41-L46`.
+7. Token revocation `is_revoked` + per-JTI check at validation → `token_revocation.rs:L66-L80`, `:L122-L135` + `:L306-L335` (check_token).
+8. Token revocation backend matrix → `token_revocation.rs:L399-L437`.
+9. `OidcConfig.audience` "SECURITY CRITICAL" comment → `providers.rs:L59-L73`.
+10. State encryption key sourcing (env-only at this SHA) → `toml_schema/security.rs:L260-L306`.
+
+#### RED-evidence transcripts captured
+
+- `_internal/.plan/red-evidence/phase-03-cycle-04-stale-auth-decorator.transcript` — stale-page diff against framework reality. Seven numbered observations covering env-var-only OIDC fabrication, missing `[auth]`/`[auth_hs256]`/`[security.api_keys]`/`[security.token_revocation]`/`[security.pkce]`/`[auth.me]` blocks, mis-spelled brute-force field names, omitted HS256 / `/auth/me` / `__Host-` cookie / algorithm-confusion content.
+- `_internal/.plan/red-evidence/phase-03-cycle-04-jwt-auth-flow.transcript` — live `docs-test up --profile postgres,fraiseql` reproduction with five HTTP probes and one HS256-overlay boot test. Confirms (a) bare baseline binary is anonymous on `/graphql`/`/studio`, (b) `/auth/me`/`/auth/start`/`/auth/revoke` 404 without compiled-schema security wiring, (c) HS256-from-TOML works direct (the bright spot). Plus Observations 6-9 documenting auto-wiring matrix, FW-24 silent drop, FW-25 silent fallback, and security-caveats LEAD-block requirements.
+
+#### Material drift from phase-doc
+
+Phase-doc Cycle 4 spec items confirmed against framework:
+- ✅ JWT/OIDC (incl. nested-claims extraction, `jwt:email`/`jwt:name`).
+- ✅ API keys with hashed storage (`[security.api_keys]`).
+- ✅ HS256 mode for testing (#217, v2.1.6).
+- ✅ PKCE OAuth flow (state encryption — `[security.state_encryption]`, S256 default).
+- ✅ `/auth/me` endpoint (#193, v2.1.5).
+- ✅ Rate limiting on auth endpoints (per-IP for start/callback, per-user for refresh).
+- ✅ Cookie security (`__Host-` prefix, RFC 6265 quoting).
+- ✅ Token revocation (`[security.token_revocation]`) — but BACKENDS LIST IS WRONG.
+
+Drift to surface in GREEN:
+- **Token revocation backends are not (memory / Redis / Postgres) as the phase-doc lists.** Server implements only **memory** and **redis**. `postgres` silently downgrades — FW-25 (#357).
+- **Brute-force protection (`failed_login_max_attempts`) is NOT wired by the server.** Phase-doc treats it as part of the v2.3 surface; live binary silently drops the field — FW-24 (#356).
+- Auto-wiring split (direct-TOML vs compiled-schema-indirection) is exactly the same pattern Cycles 1, 2, 3 hit (FW-3 / FW-7 / FW-15 / FW-23). GREEN must surface this.
+
+#### Framework bugs filed during RED
+
+- **FW-24 ([#356](https://github.com/fraiseql/fraiseql/issues/356))** — `[security.rate_limiting] failed_login_max_attempts` / `failed_login_lockout_secs` silently dropped by server runtime. CLI TOML schema accepts these fields; server `RateLimitingSecurityConfig` lacks them entirely; serde silently ignores. `fraiseql-auth::AuthRateLimiters.failed_logins` exists in a separate crate but `fraiseql-server` never instantiates it. Whole-server grep returns zero `failed_logins` / `AuthRateLimiter` hits. Same class as FW-15 (#342). Severity: regression (security control silently absent).
+- **FW-25 ([#357](https://github.com/fraiseql/fraiseql/issues/357))** — `[security.token_revocation] backend = "postgres"` silently downgrades to in-memory. CLI accepts `redis | postgres | memory`; server `revocation_manager_from_schema` match arms cover `memory` + `redis` only; `postgres` lands in the "Unknown revocation backend" warn-and-fallback arm. Same class as FW-15 / FW-24. Severity: regression (CLI schema split + cross-replica revoke contract broken).
+
+Both rows added to `_internal/.plan/framework-qa-triage.md`.
+
+#### Harness gaps for GREEN Writer / Cleanup
+
+- **No OIDC stub container** in the docs-test Compose stack at this SHA. Full PKCE flow + `/auth/me` round-trip + cookie-set+ingest demonstration require either (a) adding an OIDC stub (Dex / Keycloak / `mock-oauth2-server`) under a new `oidc` profile, or (b) substituting `[auth_hs256]` for the JWT-validation half and proving PKCE state-encryption / S256 challenge / cookie set paths via unit-test surface (`crates/fraiseql-auth/tests/pkce_roundtrip_test.rs`, `crates/fraiseql-server/tests/security/auth_pkce_flow_test.rs`). **Option (a) is the recommended path** — Cleanup should add the stub before the page's `.docs-test.sh` lands.
+- **No JWT keypair fixture** for testing tampered-signature rejection. GREEN should ship one HS256 secret in the docs-test secrets file and use `jwt-cli` (or python `pyjwt`) inside the test container to mint + tamper tokens.
+- **No cookie test client** in the docs-test harness. `curl --cookie-jar` is enough for the page-test; no new sidecar required.
+
+#### Recommendation — (A) library-API vs (B) feature-request framing
+
+**Recommendation: (A) HYBRID library-API framing — declarative-TOML reader path leading with `[auth_hs256]` (testing) and `[auth]` (OIDC), plus a `## Security caveats` LEAD block flagging the compiled-schema indirection for `[security.*]` subsystems.**
+
+Reasoning:
+
+- HS256 and OIDC `[auth]` ARE direct-TOML — the page CAN ship a working baseline-secure config that boots against the off-the-shelf binary with no `fraiseql-cli compile` step.
+- Everything else (`[security.api_keys]`, `[security.token_revocation]`, `[security.pkce]`, `[security.state_encryption]`, `[security.rate_limiting]`) requires `fraiseql-cli compile` to take effect. This is the SAME library-API pattern Cycles 1 (multi-tenancy), 2 (file-storage), 3 (observers) chose — but Cycle 4 has a partial direct-TOML escape hatch.
+- Page structure: (1) `## Security caveats` LEAD block (Cycle 3 precedent), (2) `## Authentication methods` decision tree (per phase-doc REFACTOR), (3) HS256-testing-mode walk-through, (4) OIDC walk-through, (5) `[security.*]` subsystems (with a compile-step pointer), (6) cookie + cross-link block.
+- Framing is consistent with Cycles 1/2/3 and matches reader's likely path (most-common-task-first per methodology § 1).
+
+#### Security-caveats LEAD block candidates
+
+Cycle 3 precedent: the LEAD-block format covers (a) the most adversarial classes the page must surface to readers up front, (b) framework bug cross-links. Cycle 4 candidates for the block:
+
+1. **Anonymous baseline** — off-the-shelf binary with no `[auth]` / `[auth_hs256]` runs `/graphql` and `/studio` unauthenticated. `*_require_auth` config flags default to `true` BUT only enforce when an OIDC validator is present. No auth ⇒ "require auth" is a no-op. (Source-of-truth in routing module warnings reproduced live in Test 5 log.)
+2. **Compiled-schema indirection** — `[security.api_keys]`, `[security.token_revocation]`, `[security.pkce]`, `[security.state_encryption]`, `[security.rate_limiting]` ALL require `fraiseql-cli compile` to take effect. Setting them in `fraiseql.toml` without recompiling is a silent no-op.
+3. **Brute-force protection silently absent** (FW-24 / #356) — `failed_login_max_attempts` / `failed_login_lockout_secs` are accepted by the CLI but dropped by the server.
+4. **Token revocation `postgres` silently downgrades** (FW-25 / #357) — `backend = "postgres"` falls back to in-memory single-instance ephemeral storage.
+5. **PKCE refuses to start without state encryption** (`builder.rs:L362-L369`) — the operator must enable `[security.state_encryption]` with a key BEFORE turning on `[security.pkce]`, or `/auth/start` / `/auth/callback` will not be mounted.
+6. **OIDC audience is REQUIRED** for token-confusion defence — `OidcConfig.audience` documentation explicitly marks it "SECURITY CRITICAL" (`providers.rs:L59-L73`). Setting `[auth]` without `audience` is a security misconfiguration.
+7. **Algorithm allowlist defaults to `["RS256"]`** — algorithm-confusion attack mitigation is on by default but the page must call this out so operators don't widen it to accept `HS256` from a JWKS-only setup.
+8. **`X-Forwarded-For` trust requires `trusted_proxy_cidrs`** — `trust_proxy_headers = true` without `trusted_proxy_cidrs` lets any client spoof their IP. Per-IP rate limits then bypass. Server logs a startup warning (`initialization.rs:L205-L213`) but doesn't refuse to boot.
+
+#### Adversarial classes for Bug-Finder (Cycle 4)
+
+Carried from prior orchestrator note; reframed against the live framework state:
+
+1. **Algorithm-confusion attack** — mint an HS256 JWT and present it to an `allowed_algorithms = ["RS256"]`-configured server (the default). Confirm 401. Then try the reverse: tamper `alg: none` against a JWKS-only setup. Source-of-truth: `oidc/token.rs:L363` + `oidc/providers.rs:L88-L92`.
+2. **Replay revoked token cross-backend** — revoke a JTI on the in-memory backend; restart the server; replay the token. With in-memory backend the JTI is forgotten — confirms ephemeral semantics. Then try the same with the redis backend — should still reject.
+3. **PKCE state encryption bypass** — try `/auth/callback?code=…&state=` with a forged state token; confirm 400/403. Try with `[security.state_encryption] enabled = false`; confirm `/auth/start` not mounted (FW-25-adjacent regression check).
+4. **Brute-force protection circumvent** — attempt 100 bad bearer tokens against `/graphql`; observe NO lockout regardless of `failed_login_max_attempts` value (FW-24 #356 reproduction script for the page). IP rotation / X-Forwarded-For spoof is moot at this SHA because the field isn't wired.
+5. **Cookie security under header injection** — try Set-Cookie via a forged OIDC ID-token payload (`name` claim with embedded CRLF) and check whether the RFC 6265 quoting in `routes/auth.rs:L233-L237` survives. Also try cookie names without the `__Host-` prefix and confirm browsers reject them when the page tells the reader to expect rejection.
+6. **OIDC discovery endpoint pinning** — does the framework re-fetch JWKS more often than the configured `jwks_cache_ttl_secs`? Source-of-truth at `oidc/providers.rs:L147-L150` says default 300s. Try a JWKS hot-rotate and observe.
+7. **Anonymous auth admin endpoints** — repeat the FW-21 (observers) pattern against `/auth/revoke` / `/auth/revoke-all` and `/auth/me` — these routes are mounted behind OIDC middleware (`server/routing/auth.rs:L91-L95` `route_layer`), but verify no path bypasses the middleware. Especially `/auth/me` without a token: confirm 401, not 200.
+8. **Token-revocation backend asymmetry** — `memory` vs `redis` vs `postgres` (which falls back to memory per FW-25). Revoke on one replica with memory backend; confirm replay succeeds on a second replica. Then prove redis backend cross-replica revoke works.
+9. **Public-key JWT validation against malformed JWK** — feed a JWKS with an RSA key whose `n` is too short / contains non-base64-URL chars. Confirm the validator rejects rather than crashes (S42 hardening).
+10. **Cookie domain scope** — confirm `__Host-` rejects any `Domain=` attribute. The framework's cookie is hard-coded without `Domain=` (`routes/auth.rs:L236`), but a reverse-proxy or operator override might smuggle one. Page must warn.
+11. **`/auth/me` claim leak** — confirm `expose_claims` allowlist does NOT leak `sub` aliasing (the always-included `user_id` field). Try `expose_claims = ["password"]` against a token carrying `password` (should return it — operator footgun; page must warn).
+12. **`audience` omitted** — boot `[auth]` without `audience` and confirm whether the validator rejects all tokens (per the "SECURITY CRITICAL" comment in providers.rs:L59-L73) or accepts. If accepts → file a bug.
+
+#### Anti-scope confirmation
+
+- ✅ No edits to `~/code/fraiseql`.
+- ✅ No edits to `src/content/docs/` this commit.
+- ✅ No page draft.
+- ✅ No reproduction scripts under `scripts/docs-test/bugs/` (Bug-Finder territory).
+- ✅ No security-cluster pages touched.
+
+#### Pointer
+
+Next session: **Bug-Finder (Opus 4.7)** for Phase 03 / Cycle 4. Read this entry top-to-bottom; the adversarial-classes section above is the agenda. Each class becomes a `scripts/docs-test/bugs/authentication.bug-N.sh` and (if it reproduces a bug) a GH issue filed against `~/code/fraiseql` per methodology § 7. Cross-link FW-24 (#356) and FW-25 (#357) wherever a discovered bug shares the silent-drop / silent-fallback class.
+
+After Bug-Finder closes → Writer (Opus 4.7) returns for the GREEN draft per the (A) HYBRID library-API framing recommendation above, with the `## Security caveats` LEAD block as item 1 on the page.
+

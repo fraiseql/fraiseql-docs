@@ -1,0 +1,198 @@
+# Phase 03 / Cycle 4 — Writer RED — Stale `/building/authentication.mdx` reproduction
+
+Reproduction surface: read the current page at the frozen SHA, then confirm the
+factual claims fail against `~/code/fraiseql@d0a4ed4ec1770c70707f68fd9019f2b561d87461`.
+
+Date: 2026-05-30
+SHA:  d0a4ed4ec1770c70707f68fd9019f2b561d87461
+Page: `src/content/docs/building/authentication.mdx` @ HEAD `1277c29`
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 1 — Page L8 "Python SDK is compile-time only" framing is correct as
+architecture but the page treats `@fraiseql.field(requires_scope=...)`,
+`@fraiseql.type(requires_role=...)`, and `inject={"jwt:sub"}` as the *primary*
+authentication surface. These are field-level access-control hooks that ride on
+TOP of an already-validated JWT — they do nothing without a configured
+authenticator. The page never explains how to configure the authenticator.
+────────────────────────────────────────────────────────────────────────────────
+
+The actual authentication surface at the frozen SHA — what the page MUST cover:
+
+  1. `[auth]` TOML section (OIDC).  Source-of-truth shape:
+       crates/fraiseql-core/src/security/oidc/providers.rs:L48-L143
+     deserialised by the server directly from `ServerConfig::auth`:
+       crates/fraiseql-server/src/server_config/mod.rs:L293-L307
+     wired into the OIDC validator at startup:
+       crates/fraiseql-server/src/server/builder.rs:L308-L319
+
+  2. `[auth_hs256]` TOML section (HS256 testing mode, #217 / v2.1.6).  Shape:
+       crates/fraiseql-server/src/server_config/hs256.rs:L24-L39
+     wired into the auth middleware at startup via `build_hs256_auth`:
+       crates/fraiseql-server/src/server/builder.rs:L19-L39
+     Mutually exclusive with `[auth]`.
+
+  3. `[auth.me]` sub-section (`GET /auth/me` endpoint, v2.1.5 / issue #193).
+     Shape:
+       crates/fraiseql-core/src/security/oidc/providers.rs:L13-L41
+     Mount logic:
+       crates/fraiseql-server/src/server/routing/auth.rs:L81-L101
+     Handler:
+       crates/fraiseql-server/src/routes/auth.rs:L432-L460
+
+  4. `[security.api_keys]` (compiled-schema only, NOT direct TOML).  Shape:
+       crates/fraiseql-cli/src/config/toml_schema/security.rs:L358-L399
+     Wiring:
+       crates/fraiseql-server/src/api_key.rs:L237-L251
+     Reads from `schema.security.additional["api_keys"]` — i.e. user puts the
+     section in `fraiseql.toml`, then `fraiseql-cli compile` validates it and
+     bakes it into `schema.compiled.json`, then the server reads it from there.
+
+  5. `[security.token_revocation]` (compiled-schema only).  Shape:
+       crates/fraiseql-cli/src/config/toml_schema/security.rs:L463-L501
+     Wiring:
+       crates/fraiseql-server/src/token_revocation.rs:L384-L437
+     Same compiled-schema indirection as api_keys.
+     Backends actually implemented at this SHA: memory, redis.
+     CLI accepts `backend = "postgres"` (string) but server silently falls back
+     to in-memory (token_revocation.rs:L425-L432 "Unknown revocation backend").
+
+  6. `[security.pkce]` (compiled-schema only).  Shape:
+       crates/fraiseql-cli/src/config/toml_schema/security.rs:L309-L340
+     PKCE store wiring:
+       crates/fraiseql-server/src/server/builder.rs:L114-L121
+     Routes mounted only when (pkce_store, oidc_server_client) both present:
+       crates/fraiseql-server/src/server/routing/auth.rs:L25-L46
+     S256 is the configured default (CodeChallengeMethod::S256 #[default]):
+       crates/fraiseql-cli/src/config/toml_schema/security.rs:L313-L316
+
+  7. `[security.state_encryption]` (compiled-schema only).  Shape:
+       crates/fraiseql-cli/src/config/toml_schema/security.rs:L284-L306
+     Wiring:
+       crates/fraiseql-server/src/server/builder.rs:L108-L113
+     Key sourced from env var (key_source = "env", key_env = "STATE_ENCRYPTION_KEY"
+     by default).
+
+  8. `[security.rate_limiting]` (compiled-schema only).  Shape:
+       crates/fraiseql-cli/src/config/toml_schema/security.rs:L181-L249
+     Server-side wiring:
+       crates/fraiseql-server/src/server/initialization.rs:L186-L260
+     Per-endpoint dispatch (auth_start / auth_callback / auth_refresh):
+       crates/fraiseql-server/src/middleware/rate_limit/in_memory.rs:L59-L100
+     **CAVEAT** — CLI accepts `failed_login_max_attempts` and
+     `failed_login_lockout_secs`, but the server runtime config
+     (`RateLimitingSecurityConfig` in `crates/fraiseql-server/src/middleware/
+     rate_limit/config.rs:L7-L52`) does NOT have those fields. They are
+     silently dropped on the server side. FW-15-class (CLI/runtime TOML schema
+     split swallowed by missing `deny_unknown_fields` on `ServerConfig`).
+
+  9. Nested JWT claims extraction (#246 / v2.3 era).  Source:
+       crates/fraiseql-auth/src/jwt/mod.rs:L401-L490
+       crates/fraiseql-core/src/security/auth_middleware/types.rs:L231-L320
+     `Claims::email()` and `Claims::name()` normalise Azure AD
+     `{"value": ...}` and OIDC `{"given": ..., "family": ...}` shapes.
+     `jwt:email` / `jwt:name` / `jwt:display_name` are auto-available as RLS
+     session-variable mappings:
+       crates/fraiseql-core/src/security/security_context.rs:L120-L130
+
+ 10. JWT algorithm allowlist (S41 hardening).  Enforced at validation time:
+       crates/fraiseql-core/src/security/oidc/token.rs:L363
+     Default `allowed_algorithms = ["RS256"]`:
+       crates/fraiseql-core/src/security/oidc/providers.rs:L152-L154
+     A token presenting `alg: HS256` against an `["RS256"]` config is rejected
+     before signature verification — the canonical algorithm-confusion defence.
+
+ 11. Cookie security on PKCE callback (when post_login_redirect_uri is set):
+       crates/fraiseql-server/src/routes/auth.rs:L220-L246
+     Cookie shape (L236):
+       __Host-access_token="..."; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=…
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 2 — STALE: page describes `OIDC_ISSUER_URL` env var as the OIDC
+provider config.  This env var DOES NOT EXIST in the framework at the frozen
+SHA.
+────────────────────────────────────────────────────────────────────────────────
+
+  $ git -C ~/code/fraiseql grep -n OIDC_ISSUER_URL \
+      d0a4ed4ec1770c70707f68fd9019f2b561d87461 -- 'crates/'
+  (no matches)
+
+Real OIDC config path: `[auth]` TOML section in `fraiseql.toml`, fields
+`issuer` / `audience` / `additional_audiences` / `allowed_algorithms` / etc.
+The Python-decorator framing (page L8-L12) mis-routes the reader: there is no
+`OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_REDIRECT_URI` env-var triplet
+in the framework either.  The real client-side fields live under
+`[auth] discovery_url=`, `[auth] client_id=`, `[auth] client_secret_env=`,
+`[auth] server_redirect_uri=` (per the PKCE builder warning at
+`crates/fraiseql-server/src/server/builder.rs:L362-L369`).
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 3 — STALE: page L194-L261 documents `[security.enterprise]`,
+`[security.error_sanitization]`, `[security.rate_limiting]`, and
+`[security.state_encryption]` blocks but ignores `[security.api_keys]`,
+`[security.token_revocation]`, `[security.pkce]`, `[auth.me]`,
+`[auth_hs256]`, and the entire `[auth]` block itself.
+────────────────────────────────────────────────────────────────────────────────
+
+The page mentions HS256 NOWHERE.  HS256 testing-mode is the v2.1.6 #217
+feature listed explicitly in the Cycle 4 spec; page has no awareness.
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 4 — STALE: page L200-L209 `[security.enterprise]` block has fields
+`include_sensitive_data`, `log_level`, `async_logging`, `buffer_size`,
+`flush_interval_secs` — these are not present in the CLI TOML schema's
+`EnterpriseSecurityConfig` (`crates/fraiseql-cli/src/config/toml_schema/
+security.rs:L109-L154` — fields are `rate_limiting_enabled`,
+`auth_endpoint_max_requests`, `auth_endpoint_window_seconds`,
+`audit_logging_enabled`, `audit_log_backend`, `audit_retention_days`,
+`error_sanitization`, `hide_implementation_details`,
+`constant_time_comparison`, `pkce_enabled`).  The CLI uses
+`deny_unknown_fields` on this struct so the page's fields cause `fraiseql-cli
+compile` to fail loudly — but only AFTER the user gets past the rest of the
+page.
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 5 — STALE: page L220-L246 `[security.rate_limiting]` block uses
+`auth_start_max_requests`, `auth_start_window_secs`, `auth_callback_*`,
+`auth_refresh_*`, `auth_logout_*`, `failed_login_max_requests`,
+`failed_login_window_secs`.  Real CLI schema names:
+`auth_start_max_requests` ✅, `auth_start_window_secs` ✅,
+`auth_callback_max_requests` ✅, `auth_callback_window_secs` ✅,
+`auth_refresh_max_requests` ✅, `auth_refresh_window_secs` ✅,
+`auth_logout_max_requests` ✅, `auth_logout_window_secs` ✅,
+**`failed_login_max_attempts`** (NOT `_max_requests`),
+**`failed_login_lockout_secs`** (NOT `_window_secs`).
+The page's `failed_login_*` fields fail CLI validation due to
+`deny_unknown_fields` on `RateLimitingSecurityConfig`.
+
+AND — even when the CLI accepts the correct names, the SERVER runtime config
+(`crates/fraiseql-server/src/middleware/rate_limit/config.rs:L7-L52`) has NO
+`failed_login_*` fields at all.  Brute-force protection via this TOML section
+is a documentation-side promise the binary does not honour.  Same FW-15 class
+as the observers TOML split.
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 6 — STALE: page L249-L260 `[security.state_encryption]` mentions
+the `algorithm = "chacha20-poly1305"` value but says nothing about the
+required `key_env` field, nor that PKCE will refuse to mount auth routes when
+state_encryption is unconfigured (server builder.rs:L362-L369 logs an error
+and does NOT mount `/auth/start`/`/auth/callback`).
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+Observation 7 — Stale page does NOT mention `/auth/me` at all (v2.1.5,
+issue #193).  Does NOT mention `__Host-access_token` cookie shape.  Does NOT
+mention API key hashed storage (`sha256:`-prefixed `key_hash`).  Does NOT
+mention token revocation backends.  Does NOT mention algorithm-confusion
+defence (`allowed_algorithms`).
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+Conclusion — RED reproduced.  The page is dangerous: it conflates field-level
+access control with authentication itself, fabricates env-var-only OIDC
+configuration that doesn't exist, mis-spells the brute-force protection
+fields, and silently omits the entire `[auth]` / `[auth_hs256]` /
+`[security.api_keys]` / `[security.token_revocation]` / `[security.pkce]` /
+`[auth.me]` surface.
+────────────────────────────────────────────────────────────────────────────────
