@@ -5690,3 +5690,143 @@ Independently verified that MSSQL fixture's inline DEVIATION at L62 reads `-- DE
 - No push to `main`.
 
 ---
+
+### Phase 03 / Cycle 5 review — Reviewer (Opus 4.7) — 2026-05-30
+
+**Verdict: APPROVE.** 15/15 PASS. CI green. Smoke harness re-run from clean Docker state exit 0 (all 4 DBs PASS). 3/3 citations re-grepped against in-repo smoke fixtures: PASS. Adversarial swap-test (page's NEW SQLite SQL → fixture, re-run, restore): smoke PASSED with the page's verbatim SQL — page and smoke are in-sync.
+
+Context: PR #14 draft at HEAD `ea0ce61`. Surface change is tiny (3 SQL edits + 1 Aside + 4 source-citation comments). The 15-point checklist runs but most items are trivial PASS because the touched surface is small and the rest of the page is unchanged from the existing tree.
+
+#### CI re-confirmation
+
+`gh pr checks 14` independently:
+- discover pages and frozen SHA: pass (3s)
+- page-test (_smoke): pass (10m13s)
+- page-test (authentication): pass (9m26s)
+- page-test (file-storage): pass (9m28s)
+- page-test (multi-tenancy): pass (9m20s)
+- page-test (observers): pass (9m54s)
+- pre-commit.ci - pr: fail/ERROR (Phase-10 deferred per orchestrator brief — non-blocking)
+
+6 of 6 docs-test jobs SUCCESS on `ea0ce61`.
+
+#### Smoke harness re-run (clean Docker state)
+
+```
+./docs-test.sh down --volumes >/dev/null 2>&1
+./pages/_smoke.docs-test.sh
+```
+
+Exit code: **0**. Per-DB timings (cold start after volume wipe):
+- postgres: 20.611 s (12 assertions PASS — schema, health 4×, graphql + 6 shape)
+- mysql:    17.103 s (5 assertions PASS — schema + 4 shape)
+- sqlite:    5.034 s (5 assertions PASS — schema + 4 shape)
+- mssql:    17.656 s (5 assertions PASS — schema + 4 shape)
+- total:    60.419 s (budget: <240 s)
+
+Each DB exercises the corrected SQL paths (the fixtures' DEVIATION blocks already encode the corrected forms; the page now matches the fixtures verbatim for the three changed lines).
+
+#### Citation re-greps (3/3 PASS — in-repo smoke fixtures)
+
+1. **SQLite** — `quickstart.mdx:L147` annotation cites `fixtures/sqlite/_smoke.sql:L51-L69`. Direct read of `_smoke.sql:L51-L69`:
+   - L51: source comment referencing `quickstart.mdx:L148-L161`.
+   - L52-L57: DEVIATION block prose ("page bug", "vu.data in SQLite is the TEXT result", "wrapping in json(...)") — matches annotation.
+   - L65: `'author',  json(vu.data)` — corrected form.
+   - PASS.
+
+2. **MSSQL SCHEMABINDING (header)** — `quickstart.mdx:L165` annotation cites `fixtures/mssql/_smoke.sql:L18-L23`. Direct read of `_smoke.sql:L18-L23`:
+   - L18-L23: `-- IMPORTANT — page-vs-fixture deviation:` block. Prose: "SCHEMABINDING requires referenced base tables to also be schema-bound and is incompatible with v_post referencing v_user". Matches annotation.
+   - Corroborating inline DEVIATION markers at L62 (`-- DEVIATION: dropped SCHEMABINDING`) and L74 (`-- DEVIATION 1: dropped SCHEMABINDING`).
+   - PASS.
+
+3. **MSSQL JSON_QUERY** — `quickstart.mdx:L177` annotation cites `fixtures/mssql/_smoke.sql:L73-L89`. Direct read of `_smoke.sql:L73-L89`:
+   - L73: source comment referencing `quickstart.mdx:L178-L189`.
+   - L74-L79: DEVIATION 1 (SCHEMABINDING) + DEVIATION 2 prose ("vu.data is NVARCHAR(MAX) holding JSON text", "FOR JSON serialises it as a string literal unless wrapped in JSON_QUERY()") — matches annotation.
+   - L84: `JSON_QUERY(vu.data) AS author` — corrected form.
+   - PASS.
+
+#### Adversarial swap-test (page SQL ↔ smoke SQL parity)
+
+Method: copied `fixtures/sqlite/_smoke.sql` to `/tmp/_smoke.sqlite.backup.sql`; rewrote the fixture with the page's verbatim SQLite tab SQL (L134-L161 of the page) — keeping only the bootstrap tables/seeds; ran `./pages/_smoke.docs-test.sh sqlite`; observed exit 0 + all 5 assertions PASS (schema installed, data.posts is array, length 1, post[0].title, post[0].author.name); restored the fixture from backup; confirmed `git status` clean.
+
+Result: the page's verbatim SQLite SQL **produces the documented JSON shape** when executed against a real SQLite database. Page and fixture are in-sync; the corrected `json(vu.data)` is sufficient (and necessary — the original `vu.data` would fail the `post[0].author.name` shape assertion because the nested author would be an escaped string, not an object).
+
+This is the highest-value adversarial check for this cycle.
+
+#### Posture B leak-free
+
+- `bun run build` → exit 0, 205 pages, 15.00 s.
+- Strip integration log: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → 0 matches.
+- Rendered `dist/getting-started/quickstart/index.html` has 0 hits for `Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP`.
+
+#### 15-point adversarial checklist (15/15 PASS)
+
+| # | Item | Result | One-line justification |
+|---|------|--------|------------------------|
+| 1 | VERSION DRIFT | ✅ | Cycle 5 changes touch no version-flagged surface (3 SQL dialect fixes + 1 Aside). The page's pre-existing version-correctness sits unchanged on top of Cycle 4 (install matrix); no new claims introduced. |
+| 2 | WRONG-DB PATHS | ✅ | The 4 per-DB tabs (PG, MySQL, SQLite, MSSQL) are each smoke-verified against a real engine. The new `Aside` at L195 explicitly states the server binary only routes PostgreSQL end-to-end today and cross-links FW-2 (fraiseql#327) — exactly the disclaimer item 2 calls for. |
+| 3 | FEATURE-FLAG OMISSIONS | ✅ | The changed SQL has no feature-flag dependency. The Aside acknowledges the adapter-factory limitation (a binary wiring gap, not a Cargo feature) and links to the tracking issue. |
+| 4 | SECURITY-DEFAULT REGRESSIONS | ✅ | No security-sensitive defaults touched by Cycle 5. The pre-existing `:::note[Before going to production]` block at L476-L486 stands unchanged. |
+| 5 | SDK DIVERGENCE | ✅ | No SDK code added or modified by Cycle 5. (Python/TS/Go snippets at L207-L281 unchanged.) |
+| 6 | DEAD LINKS | ✅ | New `https://github.com/fraiseql/fraiseql/issues/327` link in the Aside: `curl -I` returns `HTTP/2 200`. No internal links added. Build succeeds (Astro would flag broken internal links). |
+| 7 | UNDEFINED SYMBOLS | ✅ | `json()` is documented SQLite JSON1; `JSON_QUERY()` is documented MSSQL T-SQL; both available in the engines the smoke verifies them against. SCHEMABINDING removal removes a symbol — no risk. |
+| 8 | COPY-PASTE FROM PRIOR VERSION | ✅ | Cycle 5 diff is a targeted edit; no stale carryover. Page history confirms the changed lines are net-new corrections, not leftover blocks. |
+| 9 | CONDITIONAL CAVEATS | ✅ | The "server adapter coverage" Aside explicitly states the multi-DB conditional: "fraiseql-server binary only routes PostgreSQL end-to-end". |
+| 10 | RLS / SECURITY INTERACTIONS | ✅ | The page does not touch RLS, JWT claims, or auth context in Cycle 5. The unchanged `--dev-claims` Aside at L372 was not modified. |
+| 11 | ERROR-PATH COVERAGE | ✅ | Non-blocking. The page's existing Step 6 error sample (`Cannot query field 'phone' on type 'User'` at L427-L438) is unchanged and demonstrates one failure mode. The SQL dialect bugs themselves are silent (wrong shape, not an error) — there is no useful error message to print for them. A reader following the (now-corrected) SQL will not hit the bug. Non-nit; well-covered for the cycle's scope. |
+| 12 | ARCHAEOLOGY-FREE | ✅ | `grep -nE "Phase [0-9]+\|TODO\|FIXME\|XXX\|HACK\|coming soon\|WIP" src/content/docs/getting-started/quickstart.mdx` → 1 hit at L32 — but L32 is **inside** a `{/* source: ... */}` JSX-comment citation that is stripped from rendered HTML at build (the strip integration log confirms it was processed; `dist/getting-started/quickstart/index.html` grep is 0 hits). Methodology § 5 item 12 reads "no … in the **rendered output**". Source-side citation comments are explicitly the Posture B convention. PASS. |
+| 13 | SOURCE CITATIONS RESOLVE | ✅ | All 3 new citations re-grepped above (in-repo smoke fixtures, not framework SHA). All 3 resolve to the cited line range with the cited DEVIATION prose and corrected SQL form. |
+| 14 | NO PERSONA SELF-REFERENCE | ✅ | The Aside body uses "the regression signal that unblocks the binary-driven multi-DB happy path" — phrasing from the orchestrator brief, no persona/AI/phase self-reference. Verified by `grep -iE "as an AI\|documentation agent\|writer persona\|reviewer persona" src/content/docs/getting-started/quickstart.mdx` → 0 hits. |
+| 15 | DARK MODE | ✅ | Cycle 5 added no new components, callouts, tables, or code blocks beyond a standard Starlight `<Aside type="caution">`. Asides are theme-tested by Starlight; no new contrast surface introduced. |
+
+#### Item 12 archaeology grep — explicit result
+
+```
+$ grep -nE "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP" src/content/docs/getting-started/quickstart.mdx
+32:{/* source: releasing.md:L625-L645 at frozen SHA d0a4ed4 — Homebrew formula publishing is a Phase 4 "Later" item; no Homebrew distribution exists yet. */}
+```
+
+L32 is a JSX-comment source-citation introduced by **Phase 01 Cycle 4** (install matrix consolidation; commit `f711aa9`), NOT by Cycle 5. The citation is invisible in rendered HTML (stripped by both Astro MDX compilation and the safety-net `stripSourceCitationsIntegration`). Methodology § 5 item 12 asks about **rendered output**; rendered `dist/getting-started/quickstart/index.html` grep for the same regex returns **0 hits**. The hit is the citation token quoting the framework's own roadmap phasing, not docs-overhaul archaeology. Not a finding.
+
+```
+$ grep -E "Phase [0-9]+|TODO|FIXME|XXX|HACK|coming soon|WIP" dist/getting-started/quickstart/index.html
+(0 hits)
+```
+
+#### FW-2 Aside framing sanity-check
+
+Body: "Track the regression signal that unblocks the binary-driven multi-DB happy path in [fraiseql#327](https://github.com/fraiseql/fraiseql/issues/327)." No "Phase 09 needs" leak. Phrasing mirrors the orchestrator brief and the Cycle 4 install-matrix close framing. PASS.
+
+#### Nits / non-blocking observations
+
+1. **L195 Aside body has a long sentence (61 words)** — slightly above the page's median sentence length. Not a blocker; Style Auditor at phase close may opt to split into two sentences. Non-blocking.
+2. **The Aside is paired with a separate `{/* source: ... */}` citation on L199 (after the Aside, not before it)** — convention elsewhere on this page is citation-before-block. Not enforced anywhere in `methodology.md`; both forms strip identically; semantically equivalent. Non-blocking.
+3. **Item 11 (ERROR-PATH COVERAGE)** — the silent-shape-bug class (vs. parse-error class) is genuinely error-message-less; nothing to print. The pre-existing field-typo error at L427-L438 already satisfies item 11's "show at least one failure mode" requirement for the page as a whole. Non-blocking.
+
+None of these block merge. All flagged for Style Auditor consideration at the Phase 03 close (Cycle N).
+
+#### Framework bugs filed during this review
+
+None. Cycle 5 is a doc-side dialect-fix cycle — by construction, the three corrected SQL lines were always doc bugs, not framework bugs. The single framework-side adjacency (server adapter factory hardcoded to PG) is already filed as FW-2 (#327) and cross-linked from the Aside.
+
+#### Anti-scope confirmed
+
+- No edits to `src/content/docs/` (Posture B).
+- No edits to `~/code/fraiseql`.
+- Adversarial swap-test fixture mutation was temporary, restored from backup, `git status` clean before commit.
+- No amend.
+- No push to `main`.
+- No new framework bugs.
+
+#### Pointer to next persona
+
+**Cleanup (Sonnet 4.6)** for Phase 03 / Cycle 5 close. Brief:
+1. Append `/getting-started/quickstart` to `phase-03-critical-rewrites.md § Pages completed` as "Cycle 5 — closed 2026-05-30".
+2. No new framework bugs to append to `## Framework bugs filed`.
+3. Confirm CI run URL is captured in PR description (handoff entry already cites the run IDs).
+4. Optional: flag the 3 nits above to the Phase 03 Style Auditor (Cycle N) — small enough that they can be batched with Cycle 4's L398 bare-fence and caveat-11 mitigation-paragraph nits.
+
+After Cleanup, the path is straight to **Cycle 6 (Phase-01 Cycle-4 deferral classes)** per the phase-03 plan.
+
+---
