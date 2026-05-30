@@ -7,7 +7,7 @@ import { Aside, CardGrid, Card, Tabs, TabItem } from '@astrojs/starlight/compone
 
 When Rolls-Royce was asked about the horsepower of their engine, the answer was "sufficient." That is also the honest answer for FraiseQL's throughput.
 
-The numbers below come from our own harness against the schema in [Mobile Analytics Backend](/examples/mobile-analytics-backend) and a small subset of comparable framework configurations. They put FraiseQL in the same performance tier as the fastest GraphQL frameworks available. The gap to the leader is within run-to-run noise. Chasing that gap is not the point.
+The numbers below come from our own harness against the schema in [SaaS Blog](/examples/saas-blog) and a small subset of comparable framework configurations. They put FraiseQL in the same performance tier as the fastest GraphQL frameworks available. The gap to the leader is within run-to-run noise. Chasing that gap is not the point.
 
 **The point is where the complexity lives.**
 
@@ -15,7 +15,7 @@ The numbers below come from our own harness against the schema in [Mobile Analyt
 
 ## How to read these numbers
 
-Every figure on this page is from a single hardware profile and a single workload. **Don't trust them — reproduce them.** The reproduction recipe at the bottom of the page is `hey` against the schema and queries described in [Mobile Analytics Backend](/examples/mobile-analytics-backend), running against a local PostgreSQL 15.
+Every figure on this page is from a single hardware profile and a single workload. **Don't trust them — reproduce them.** The reproduction recipe at the bottom of the page is `hey` against the schema and queries described in [SaaS Blog](/examples/saas-blog), running against a local PostgreSQL 15.
 
 If you run them and get different numbers, your hardware / connection pool / query shape is different from ours — that is the answer to your throughput question, not these tables.
 
@@ -198,7 +198,7 @@ The numbers above are from a single 8-core x86_64 box on a single date. Your mac
 
 - PostgreSQL 15+ running locally
 - `hey` v0.1.5+ ([github.com/rakyll/hey](https://github.com/rakyll/hey))
-- A FraiseQL server with the [Mobile Analytics Backend](/examples/mobile-analytics-backend) schema installed (or your own production schema)
+- A FraiseQL server with the [SaaS Blog](/examples/saas-blog) schema installed (or your own production schema with a comparable `users → posts → comments` shape)
 
 ### Reproduction recipe
 
@@ -238,6 +238,6 @@ If your Q1 RPS is ≥80% of the table above and your Q3 p99 stays within 20% of 
     [Production configuration](/guides/performance) — connection pooling, cache settings, query optimisation
   </Card>
   <Card title="Worked example schema" icon="seti:db">
-    [Mobile Analytics Backend](/examples/mobile-analytics-backend) — the schema and queries the numbers above are measured against
+    [SaaS Blog](/examples/saas-blog) — the schema and queries the numbers above are measured against
   </Card>
 </CardGrid>

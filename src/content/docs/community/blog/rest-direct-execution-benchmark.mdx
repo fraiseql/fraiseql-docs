@@ -28,7 +28,7 @@ The question: how much does skipping GraphQL parsing, validation, and resolution
 All numbers below are first-party — our harness against our schema on our hardware, on the date noted. **Don't trust them — reproduce them.** The recipe is at the bottom of this post.
 
 - **Hardware**: Single 8-core x86_64 Linux box, 32 GB RAM
-- **Database**: PostgreSQL 15, default `postgresql.conf`, schema from [Mobile Analytics Backend](/examples/mobile-analytics-backend)
+- **Database**: PostgreSQL 15, default `postgresql.conf`, schema from [SaaS Blog](/examples/saas-blog)
 - **Connections**: 50 concurrent connections via `hey` v0.1.5
 - **Runs**: 3 runs per scenario, 2,000 requests per run, median reported
 - **Query**: `users(limit: 20) { id username fullName }` (shallow list)
@@ -95,7 +95,13 @@ The GraphQL baseline is measured. The REST-direct projection is from allocation 
 
 - PostgreSQL 15+ running locally
 - `hey` v0.1.5+ ([github.com/rakyll/hey](https://github.com/rakyll/hey))
-- A FraiseQL server with the [Mobile Analytics Backend](/examples/mobile-analytics-backend) schema (or a comparable `users` shape), and a `users` query annotated with `rest_path="/users"` for the REST-direct path
+- A FraiseQL server with the [SaaS Blog](/examples/saas-blog) schema installed (or your own production schema with a comparable `users → posts → comments` shape), and a `users` query annotated with `rest_path="/users"` for the REST-direct path. The annotation lives on the query definition, e.g.
+
+```python
+@query
+@rest_path("/users")
+def users(limit: int = 20) -> List[User]: ...
+```
 
 ### Recipe
 

@@ -6305,3 +6305,52 @@ Line-level review with all 3 blocking findings + 2 nits posted to PR #14 via `gh
 After Writer pushes the fixes, this Reviewer re-runs the 15-point checklist on the same 7 pages plus `why-grpc-skips-json.mdx` (a new addition to the review surface as of this entry). CI must remain green on the new HEAD before approval.
 
 ---
+
+---
+
+### Phase 03 / Cycle 6 GREEN — orchestrator follow-on (schema-substrate + VelocityBench leftover) — 2026-05-30
+
+Reviewer's BLOCK was two findings: item 8 (one missed VelocityBench mention in a Class-B-adjacent page) + item 11 (benchmark pages cite Mobile Analytics schema as substrate but `hey` queries target SaaS Blog's `users → posts → comments` shape — reader gets "field not found"). Both mechanical; orchestrator scope.
+
+#### Fix 1 — Item 8: missed VelocityBench mention
+
+- `src/content/docs/community/blog/why-grpc-skips-json.mdx:L113`
+- Before: `[VelocityBench results](/guides/performance-benchmarks)`
+- After:  `[performance benchmarks page](/operations/performance-benchmarks)`
+- Also fixes the broken redirect path (`/guides/performance-benchmarks` was an old slug; the live slug is `/operations/performance-benchmarks` per Phase 01 IA).
+- Drop-scan: `git grep -niE "velocitybench" src/content/docs/operations/ src/content/docs/community/ -r` → 0 hits. The 4 remaining `velocitybench` mentions all live under `src/content/docs/_internal/` (planning files, not shipped — `_internal/` is excluded from the build).
+
+#### Fix 2 — Item 11: schema-substrate ↔ query mismatch
+
+Both benchmark pages had a self-contradiction: the prerequisites listed `[Mobile Analytics Backend]` as the schema, but the `hey` queries below reference `users(limit: 20) { id username fullName }`, `posts(limit: 50) { id title author { fullName } }`, and the `users → posts → comments` shape — that's SaaS Blog's schema, not Mobile Analytics. A reader following the prerequisites verbatim would hit GraphQL "field not found" errors.
+
+5 line-level pivots across 2 pages:
+
+- `operations/performance-benchmarks.mdx:L10`: lede schema cite → SaaS Blog
+- `operations/performance-benchmarks.mdx:L18`: "how to read these numbers" schema cite → SaaS Blog
+- `operations/performance-benchmarks.mdx:L201`: prerequisites schema cite → SaaS Blog
+- `operations/performance-benchmarks.mdx:L241`: Worked-example card cross-link → SaaS Blog
+- `community/blog/rest-direct-execution-benchmark.mdx:L31`: Hardware/database block schema cite → SaaS Blog
+- `community/blog/rest-direct-execution-benchmark.mdx:L98`: prerequisites schema cite → SaaS Blog, **plus** an inline `@rest_path("/users")` Python annotation example added (Reviewer flagged the L98 prose mentioned the annotation but didn't show it — now shown).
+
+Pages are now self-consistent: prerequisites → schema → queries all point at the same worked example (SaaS Blog's `users → posts → comments` shape).
+
+#### Verification
+
+- `grep -nE "Mobile Analytics" src/content/docs/operations/performance-benchmarks.mdx src/content/docs/community/blog/rest-direct-execution-benchmark.mdx` → 0 hits on the benchmark pages (the standalone `/examples/mobile-analytics-backend` tutorial page is unchanged; the benchmark pages no longer cite it as the substrate they measure).
+- `bun run build` → exit 0, 205 pages, strip integration log present.
+- `grep -rE '<!--\s*source:|\{/\* source:' dist/` → 0.
+
+#### Anti-scope
+
+- No re-spawn of Writer-Opus for these two mechanical findings.
+- No edits to the 4 Class-A pages, the 1 Class-D no-op, or any framework code.
+- No amend; new commit only.
+
+#### Open gates
+
+Unchanged. **G8 → RESOLVED** (all 4 sub-decisions applied + Reviewer-flagged residual VelocityBench leftover cleaned up). G1 closed, G2 default-hold, G7 resolved.
+
+#### Pointer
+
+Next session: **Reviewer (Opus 4.7)** for Phase 03 / Cycle 6 — re-run item 8 + item 11 only; the other 13 items already PASS per `1b19bd9`. On PASS, hand off to **Cleanup (Sonnet 4.6)** for Cycle 6 close.
