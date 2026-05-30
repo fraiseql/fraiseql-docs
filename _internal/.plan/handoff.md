@@ -7382,3 +7382,74 @@ See commit below.
 
 **Verifier (Source-Citation Verifier, Sonnet 4.6) — light load** (13 new citations across 5 pages, all greppable at frozen SHA). Then **Reviewer (Opus 4.7) — sampling 2-3 vs pages** (e.g. `hasura.mdx` for the `[auth]` correction, `apollo.mdx` for the subscription example, `postgrest.mdx` for the archaeology fix + 3-citation density), CI parity check, and 15-point adversarial walk. Per the Cycle 7 RED partition plan, after Reviewer APPROVE → Cleanup (Sonnet 4.6) → Phase 03 close → Phase 04 kickoff.
 
+---
+
+### Phase 03 / Cycle 7c verification — Source-Citation Verifier (Sonnet 4.6) — 2026-05-30
+
+#### Citation count per page
+
+| Page | Citations |
+|------|-----------|
+| `apollo.mdx` | 2 |
+| `hasura-sqlserver.mdx` | 3 (1 pre-existing CHANGELOG + 2 new) |
+| `hasura.mdx` | 4 |
+| `postgrest.mdx` | 2 |
+| `prisma.mdx` | 2 |
+| **Total** | **13** |
+
+#### Verification results
+
+| # | Page | Citation path | Result | Detail |
+|---|------|---------------|--------|--------|
+| 1 | `apollo.mdx` | `sdks/official/fraiseql-python/src/fraiseql/decorators.py:L985` | PASS | `@fraiseql.subscription(entity_type="Order", topic="order_created")` docstring example present at L984–L987 |
+| 2 | `apollo.mdx` | `crates/fraiseql-core/src/runtime/subscription/manager.rs` | PASS | `SubscriptionManager` struct with entity→topic dispatch present |
+| 3 | `hasura-sqlserver.mdx` | `crates/fraiseql-cli/src/dialect/mssql.rs` | **FAIL** | Path does not exist at frozen SHA `d0a4ed4e`. No `dialect/` directory under `crates/fraiseql-cli/src/`. T-SQL generation lives in `fraiseql-core` (evidenced by `sql_snapshots__adapters__snapshot_sqlserver_*` snapshots), not in a `fraiseql-cli/src/dialect/mssql.rs` file. |
+| 4 | `hasura-sqlserver.mdx` | `crates/fraiseql-server/src/database/mssql/` | **FAIL** | Path does not exist at frozen SHA `d0a4ed4e`. No `database/` directory under `crates/fraiseql-server/src/`. SQL Server runtime path is not locatable at this directory. |
+| 5 | `hasura-sqlserver.mdx` | `CHANGELOG.md` (v2.1 Relay cursor + SQL Server) | PASS | CHANGELOG confirms "SQL Server (forward v2.0, backward v2.1)" and "v2.0.2 predated the v2.1.0 release baseline" is consistent with the CHANGELOG timeline |
+| 6 | `hasura.mdx` | `crates/fraiseql-core/src/config/auth.rs:L8` | PASS | `pub struct AuthConfig` at L8 |
+| 7 | `hasura.mdx` | `crates/fraiseql-cli/src/config/toml_schema/security.rs:L1` | PASS | Module doc-comment "Security configuration types for `[security.*]` and `[auth]` TOML sections" at L1 |
+| 8 | `hasura.mdx` | `crates/fraiseql-core/src/config/auth.rs:L8` (duplicate) | PASS | Same as citation 6 |
+| 9 | `hasura.mdx` | `crates/fraiseql-server/src/server_config/hs256.rs` | PASS | `[auth_hs256]` section + "Mutually exclusive with `[auth]`" in struct doc-comment |
+| 10 | `postgrest.mdx` | `crates/fraiseql-server/Cargo.toml` — `grpc-transport` feature | **FAIL** | Path resolves, but the claimed symbol `grpc-transport` does not exist. The actual Cargo feature is named `grpc` (confirmed: `grpc = ["dep:tonic", ...]`). The prose at `postgrest.mdx:L29` also reads "requires `grpc-transport` feature flag" — both the citation annotation and the prose contain the wrong feature name. |
+| 11 | `postgrest.mdx` | `sdks/official/fraiseql-python/src/fraiseql/decorators.py` — `rest_path`/`rest_method` | PASS | `rest_path` and `rest_method` kwargs present and documented at L93–L124, L480 |
+| 12 | `prisma.mdx` | `sdks/official/fraiseql-python/src/fraiseql/decorators.py` — `@fraiseql.type`/`@fraiseql.query(sql_source=...)` | PASS | Both decorators and `sql_source` parameter present |
+| 13 | `prisma.mdx` | `crates/fraiseql-cli/src/schema/converter/` — v_/fn_ mapping | PASS | Directory exists; `converter/mod.rs` and `converter/types.rs` reference `v_{snake_case}` mapping |
+
+**Summary: 10 PASS, 3 FAIL.**
+
+#### Special-attention check: `apollo.mdx` `decorators.py:L985`
+
+PASS. `@fraiseql.subscription(entity_type="Order", topic="order_created")` docstring example appears at L984–L987 of `decorators.py` at frozen SHA `d0a4ed4e`. Writer's claim was correct.
+
+#### Posture B leak scan
+
+`bun run build` exits 0 (205 pages, 281 HTML files). Strip integration: `scanned 281 HTML files, modified 3, stripped 223 source-citation comments`. Post-build scan: `grep -rE '<!--\s*source:|\{/\* source:' dist/` → **0 hits**. Posture B: leak-free.
+
+#### Failing citations — exact annotation text for Writer fix
+
+**FAIL 1** (`hasura-sqlserver.mdx:L17`):
+```
+{/* source: crates/fraiseql-cli/src/dialect/mssql.rs — T-SQL dialect generator (verified at frozen SHA) */}
+```
+Reason: path `crates/fraiseql-cli/src/dialect/mssql.rs` does not exist at frozen SHA `d0a4ed4e`. T-SQL generation lives in `fraiseql-core` (see `crates/fraiseql-core/tests/snapshots/sql_snapshots__adapters__snapshot_sqlserver_*`). Writer must locate the actual T-SQL source path in `fraiseql-core` and re-cite.
+
+**FAIL 2** (`hasura-sqlserver.mdx:L18`):
+```
+{/* source: crates/fraiseql-server/src/database/mssql/ — SQL Server runtime connection / executor path */}
+```
+Reason: path `crates/fraiseql-server/src/database/mssql/` does not exist at frozen SHA `d0a4ed4e`. No `database/mssql` subdirectory under `fraiseql-server/src`. Writer must locate the actual SQL Server connection/executor path and re-cite.
+
+**FAIL 3** (`postgrest.mdx:L14` + prose at `postgrest.mdx:L29`):
+```
+{/* source: crates/fraiseql-server/Cargo.toml — `grpc-transport` Cargo feature gates the gRPC binary path; REST is unconditional v2.1+ surface */}
+```
+Reason: the Cargo feature is named `grpc`, not `grpc-transport`. Confirmed: `crates/fraiseql-server/Cargo.toml` at frozen SHA has `grpc = ["dep:tonic", ...]`. The prose at L29 also reads "requires `grpc-transport` feature flag" — this must be corrected to `grpc` in both the citation annotation and the surrounding prose.
+
+#### Verdict
+
+**KICK-BACK.** 3 citations fail. Pages returned to Writer (Opus 4.7) to fix the 3 annotations and the 1 prose instance (`postgrest.mdx:L29`). Verifier will re-run on the corrected commit.
+
+#### Pointer to next persona
+
+**Writer (Opus 4.7)** — fix the 3 failing citations on `hasura-sqlserver.mdx` (×2) and `postgrest.mdx` (×1 citation + ×1 prose at L29). After Writer fix commit, re-invoke **Verifier (Sonnet 4.6)** to re-verify the 3 corrected citations only. If all pass, proceed to **Reviewer (Opus 4.7)**.
+
