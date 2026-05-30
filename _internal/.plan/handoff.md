@@ -6403,7 +6403,7 @@ All 8 pages had pre-existing inbound cross-links from Phase 01 IA wiring. No new
 
 #### Commit SHA + push status
 
-See commit below — will be captured after push.
+Commit `30feeae` pushed to `origin/phase-03/critical-rewrites`. Branch is now 1 commit ahead of the orchestrator's Cycle 6 GREEN commit (`3273070`).
 
 #### Pointer
 
